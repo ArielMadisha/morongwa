@@ -19,6 +19,7 @@ npm run dev
 
 ```
 backend/
+├── server.ts          # Application entry point
 ├── src/
 │   ├── data/
 │   │   ├── models/          # Mongoose schemas
@@ -27,7 +28,6 @@ backend/
 │   ├── routes/            # API endpoints
 │   ├── services/          # Business logic
 │   ├── utils/             # Helper functions
-│   └── server.ts          # Application entry point
 ├── uploads/               # File storage
 ├── logs/                 # Application logs
 └── package.json

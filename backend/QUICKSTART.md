@@ -178,6 +178,7 @@ Authorization: Bearer YOUR_TOKEN_HERE
 ## 📁 Project Structure
 \`\`\`
 backend/
+├── server.ts         # Main entry point
 ├── src/
 │   ├── data/
 │   │   ├── models/       # Mongoose models
@@ -186,7 +187,6 @@ backend/
 │   ├── middleware/       # Auth, security, error handling
 │   ├── services/         # Business logic (payment, chat, etc.)
 │   ├── utils/            # Helpers, validators, constants
-│   └── server.ts         # Main entry point
 ├── uploads/              # User uploads
 ├── logs/                 # Application logs
 └── dist/                 # Compiled JavaScript
