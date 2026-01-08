@@ -325,7 +325,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 📞 Support
 
-For support, email support@morongwa.com or create an issue in the repository.
+For support, email tshipla3@gmail.com or create an issue in the repository.
 
 ## 🗺️ Roadmap
 
@@ -357,13 +357,13 @@ For support, email support@morongwa.com or create an issue in the repository.
 
 - **Current Version**: 1.0.0
 - **Status**: Production Ready
-- **Last Updated**: 2024
+- **Last Updated**: 2026
 
 ## 🔗 Links
 
-- **Production**: https://morongwa.vercel.app
+- **Production**: https://http://172.236.187.173:3001/
 - **API Docs**: https://api.morongwa.com/docs
-- **Repository**: https://github.com/yourusername/morongwa
+- **Repository**: https://github.com/ArielMadisha/morongwa
 
 ---
 
