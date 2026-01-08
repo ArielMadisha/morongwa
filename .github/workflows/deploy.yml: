@@ -1,0 +1,20 @@
+
+name: Deploy to Linode
+on:
+  push:
+    branches: [ "main" ]
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v0.1.10
+        with:
+          host: ${{ secrets.LINODE_HOST }}
+          username: root
+          key: ${{ secrets.LINODE_SSH_KEY }}
+          script: |
+            cd /path/to/morongwa
+            git pull origin main
+            # Optional: restart services if needed
