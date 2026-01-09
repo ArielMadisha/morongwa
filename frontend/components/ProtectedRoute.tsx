@@ -16,8 +16,13 @@ export default function ProtectedRoute({ children, allowedRoles }: ProtectedRout
   useEffect(() => {
     if (!loading && !user) {
       router.push('/login');
-    } else if (!loading && user && allowedRoles && !allowedRoles.includes(user.role)) {
-      router.push('/dashboard');
+    } else if (!loading && user && allowedRoles) {
+      // Handle role as array or string
+      const userRoles = Array.isArray(user.role) ? user.role : [user.role];
+      const hasAllowedRole = userRoles.some(role => allowedRoles.includes(role));
+      if (!hasAllowedRole) {
+        router.push('/dashboard');
+      }
     }
   }, [user, loading, router, allowedRoles]);
 
@@ -33,8 +38,13 @@ export default function ProtectedRoute({ children, allowedRoles }: ProtectedRout
     return null;
   }
 
-  if (allowedRoles && !allowedRoles.includes(user.role)) {
-    return null;
+  if (allowedRoles) {
+    // Handle role as array or string
+    const userRoles = Array.isArray(user.role) ? user.role : [user.role];
+    const hasAllowedRole = userRoles.some(role => allowedRoles.includes(role));
+    if (!hasAllowedRole) {
+      return null;
+    }
   }
 
   return <>{children}</>;

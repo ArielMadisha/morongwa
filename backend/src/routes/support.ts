@@ -122,10 +122,12 @@ router.get("/:id", authenticate, async (req: AuthRequest, res: Response, next) =
 
     if (!ticket) throw new AppError("Ticket not found", 404);
 
+    const hasRole = (roles: any, r: string) => Array.isArray(roles) ? roles.includes(r) : roles === r;
+
     if (
       ticket.user.toString() !== req.user!._id.toString() &&
-      req.user!.role !== "admin" &&
-      req.user!.role !== "superadmin"
+      !hasRole(req.user!.role, "admin") &&
+      !hasRole(req.user!.role, "superadmin")
     ) {
       throw new AppError("Unauthorized", 403);
     }
@@ -142,10 +144,12 @@ router.post("/:id/messages", authenticate, async (req: AuthRequest, res: Respons
     const ticket = await SupportTicket.findById(req.params.id);
     if (!ticket) throw new AppError("Ticket not found", 404);
 
+    const hasRole2 = (roles: any, r: string) => Array.isArray(roles) ? roles.includes(r) : roles === r;
+
     if (
       ticket.user.toString() !== req.user!._id.toString() &&
-      req.user!.role !== "admin" &&
-      req.user!.role !== "superadmin"
+      !hasRole2(req.user!.role, "admin") &&
+      !hasRole2(req.user!.role, "superadmin")
     ) {
       throw new AppError("Unauthorized", 403);
     }

@@ -103,36 +103,36 @@ function ClientDashboard() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gradient-to-br from-sky-50 via-blue-50 to-white text-slate-900">
       {/* Header */}
-      <header className="bg-white shadow-sm">
+      <header className="bg-white/85 backdrop-blur-md border-b border-slate-100 shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex justify-between items-center">
             <div className="flex items-center space-x-3">
               <Package className="h-8 w-8 text-blue-600" />
               <div>
-                <h1 className="text-2xl font-bold text-gray-900">Client Dashboard</h1>
-                <p className="text-sm text-gray-600">Welcome back, {user?.name}</p>
+                <h1 className="text-2xl font-bold text-slate-900">Client Dashboard</h1>
+                <p className="text-sm text-slate-600">Welcome back, {user?.name}</p>
               </div>
             </div>
             <div className="flex items-center space-x-4">
               <Link
                 href="/wallet"
-                className="flex items-center space-x-2 text-gray-700 hover:text-blue-600 transition-colors"
+                className="flex items-center space-x-2 text-slate-700 hover:text-blue-600 transition-colors"
               >
                 <Wallet className="h-5 w-5" />
                 <span>Wallet</span>
               </Link>
               <Link
                 href="/profile"
-                className="flex items-center space-x-2 text-gray-700 hover:text-blue-600 transition-colors"
+                className="flex items-center space-x-2 text-slate-700 hover:text-blue-600 transition-colors"
               >
                 <User className="h-5 w-5" />
                 <span>Profile</span>
               </Link>
               <Link
                 href="/messages"
-                className="flex items-center space-x-2 text-gray-700 hover:text-blue-600 transition-colors"
+                className="flex items-center space-x-2 text-slate-700 hover:text-blue-600 transition-colors"
               >
                 <MessageSquare className="h-5 w-5" />
                 <span>Messages</span>
@@ -153,19 +153,19 @@ function ClientDashboard() {
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Stats */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-          <div className="bg-white p-6 rounded-lg shadow">
+          <div className="bg-white/90 backdrop-blur-md p-6 rounded-xl shadow border border-slate-100">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-600">Total Tasks</p>
-                <p className="text-2xl font-bold text-gray-900">{tasks.length}</p>
+                <p className="text-sm text-slate-600">Total Tasks</p>
+                <p className="text-2xl font-bold text-slate-900">{tasks.length}</p>
               </div>
               <Package className="h-10 w-10 text-blue-600" />
             </div>
           </div>
-          <div className="bg-white p-6 rounded-lg shadow">
+          <div className="bg-white/90 backdrop-blur-md p-6 rounded-xl shadow border border-slate-100">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-600">Pending</p>
+                <p className="text-sm text-slate-600">Pending</p>
                 <p className="text-2xl font-bold text-yellow-600">
                   {tasks.filter((t) => t.status === 'pending').length}
                 </p>
@@ -173,10 +173,10 @@ function ClientDashboard() {
               <Clock className="h-10 w-10 text-yellow-600" />
             </div>
           </div>
-          <div className="bg-white p-6 rounded-lg shadow">
+          <div className="bg-white/90 backdrop-blur-md p-6 rounded-xl shadow border border-slate-100">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-600">In Progress</p>
+                <p className="text-sm text-slate-600">In Progress</p>
                 <p className="text-2xl font-bold text-purple-600">
                   {tasks.filter((t) => t.status === 'in_progress' || t.status === 'accepted').length}
                 </p>
@@ -184,10 +184,10 @@ function ClientDashboard() {
               <Loader2 className="h-10 w-10 text-purple-600" />
             </div>
           </div>
-          <div className="bg-white p-6 rounded-lg shadow">
+          <div className="bg-white/90 backdrop-blur-md p-6 rounded-xl shadow border border-slate-100">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-600">Completed</p>
+                <p className="text-sm text-slate-600">Completed</p>
                 <p className="text-2xl font-bold text-green-600">
                   {tasks.filter((t) => t.status === 'completed').length}
                 </p>
@@ -201,7 +201,7 @@ function ClientDashboard() {
         <div className="mb-6">
           <button
             onClick={() => setShowCreateModal(true)}
-            className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 font-medium transition-colors inline-flex items-center"
+            className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white px-6 py-3 rounded-lg hover:from-blue-700 hover:to-indigo-700 font-medium transition-all inline-flex items-center shadow-md"
           >
             <PlusCircle className="mr-2 h-5 w-5" />
             Create New Task
@@ -214,13 +214,13 @@ function ClientDashboard() {
             <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
           </div>
         ) : tasks.length === 0 ? (
-          <div className="bg-white rounded-lg shadow p-12 text-center">
-            <Package className="h-16 w-16 text-gray-400 mx-auto mb-4" />
-            <h3 className="text-xl font-semibold text-gray-900 mb-2">No tasks yet</h3>
-            <p className="text-gray-600 mb-6">Create your first task to get started</p>
+          <div className="bg-white/90 backdrop-blur-md rounded-xl shadow p-12 text-center border border-slate-100">
+            <Package className="h-16 w-16 text-slate-300 mx-auto mb-4" />
+            <h3 className="text-xl font-semibold text-slate-900 mb-2">No tasks yet</h3>
+            <p className="text-slate-600 mb-6">Create your first task to get started</p>
             <button
               onClick={() => setShowCreateModal(true)}
-              className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 font-medium transition-colors inline-flex items-center"
+              className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white px-6 py-3 rounded-lg hover:from-blue-700 hover:to-indigo-700 font-medium transition-all inline-flex items-center shadow-md"
             >
               <PlusCircle className="mr-2 h-5 w-5" />
               Create Task
@@ -229,32 +229,34 @@ function ClientDashboard() {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {tasks.map((task) => (
-              <div key={task._id} className="bg-white rounded-lg shadow hover:shadow-lg transition-shadow">
+              <div key={task._id} className="bg-white/90 backdrop-blur-md rounded-xl shadow hover:shadow-lg transition-shadow border border-slate-100">
                 <div className="p-6">
                   <div className="flex items-start justify-between mb-4">
-                    <h3 className="text-lg font-semibold text-gray-900">{task.title}</h3>
+                    <h3 className="text-lg font-semibold text-slate-900">{task.title}</h3>
                     <span className={`px-2 py-1 text-xs rounded-full font-medium ${getStatusColor(task.status)}`}>
                       {task.status.replace('_', ' ')}
                     </span>
                   </div>
-                  <p className="text-gray-600 text-sm mb-4 line-clamp-2">{task.description}</p>
+                  <p className="text-slate-600 text-sm mb-4 line-clamp-2">{task.description}</p>
                   <div className="space-y-2 mb-4">
-                    <div className="flex items-center text-sm text-gray-600">
+                    <div className="flex items-center text-sm text-slate-600">
                       <DollarSign className="h-4 w-4 mr-2" />
                       R{task.budget}
                     </div>
-                    <div className="flex items-center text-sm text-gray-600">
+                    <div className="flex items-center text-sm text-slate-600">
                       <MapPin className="h-4 w-4 mr-2" />
-                      {task.location}
+                      {typeof task.location === 'string' 
+                        ? task.location 
+                        : task.location?.address || 'Location not specified'}
                     </div>
-                    <div className="flex items-center text-sm text-gray-600">
+                    <div className="flex items-center text-sm text-slate-600">
                       <Calendar className="h-4 w-4 mr-2" />
                       {new Date(task.createdAt).toLocaleDateString()}
                     </div>
                   </div>
                   <Link
                     href={`/tasks/${task._id}`}
-                    className="block w-full text-center bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 font-medium transition-colors"
+                    className="block w-full text-center bg-gradient-to-r from-blue-600 to-indigo-600 text-white px-4 py-2 rounded-lg hover:from-blue-700 hover:to-indigo-700 font-medium transition-all shadow-md"
                   >
                     View Details
                   </Link>
@@ -267,38 +269,38 @@ function ClientDashboard() {
 
       {/* Create Task Modal */}
       {showCreateModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl max-w-md w-full p-8">
-            <h2 className="text-2xl font-bold text-gray-900 mb-6">Create New Task</h2>
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
+          <div className="bg-white/95 backdrop-blur-xl rounded-2xl max-w-md w-full p-8 shadow-2xl border border-slate-100">
+            <h2 className="text-2xl font-bold text-slate-900 mb-6">Create New Task</h2>
             <form onSubmit={handleCreateTask} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Title</label>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Title</label>
                 <input
                   type="text"
                   required
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                   placeholder="e.g., Pick up groceries"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Description</label>
                 <textarea
                   required
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   rows={3}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                   placeholder="Describe what needs to be done..."
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Category</label>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Category</label>
                 <select
                   value={category}
                   onChange={(e) => setCategory(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   <option value="delivery">Delivery</option>
                   <option value="shopping">Shopping</option>
@@ -308,7 +310,7 @@ function ClientDashboard() {
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Budget (R)</label>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Budget (R)</label>
                 <input
                   type="number"
                   required
@@ -316,18 +318,18 @@ function ClientDashboard() {
                   step="0.01"
                   value={budget}
                   onChange={(e) => setBudget(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                   placeholder="100.00"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Location</label>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Location</label>
                 <input
                   type="text"
                   required
                   value={location}
                   onChange={(e) => setLocation(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                   placeholder="e.g., Johannesburg CBD"
                 />
               </div>

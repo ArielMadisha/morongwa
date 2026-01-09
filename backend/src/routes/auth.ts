@@ -31,14 +31,26 @@ router.post("/register", authLimiter, async (req: Request, res: Response, next) 
 
     const passwordHash = await bcrypt.hash(password, 10);
 
-    // Only allow 'client' or 'runner' roles
-    const allowedRole = role === "runner" ? "runner" : "client";
+    // Convert single role to array, or default to both client and runner
+    let roles: string[];
+    if (role) {
+      roles = Array.isArray(role) ? role : [role];
+    } else {
+      // Default: user can be both client and runner
+      roles = ["client", "runner"];
+    }
+
+    // Filter out invalid roles
+    const validRoles = roles.filter(r => r === "client" || r === "runner");
+    if (validRoles.length === 0) {
+      validRoles.push("client"); // Ensure at least client role
+    }
 
     const user = await User.create({
       name,
       email: email.toLowerCase(),
       passwordHash,
-      role: allowedRole,
+      role: validRoles,
     });
 
     // Create wallet for user

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { authAPI } from '@/lib/api';
+import { authAPI, policiesAPI } from '@/lib/api';
 import { User } from '@/lib/types';
 import toast from 'react-hot-toast';
 
@@ -9,7 +9,7 @@ interface AuthContextType {
   user: User | null;
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
-  register: (name: string, email: string, password: string, role: string) => Promise<void>;
+  register: (name: string, email: string, password: string, role: string[], policyAcceptances?: string[]) => Promise<void>;
   logout: () => void;
   isAuthenticated: boolean;
 }
@@ -53,7 +53,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const register = async (name: string, email: string, password: string, role: string) => {
+  const register = async (name: string, email: string, password: string, role: string[], acceptSlugs: string[] = []) => {
     try {
       const response = await authAPI.register({ name, email, password, role });
       const { token, user: userData } = response.data;
@@ -61,6 +61,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       localStorage.setItem('token', token);
       localStorage.setItem('user', JSON.stringify(userData));
       setUser(userData);
+
+      // Record policy acceptances for ToS/Privacy when provided
+      if (acceptSlugs.length > 0) {
+        try {
+          await policiesAPI.acceptPolicies(acceptSlugs, { source: 'register' });
+        } catch (acceptErr) {
+          // Non-blocking: log to console; UI already shows success
+          console.error('Failed to record policy acceptance', acceptErr);
+        }
+      }
       
       toast.success('Registration successful!');
     } catch (error: any) {

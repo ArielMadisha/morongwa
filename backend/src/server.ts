@@ -29,6 +29,9 @@ import notificationRoutes from "./routes/notifications";
 import adminRoutes from "./routes/admin";
 import supportRoutes from "./routes/support";
 import analyticsRoutes from "./routes/analytics";
+import pricingRoutes from "./routes/pricing";
+import policyRoutes from "./routes/policies";
+import { ensureDefaultPolicies } from "./services/policyService";
 
 const app: Application = express();
 const server = http.createServer(app);
@@ -82,6 +85,8 @@ app.use("/api/notifications", notificationRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/support", supportRoutes);
 app.use("/api/analytics", analyticsRoutes);
+app.use("/api/pricing", pricingRoutes);
+app.use("/api/policies", policyRoutes);
 
 // Error handling
 app.use(notFoundHandler);
@@ -95,12 +100,15 @@ const initializeServices = () => {
 };
 
 // Start server
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 5001;
 
 const startServer = async () => {
   try {
     // Connect to database
     await connectDB();
+
+    // Seed baseline policies (idempotent)
+    await ensureDefaultPolicies();
 
     // Initialize services
     initializeServices();

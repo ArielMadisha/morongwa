@@ -5,7 +5,10 @@ export const registerSchema = Joi.object({
   name: Joi.string().min(2).max(100).required(),
   email: Joi.string().email().required(),
   password: Joi.string().min(8).required(),
-  role: Joi.string().valid("client", "runner").required(),
+  role: Joi.alternatives().try(
+    Joi.string().valid("client", "runner"),
+    Joi.array().items(Joi.string().valid("client", "runner"))
+  ).optional(),
 });
 
 export const loginSchema = Joi.object({
@@ -14,13 +17,18 @@ export const loginSchema = Joi.object({
 });
 
 export const taskSchema = Joi.object({
-  title: Joi.string().min(5).max(200).required(),
-  description: Joi.string().min(10).max(2000).required(),
+  title: Joi.string().min(3).max(200).required(),
+  description: Joi.string().min(3).max(2000).required(),
   budget: Joi.number().min(0).required(),
-  location: Joi.object({
-    type: Joi.string().valid("Point").default("Point"),
-    coordinates: Joi.array().items(Joi.number()).length(2).required(),
-  }).required(),
+  location: Joi.alternatives().try(
+    Joi.string().min(2).max(500),
+    Joi.object({
+      type: Joi.string().valid("Point").default("Point"),
+      coordinates: Joi.array().items(Joi.number()).length(2).required(),
+      address: Joi.string().optional(),
+    })
+  ).required(),
+  category: Joi.string().optional(),
 });
 
 export const reviewSchema = Joi.object({

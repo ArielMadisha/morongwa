@@ -34,11 +34,28 @@ router.post(
         uploadedAt: new Date(),
       }));
 
+      // Handle location - accept both string and GeoJSON object
+      let locationData;
+      if (typeof location === 'string') {
+        try {
+          locationData = JSON.parse(location);
+        } catch {
+          // If it's just a plain string address, create a simple object
+          locationData = {
+            type: "Point",
+            coordinates: [0, 0], // Default coordinates
+            address: location
+          };
+        }
+      } else {
+        locationData = location;
+      }
+
       const task = await Task.create({
         title,
         description,
         budget,
-        location: JSON.parse(location),
+        location: locationData,
         client: req.user!._id,
         attachments: attachments || [],
       });
@@ -66,6 +83,51 @@ router.post(
     }
   }
 );
+
+// Get available tasks (for runners)
+router.get("/available", authenticate, authorize("runner"), async (req: AuthRequest, res: Response, next) => {
+  try {
+    const tasks = await Task.find({ status: "posted" })
+      .populate("client", "name email")
+      .sort({ createdAt: -1 });
+    res.json(tasks);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Get my tasks (tasks created by current user if client, or assigned to them if runner)
+router.get("/my-tasks", authenticate, async (req: AuthRequest, res: Response, next) => {
+  try {
+    const isClient = Array.isArray(req.user!.role) ? req.user!.role.includes('client') : req.user!.role === 'client';
+    const query = isClient
+      ? { client: req.user!._id }
+      : { runner: req.user!._id };
+    
+    const tasks = await Task.find(query)
+      .populate("client", "name email")
+      .populate("runner", "name email")
+      .sort({ createdAt: -1 });
+    res.json(tasks);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Get my accepted tasks (for runners)
+router.get("/my-accepted", authenticate, authorize("runner"), async (req: AuthRequest, res: Response, next) => {
+  try {
+    const tasks = await Task.find({ 
+      runner: req.user!._id,
+      status: { $in: ["accepted", "in_progress"] }
+    })
+      .populate("client", "name email")
+      .sort({ createdAt: -1 });
+    res.json(tasks);
+  } catch (err) {
+    next(err);
+  }
+});
 
 // Get all tasks (with filters and pagination)
 router.get("/", authenticate, async (req: AuthRequest, res: Response, next) => {
@@ -134,10 +196,21 @@ router.post(
         throw new AppError("Task is not available", 400);
       }
 
+      // Ensure runner has no active or unclosed completed tasks
+      const activeTask = await Task.findOne({ runner: req.user!._id, status: { $in: ["accepted", "in_progress"] } });
+      if (activeTask) {
+        throw new AppError("You have an active task. Close it before accepting a new one.", 400);
+      }
+
+      const unclosed = await Task.findOne({ runner: req.user!._id, status: "completed", closedAtDestination: { $ne: true } });
+      if (unclosed) {
+        throw new AppError("Please confirm delivery at the destination for your last task before accepting a new one.", 400);
+      }
+
       // Check client wallet has enough balance
       const clientWallet = await Wallet.findOne({ user: task.client });
       if (!clientWallet || clientWallet.balance < task.budget) {
-        throw new AppError("Insufficient funds in client wallet", 400);
+        throw new AppError("This task cannot be accepted because the client has insufficient funds. The client needs to top up their wallet first.", 400);
       }
 
       // Escrow the funds
@@ -234,6 +307,8 @@ router.post(
         },
       });
 
+      // Note: client must confirm delivery closure at destination via /confirm-delivery
+
       res.json({ message: "Task completed successfully", task });
     } catch (err) {
       next(err);
@@ -281,6 +356,31 @@ router.post("/:id/cancel", authenticate, async (req: AuthRequest, res: Response,
     });
 
     res.json({ message: "Task cancelled successfully", task });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Client confirms delivery at destination (closes the errand)
+router.post('/:id/confirm-delivery', authenticate, async (req: AuthRequest, res: Response, next) => {
+  try {
+    const task = await Task.findById(req.params.id);
+    if (!task) throw new AppError('Task not found', 404);
+
+    if (task.client.toString() !== req.user!._id.toString()) {
+      throw new AppError('Unauthorized', 403);
+    }
+
+    if (task.status !== 'completed') {
+      throw new AppError('Task must be completed before confirming delivery', 400);
+    }
+
+    task.closedAtDestination = true;
+    await task.save();
+
+    await AuditLog.create({ action: 'TASK_CLOSED_AT_DESTINATION', user: req.user!._id, target: task._id, meta: {} });
+
+    res.json({ message: 'Delivery confirmed. Task closed at destination', task });
   } catch (err) {
     next(err);
   }

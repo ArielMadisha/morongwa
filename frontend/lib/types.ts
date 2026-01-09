@@ -4,7 +4,8 @@ export interface User {
   id?: string;
   name: string;
   email: string;
-  role: 'client' | 'runner' | 'admin' | 'superadmin';
+  // Roles assigned to the user (always an array)
+  role: Array<'client' | 'runner' | 'admin' | 'superadmin'>;
   avatar?: string;
   rating: number;
   isVerified: boolean;
@@ -19,7 +20,9 @@ export interface Task {
   description: string;
   category: string;
   budget: number;
-  location: string;
+  // Location can be a simple string or a GeoJSON-like object with an address
+  // e.g. { type: 'Point', coordinates: [lng, lat], address: '123 Main St' }
+  location: string | { type?: string; coordinates?: number[]; address?: string };
   status: 'pending' | 'accepted' | 'in_progress' | 'completed' | 'cancelled';
   client: User;
   runner?: User;
