@@ -35,20 +35,15 @@ router.get("/transactions", authenticate, async (req: AuthRequest, res: Response
     );
 
     const wallet = await Wallet.findOne({ user: req.user!._id });
-    if (!wallet) throw new AppError("Wallet not found", 404);
+    if (!wallet) {
+      // Return empty array if no wallet
+      return res.json([]);
+    }
 
     const transactions = wallet.transactions.slice(skip, skip + limitNum);
-    const total = wallet.transactions.length;
 
-    res.json({
-      transactions,
-      pagination: {
-        total,
-        page: Math.floor(skip / limitNum) + 1,
-        limit: limitNum,
-        pages: Math.ceil(total / limitNum),
-      },
-    });
+    // Return array directly for frontend compatibility
+    res.json(transactions);
   } catch (err) {
     next(err);
   }

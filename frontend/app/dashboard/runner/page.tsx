@@ -1,12 +1,9 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { useAuth } from '@/contexts/AuthContext';
-import { ProtectedRoute } from '@/components/ProtectedRoute';
-import { tasksAPI } from '@/lib/api';
-import { Task } from '@/lib/types';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import toast from 'react-hot-toast';
 import {
   Package,
   Search,
@@ -18,10 +15,12 @@ import {
   Wallet,
   User,
   MessageSquare,
-  TrendingUp,
-  CheckCircle
+  CheckCircle,
 } from 'lucide-react';
-import toast from 'react-hot-toast';
+import { useAuth } from '@/contexts/AuthContext';
+import ProtectedRoute from '@/components/ProtectedRoute';
+import { tasksAPI } from '@/lib/api';
+import { Task } from '@/lib/types';
 
 function RunnerDashboard() {
   const { user, logout } = useAuth();
@@ -30,6 +29,15 @@ function RunnerDashboard() {
   const [myTasks, setMyTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'available' | 'my-tasks'>('available');
+
+  const activeCount = useMemo(
+    () => myTasks.filter((t) => t.status === 'accepted' || t.status === 'in_progress').length,
+    [myTasks]
+  );
+  const completedCount = useMemo(
+    () => myTasks.filter((t) => t.status === 'completed').length,
+    [myTasks]
+  );
 
   useEffect(() => {
     fetchTasks();
@@ -53,23 +61,30 @@ function RunnerDashboard() {
   const handleAcceptTask = async (taskId: string) => {
     try {
       await tasksAPI.accept(taskId);
-      toast.success('Task accepted successfully!');
+      toast.success('Task accepted successfully');
       fetchTasks();
     } catch (error: any) {
-      toast.error(error.response?.data?.message || 'Failed to accept task');
+      const errorMsg = error.response?.data?.error || error.response?.data?.message || 'Failed to accept task';
+      
+      // Check if it's a client insufficient funds error
+      if (errorMsg.includes('insufficient funds') || errorMsg.includes('client has insufficient')) {
+        toast.error('Cannot accept: Client needs to add funds to their wallet first');
+      } else {
+        toast.error(errorMsg);
+      }
     }
   };
 
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'accepted':
-        return 'bg-blue-100 text-blue-800';
+        return 'bg-sky-100 text-sky-800';
       case 'in_progress':
-        return 'bg-purple-100 text-purple-800';
+        return 'bg-indigo-100 text-indigo-800';
       case 'completed':
-        return 'bg-green-100 text-green-800';
+        return 'bg-emerald-100 text-emerald-800';
       default:
-        return 'bg-gray-100 text-gray-800';
+        return 'bg-slate-100 text-slate-800';
     }
   };
 
@@ -79,208 +94,226 @@ function RunnerDashboard() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="bg-white shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <div className="flex justify-between items-center">
-            <div className="flex items-center space-x-3">
-              <Package className="h-8 w-8 text-blue-600" />
-              <div>
-                <h1 className="text-2xl font-bold text-gray-900">Runner Dashboard</h1>
-                <p className="text-sm text-gray-600">Welcome back, {user?.name}</p>
-              </div>
+    <div className="min-h-screen bg-gradient-to-br from-sky-50 via-white to-sky-100 text-slate-800">
+      <header className="border-b border-white/60 bg-white/70 backdrop-blur">
+        <div className="mx-auto flex max-w-6xl flex-col gap-4 px-6 py-6 md:flex-row md:items-center md:justify-between">
+          <div>
+            <p className="text-xs uppercase tracking-[0.35em] text-sky-600">Morongwa</p>
+            <div className="mt-1 flex items-center gap-2 text-sm text-slate-500">
+              <Package className="h-4 w-4 text-sky-500" />
+              <span>Runner cockpit</span>
             </div>
-            <div className="flex items-center space-x-4">
-              <Link
-                href="/wallet"
-                className="flex items-center space-x-2 text-gray-700 hover:text-blue-600 transition-colors"
-              >
-                <Wallet className="h-5 w-5" />
-                <span>Wallet</span>
-              </Link>
-              <Link
-                href="/profile"
-                className="flex items-center space-x-2 text-gray-700 hover:text-blue-600 transition-colors"
-              >
-                <User className="h-5 w-5" />
-                <span>Profile</span>
-              </Link>
-              <Link
-                href="/messages"
-                className="flex items-center space-x-2 text-gray-700 hover:text-blue-600 transition-colors"
-              >
-                <MessageSquare className="h-5 w-5" />
-                <span>Messages</span>
-              </Link>
-              <button
-                onClick={handleLogout}
-                className="flex items-center space-x-2 text-red-600 hover:text-red-700 transition-colors"
-              >
-                <LogOut className="h-5 w-5" />
-                <span>Logout</span>
-              </button>
-            </div>
+            <h1 className="mt-1 text-3xl font-semibold text-slate-900">Welcome back, {user?.name}</h1>
+            <p className="text-slate-600">Pick up nearby tasks, move fast, stay verified.</p>
+          </div>
+          <div className="flex flex-wrap gap-3">
+            <Link
+              href="/wallet"
+              className="inline-flex items-center gap-2 rounded-full border border-sky-100 bg-white/80 px-4 py-2 text-sm font-semibold text-slate-800 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+            >
+              <Wallet className="h-4 w-4 text-sky-600" />
+              Wallet
+            </Link>
+            <Link
+              href="/profile"
+              className="inline-flex items-center gap-2 rounded-full border border-sky-100 bg-white/80 px-4 py-2 text-sm font-semibold text-slate-800 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+            >
+              <User className="h-4 w-4 text-sky-600" />
+              Profile
+            </Link>
+            <Link
+              href="/messages"
+              className="inline-flex items-center gap-2 rounded-full border border-sky-100 bg-white/80 px-4 py-2 text-sm font-semibold text-slate-800 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+            >
+              <MessageSquare className="h-4 w-4 text-sky-600" />
+              Messages
+            </Link>
+            <button
+              onClick={handleLogout}
+              className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-sky-500 via-cyan-500 to-teal-500 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-sky-200 transition hover:scale-[1.01]"
+            >
+              <LogOut className="h-4 w-4" />
+              Logout
+            </button>
           </div>
         </div>
       </header>
 
-      {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-          <div className="bg-white p-6 rounded-lg shadow">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-600">Available Tasks</p>
-                <p className="text-2xl font-bold text-gray-900">{availableTasks.length}</p>
+      <main className="mx-auto max-w-6xl px-6 py-8">
+        <div className="grid gap-4 md:grid-cols-3">
+          {[{
+            label: 'Available tasks',
+            value: availableTasks.length,
+            icon: <Search className="h-10 w-10 text-sky-500" />,
+            accent: 'from-sky-50 to-white',
+          }, {
+            label: 'Active tasks',
+            value: activeCount,
+            icon: <CheckCircle className="h-10 w-10 text-indigo-500" />,
+            accent: 'from-indigo-50 to-white',
+          }, {
+            label: 'Completed',
+            value: completedCount,
+            icon: <DollarSign className="h-10 w-10 text-emerald-500" />,
+            accent: 'from-emerald-50 to-white',
+          }].map((card) => (
+            <div
+              key={card.label}
+              className={`rounded-2xl border border-white/60 bg-gradient-to-br ${card.accent} p-5 shadow-lg shadow-sky-50 backdrop-blur`}
+            >
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.2em] text-slate-500">{card.label}</p>
+                  <p className="mt-2 text-3xl font-semibold text-slate-900">{card.value}</p>
+                </div>
+                <div className="rounded-xl bg-white/80 p-3 shadow-sm">{card.icon}</div>
               </div>
-              <Search className="h-10 w-10 text-blue-600" />
             </div>
-          </div>
-          <div className="bg-white p-6 rounded-lg shadow">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-600">Active Tasks</p>
-                <p className="text-2xl font-bold text-purple-600">
-                  {myTasks.filter((t) => t.status === 'accepted' || t.status === 'in_progress').length}
-                </p>
-              </div>
-              <TrendingUp className="h-10 w-10 text-purple-600" />
-            </div>
-          </div>
-          <div className="bg-white p-6 rounded-lg shadow">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-600">Completed</p>
-                <p className="text-2xl font-bold text-green-600">
-                  {myTasks.filter((t) => t.status === 'completed').length}
-                </p>
-              </div>
-              <CheckCircle className="h-10 w-10 text-green-600" />
-            </div>
-          </div>
+          ))}
         </div>
 
-        {/* Tabs */}
-        <div className="mb-6 border-b border-gray-200">
-          <div className="flex space-x-8">
-            <button
-              onClick={() => setActiveTab('available')}
-              className={`pb-4 px-1 border-b-2 font-medium text-sm transition-colors ${
-                activeTab === 'available'
-                  ? 'border-blue-600 text-blue-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              }`}
-            >
-              Available Tasks ({availableTasks.length})
-            </button>
-            <button
-              onClick={() => setActiveTab('my-tasks')}
-              className={`pb-4 px-1 border-b-2 font-medium text-sm transition-colors ${
-                activeTab === 'my-tasks'
-                  ? 'border-blue-600 text-blue-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              }`}
-            >
-              My Tasks ({myTasks.length})
-            </button>
-          </div>
-        </div>
-
-        {/* Tasks List */}
-        {loading ? (
-          <div className="flex justify-center py-12">
-            <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
-          </div>
-        ) : activeTab === 'available' ? (
-          availableTasks.length === 0 ? (
-            <div className="bg-white rounded-lg shadow p-12 text-center">
-              <Search className="h-16 w-16 text-gray-400 mx-auto mb-4" />
-              <h3 className="text-xl font-semibold text-gray-900 mb-2">No available tasks</h3>
-              <p className="text-gray-600">Check back later for new opportunities</p>
+        <div className="mt-8 rounded-2xl border border-white/60 bg-white/80 p-6 shadow-xl shadow-sky-50 backdrop-blur">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-4">
+            <div className="flex items-center gap-3">
+              <span className="rounded-full bg-sky-100 px-3 py-1 text-xs font-semibold text-sky-700">Live feed</span>
+              <p className="text-sm text-slate-600">Pick a task and move.</p>
             </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {availableTasks.map((task) => (
-                <div key={task._id} className="bg-white rounded-lg shadow hover:shadow-lg transition-shadow">
-                  <div className="p-6">
-                    <h3 className="text-lg font-semibold text-gray-900 mb-2">{task.title}</h3>
-                    <p className="text-gray-600 text-sm mb-4 line-clamp-2">{task.description}</p>
-                    <div className="space-y-2 mb-4">
-                      <div className="flex items-center text-sm text-gray-600">
-                        <DollarSign className="h-4 w-4 mr-2 text-green-600" />
-                        <span className="font-semibold text-green-600">R{task.budget}</span>
+            <div className="flex gap-2 text-sm font-semibold">
+              <button
+                onClick={() => setActiveTab('available')}
+                className={`rounded-full px-4 py-2 transition ${
+                  activeTab === 'available'
+                    ? 'bg-sky-600 text-white shadow-md shadow-sky-200'
+                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                }`}
+              >
+                Available ({availableTasks.length})
+              </button>
+              <button
+                onClick={() => setActiveTab('my-tasks')}
+                className={`rounded-full px-4 py-2 transition ${
+                  activeTab === 'my-tasks'
+                    ? 'bg-sky-600 text-white shadow-md shadow-sky-200'
+                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                }`}
+              >
+                My tasks ({myTasks.length})
+              </button>
+            </div>
+          </div>
+
+          {loading ? (
+            <div className="flex justify-center py-16">
+              <Loader2 className="h-8 w-8 animate-spin text-sky-500" />
+            </div>
+          ) : activeTab === 'available' ? (
+            availableTasks.length === 0 ? (
+              <div className="py-12 text-center text-slate-600">
+                <Search className="mx-auto h-12 w-12 text-slate-300" />
+                <p className="mt-3 text-lg font-semibold text-slate-900">No tasks right now</p>
+                <p className="text-sm">Stay close; new requests drop soon.</p>
+              </div>
+            ) : (
+              <div className="mt-6 grid gap-4 md:grid-cols-2">
+                {availableTasks.map((task) => (
+                  <div
+                    key={task._id}
+                    className="flex flex-col justify-between rounded-2xl border border-slate-100 bg-white/90 p-5 shadow hover:-translate-y-1 hover:shadow-lg transition"
+                  >
+                    <div>
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-xs uppercase tracking-[0.2em] text-sky-600">Task</p>
+                          <h3 className="text-lg font-semibold text-slate-900">{task.title}</h3>
+                          <p className="mt-1 line-clamp-2 text-sm text-slate-600">{task.description}</p>
+                        </div>
+                        <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">R{task.budget}</span>
                       </div>
-                      <div className="flex items-center text-sm text-gray-600">
-                        <MapPin className="h-4 w-4 mr-2" />
-                        {task.location}
-                      </div>
-                      <div className="flex items-center text-sm text-gray-600">
-                        <Calendar className="h-4 w-4 mr-2" />
-                        {new Date(task.createdAt).toLocaleDateString()}
+                      <div className="mt-4 space-y-2 text-sm text-slate-600">
+                        <div className="flex items-center gap-2">
+                          <MapPin className="h-4 w-4 text-sky-500" />
+                          <span>
+                            {typeof task.location === 'string' 
+                              ? task.location 
+                              : task.location?.address || 'Location not specified'}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Calendar className="h-4 w-4 text-sky-500" />
+                          <span>{new Date(task.createdAt).toLocaleDateString()}</span>
+                        </div>
                       </div>
                     </div>
-                    <div className="flex space-x-2">
+                    <div className="mt-5 flex gap-3 text-sm font-semibold">
                       <Link
                         href={`/tasks/${task._id}`}
-                        className="flex-1 text-center bg-gray-100 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-200 font-medium transition-colors"
+                        className="flex-1 rounded-full border border-slate-200 bg-white px-4 py-2 text-center text-slate-800 transition hover:border-sky-200 hover:text-sky-700"
                       >
                         View
                       </Link>
                       <button
                         onClick={() => handleAcceptTask(task._id)}
-                        className="flex-1 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 font-medium transition-colors"
+                        className="flex-1 rounded-full bg-gradient-to-r from-sky-500 via-cyan-500 to-teal-500 px-4 py-2 text-white shadow-md shadow-sky-200 transition hover:scale-[1.01]"
                       >
                         Accept
                       </button>
                     </div>
                   </div>
-                </div>
-              ))}
-            </div>
-          )
-        ) : (
-          myTasks.length === 0 ? (
-            <div className="bg-white rounded-lg shadow p-12 text-center">
-              <Package className="h-16 w-16 text-gray-400 mx-auto mb-4" />
-              <h3 className="text-xl font-semibold text-gray-900 mb-2">No active tasks</h3>
-              <p className="text-gray-600">Accept a task from the Available tab to get started</p>
+                ))}
+              </div>
+            )
+          ) : myTasks.length === 0 ? (
+            <div className="py-12 text-center text-slate-600">
+              <Package className="mx-auto h-12 w-12 text-slate-300" />
+              <p className="mt-3 text-lg font-semibold text-slate-900">No active tasks</p>
+              <p className="text-sm">Accept a task to start earning.</p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <div className="mt-6 grid gap-4 md:grid-cols-2">
               {myTasks.map((task) => (
-                <div key={task._id} className="bg-white rounded-lg shadow hover:shadow-lg transition-shadow">
-                  <div className="p-6">
-                    <div className="flex items-start justify-between mb-4">
-                      <h3 className="text-lg font-semibold text-gray-900">{task.title}</h3>
-                      <span className={`px-2 py-1 text-xs rounded-full font-medium ${getStatusColor(task.status)}`}>
-                        {task.status.replace('_', ' ')}
+                <div
+                  key={task._id}
+                  className="flex flex-col justify-between rounded-2xl border border-slate-100 bg-white/90 p-5 shadow hover:-translate-y-1 hover:shadow-lg transition"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-xs uppercase tracking-[0.2em] text-sky-600">Task</p>
+                      <h3 className="text-lg font-semibold text-slate-900">{task.title}</h3>
+                      <p className="mt-1 line-clamp-2 text-sm text-slate-600">{task.description}</p>
+                    </div>
+                    <span className={`rounded-full px-3 py-1 text-xs font-semibold ${getStatusColor(task.status)}`}>
+                      {task.status.replace('_', ' ')}
+                    </span>
+                  </div>
+                  <div className="mt-4 space-y-2 text-sm text-slate-600">
+                    <div className="flex items-center gap-2">
+                      <DollarSign className="h-4 w-4 text-emerald-500" />
+                      <span>R{task.budget}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <MapPin className="h-4 w-4 text-sky-500" />
+                      <span>
+                        {typeof task.location === 'string' 
+                          ? task.location 
+                          : task.location?.address || 'Location not specified'}
                       </span>
                     </div>
-                    <p className="text-gray-600 text-sm mb-4 line-clamp-2">{task.description}</p>
-                    <div className="space-y-2 mb-4">
-                      <div className="flex items-center text-sm text-gray-600">
-                        <DollarSign className="h-4 w-4 mr-2 text-green-600" />
-                        <span className="font-semibold text-green-600">R{task.budget}</span>
-                      </div>
-                      <div className="flex items-center text-sm text-gray-600">
-                        <MapPin className="h-4 w-4 mr-2" />
-                        {task.location}
-                      </div>
+                    <div className="flex items-center gap-2">
+                      <Calendar className="h-4 w-4 text-sky-500" />
+                      <span>{new Date(task.createdAt).toLocaleDateString()}</span>
                     </div>
-                    <Link
-                      href={`/tasks/${task._id}`}
-                      className="block w-full text-center bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 font-medium transition-colors"
-                    >
-                      View Details
-                    </Link>
                   </div>
+                  <Link
+                    href={`/tasks/${task._id}`}
+                    className="mt-5 inline-flex w-full justify-center rounded-full bg-gradient-to-r from-sky-500 via-cyan-500 to-teal-500 px-4 py-2 text-sm font-semibold text-white shadow-md shadow-sky-200 transition hover:scale-[1.01]"
+                  >
+                    View details
+                  </Link>
                 </div>
               ))}
             </div>
-          )
-        )}
+          )}
+        </div>
       </main>
     </div>
   );

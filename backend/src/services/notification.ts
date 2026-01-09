@@ -56,24 +56,29 @@ export const sendNotification = async (options: NotificationOptions): Promise<vo
       }
     }
 
-    // Email notification
+    // Email notification - do not let SMTP failures break main flows
     if (channel === "email" && options.userId && options.email) {
       const user = await User.findById(options.userId);
       if (user) {
-        await transporter.sendMail({
-          from: process.env.SMTP_USER,
-          to: user.email,
-          subject: options.email.subject,
-          text: options.message,
-          html: options.email.html || `<p>${options.message}</p>`,
-        });
+        try {
+          await transporter.sendMail({
+            from: process.env.SMTP_USER,
+            to: user.email,
+            subject: options.email.subject,
+            text: options.message,
+            html: options.email.html || `<p>${options.message}</p>`,
+          });
+        } catch (smtpErr) {
+          // Log and continue - caller flows shouldn't fail because of email issues
+          logger.warn('SMTP send failed, continuing without blocking flow', { error: smtpErr });
+        }
       }
     }
 
-    logger.info("Notification sent", { type: options.type, channel, userId: options.userId });
+    logger.info("Notification processed (may be queued or sent)", { type: options.type, channel, userId: options.userId });
   } catch (error) {
-    logger.error("Failed to send notification:", error);
-    throw error;
+    // Log but don't throw to avoid breaking primary operations that call notifications
+    logger.error("Failed to process notification (non-fatal):", error);
   }
 };
 

@@ -66,10 +66,12 @@ router.get("/runner/:runnerId", authenticate, async (req: AuthRequest, res: Resp
   try {
     const runnerId = req.params.runnerId;
 
+    const hasRole = (roles: any, r: string) => Array.isArray(roles) ? roles.includes(r) : roles === r;
+
     if (
       req.user!._id.toString() !== runnerId &&
-      req.user!.role !== "admin" &&
-      req.user!.role !== "superadmin"
+      !hasRole(req.user!.role, "admin") &&
+      !hasRole(req.user!.role, "superadmin")
     ) {
       throw new AppError("Unauthorized", 403);
     }

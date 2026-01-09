@@ -55,6 +55,8 @@ const TaskSchema = new Schema<ITask>(
     ],
     acceptedAt: { type: Date },
     completedAt: { type: Date },
+    // Whether the client has confirmed delivery/closure at the destination
+    closedAtDestination: { type: Boolean, default: false },
     cancelledAt: { type: Date },
   },
   { timestamps: true }

@@ -29,6 +29,10 @@ import notificationRoutes from "./src/routes/notifications";
 import adminRoutes from "./src/routes/admin";
 import supportRoutes from "./src/routes/support";
 import analyticsRoutes from "./src/routes/analytics";
+import pricingRoutes from "./src/routes/pricing";
+import policyRoutes from "./src/routes/policies";
+import { ensureDefaultPolicies } from "./src/services/policyService";
+import { seedPricingConfig } from "./src/services/pricingConfig";
 
 const app: Application = express();
 const server = http.createServer(app);
@@ -82,6 +86,8 @@ app.use("/api/notifications", notificationRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/support", supportRoutes);
 app.use("/api/analytics", analyticsRoutes);
+app.use("/api/pricing", pricingRoutes);
+app.use("/api/policies", policyRoutes);
 
 // Error handling
 app.use(notFoundHandler);
@@ -101,6 +107,12 @@ const startServer = async () => {
   try {
     // Connect to database
     await connectDB();
+
+    // Seed baseline policies (idempotent)
+    await ensureDefaultPolicies();
+
+    // Seed pricing configurations (idempotent)
+    await seedPricingConfig();
 
     // Initialize services
     initializeServices();

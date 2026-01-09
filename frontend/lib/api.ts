@@ -1,7 +1,7 @@
 // API client configuration with axios
 import axios from 'axios';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001/api';
 
 export const api = axios.create({
   baseURL: API_URL,
@@ -44,7 +44,7 @@ api.interceptors.response.use(
 
 // API endpoints
 export const authAPI = {
-  register: (data: { name: string; email: string; password: string; role: string }) =>
+  register: (data: { name: string; email: string; password: string; role: string[] }) =>
     api.post('/auth/register', data),
   login: (data: { email: string; password: string }) =>
     api.post('/auth/login', data),
@@ -144,4 +144,18 @@ export const usersAPI = {
       headers: { 'Content-Type': 'multipart/form-data' },
     });
   },
+  addRole: (id: string, role: 'client' | 'runner') =>
+    api.post(`/users/${id}/roles`, { action: 'add', role }),
+  removeRole: (id: string, role: 'client' | 'runner') =>
+    api.post(`/users/${id}/roles`, { action: 'remove', role }),
+};
+
+export const policiesAPI = {
+  listPublished: () => api.get('/policies'),
+  getPublished: (slug: string) => api.get(`/policies/${slug}`),
+  listVersions: (slug: string) => api.get(`/policies/${slug}/versions`),
+  createVersion: (slug: string, data: { title?: string; summary?: string; content: string; publish?: boolean }) =>
+    api.post(`/policies/${slug}/version`, data),
+  publishVersion: (slug: string, version: number) => api.post(`/policies/${slug}/publish`, { version }),
+  acceptPolicies: (slugs: string[], meta?: any) => api.post('/policies/accept', { slugs, meta }),
 };

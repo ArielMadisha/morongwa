@@ -1,12 +1,19 @@
-// Payment routes with PayGate integration
+// Payment & escrow routes for PayGate + FNB integration
 import express, { Request, Response } from "express";
 import Payment from "../data/models/Payment";
 import Wallet from "../data/models/Wallet";
 import Transaction from "../data/models/Transaction";
 import AuditLog from "../data/models/AuditLog";
-import { authenticate, AuthRequest } from "../middleware/auth";
+import Escrow from "../data/models/Escrow";
+import LedgerEntry from "../data/models/LedgerEntry";
+import Task from "../data/models/Task";
+import User from "../data/models/User";
+import { authenticate, AuthRequest, authorize } from "../middleware/auth";
 import { AppError } from "../middleware/errorHandler";
 import { initiatePayment, processPaymentCallback } from "../services/payment";
+import payoutService from "../services/payoutService";
+import fnbService from "../services/fnbService";
+import logger from "../utils/logger";
 import { generateReference } from "../utils/helpers";
 
 const router = express.Router();
@@ -140,5 +147,321 @@ router.get("/", authenticate, async (req: AuthRequest, res: Response, next) => {
     next(err);
   }
 });
+
+// ===== ESCROW & PAYOUT ENDPOINTS =====
+
+/**
+ * POST /api/payments/webhook/paygate-escrow
+ * PayGate webhook for escrow task payments
+ */
+router.post("/webhook/paygate-escrow", async (req: Request, res: Response) => {
+  try {
+    const { reference, status, amount, taskId, clientId, runnerId, paymentMethod } = req.body;
+
+    logger.info("PayGate escrow webhook received", { reference, status, amount });
+
+    if (status !== "settled") {
+      return res.status(400).json({ error: "Payment not settled", reference });
+    }
+
+    // Create escrow record
+    const escrow = await payoutService.createEscrow(
+      taskId,
+      clientId,
+      runnerId,
+      amount,
+      "ZAR",
+      reference,
+      paymentMethod || "card"
+    );
+
+    // Mark payment as settled
+    await payoutService.markPaymentSettled(escrow._id.toString(), reference);
+
+    // Update task to reflect escrow
+    await Task.findByIdAndUpdate(taskId, { escrowed: true });
+
+    // Log audit
+    await AuditLog.create({
+      user: clientId,
+      action: "payment_settled",
+      resource: "escrow",
+      resourceId: escrow._id,
+      metadata: { amount, reference, taskId },
+    });
+
+    res.status(200).json({
+      success: true,
+      escrowId: escrow._id,
+      message: "Payment settled and escrow created",
+    });
+  } catch (error: any) {
+    logger.error("PayGate escrow webhook failed", { error: error.message });
+    res.status(500).json({ error: "Webhook failed", message: error.message });
+  }
+});
+
+/**
+ * GET /api/payments/escrow/:escrowId
+ * Get escrow status (client, runner, or admin can view)
+ */
+router.get("/escrow/:escrowId", authenticate, async (req: AuthRequest, res: Response) => {
+  try {
+    const { escrowId } = req.params;
+    const userId = req.user!._id;
+
+    const escrow = await Escrow.findById(escrowId)
+      .populate("task", "title status")
+      .populate("client", "name email")
+      .populate("runner", "name email");
+
+    if (!escrow) {
+      throw new AppError("Escrow not found", 404);
+    }
+
+    // Authorization check
+    if (
+      escrow.client.toString() !== userId.toString() &&
+      escrow.runner.toString() !== userId.toString() &&
+      !(req.user as any).role?.includes("admin")
+    ) {
+      throw new AppError("Unauthorized", 403);
+    }
+
+    const ledger = await LedgerEntry.find({ escrow: escrowId }).sort({ createdAt: 1 });
+
+    res.status(200).json({ escrow, ledger });
+  } catch (err) {
+    if (err instanceof AppError) {
+      res.status(err.statusCode).json({ error: err.message });
+    } else {
+      res.status(500).json({ error: "Escrow inquiry failed" });
+    }
+  }
+});
+
+/**
+ * POST /api/payments/escrow/:escrowId/release
+ * Admin: Release escrow after task completion
+ */
+router.post(
+  "/escrow/:escrowId/release",
+  authenticate,
+  async (req: AuthRequest, res: Response) => {
+    try {
+      // Check admin role
+      if (!(req.user as any).role?.includes("admin")) {
+        throw new AppError("Admin access required", 403);
+      }
+
+      const { escrowId } = req.params;
+      const { reason } = req.body;
+
+      const escrow = await payoutService.releaseEscrow(
+        escrowId,
+        reason || "manual_release"
+      );
+
+      // Log audit
+      await AuditLog.create({
+        user: req.user!._id,
+        action: "escrow_released",
+        resource: "escrow",
+        resourceId: escrowId,
+        metadata: { reason, runnersNet: escrow.runnersNet },
+      });
+
+      res.status(200).json({
+        success: true,
+        message: "Escrow released",
+        escrow,
+      });
+    } catch (err) {
+      if (err instanceof AppError) {
+        res.status(err.statusCode).json({ error: err.message });
+      } else {
+        res.status(500).json({ error: "Release failed" });
+      }
+    }
+  }
+);
+
+/**
+ * POST /api/payments/payout/:escrowId/initiate
+ * Admin: Initiate FNB payout to runner
+ */
+router.post(
+  "/payout/:escrowId/initiate",
+  authenticate,
+  async (req: AuthRequest, res: Response) => {
+    try {
+      if (!(req.user as any).role?.includes("admin")) {
+        throw new AppError("Admin access required", 403);
+      }
+
+      const { escrowId } = req.params;
+      const escrow = await payoutService.initiatePayout(escrowId);
+
+      await AuditLog.create({
+        user: req.user!._id,
+        action: "payout_initiated",
+        resource: "escrow",
+        resourceId: escrowId,
+        metadata: {
+          fnbInstructionId: escrow.fnbInstructionId,
+          amount: escrow.runnersNet,
+        },
+      });
+
+      res.status(200).json({
+        success: true,
+        message: "Payout initiated via FNB",
+        escrow,
+      });
+    } catch (err) {
+      if (err instanceof AppError) {
+        res.status(err.statusCode).json({ error: err.message });
+      } else {
+        res.status(500).json({ error: "Payout initiation failed" });
+      }
+    }
+  }
+);
+
+/**
+ * GET /api/payments/payout/:escrowId/status
+ * Admin: Poll FNB payout status
+ */
+router.get(
+  "/payout/:escrowId/status",
+  authenticate,
+  async (req: AuthRequest, res: Response) => {
+    try {
+      if (!(req.user as any).role?.includes("admin")) {
+        throw new AppError("Admin access required", 403);
+      }
+
+      const { escrowId } = req.params;
+      const escrow = await payoutService.pollPayoutStatus(escrowId);
+
+      res.status(200).json({
+        success: true,
+        fnbStatus: escrow.fnbStatus,
+        escrow,
+      });
+    } catch (err) {
+      if (err instanceof AppError) {
+        res.status(err.statusCode).json({ error: err.message });
+      } else {
+        res.status(500).json({ error: "Status check failed" });
+      }
+    }
+  }
+);
+
+/**
+ * POST /api/payments/escrow/:escrowId/refund
+ * Admin: Refund escrow
+ */
+router.post(
+  "/escrow/:escrowId/refund",
+  authenticate,
+  async (req: AuthRequest, res: Response) => {
+    try {
+      if (!(req.user as any).role?.includes("admin")) {
+        throw new AppError("Admin access required", 403);
+      }
+
+      const { escrowId } = req.params;
+      const { reason } = req.body;
+      const escrow = await payoutService.refundEscrow(escrowId, reason || "manual_refund");
+
+      await AuditLog.create({
+        user: req.user!._id,
+        action: "escrow_refunded",
+        resource: "escrow",
+        resourceId: escrowId,
+        metadata: { reason, refundAmount: escrow.totalHeld - escrow.fees.bookingFee },
+      });
+
+      res.status(200).json({
+        success: true,
+        message: "Escrow refunded",
+        escrow,
+      });
+    } catch (err) {
+      if (err instanceof AppError) {
+        res.status(err.statusCode).json({ error: err.message });
+      } else {
+        res.status(500).json({ error: "Refund failed" });
+      }
+    }
+  }
+);
+
+/**
+ * GET /api/payments/reconciliation/balance
+ * Admin: FNB merchant account balance
+ */
+router.get(
+  "/reconciliation/balance",
+  authenticate,
+  async (req: AuthRequest, res: Response) => {
+    try {
+      if (!(req.user as any).role?.includes("admin")) {
+        throw new AppError("Admin access required", 403);
+      }
+
+      const balance = await fnbService.getAccountBalance();
+
+      res.status(200).json({
+        balance,
+        currency: "ZAR",
+        timestamp: new Date(),
+      });
+    } catch (err) {
+      res.status(500).json({ error: "Balance fetch failed" });
+    }
+  }
+);
+
+/**
+ * GET /api/payments/stats/summary
+ * Admin: Escrow dashboard stats
+ */
+router.get(
+  "/stats/summary",
+  authenticate,
+  async (req: AuthRequest, res: Response) => {
+    try {
+      if (!(req.user as any).role?.includes("admin")) {
+        throw new AppError("Admin access required", 403);
+      }
+
+      const totalHeld = await Escrow.aggregate([
+        { $match: { status: "held" } },
+        { $group: { _id: null, total: { $sum: "$totalHeld" } } },
+      ]);
+
+      const pendingPayouts = await Escrow.countDocuments({
+        status: "released",
+        fnbStatus: { $in: ["pending", "processing"] },
+      });
+
+      const failedPayouts = await Escrow.countDocuments({
+        fnbStatus: "failed",
+      });
+
+      res.status(200).json({
+        totalHeld: totalHeld[0]?.total || 0,
+        pendingPayouts,
+        failedPayouts,
+        timestamp: new Date(),
+      });
+    } catch (err) {
+      res.status(500).json({ error: "Stats fetch failed" });
+    }
+  }
+);
 
 export default router;

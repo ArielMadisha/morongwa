@@ -133,6 +133,28 @@ Backend will run on http://localhost:5000
 
 Frontend will run on http://localhost:3000
 
+## 🖥️ Local Run (Windows)
+
+- Install MongoDB and ensure it's running locally.
+- In backend, copy `.env.example` to `.env` and adjust as needed. This setup uses port 5001.
+- In frontend, copy `.env.local.example` to `.env.local`.
+
+Commands:
+
+```powershell
+# Backend (port 5001)
+Push-Location "C:\Users\Dell\OneDrive - Bonakude Consulting PTY LTD\Documents\Coding\Morongwa\backend"; $env:PORT=5001; $env:BACKEND_URL="http://localhost:5001"; npm run dev
+
+# Frontend (port 3001)
+Push-Location "C:\Users\Dell\OneDrive - Bonakude Consulting PTY LTD\Documents\Coding\Morongwa\frontend"; $env:PORT=3001; npm run dev
+
+# Seed an admin (interactive)
+Push-Location "C:\Users\Dell\OneDrive - Bonakude Consulting PTY LTD\Documents\Coding\Morongwa\backend"; npm run create-admin
+```
+
+- Backend: http://localhost:5001/api
+- Frontend: http://localhost:3001
+
 ## 📚 API Documentation
 
 ### Authentication

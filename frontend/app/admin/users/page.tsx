@@ -25,6 +25,8 @@ function UsersManagement() {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterRole, setFilterRole] = useState('all');
 
+  const hasRole = (r: any, v: string) => Array.isArray(r) ? r.includes(v) : r === v;
+
   useEffect(() => {
     fetchUsers();
   }, []);
@@ -65,155 +67,151 @@ function UsersManagement() {
   const filteredUsers = users.filter(user => {
     const matchesSearch = user.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          user.email.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesRole = filterRole === 'all' || user.role === filterRole;
+    const hasRole = (r: any, v: string) => Array.isArray(r) ? r.includes(v) : r === v;
+    const matchesRole = filterRole === 'all' || hasRole(user.role, filterRole);
     return matchesSearch && matchesRole;
   });
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Header */}
-        <div className="mb-8">
+    <div className="min-h-screen bg-gradient-to-br from-sky-50 via-white to-sky-100 text-slate-800">
+      <header className="border-b border-white/60 bg-white/70 backdrop-blur">
+        <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-6">
+          <div>
+            <p className="text-xs uppercase tracking-[0.35em] text-sky-600">Morongwa</p>
+            <h1 className="mt-1 text-3xl font-semibold text-slate-900">User management</h1>
+            <p className="mt-1 text-sm text-slate-600">View, suspend, activate. Keep the platform trustworthy.</p>
+          </div>
           <Link
             href="/admin"
-            className="inline-flex items-center text-gray-600 hover:text-gray-900 mb-4 transition-colors"
+            className="inline-flex items-center gap-2 rounded-full border border-sky-100 bg-white/80 px-4 py-2 text-sm font-semibold text-slate-800 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
           >
-            <ArrowLeft className="h-5 w-5 mr-2" />
-            Back to Dashboard
+            <ArrowLeft className="h-4 w-4" />
+            Back to admin
           </Link>
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-3">
-              <Users className="h-8 w-8 text-blue-600" />
-              <h1 className="text-3xl font-bold text-gray-900">User Management</h1>
-            </div>
-          </div>
         </div>
+      </header>
 
-        {/* Filters */}
-        <div className="bg-white rounded-lg shadow mb-6 p-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <main className="mx-auto max-w-6xl px-6 py-8">
+        <div className="rounded-2xl border border-white/60 bg-white/80 p-6 shadow-xl shadow-sky-50 backdrop-blur">
+          <div className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-2">
             <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
+              <Search className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
               <input
                 type="text"
-                placeholder="Search users by name or email..."
+                placeholder="Search by name or email..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full rounded-lg border border-slate-200 bg-white/80 pl-10 pr-4 py-2 text-sm transition focus:border-sky-300 focus:outline-none focus:ring-2 focus:ring-sky-100"
               />
             </div>
             <select
               value={filterRole}
               onChange={(e) => setFilterRole(e.target.value)}
-              className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="rounded-lg border border-slate-200 bg-white/80 px-4 py-2 text-sm transition focus:border-sky-300 focus:outline-none focus:ring-2 focus:ring-sky-100"
             >
-              <option value="all">All Roles</option>
+              <option value="all">All roles</option>
               <option value="client">Clients</option>
               <option value="runner">Runners</option>
               <option value="admin">Admins</option>
             </select>
           </div>
-        </div>
 
-        {/* Users Table */}
-        {loading ? (
-          <div className="flex justify-center py-12">
-            <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
-          </div>
-        ) : (
-          <div className="bg-white rounded-lg shadow overflow-hidden">
+          {loading ? (
+            <div className="flex justify-center py-12">
+              <Loader2 className="h-8 w-8 animate-spin text-sky-600" />
+            </div>
+          ) : (
+            <div className="overflow-hidden rounded-xl border border-slate-100 bg-white/90">
             <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
+              <table className="w-full divide-y divide-slate-100">
+                <thead className="bg-white/80">
                   <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-700">
                       User
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-700">
                       Role
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-700">
                       Status
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-700">
                       Rating
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-700">
                       Joined
                     </th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-700">
                       Actions
                     </th>
                   </tr>
                 </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
+                <tbody className="divide-y divide-slate-100 bg-white/80">
                   {filteredUsers.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="px-6 py-12 text-center text-gray-500">
+                      <td colSpan={6} className="px-6 py-12 text-center text-slate-500">
                         No users found
                       </td>
                     </tr>
                   ) : (
                     filteredUsers.map((user) => (
-                      <tr key={user._id} className="hover:bg-gray-50">
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="flex items-center">
-                            <div className="h-10 w-10 bg-blue-100 rounded-full flex items-center justify-center">
-                              <span className="text-blue-600 font-semibold">
-                                {user.name.charAt(0).toUpperCase()}
-                              </span>
+                      <tr key={user._id} className="transition hover:bg-white/95">
+                        <td className="whitespace-nowrap px-6 py-4">
+                          <div className="flex items-center gap-3">
+                            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-sky-100 to-cyan-50 text-sm font-semibold text-sky-700">
+                              {user.name.charAt(0).toUpperCase()}
                             </div>
-                            <div className="ml-4">
-                              <div className="text-sm font-medium text-gray-900">{user.name}</div>
-                              <div className="text-sm text-gray-500">{user.email}</div>
+                            <div>
+                              <p className="font-medium text-slate-900">{user.name}</p>
+                              <p className="text-xs text-slate-500">{user.email}</p>
                             </div>
                           </div>
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                            user.role === 'admin' ? 'bg-purple-100 text-purple-800' :
-                            user.role === 'runner' ? 'bg-green-100 text-green-800' :
-                            'bg-blue-100 text-blue-800'
+                        <td className="whitespace-nowrap px-6 py-4">
+                          <span className={`rounded-full px-2 py-1 text-xs font-semibold ${
+                            hasRole(user.role, 'admin') ? 'bg-purple-100 text-purple-800' :
+                            hasRole(user.role, 'runner') ? 'bg-emerald-100 text-emerald-800' :
+                            'bg-sky-100 text-sky-800'
                           }`}>
-                            {user.role}
+                              {Array.isArray(user.role) ? user.role.join(', ') : user.role}
                           </span>
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
+                        <td className="whitespace-nowrap px-6 py-4">
                           {user.suspended ? (
-                            <span className="flex items-center text-red-600">
-                              <UserX className="h-4 w-4 mr-1" />
+                            <span className="flex items-center gap-1 text-red-600">
+                              <UserX className="h-4 w-4" />
                               Suspended
                             </span>
                           ) : user.active ? (
-                            <span className="flex items-center text-green-600">
-                              <UserCheck className="h-4 w-4 mr-1" />
+                            <span className="flex items-center gap-1 text-emerald-600">
+                              <UserCheck className="h-4 w-4" />
                               Active
                             </span>
                           ) : (
-                            <span className="text-gray-500">Inactive</span>
+                            <span className="text-slate-500">Inactive</span>
                           )}
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                          {user.rating > 0 ? `${user.rating.toFixed(1)} ⭐` : 'No rating'}
+                        <td className="whitespace-nowrap px-6 py-4 text-sm text-slate-900">
+                          {user.rating > 0 ? `${user.rating.toFixed(1)} ⭐` : '—'}
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        <td className="whitespace-nowrap px-6 py-4 text-sm text-slate-600">
                           {new Date(user.createdAt).toLocaleDateString()}
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                        <td className="whitespace-nowrap px-6 py-4 text-right text-sm font-semibold">
                           {user.suspended ? (
                             <button
                               onClick={() => handleActivate(user._id)}
-                              className="text-green-600 hover:text-green-900 inline-flex items-center"
+                              className="inline-flex items-center gap-1 text-emerald-600 transition hover:text-emerald-700"
                             >
-                              <CheckCircle className="h-4 w-4 mr-1" />
+                              <CheckCircle className="h-4 w-4" />
                               Activate
                             </button>
                           ) : (
                             <button
                               onClick={() => handleSuspend(user._id)}
-                              className="text-red-600 hover:text-red-900 inline-flex items-center"
+                              className="inline-flex items-center gap-1 text-red-600 transition hover:text-red-700"
                             >
-                              <Ban className="h-4 w-4 mr-1" />
+                              <Ban className="h-4 w-4" />
                               Suspend
                             </button>
                           )}
@@ -224,35 +222,32 @@ function UsersManagement() {
                 </tbody>
               </table>
             </div>
-          </div>
-        )}
-
-        {/* Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mt-6">
-          <div className="bg-white p-6 rounded-lg shadow">
-            <div className="text-sm text-gray-600 mb-1">Total Users</div>
-            <div className="text-2xl font-bold text-gray-900">{users.length}</div>
-          </div>
-          <div className="bg-white p-6 rounded-lg shadow">
-            <div className="text-sm text-gray-600 mb-1">Clients</div>
-            <div className="text-2xl font-bold text-blue-600">
-              {users.filter(u => u.role === 'client').length}
             </div>
-          </div>
-          <div className="bg-white p-6 rounded-lg shadow">
-            <div className="text-sm text-gray-600 mb-1">Runners</div>
-            <div className="text-2xl font-bold text-green-600">
-              {users.filter(u => u.role === 'runner').length}
-            </div>
-          </div>
-          <div className="bg-white p-6 rounded-lg shadow">
-            <div className="text-sm text-gray-600 mb-1">Suspended</div>
-            <div className="text-2xl font-bold text-red-600">
-              {users.filter(u => u.suspended).length}
-            </div>
-          </div>
+          )}
         </div>
-      </div>
+
+        <div className="mt-8 grid gap-4 md:grid-cols-4">
+          {[
+            { label: 'Total users', value: users.length, icon: Users, accent: 'sky' },
+            { label: 'Clients', value: users.filter((u) => hasRole(u.role, 'client')).length, icon: Users, accent: 'emerald' },
+            { label: 'Runners', value: users.filter((u) => hasRole(u.role, 'runner')).length, icon: Users, accent: 'cyan' },
+            { label: 'Suspended', value: users.filter((u) => u.suspended).length, icon: Ban, accent: 'red' }
+          ].map((stat) => {
+            const accentColors: any = {
+              sky: 'from-sky-50 to-white text-sky-600',
+              emerald: 'from-emerald-50 to-white text-emerald-600',
+              cyan: 'from-cyan-50 to-white text-cyan-600',
+              red: 'from-red-50 to-white text-red-600'
+            };
+            return (
+              <div key={stat.label} className={`rounded-2xl border border-white/60 bg-gradient-to-br ${accentColors[stat.accent]} shadow-lg shadow-sky-50 backdrop-blur p-5`}>
+                <p className="text-xs uppercase tracking-[0.2em] text-slate-500">{stat.label}</p>
+                <p className="mt-2 text-3xl font-semibold text-slate-900">{stat.value}</p>
+              </div>
+            );
+          })}
+        </div>
+      </main>
     </div>
   );
 }

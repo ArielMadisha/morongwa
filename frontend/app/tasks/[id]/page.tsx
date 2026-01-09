@@ -1,154 +1,102 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { useAuth } from '@/contexts/AuthContext';
-import { tasksAPI, reviewsAPI } from '@/lib/api';
-import { Task } from '@/lib/types';
 import Link from 'next/link';
+import toast from 'react-hot-toast';
 import {
   ArrowLeft,
+  Briefcase,
   MapPin,
-  Calendar,
+  Clock,
   DollarSign,
-  User,
-  Star,
   CheckCircle,
-  XCircle,
   Loader2,
+  Send,
   MessageSquare,
-  AlertCircle
+  AlertCircle,
+  Trophy,
 } from 'lucide-react';
-import toast from 'react-hot-toast';
+import { useAuth } from '@/contexts/AuthContext';
+import ProtectedRoute from '@/components/ProtectedRoute';
+import { tasksAPI } from '@/lib/api';
 
-export default function TaskDetailPage() {
-  const params = useParams();
+// Helper function to safely format dates
+const formatDate = (dateValue: any): string => {
+  if (!dateValue) return 'Not set';
+  try {
+    const date = new Date(dateValue);
+    if (isNaN(date.getTime())) return 'Invalid Date';
+    return date.toLocaleDateString('en-ZA', { year: 'numeric', month: 'short', day: 'numeric' });
+  } catch {
+    return 'Invalid Date';
+  }
+};
+
+function TaskDetailPage() {
+  const { id } = useParams();
   const router = useRouter();
   const { user } = useAuth();
-  const [task, setTask] = useState<Task | null>(null);
+  const [task, setTask] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [actionLoading, setActionLoading] = useState(false);
-  
-  // Review modal states
-  const [showReviewModal, setShowReviewModal] = useState(false);
-  const [rating, setRating] = useState(5);
-  const [comment, setComment] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [completion, setCompletion] = useState('');
+
+  const hasRole = (r: any, v: string) => Array.isArray(r) ? r.includes(v) : r === v;
 
   useEffect(() => {
-    fetchTask();
-  }, [params.id]);
+    if (id) fetchTask();
+  }, [id]);
 
   const fetchTask = async () => {
     try {
-      const response = await tasksAPI.getById(params.id as string);
+      const response = await tasksAPI.getById(id as string);
       setTask(response.data);
     } catch (error) {
       toast.error('Failed to load task');
+      router.push(hasRole(user?.role, 'runner') ? '/dashboard/runner' : '/dashboard/client');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleAccept = async () => {
-    setActionLoading(true);
+  const handleCompleteTask = async () => {
+    if (!completion.trim()) {
+      toast.error('Please provide completion details');
+      return;
+    }
+
+    setSubmitting(true);
     try {
-      await tasksAPI.accept(params.id as string);
-      toast.success('Task accepted!');
+      await tasksAPI.complete(id as string);
+      toast.success('Task submitted for review');
+      setCompletion('');
       fetchTask();
     } catch (error: any) {
-      toast.error(error.response?.data?.message || 'Failed to accept task');
+      toast.error(error.response?.data?.message || 'Failed to submit task');
     } finally {
-      setActionLoading(false);
+      setSubmitting(false);
     }
-  };
-
-  const handleStart = async () => {
-    setActionLoading(true);
-    try {
-      await tasksAPI.start(params.id as string);
-      toast.success('Task started!');
-      fetchTask();
-    } catch (error: any) {
-      toast.error(error.response?.data?.message || 'Failed to start task');
-    } finally {
-      setActionLoading(false);
-    }
-  };
-
-  const handleComplete = async () => {
-    setActionLoading(true);
-    try {
-      await tasksAPI.complete(params.id as string);
-      toast.success('Task completed!');
-      fetchTask();
-    } catch (error: any) {
-      toast.error(error.response?.data?.message || 'Failed to complete task');
-    } finally {
-      setActionLoading(false);
-    }
-  };
-
-  const handleCancel = async () => {
-    if (!confirm('Are you sure you want to cancel this task?')) return;
-    
-    setActionLoading(true);
-    try {
-      await tasksAPI.cancel(params.id as string);
-      toast.success('Task cancelled');
-      router.push('/dashboard');
-    } catch (error: any) {
-      toast.error(error.response?.data?.message || 'Failed to cancel task');
-    } finally {
-      setActionLoading(false);
-    }
-  };
-
-  const handleReview = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setActionLoading(true);
-    try {
-      await reviewsAPI.create({
-        task: params.id as string,
-        runner: task?.runner?._id,
-        rating,
-        comment,
-      });
-      toast.success('Review submitted successfully!');
-      setShowReviewModal(false);
-      fetchTask();
-    } catch (error: any) {
-      toast.error(error.response?.data?.message || 'Failed to submit review');
-    } finally {
-      setActionLoading(false);
-    }
-  };
-
-  const getStatusBadge = (status: string) => {
-    const badges: any = {
-      pending: <span className="px-3 py-1 bg-yellow-100 text-yellow-800 text-sm font-medium rounded-full">Pending</span>,
-      accepted: <span className="px-3 py-1 bg-blue-100 text-blue-800 text-sm font-medium rounded-full">Accepted</span>,
-      in_progress: <span className="px-3 py-1 bg-purple-100 text-purple-800 text-sm font-medium rounded-full">In Progress</span>,
-      completed: <span className="px-3 py-1 bg-green-100 text-green-800 text-sm font-medium rounded-full">Completed</span>,
-      cancelled: <span className="px-3 py-1 bg-red-100 text-red-800 text-sm font-medium rounded-full">Cancelled</span>,
-    };
-    return badges[status] || <span className="px-3 py-1 bg-gray-100 text-gray-800 text-sm font-medium rounded-full">{status}</span>;
   };
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+      <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-sky-50 via-white to-sky-100">
+        <Loader2 className="h-8 w-8 animate-spin text-sky-600" />
       </div>
     );
   }
 
   if (!task) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="text-center">
-          <AlertCircle className="h-16 w-16 text-red-500 mx-auto mb-4" />
-          <h2 className="text-2xl font-bold text-gray-900 mb-2">Task not found</h2>
-          <Link href="/dashboard" className="text-blue-600 hover:text-blue-700">
+      <div className="min-h-screen bg-gradient-to-br from-sky-50 via-white to-sky-100">
+        <div className="mx-auto flex max-w-4xl flex-col items-center justify-center px-6 py-20">
+          <AlertCircle className="mb-4 h-16 w-16 text-sky-400" />
+          <h2 className="text-2xl font-bold text-slate-900">Task not found</h2>
+          <Link
+            href={hasRole(user?.role, 'runner') ? '/dashboard/runner' : '/dashboard/client'}
+            className="mt-4 rounded-full bg-gradient-to-r from-sky-500 via-cyan-500 to-teal-500 px-6 py-2 font-semibold text-white"
+          >
             Back to Dashboard
           </Link>
         </div>
@@ -156,285 +104,196 @@ export default function TaskDetailPage() {
     );
   }
 
-  const isClient = user?._id === task.client?._id;
-  const isRunner = user?._id === task.runner?._id;
-  const canAccept = user?.role === 'runner' && task.status === 'pending' && !isClient;
-  const canStart = isRunner && task.status === 'accepted';
-  const canComplete = isRunner && task.status === 'in_progress';
-  const canCancel = isClient && (task.status === 'pending' || task.status === 'accepted');
-  const canReview = isClient && task.status === 'completed' && !task.review;
+  const isRunner = hasRole(user?.role, 'runner');
+  const isClient = hasRole(user?.role, 'client');
+  const isAccepted = task.status === 'accepted';
+  const isCompleted = task.status === 'completed';
+  const isPending = task.status === 'pending';
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Back Button */}
-        <Link
-          href="/dashboard"
-          className="inline-flex items-center text-gray-600 hover:text-gray-900 mb-6 transition-colors"
-        >
-          <ArrowLeft className="h-5 w-5 mr-2" />
-          Back to Dashboard
-        </Link>
-
-        {/* Task Card */}
-        <div className="bg-white rounded-xl shadow-lg overflow-hidden">
-          {/* Header */}
-          <div className="bg-gradient-to-r from-blue-600 to-indigo-600 px-8 py-6 text-white">
-            <div className="flex items-start justify-between">
-              <div>
-                <h1 className="text-3xl font-bold mb-2">{task.title}</h1>
-                <div className="flex items-center space-x-4 text-sm opacity-90">
-                  <span className="flex items-center">
-                    <Calendar className="h-4 w-4 mr-1" />
-                    {new Date(task.createdAt).toLocaleDateString()}
-                  </span>
-                  <span className="flex items-center">
-                    <MapPin className="h-4 w-4 mr-1" />
-                    {task.location}
-                  </span>
-                </div>
-              </div>
-              <div>{getStatusBadge(task.status)}</div>
+    <ProtectedRoute>
+      <div className="min-h-screen bg-gradient-to-br from-sky-50 via-white to-sky-100 text-slate-800">
+        <header className="border-b border-white/60 bg-white/70 backdrop-blur">
+          <div className="mx-auto flex max-w-4xl items-center justify-between px-6 py-6">
+            <div>
+              <p className="text-xs uppercase tracking-[0.35em] text-sky-600">Morongwa</p>
+              <h1 className="mt-1 text-3xl font-semibold text-slate-900">{task.title}</h1>
+              <p className="mt-1 text-sm text-slate-600">View details and manage this task</p>
             </div>
+            <Link
+              href={isRunner ? '/dashboard/runner' : '/dashboard/client'}
+              className="inline-flex items-center gap-2 rounded-full border border-sky-100 bg-white/80 px-4 py-2 text-sm font-semibold text-slate-800 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+            >
+              <ArrowLeft className="h-4 w-4" />
+              Back
+            </Link>
           </div>
+        </header>
 
-          {/* Content */}
-          <div className="p-8">
-            {/* Description */}
-            <div className="mb-8">
-              <h2 className="text-lg font-semibold text-gray-900 mb-3">Description</h2>
-              <p className="text-gray-600 leading-relaxed">{task.description}</p>
-            </div>
-
-            {/* Details Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-              <div className="bg-green-50 p-6 rounded-lg">
-                <div className="flex items-center mb-2">
-                  <DollarSign className="h-5 w-5 text-green-600 mr-2" />
-                  <h3 className="font-semibold text-gray-900">Budget</h3>
+        <main className="mx-auto max-w-4xl px-6 py-8">
+          <div className="grid gap-6 lg:grid-cols-3">
+            <div className="lg:col-span-2 space-y-6">
+              <div className="rounded-2xl border border-white/60 bg-white/80 p-6 shadow-xl shadow-sky-50 backdrop-blur">
+                <div className="mb-6">
+                  <div className="mb-4 flex items-center justify-between">
+                    <p className="text-xs uppercase tracking-[0.2em] text-sky-600">Status</p>
+                    <span
+                      className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                        isCompleted
+                          ? 'bg-emerald-100 text-emerald-700'
+                          : isAccepted
+                          ? 'bg-sky-100 text-sky-700'
+                          : 'bg-slate-100 text-slate-700'
+                      }`}
+                    >
+                      {task.status ? task.status.charAt(0).toUpperCase() + task.status.slice(1).replace('_', ' ') : 'Pending'}
+                    </span>
+                  </div>
+                  <h2 className="text-2xl font-bold text-slate-900">{task.title}</h2>
+                  <p className="mt-2 text-slate-600">{task.description}</p>
                 </div>
-                <p className="text-3xl font-bold text-green-600">R{task.budget}</p>
-              </div>
 
-              <div className="bg-blue-50 p-6 rounded-lg">
-                <div className="flex items-center mb-2">
-                  <User className="h-5 w-5 text-blue-600 mr-2" />
-                  <h3 className="font-semibold text-gray-900">Category</h3>
-                </div>
-                <p className="text-lg font-medium text-gray-900 capitalize">{task.category}</p>
-              </div>
-            </div>
-
-            {/* Client Info */}
-            <div className="border-t pt-6 mb-8">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">Client</h2>
-              <div className="flex items-center space-x-4">
-                <div className="h-12 w-12 bg-blue-100 rounded-full flex items-center justify-center">
-                  <User className="h-6 w-6 text-blue-600" />
-                </div>
-                <div>
-                  <p className="font-medium text-gray-900">{task.client?.name}</p>
-                  <p className="text-sm text-gray-600">{task.client?.email}</p>
-                </div>
-                {task.client && (
-                  <Link
-                    href={`/messages?user=${task.client._id}`}
-                    className="ml-auto flex items-center space-x-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
-                  >
-                    <MessageSquare className="h-4 w-4" />
-                    <span>Message</span>
-                  </Link>
-                )}
-              </div>
-            </div>
-
-            {/* Runner Info (if assigned) */}
-            {task.runner && (
-              <div className="border-t pt-6 mb-8">
-                <h2 className="text-lg font-semibold text-gray-900 mb-4">Runner</h2>
-                <div className="flex items-center space-x-4">
-                  <div className="h-12 w-12 bg-purple-100 rounded-full flex items-center justify-center">
-                    <User className="h-6 w-6 text-purple-600" />
+                <div className="grid grid-cols-2 gap-4 rounded-xl border border-slate-100 bg-slate-50 p-4 md:grid-cols-4">
+                  <div>
+                    <p className="text-xs text-slate-600">Budget</p>
+                    <p className="mt-1 text-xl font-bold text-slate-900">
+                      R{task.budget ? task.budget.toFixed(2) : '0.00'}
+                    </p>
                   </div>
                   <div>
-                    <p className="font-medium text-gray-900">{task.runner.name}</p>
-                    <p className="text-sm text-gray-600">{task.runner.email}</p>
-                    {task.runner.rating > 0 && (
-                      <div className="flex items-center mt-1">
-                        <Star className="h-4 w-4 text-yellow-400 fill-current" />
-                        <span className="text-sm text-gray-600 ml-1">{task.runner.rating.toFixed(1)}</span>
-                      </div>
-                    )}
+                    <p className="text-xs text-slate-600">Deadline</p>
+                    <p className="mt-1 text-lg font-semibold text-slate-900">
+                      {formatDate(task.deadline)}
+                    </p>
                   </div>
-                  <Link
-                    href={`/messages?user=${task.runner._id}`}
-                    className="ml-auto flex items-center space-x-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
-                  >
-                    <MessageSquare className="h-4 w-4" />
-                    <span>Message</span>
-                  </Link>
+                  <div>
+                    <p className="text-xs text-slate-600">Location</p>
+                    <p className="mt-1 font-semibold text-slate-900 flex items-center gap-1">
+                      <MapPin className="h-4 w-4" />
+                      {typeof task.location === 'string' 
+                        ? task.location 
+                        : task.location?.address || 'Not specified'}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-slate-600">Applicants</p>
+                    <p className="mt-1 text-xl font-bold text-slate-900">{task.applicants?.length || 0}</p>
+                  </div>
                 </div>
               </div>
-            )}
 
-            {/* Actions */}
-            <div className="border-t pt-6">
-              <div className="flex flex-wrap gap-4">
-                {canAccept && (
-                  <button
-                    onClick={handleAccept}
-                    disabled={actionLoading}
-                    className="flex-1 sm:flex-none bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 font-medium transition-colors disabled:bg-blue-400 disabled:cursor-not-allowed inline-flex items-center justify-center"
-                  >
-                    {actionLoading ? (
-                      <>
-                        <Loader2 className="animate-spin mr-2 h-5 w-5" />
-                        Accepting...
-                      </>
-                    ) : (
-                      <>
-                        <CheckCircle className="mr-2 h-5 w-5" />
-                        Accept Task
-                      </>
-                    )}
-                  </button>
-                )}
+              {isRunner && isAccepted && (
+                <div className="rounded-2xl border border-white/60 bg-white/80 p-6 shadow-xl shadow-sky-50 backdrop-blur">
+                  <div className="mb-4">
+                    <p className="text-xs uppercase tracking-[0.2em] text-sky-600">Submit work</p>
+                    <h3 className="mt-1 text-xl font-semibold text-slate-900">Mark as complete</h3>
+                  </div>
+                  <div className="space-y-3">
+                    <textarea
+                      placeholder="Describe what you've completed, any deliverables, or notes for the client..."
+                      value={completion}
+                      onChange={(e) => setCompletion(e.target.value)}
+                      className="w-full rounded-lg border border-slate-200 bg-white/80 px-4 py-3 text-slate-900 transition focus:border-sky-300 focus:outline-none focus:ring-2 focus:ring-sky-100"
+                      rows={5}
+                    />
+                    <button
+                      onClick={handleCompleteTask}
+                      disabled={submitting || !completion.trim()}
+                      className="w-full rounded-full bg-gradient-to-r from-sky-500 via-cyan-500 to-teal-500 px-6 py-3 font-semibold text-white shadow-lg shadow-sky-200 transition hover:scale-[1.01] disabled:opacity-50"
+                    >
+                      {submitting ? <Loader2 className="inline h-4 w-4 animate-spin mr-2" /> : null}
+                      Submit for review
+                    </button>
+                  </div>
+                </div>
+              )}
 
-                {canStart && (
-                  <button
-                    onClick={handleStart}
-                    disabled={actionLoading}
-                    className="flex-1 sm:flex-none bg-purple-600 text-white px-6 py-3 rounded-lg hover:bg-purple-700 font-medium transition-colors disabled:bg-purple-400 disabled:cursor-not-allowed inline-flex items-center justify-center"
-                  >
-                    {actionLoading ? (
-                      <>
-                        <Loader2 className="animate-spin mr-2 h-5 w-5" />
-                        Starting...
-                      </>
-                    ) : (
-                      'Start Task'
-                    )}
-                  </button>
-                )}
+              {isCompleted && (
+                <div className="rounded-2xl border border-emerald-200 bg-gradient-to-br from-emerald-50 to-green-50 p-6">
+                  <div className="flex items-start gap-3">
+                    <CheckCircle className="h-6 w-6 flex-shrink-0 text-emerald-600 mt-0.5" />
+                    <div>
+                      <h3 className="font-semibold text-emerald-900">Task completed</h3>
+                      <p className="mt-1 text-sm text-emerald-700">
+                        This task has been completed and all parties have been notified.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
 
-                {canComplete && (
-                  <button
-                    onClick={handleComplete}
-                    disabled={actionLoading}
-                    className="flex-1 sm:flex-none bg-green-600 text-white px-6 py-3 rounded-lg hover:bg-green-700 font-medium transition-colors disabled:bg-green-400 disabled:cursor-not-allowed inline-flex items-center justify-center"
-                  >
-                    {actionLoading ? (
-                      <>
-                        <Loader2 className="animate-spin mr-2 h-5 w-5" />
-                        Completing...
-                      </>
-                    ) : (
-                      <>
-                        <CheckCircle className="mr-2 h-5 w-5" />
-                        Mark Complete
-                      </>
-                    )}
-                  </button>
-                )}
+              {isPending && isRunner && (
+                <div className="rounded-2xl border border-sky-200 bg-gradient-to-br from-sky-50 to-cyan-50 p-6">
+                  <div className="flex items-start gap-3">
+                    <Trophy className="h-6 w-6 flex-shrink-0 text-sky-600 mt-0.5" />
+                    <div>
+                      <h3 className="font-semibold text-sky-900">Ready to accept?</h3>
+                      <p className="mt-1 text-sm text-sky-700">
+                        Once accepted, you'll have until {formatDate(task.deadline)} to complete this task.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
 
-                {canReview && (
-                  <button
-                    onClick={() => setShowReviewModal(true)}
-                    className="flex-1 sm:flex-none bg-yellow-600 text-white px-6 py-3 rounded-lg hover:bg-yellow-700 font-medium transition-colors inline-flex items-center justify-center"
-                  >
-                    <Star className="mr-2 h-5 w-5" />
-                    Leave Review
-                  </button>
-                )}
+            <div className="space-y-6">
+              <div className="rounded-2xl border border-white/60 bg-white/80 p-6 shadow-xl shadow-sky-50 backdrop-blur">
+                <div className="mb-4">
+                  <p className="text-xs uppercase tracking-[0.2em] text-sky-600">Posted by</p>
+                  <h3 className="mt-1 font-semibold text-slate-900">{task.client?.firstName || 'Client'}</h3>
+                </div>
+                <p className="text-sm text-slate-600 mb-4">
+                  {task.client?.bio || (task.client?.createdAt ? `Morongwa member since ${new Date(task.client.createdAt).getFullYear()}` : 'Morongwa member since NaN')}
+                </p>
+                <Link
+                  href={`/support?type=task_inquiry&taskId=${id}`}
+                  className="w-full rounded-lg border border-sky-200 bg-sky-50 px-4 py-2 text-sm font-semibold text-sky-700 transition hover:bg-sky-100 flex items-center justify-center gap-2"
+                >
+                  <MessageSquare className="h-4 w-4" />
+                  Message client
+                </Link>
+              </div>
 
-                {canCancel && (
-                  <button
-                    onClick={handleCancel}
-                    disabled={actionLoading}
-                    className="flex-1 sm:flex-none bg-red-600 text-white px-6 py-3 rounded-lg hover:bg-red-700 font-medium transition-colors disabled:bg-red-400 disabled:cursor-not-allowed inline-flex items-center justify-center"
-                  >
-                    {actionLoading ? (
-                      <>
-                        <Loader2 className="animate-spin mr-2 h-5 w-5" />
-                        Cancelling...
-                      </>
-                    ) : (
-                      <>
-                        <XCircle className="mr-2 h-5 w-5" />
-                        Cancel Task
-                      </>
-                    )}
-                  </button>
-                )}
+              <div className="rounded-2xl border border-white/60 bg-white/80 p-6 shadow-xl shadow-sky-50 backdrop-blur">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-sky-100 text-sky-600">
+                    <Clock className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.2em] text-sky-600">Timeline</p>
+                    <h3 className="font-semibold text-slate-900">Key dates</h3>
+                  </div>
+                </div>
+                <ul className="space-y-3 text-sm text-slate-600">
+                  <li className="flex items-center gap-2">
+                    <span className="text-xs text-sky-600">•</span>
+                    <span>Posted: {formatDate(task.createdAt)}</span>
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <span className="text-xs text-sky-600">•</span>
+                    <span>Deadline: {formatDate(task.deadline)}</span>
+                  </li>
+                </ul>
+              </div>
+
+              <div className="rounded-2xl border border-white/60 bg-gradient-to-br from-sky-500 via-cyan-500 to-teal-500 p-6 text-white shadow-xl shadow-sky-200">
+                <p className="text-xs uppercase tracking-[0.25em]">Need help?</p>
+                <h3 className="mt-2 text-lg font-semibold">Contact support</h3>
+                <p className="mt-2 text-sm text-white/80">Got questions about this task? Our team is here to help.</p>
+                <Link
+                  href="/support"
+                  className="mt-4 inline-flex items-center gap-2 rounded-full bg-white/15 px-4 py-2 text-sm font-semibold backdrop-blur transition hover:bg-white/20"
+                >
+                  Get help
+                </Link>
               </div>
             </div>
           </div>
-        </div>
+        </main>
       </div>
-
-      {/* Review Modal */}
-      {showReviewModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl max-w-md w-full p-8">
-            <h2 className="text-2xl font-bold text-gray-900 mb-6">Leave a Review</h2>
-            <form onSubmit={handleReview} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Rating</label>
-                <div className="flex space-x-2">
-                  {[1, 2, 3, 4, 5].map((star) => (
-                    <button
-                      key={star}
-                      type="button"
-                      onClick={() => setRating(star)}
-                      className="focus:outline-none"
-                    >
-                      <Star
-                        className={`h-8 w-8 ${
-                          star <= rating ? 'text-yellow-400 fill-current' : 'text-gray-300'
-                        }`}
-                      />
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Comment</label>
-                <textarea
-                  required
-                  value={comment}
-                  onChange={(e) => setComment(e.target.value)}
-                  rows={4}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="Share your experience..."
-                />
-              </div>
-              <div className="flex space-x-3 pt-4">
-                <button
-                  type="button"
-                  onClick={() => setShowReviewModal(false)}
-                  className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 font-medium transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={actionLoading}
-                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium transition-colors disabled:bg-blue-400 disabled:cursor-not-allowed"
-                >
-                  {actionLoading ? (
-                    <>
-                      <Loader2 className="inline-block animate-spin -ml-1 mr-2 h-4 w-4" />
-                      Submitting...
-                    </>
-                  ) : (
-                    'Submit Review'
-                  )}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-    </div>
+    </ProtectedRoute>
   );
 }
+
+export default TaskDetailPage;
