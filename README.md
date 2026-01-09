@@ -390,3 +390,12 @@ For support, email support@morongwa.com or create an issue in the repository.
 ---
 
 **Made with ❤️ in South Africa**
+
+## Project Audit & Next Steps
+
+We maintain a short audit and continuation plan created after a recent review and hardening session. Review these files for details on implemented changes, test results, and prioritized next steps:
+
+- Repository audit: [DOCS/REPO_AUDIT_SUMMARY.md](DOCS/REPO_AUDIT_SUMMARY.md)
+- Continuation plan: [DOCS/CONTINUATION_PLAN.md](DOCS/CONTINUATION_PLAN.md)
+
+If you contributed changes during the audit session, create a PR from the branch `update-ignore-env` and follow the review checklist in the continuation plan.
