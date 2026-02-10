@@ -17,10 +17,11 @@ import {
   MessageSquare,
   CheckCircle,
   Home,
+  ShoppingCart,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import ProtectedRoute from '@/components/ProtectedRoute';
-import { tasksAPI } from '@/lib/api';
+import { tasksAPI, cartAPI } from '@/lib/api';
 import { Task } from '@/lib/types';
 
 function RunnerDashboard() {
@@ -31,6 +32,7 @@ function RunnerDashboard() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'available' | 'my-tasks'>('available');
   const [commissionRate, setCommissionRate] = useState<number>(0.15); // Default fallback
+  const [cartCount, setCartCount] = useState(0);
 
   const activeCount = useMemo(
     () => myTasks.filter((t) => t.status === 'accepted' || t.status === 'in_progress').length,
@@ -43,6 +45,14 @@ function RunnerDashboard() {
 
   useEffect(() => {
     fetchTasks();
+  }, []);
+
+  useEffect(() => {
+    cartAPI.get().then((res) => {
+      const data = res.data?.data ?? res.data;
+      const items = Array.isArray(data?.items) ? data.items : [];
+      setCartCount(items.length);
+    }).catch(() => setCartCount(0));
   }, []);
 
   const fetchTasks = async () => {
@@ -169,6 +179,18 @@ function RunnerDashboard() {
             >
               <Wallet className="h-4 w-4 text-sky-600" />
               Wallet
+            </Link>
+            <Link
+              href="/cart"
+              className="relative inline-flex items-center gap-2 rounded-full border border-sky-100 bg-white/80 px-4 py-2 text-sm font-semibold text-slate-800 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+            >
+              <ShoppingCart className="h-4 w-4 text-sky-600" />
+              Cart
+              {cartCount > 0 && (
+                <span className="absolute -top-1 -right-1 flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-sky-600 px-1.5 text-xs font-bold text-white">
+                  {cartCount > 99 ? '99+' : cartCount}
+                </span>
+              )}
             </Link>
             <Link
               href="/profile"

@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
-import { Package, Home, ArrowRight, LayoutDashboard } from 'lucide-react';
+import { Package, Home, ArrowRight, LayoutDashboard, ShoppingBag, ShoppingCart, LayoutGrid } from 'lucide-react';
 
 export default function SiteHeader() {
   const pathname = usePathname();
@@ -27,14 +27,45 @@ export default function SiteHeader() {
               <Home className="h-4 w-4 hidden sm:block" />
               <span className="whitespace-nowrap">Home</span>
             </Link>
+            <Link
+              href="/marketplace"
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                pathname?.startsWith('/marketplace') ? 'bg-sky-100 text-sky-700' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+              }`}
+            >
+              <ShoppingBag className="h-4 w-4 hidden sm:block" />
+              <span className="whitespace-nowrap">Marketplace</span>
+            </Link>
             {isAuthenticated && user ? (
               <Link
-                href={user.role?.includes('client') ? '/dashboard/client' : '/dashboard/runner'}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-colors"
+                href="/cart"
+                className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  pathname === '/cart' ? 'bg-sky-100 text-sky-700' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                }`}
               >
-                <LayoutDashboard className="h-4 w-4" />
-                <span className="whitespace-nowrap hidden sm:inline">Dashboard</span>
+                <ShoppingCart className="h-4 w-4" />
+                <span className="whitespace-nowrap hidden sm:inline">Cart</span>
               </Link>
+            ) : null}
+            {isAuthenticated && user ? (
+              <>
+                <Link
+                  href={Array.isArray(user.role) && user.role.includes('client') ? '/dashboard/client' : '/dashboard/runner'}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-colors"
+                >
+                  <LayoutDashboard className="h-4 w-4" />
+                  <span className="whitespace-nowrap hidden sm:inline">Dashboard</span>
+                </Link>
+                <Link
+                  href={`/resellers/${user._id ?? (user as { id?: string }).id ?? ''}`}
+                  className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    pathname?.startsWith('/resellers') ? 'bg-sky-100 text-sky-700' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                  }`}
+                >
+                  <LayoutGrid className="h-4 w-4 hidden sm:block" />
+                  <span className="whitespace-nowrap hidden sm:inline">My wall</span>
+                </Link>
+              </>
             ) : null}
             <span className="w-px h-6 bg-slate-200 mx-1" aria-hidden />
             {isAuthenticated && user ? (

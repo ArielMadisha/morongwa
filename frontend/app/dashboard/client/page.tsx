@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
 import LocationAutocomplete from '@/components/LocationAutocomplete';
-import { tasksAPI, walletAPI, API_URL } from '@/lib/api';
+import { tasksAPI, walletAPI, cartAPI, API_URL } from '@/lib/api';
 import { Task } from '@/lib/types';
 import Link from 'next/link';
 import { useRouter, usePathname } from 'next/navigation';
@@ -26,12 +26,14 @@ import {
   Home,
   HelpCircle,
   Receipt,
+  ShoppingCart,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 const clientNavItems = [
   { href: '/dashboard/client', label: 'Dashboard', icon: Package },
   { href: '/wallet', label: 'Wallet', icon: Wallet },
+  { href: '/cart', label: 'Cart', icon: ShoppingCart },
   { href: '/profile', label: 'Profile', icon: User },
   { href: '/messages', label: 'Messages', icon: MessageSquare },
   { href: '/pricing', label: 'Pricing', icon: Receipt },
@@ -80,10 +82,19 @@ function ClientDashboard() {
   const [topupSubmitting, setTopupSubmitting] = useState(false);
   const [pendingTaskData, setPendingTaskData] = useState<any>(null);
   const [commissionRate, setCommissionRate] = useState<number>(0.15); // Default fallback
+  const [cartCount, setCartCount] = useState(0);
 
   useEffect(() => {
     fetchTasks();
     fetchWalletBalance();
+  }, []);
+
+  useEffect(() => {
+    cartAPI.get().then((res) => {
+      const data = res.data?.data ?? res.data;
+      const items = Array.isArray(data?.items) ? data.items : [];
+      setCartCount(items.length);
+    }).catch(() => setCartCount(0));
   }, []);
 
   const fetchTasks = async () => {
@@ -468,11 +479,12 @@ function ClientDashboard() {
         <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
           {clientNavItems.map(({ href, label, icon: Icon }) => {
             const isActive = pathname === href;
+            const isCart = href === '/cart';
             return (
               <Link
                 key={href}
                 href={href}
-                className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                className={`relative flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
                   isActive
                     ? 'bg-blue-100 text-blue-700'
                     : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
@@ -480,6 +492,11 @@ function ClientDashboard() {
               >
                 <Icon className="h-5 w-5 flex-shrink-0" />
                 {label}
+                {isCart && cartCount > 0 && (
+                  <span className="ml-auto flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-sky-600 px-1.5 text-xs font-bold text-white">
+                    {cartCount > 99 ? '99+' : cartCount}
+                  </span>
+                )}
               </Link>
             );
           })}
@@ -531,17 +548,23 @@ function ClientDashboard() {
         <nav className="p-3 space-y-1">
           {clientNavItems.map(({ href, label, icon: Icon }) => {
             const isActive = pathname === href;
+            const isCart = href === '/cart';
             return (
               <Link
                 key={href}
                 href={href}
                 onClick={() => setMenuOpen(false)}
-                className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                className={`relative flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
                   isActive ? 'bg-blue-100 text-blue-700' : 'text-slate-700 hover:bg-slate-100'
                 }`}
               >
                 <Icon className="h-5 w-5 flex-shrink-0" />
                 {label}
+                {isCart && cartCount > 0 && (
+                  <span className="ml-auto flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-sky-600 px-1.5 text-xs font-bold text-white">
+                    {cartCount > 99 ? '99+' : cartCount}
+                  </span>
+                )}
               </Link>
             );
           })}
