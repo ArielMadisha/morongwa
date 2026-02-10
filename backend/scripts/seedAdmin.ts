@@ -14,7 +14,7 @@ import User from "../src/data/models/User";
 import Wallet from "../src/data/models/Wallet";
 
 const ADMIN_EMAIL = "admin@morongwa.com";
-const ADMIN_PASSWORD = "761208@Am";
+const ADMIN_PASSWORD = "";
 const ADMIN_NAME = "Admin";
 
 async function seedAdmin() {
