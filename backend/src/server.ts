@@ -32,7 +32,13 @@ import analyticsRoutes from "./routes/analytics";
 import pricingRoutes from "./routes/pricing";
 import policyRoutes from "./routes/policies";
 import runnersRoutes from "./routes/runners";
+import productsRoutes from "./routes/products";
+import suppliersRoutes from "./routes/suppliers";
+import cartRoutes from "./routes/cart";
+import checkoutRoutes from "./routes/checkout";
+import resellerRoutes from "./routes/reseller";
 import { ensureDefaultPolicies } from "./services/policyService";
+import { ensureDefaultProducts } from "./services/marketplaceSeed";
 
 const app: Application = express();
 const server = http.createServer(app);
@@ -89,6 +95,11 @@ app.use("/api/analytics", analyticsRoutes);
 app.use("/api/pricing", pricingRoutes);
 app.use("/api/policies", policyRoutes);
 app.use("/api/runners", runnersRoutes);
+app.use("/api/products", productsRoutes);
+app.use("/api/suppliers", suppliersRoutes);
+app.use("/api/cart", cartRoutes);
+app.use("/api/checkout", checkoutRoutes);
+app.use("/api/reseller", resellerRoutes);
 
 // Error handling
 app.use(notFoundHandler);
@@ -111,6 +122,8 @@ const startServer = async () => {
 
     // Seed baseline policies (idempotent)
     await ensureDefaultPolicies();
+    // Seed marketplace products if none exist (idempotent)
+    await ensureDefaultProducts();
 
     // Initialize services
     initializeServices();

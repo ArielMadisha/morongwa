@@ -137,6 +137,21 @@ export const adminAPI = {
   // Audit
   getAuditLogs: (params?: { page?: number; limit?: number; action?: string }) =>
     api.get('/admin/audit', { params }),
+
+  // Suppliers (marketplace)
+  getSuppliers: (params?: { page?: number; limit?: number; status?: string }) =>
+    api.get('/admin/suppliers', { params }),
+  getSupplier: (id: string) => api.get(`/admin/suppliers/${id}`),
+  approveSupplier: (id: string) => api.post(`/admin/suppliers/${id}/approve`),
+  rejectSupplier: (id: string, reason?: string) =>
+    api.post(`/admin/suppliers/${id}/reject`, { reason }),
+
+  // Marketplace orders (checkout)
+  getOrders: (params?: { page?: number; limit?: number; status?: string }) =>
+    api.get('/admin/orders', { params }),
+
+  // Reseller stats
+  getResellerStats: () => api.get('/admin/reseller-stats'),
 };
 
 export const supportAPI = {
@@ -180,4 +195,48 @@ export const policiesAPI = {
     api.post(`/policies/${slug}/version`, data),
   publishVersion: (slug: string, version: number) => api.post(`/policies/${slug}/publish`, { version }),
   acceptPolicies: (slugs: string[], meta?: any) => api.post('/policies/accept', { slugs, meta }),
+};
+
+export const productsAPI = {
+  list: (params?: { limit?: number; random?: boolean }) =>
+    api.get('/products', { params: { ...params, random: params?.random ? '1' : undefined } }),
+  getByIdOrSlug: (idOrSlug: string) => api.get(`/products/${idOrSlug}`),
+};
+
+export const cartAPI = {
+  get: () => api.get('/cart'),
+  add: (productId: string, qty?: number, resellerId?: string) =>
+    api.post('/cart', { productId, qty: qty ?? 1, resellerId }),
+  updateItem: (productId: string, qty: number) =>
+    api.put(`/cart/item/${productId}`, { qty }),
+  removeItem: (productId: string) => api.delete(`/cart/item/${productId}`),
+};
+
+export const checkoutAPI = {
+  quote: () => api.post('/checkout/quote'),
+  pay: (paymentMethod: 'wallet' | 'card', deliveryAddress?: string) =>
+    api.post('/checkout/pay', { paymentMethod, deliveryAddress }),
+  getOrder: (orderId: string) => api.get(`/checkout/order/${orderId}`),
+};
+
+export const resellerAPI = {
+  getWall: (userId: string) => api.get(`/reseller/wall/${userId}`),
+  getMyWall: () => api.get('/reseller/wall/me'),
+  addToWall: (productId: string) => api.post(`/reseller/wall/add/${productId}`),
+  removeFromWall: (productId: string) => api.delete(`/reseller/wall/remove/${productId}`),
+};
+
+export const suppliersAPI = {
+  apply: (data: {
+    type: 'company' | 'individual';
+    storeName?: string;
+    pickupAddress?: string;
+    companyRegNo?: string;
+    directorsIdDoc?: string;
+    idDocument?: string;
+    contactEmail: string;
+    contactPhone: string;
+    verificationFeeWaived?: boolean;
+  }) => api.post('/suppliers/apply', data),
+  getMe: () => api.get('/suppliers/me'),
 };

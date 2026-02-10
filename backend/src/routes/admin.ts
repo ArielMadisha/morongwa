@@ -6,6 +6,9 @@ import Payment from "../data/models/Payment";
 import Transaction from "../data/models/Transaction";
 import AuditLog from "../data/models/AuditLog";
 import Escrow from "../data/models/Escrow";
+import Supplier from "../data/models/Supplier";
+import Order from "../data/models/Order";
+import ResellerWall from "../data/models/ResellerWall";
 import { authenticate, AuthRequest, authorize } from "../middleware/auth";
 import { AppError } from "../middleware/errorHandler";
 import { getPaginationParams } from "../utils/helpers";
@@ -486,6 +489,131 @@ router.get("/audit", async (req: AuthRequest, res: Response, next) => {
     res.json({
       logs,
       pagination: { total, page: Math.floor(skip / limitNum) + 1, limit: limitNum, pages: Math.ceil(total / limitNum) },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// --- Marketplace / Suppliers / Orders / Reseller ---
+
+// List suppliers (filter by status)
+router.get("/suppliers", async (req: AuthRequest, res: Response, next) => {
+  try {
+    const { page, limit, status } = req.query;
+    const { skip, limit: limitNum } = getPaginationParams(
+      page ? parseInt(page as string) : undefined,
+      limit ? parseInt(limit as string) : undefined
+    );
+    const query: any = {};
+    if (status) query.status = status as string;
+    const [suppliers, total] = await Promise.all([
+      Supplier.find(query).populate("userId", "name email").sort({ appliedAt: -1 }).skip(skip).limit(limitNum).lean(),
+      Supplier.countDocuments(query),
+    ]);
+    res.json({
+      suppliers,
+      pagination: { total, page: Math.floor(skip / limitNum) + 1, limit: limitNum, pages: Math.ceil(total / limitNum) },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Get single supplier (admin detail)
+router.get("/suppliers/:id", async (req: AuthRequest, res: Response, next) => {
+  try {
+    const supplier = await Supplier.findById(req.params.id).populate("userId", "name email").populate("reviewedBy", "name email").lean();
+    if (!supplier) throw new AppError("Supplier not found", 404);
+    res.json({ data: supplier });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Approve supplier
+router.post("/suppliers/:id/approve", async (req: AuthRequest, res: Response, next) => {
+  try {
+    const supplier = await Supplier.findById(req.params.id);
+    if (!supplier) throw new AppError("Supplier not found", 404);
+    if (supplier.status !== "pending") throw new AppError("Supplier is not pending", 400);
+    supplier.status = "approved";
+    supplier.reviewedAt = new Date();
+    supplier.reviewedBy = req.user!._id;
+    supplier.rejectionReason = undefined;
+    await supplier.save();
+    await AuditLog.create({
+      action: "SUPPLIER_APPROVED",
+      user: req.user!._id,
+      target: supplier.userId,
+      meta: { supplierId: supplier._id },
+    });
+    res.json({ message: "Supplier approved", data: supplier });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Reject supplier
+router.post("/suppliers/:id/reject", async (req: AuthRequest, res: Response, next) => {
+  try {
+    const { reason } = req.body;
+    const supplier = await Supplier.findById(req.params.id);
+    if (!supplier) throw new AppError("Supplier not found", 404);
+    if (supplier.status !== "pending") throw new AppError("Supplier is not pending", 400);
+    supplier.status = "rejected";
+    supplier.reviewedAt = new Date();
+    supplier.reviewedBy = req.user!._id;
+    supplier.rejectionReason = reason || "";
+    await supplier.save();
+    await AuditLog.create({
+      action: "SUPPLIER_REJECTED",
+      user: req.user!._id,
+      target: supplier.userId,
+      meta: { supplierId: supplier._id, reason: reason || "" },
+    });
+    res.json({ message: "Supplier rejected", data: supplier });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// List marketplace orders (checkout orders)
+router.get("/orders", async (req: AuthRequest, res: Response, next) => {
+  try {
+    const { page, limit, status } = req.query;
+    const { skip, limit: limitNum } = getPaginationParams(
+      page ? parseInt(page as string) : undefined,
+      limit ? parseInt(limit as string) : undefined
+    );
+    const query: any = {};
+    if (status) query.status = status as string;
+    const [orders, total] = await Promise.all([
+      Order.find(query).populate("buyerId", "name email").populate("supplierId").sort({ createdAt: -1 }).skip(skip).limit(limitNum).lean(),
+      Order.countDocuments(query),
+    ]);
+    res.json({
+      orders,
+      pagination: { total, page: Math.floor(skip / limitNum) + 1, limit: limitNum, pages: Math.ceil(total / limitNum) },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Reseller stats (counts for admin)
+router.get("/reseller-stats", async (req: AuthRequest, res: Response, next) => {
+  try {
+    const totalWalls = await ResellerWall.countDocuments();
+    const wallsWithProducts = await ResellerWall.countDocuments({ "products.0": { $exists: true } });
+    const totalProductsOnWalls = await ResellerWall.aggregate([
+      { $project: { count: { $size: "$products" } } },
+      { $group: { _id: null, total: { $sum: "$count" } } },
+    ]).then((r) => (r[0]?.total ?? 0) as number);
+    res.json({
+      totalWalls,
+      wallsWithProducts,
+      totalProductsOnWalls,
     });
   } catch (err) {
     next(err);
