@@ -143,13 +143,13 @@ Commands:
 
 ```powershell
 # Backend (port 5001)
-Push-Location "C:\Users\Dell\OneDrive - Bonakude Consulting PTY LTD\Documents\Coding\Morongwa\backend"; $env:PORT=5001; $env:BACKEND_URL="http://localhost:5001"; npm run dev
+Push-Location "C:\Users\Dell\OneDrive - \Documents\Coding\Morongwa\backend"; $env:PORT=5001; $env:BACKEND_URL="http://localhost:5001"; npm run dev
 
 # Frontend (port 3001)
-Push-Location "C:\Users\Dell\OneDrive - Bonakude Consulting PTY LTD\Documents\Coding\Morongwa\frontend"; $env:PORT=3001; npm run dev
+Push-Location "C:\Users\Dell\OneDrive - \Documents\Coding\Morongwa\frontend"; $env:PORT=3001; npm run dev
 
 # Seed an admin (interactive)
-Push-Location "C:\Users\Dell\OneDrive - Bonakude Consulting PTY LTD\Documents\Coding\Morongwa\backend"; npm run create-admin
+Push-Location "C:\Users\Dell\OneDrive - \Documents\Coding\Morongwa\backend"; npm run create-admin
 ```
 
 - Backend: http://localhost:5001/api
@@ -389,4 +389,4 @@ For support, email tshipla3@gmail.com or create an issue in the repository.
 
 ---
 
-**Made with ❤️ in South Africa**
+**Made with ❤️ in South Africa by Ariel Madisha**
