@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { Calculator, AlertCircle, CheckCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { API_URL } from '@/lib/api';
 
 interface QuoteBreakdown {
   currency: string;
@@ -46,7 +47,7 @@ export function QuoteCalculator({ currency, onQuoteChange, compact = false }: Qu
 
     setLoading(true);
     try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/pricing/quote`, {
+      const res = await fetch(`${API_URL}/pricing/quote`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

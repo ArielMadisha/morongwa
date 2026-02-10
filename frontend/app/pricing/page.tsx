@@ -2,7 +2,9 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { Calculator, Globe, Shield, Clock, Package, Zap, CheckCircle, ArrowRight, Info } from 'lucide-react';
+import { Calculator, Globe, Shield, Clock, Package, Zap, CheckCircle, ArrowRight, Info, AlertCircle } from 'lucide-react';
+import { API_URL } from '@/lib/api';
+import SiteHeader from '@/components/SiteHeader';
 
 interface CountryConfig {
   country: string;
@@ -40,6 +42,23 @@ export default function PricingPage() {
   const [countries, setCountries] = useState<Record<string, CountryConfig>>({});
   const [quote, setQuote] = useState<QuoteBreakdown | null>(null);
   const [loading, setLoading] = useState(false);
+  const [apiUnavailable, setApiUnavailable] = useState(false);
+  
+  // Fallback when backend is down (e.g. dev without backend)
+  const DEFAULT_COUNTRIES: Record<string, CountryConfig> = {
+    ZAR: {
+      country: 'South Africa',
+      currency: 'ZAR',
+      fxPerZAR: 1,
+      commissionPct: 15,
+      peakMultiplier: 1.1,
+      baseRadiusKm: 5,
+      bookingFeeLocal: 8,
+      perKmRateLocal: 4,
+      heavySurchargeLocal: 15,
+      urgencyFeeLocal: 25,
+    },
+  };
   
   // Calculator inputs
   const [taskPrice, setTaskPrice] = useState('250');
@@ -60,13 +79,17 @@ export default function PricingPage() {
 
   const fetchCountries = async () => {
     try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/pricing/config`);
+      setApiUnavailable(false);
+      const res = await fetch(`${API_URL}/pricing/config`);
       const data = await res.json();
       if (data.success) {
         setCountries(data.data);
+      } else {
+        setCountries(DEFAULT_COUNTRIES);
       }
-    } catch (error) {
-      console.error('Failed to fetch countries:', error);
+    } catch {
+      setApiUnavailable(true);
+      setCountries(DEFAULT_COUNTRIES);
     }
   };
 
@@ -75,7 +98,7 @@ export default function PricingPage() {
     
     setLoading(true);
     try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/pricing/quote`, {
+      const res = await fetch(`${API_URL}/pricing/quote`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -91,8 +114,8 @@ export default function PricingPage() {
       if (data.success) {
         setQuote(data.data);
       }
-    } catch (error) {
-      console.error('Failed to calculate quote:', error);
+    } catch {
+      setQuote(null);
     } finally {
       setLoading(false);
     }
@@ -116,26 +139,16 @@ export default function PricingPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-sky-50 via-white to-sky-100">
-      {/* Header */}
-      <header className="bg-white/80 backdrop-blur-lg border-b border-sky-100 sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <div className="flex items-center justify-between">
-            <Link href="/" className="flex items-center gap-2">
-              <div className="text-2xl font-bold bg-gradient-to-r from-sky-500 via-cyan-500 to-teal-500 bg-clip-text text-transparent">
-                Morongwa
-              </div>
-            </Link>
-            <div className="flex items-center gap-4">
-              <Link href="/login" className="text-slate-600 hover:text-sky-600 font-medium">
-                Sign in
-              </Link>
-              <Link href="/register" className="px-4 py-2 bg-gradient-to-r from-sky-500 to-cyan-500 text-white rounded-lg font-semibold hover:scale-105 transition">
-                Get Started
-              </Link>
-            </div>
+      <SiteHeader />
+
+      {apiUnavailable && (
+        <div className="max-w-7xl mx-auto px-4 pt-4">
+          <div className="flex items-center gap-2 px-4 py-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-800 text-sm">
+            <AlertCircle className="h-5 w-5 flex-shrink-0" />
+            <span>API server is not running. Start the backend (<code className="bg-amber-100 px-1 rounded">cd backend && npm run dev</code>) for live pricing and quotes.</span>
           </div>
         </div>
-      </header>
+      )}
 
       {/* Hero Section */}
       <section className="py-16 px-4">

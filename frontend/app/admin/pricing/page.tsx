@@ -7,6 +7,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import ProtectedRoute from '@/components/ProtectedRoute';
 import toast from 'react-hot-toast';
 import Link from 'next/link';
+import { API_URL } from '@/lib/api';
 
 interface CountryConfig {
   country: string;
@@ -35,7 +36,7 @@ function PricingConfigPage() {
 
   const fetchConfig = async () => {
     try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/pricing/config`);
+      const res = await fetch(`${API_URL}/pricing/config`);
       const data = await res.json();
       if (data.success) {
         setCountries(data.data);
@@ -72,7 +73,7 @@ function PricingConfigPage() {
     setSaving({ ...saving, [currency]: true });
     try {
       const token = localStorage.getItem('token');
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/pricing/config/${currency}`, {
+      const res = await fetch(`${API_URL}/pricing/config/${currency}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',

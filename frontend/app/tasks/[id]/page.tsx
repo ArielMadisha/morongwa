@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { io } from 'socket.io-client';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
@@ -19,6 +20,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import ProtectedRoute from '@/components/ProtectedRoute';
+import LiveTrackingMap from '@/components/LiveTrackingMap';
 import { tasksAPI } from '@/lib/api';
 
 // Helper function to safely format dates
@@ -38,9 +40,12 @@ function TaskDetailPage() {
   const router = useRouter();
   const { user } = useAuth();
   const [task, setTask] = useState<any>(null);
+  const [escrow, setEscrow] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [completion, setCompletion] = useState('');
+  const [runnerLocation, setRunnerLocation] = useState<{ lat: string; lon: string } | null>(null);
+  const [commissionRate, setCommissionRate] = useState<number>(0.15); // Default fallback
 
   const hasRole = (r: any, v: string) => Array.isArray(r) ? r.includes(v) : r === v;
 
@@ -48,10 +53,52 @@ function TaskDetailPage() {
     if (id) fetchTask();
   }, [id]);
 
+  useEffect(() => {
+    const loadEscrow = async () => {
+      if (!id) return;
+      try {
+        const { data } = await tasksAPI.getEscrow(id as string);
+        setEscrow(data.escrow);
+        if (data.commissionRate !== undefined) {
+          setCommissionRate(data.commissionRate);
+        }
+      } catch (e) {
+        setEscrow(null);
+      }
+    };
+    loadEscrow();
+  }, [id]);
+
+  // live runner location subscription
+  useEffect(() => {
+    if (!task?.runner?._id || !task?._id) return;
+    const base = process.env.NEXT_PUBLIC_SOCKET_URL || '';
+    const ns = (base.endsWith('/') ? base.slice(0, -1) : base) + '/locations';
+    const socket = io(ns, { autoConnect: true });
+    socket.on('connect', () => {
+      socket.emit('join', task._id);
+    });
+    socket.on('runner_location', (payload: any) => {
+      try {
+        if (!payload) return;
+        if (payload.taskId && payload.taskId !== task._id) return;
+        setRunnerLocation({ lat: String(payload.lat), lon: String(payload.lon) });
+      } catch (e) {
+        // ignore
+      }
+    });
+    return () => {
+      try { socket.disconnect(); } catch (e) {}
+    };
+  }, [task?.runner?._id, task?._id]);
+
   const fetchTask = async () => {
     try {
       const response = await tasksAPI.getById(id as string);
-      setTask(response.data);
+      setTask(response.data.task || response.data);
+      if (response.data.commissionRate !== undefined) {
+        setCommissionRate(response.data.commissionRate);
+      }
     } catch (error) {
       toast.error('Failed to load task');
       router.push(hasRole(user?.role, 'runner') ? '/dashboard/runner' : '/dashboard/client');
@@ -246,16 +293,58 @@ function TaskDetailPage() {
                 <p className="text-sm text-slate-600 mb-4">
                   {task.client?.bio || (task.client?.createdAt ? `Morongwa member since ${new Date(task.client.createdAt).getFullYear()}` : 'Morongwa member since NaN')}
                 </p>
-                <Link
-                  href={`/support?type=task_inquiry&taskId=${id}`}
-                  className="w-full rounded-lg border border-sky-200 bg-sky-50 px-4 py-2 text-sm font-semibold text-sky-700 transition hover:bg-sky-100 flex items-center justify-center gap-2"
-                >
-                  <MessageSquare className="h-4 w-4" />
-                  Message client
-                </Link>
+                {isRunner && task.status !== 'posted' && (
+                  <Link
+                    href={`/support?type=task_inquiry&taskId=${id}`}
+                    className="w-full rounded-lg border border-sky-200 bg-sky-50 px-4 py-2 text-sm font-semibold text-sky-700 transition hover:bg-sky-100 flex items-center justify-center gap-2"
+                  >
+                    <MessageSquare className="h-4 w-4" />
+                    Message client
+                  </Link>
+                )}
               </div>
 
+              {(task.status === 'in_progress' || task.status === 'accepted') && (
+                <LiveTrackingMap 
+                  runnerLocation={runnerLocation}
+                  pickupLocation={task.pickupLocation}
+                  deliveryLocation={task.deliveryLocation}
+                />
+              )}
+
               <div className="rounded-2xl border border-white/60 bg-white/80 p-6 shadow-xl shadow-sky-50 backdrop-blur">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700">
+                    <DollarSign className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.2em] text-emerald-700">Escrow</p>
+                    <h3 className="font-semibold text-slate-900">Escrow Details</h3>
+                  </div>
+                </div>
+                {escrow ? (
+                  <div className="grid grid-cols-2 gap-4 text-sm">
+                    <div>
+                      <p className="text-slate-500">Status</p>
+                      <p className="font-semibold text-slate-900 capitalize">{escrow.status}</p>
+                    </div>
+                    <div>
+                      <p className="text-slate-500">Total Held</p>
+                      <p className="font-semibold text-slate-900">R{Number(escrow.totalHeld).toFixed(2)}</p>
+                    </div>
+                    <div>
+                      <p className="text-slate-500">Commission (Admin)</p>
+                      <p className="font-semibold text-slate-900">R{Number(escrow.fees?.commission || 0).toFixed(2)}</p>
+                    </div>
+                    <div>
+                      <p className="text-slate-500">Runner Net</p>
+                      <p className="font-semibold text-slate-900">R{Number(escrow.runnersNet || (task.budget * (1 - commissionRate))).toFixed(2)}</p>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-sm text-slate-600">No escrow information available.</p>
+                )}
+              </div>
                 <div className="flex items-center gap-3 mb-4">
                   <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-sky-100 text-sky-600">
                     <Clock className="h-5 w-5" />

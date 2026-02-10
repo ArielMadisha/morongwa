@@ -122,6 +122,78 @@ router.post("/users/:id/suspend", async (req: AuthRequest, res: Response, next) 
   }
 });
 
+// Admin: Verify a runner's vehicle document
+router.post('/users/:id/vehicles/:index/verify', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const user = await User.findById(req.params.id);
+    if (!user) throw new AppError('User not found', 404);
+
+    const idx = parseInt(req.params.index as any, 10);
+    if (isNaN(idx) || !(user.vehicles && user.vehicles[idx])) {
+      throw new AppError('Vehicle not found', 404);
+    }
+
+    user.vehicles[idx].verified = true as any;
+    await user.save();
+
+    // If all vehicles and PDP are verified, mark runnerVerified
+    const allVehiclesVerified = (user.vehicles || []).length > 0 && (user.vehicles || []).every((v: any) => v.verified === true);
+    const pdpVerified = !!(user.pdp && (user.pdp as any).verified === true);
+    if (allVehiclesVerified && pdpVerified) {
+      user.runnerVerified = true as any;
+      await user.save();
+    }
+
+    await AuditLog.create({ action: 'VEHICLE_VERIFIED', user: req.user!._id, target: user._id, meta: { vehicleIndex: idx } });
+
+    await sendNotification({
+      userId: user._id.toString(),
+      type: 'VEHICLE_VERIFIED',
+      message: 'Your vehicle documents have been verified by admin',
+      channel: 'email',
+      email: { subject: 'Vehicle Verified', html: '<p>Your vehicle documents were verified.</p>' },
+    });
+
+    res.json({ message: 'Vehicle verified', user });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Admin: Verify runner PDP
+router.post('/users/:id/pdp/verify', async (req: AuthRequest, res: Response, next) => {
+  try {
+    const user = await User.findById(req.params.id);
+    if (!user) throw new AppError('User not found', 404);
+
+    if (!user.pdp) throw new AppError('PDP not found', 404);
+
+    (user.pdp as any).verified = true;
+    await user.save();
+
+    const allVehiclesVerified = (user.vehicles || []).length > 0 && (user.vehicles || []).every((v: any) => v.verified === true);
+    const pdpVerified = !!(user.pdp && (user.pdp as any).verified === true);
+    if (allVehiclesVerified && pdpVerified) {
+      user.runnerVerified = true as any;
+      await user.save();
+    }
+
+    await AuditLog.create({ action: 'PDP_VERIFIED', user: req.user!._id, target: user._id, meta: {} });
+
+    await sendNotification({
+      userId: user._id.toString(),
+      type: 'PDP_VERIFIED',
+      message: 'Your Professional Driving Permit (PDP) has been verified',
+      channel: 'email',
+      email: { subject: 'PDP Verified', html: '<p>Your PDP was verified by admin.</p>' },
+    });
+
+    res.json({ message: 'PDP verified', user });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // Get all tasks with filters
 router.get("/tasks", async (req: AuthRequest, res: Response, next) => {
   try {

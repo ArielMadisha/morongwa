@@ -149,7 +149,7 @@ router.post('/:id/pdp', authenticate, upload.single('pdp'), async (req: AuthRequ
     user.pdp = { filename: req.file.filename, path: `/uploads/${req.file.filename}`, uploadedAt: new Date(), verified: false } as any;
     await user.save();
 
-    await AuditLog.create({ action: 'PDP_UPLOADED', user: user._id, meta: { file: user.pdp.path } });
+    await AuditLog.create({ action: 'PDP_UPLOADED', user: user._id, meta: { file: user.pdp?.path || null } });
 
     res.json({ message: 'PDP uploaded successfully', pdp: user.pdp });
   } catch (err) {
@@ -175,10 +175,13 @@ router.patch('/:id/location', authenticate, async (req: AuthRequest, res: Respon
     user.location = { type: 'Point', coordinates: [longitude, latitude], updatedAt: new Date() } as any;
     await user.save();
 
-    // Emit location update over Socket.IO if available
+    // Emit location update over Socket.IO to clients of assigned tasks
     try {
-      const { initializeNotificationService } = require('../services/notification');
-    } catch {}
+      const { emitRunnerLocation } = require('../services/notification');
+      await emitRunnerLocation(user._id.toString(), user.location as any);
+    } catch (emitErr) {
+      // non-fatal - continue
+    }
 
     await AuditLog.create({ action: 'LOCATION_UPDATED', user: user._id, meta: { latitude, longitude } });
 

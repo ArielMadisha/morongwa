@@ -59,6 +59,11 @@ router.post("/task/:taskId", authenticate, async (req: AuthRequest, res: Respons
       throw new AppError("No runner assigned to this task yet", 400);
     }
 
+    // Restrict runner messaging until after acceptance
+    if (task.runner?.toString() === senderId.toString() && task.status === "posted") {
+      throw new AppError("Runner can only message the client after accepting the task", 400);
+    }
+
     const { content } = req.body;
 
     const message = await Message.create({

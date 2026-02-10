@@ -31,6 +31,7 @@ import supportRoutes from "./routes/support";
 import analyticsRoutes from "./routes/analytics";
 import pricingRoutes from "./routes/pricing";
 import policyRoutes from "./routes/policies";
+import runnersRoutes from "./routes/runners";
 import { ensureDefaultPolicies } from "./services/policyService";
 
 const app: Application = express();
@@ -87,6 +88,7 @@ app.use("/api/support", supportRoutes);
 app.use("/api/analytics", analyticsRoutes);
 app.use("/api/pricing", pricingRoutes);
 app.use("/api/policies", policyRoutes);
+app.use("/api/runners", runnersRoutes);
 
 // Error handling
 app.use(notFoundHandler);

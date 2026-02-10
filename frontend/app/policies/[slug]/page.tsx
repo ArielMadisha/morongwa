@@ -7,6 +7,7 @@ import Link from 'next/link';
 import { ArrowLeft, Download, Clock, Tag, MapPin, Copy, Check } from 'lucide-react';
 import toast from 'react-hot-toast';
 import ReactMarkdown from 'react-markdown';
+import SiteHeader from '@/components/SiteHeader';
 
 export default function PolicyPage() {
   const params = useParams();
@@ -67,14 +68,13 @@ export default function PolicyPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-sky-50 to-white">
-      {/* Header */}
-      <div className="bg-white border-b border-slate-100 sticky top-0 z-40">
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-          <Link href="/policies" className="flex items-center gap-2 text-sky-600 hover:text-sky-700 mb-4">
-            <ArrowLeft className="h-4 w-4" />
-            Back to policies
-          </Link>
-          <h1 className="text-3xl font-bold text-slate-900 mb-4">{policy.title}</h1>
+      <SiteHeader />
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <Link href="/policies" className="inline-flex items-center gap-2 text-sky-600 hover:text-sky-700 mb-4 text-sm font-medium">
+          <ArrowLeft className="h-4 w-4" />
+          Back to policies
+        </Link>
+        <h1 className="text-3xl font-bold text-slate-900 mb-4">{policy.title}</h1>
           <div className="flex flex-wrap items-center gap-4 text-sm text-slate-600">
             <span className="inline-block px-3 py-1 bg-sky-100 text-sky-700 rounded-full capitalize">
               {policy.category}
@@ -87,7 +87,6 @@ export default function PolicyPage() {
             )}
             <span>v{policy.version}</span>
           </div>
-        </div>
       </div>
 
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-12">

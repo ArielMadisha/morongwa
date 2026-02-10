@@ -29,6 +29,7 @@ function RunnerDashboard() {
   const [myTasks, setMyTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'available' | 'my-tasks'>('available');
+  const [commissionRate, setCommissionRate] = useState<number>(0.15); // Default fallback
 
   const activeCount = useMemo(
     () => myTasks.filter((t) => t.status === 'accepted' || t.status === 'in_progress').length,
@@ -51,6 +52,12 @@ function RunnerDashboard() {
       ]);
       setAvailableTasks(available.data);
       setMyTasks(mine.data);
+      // Get commission from response if available
+      if (available.data.commissionRate !== undefined) {
+        setCommissionRate(available.data.commissionRate);
+      } else if (mine.data.commissionRate !== undefined) {
+        setCommissionRate(mine.data.commissionRate);
+      }
     } catch (error) {
       toast.error('Failed to load tasks');
     } finally {
@@ -73,6 +80,47 @@ function RunnerDashboard() {
         toast.error(errorMsg);
       }
     }
+  };
+
+  const handleStartTask = async (taskId: string) => {
+    try {
+      await tasksAPI.startTask(taskId);
+      toast.success('Task started - tracking your location');
+      fetchTasks();
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || 'Failed to start task');
+    }
+  };
+
+  const handleCheckArrival = async (taskId: string) => {
+    if (!navigator.geolocation) {
+      toast.error('Geolocation not supported');
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        try {
+          const response = await tasksAPI.checkArrival(taskId, {
+            lat: position.coords.latitude,
+            lon: position.coords.longitude
+          });
+          
+          if (response.data.atDestination) {
+            toast.success(response.data.message);
+          } else {
+            toast((t) => (
+              <span>{response.data.message}</span>
+            ));
+          }
+        } catch (error: any) {
+          toast.error(error.response?.data?.error || 'Failed to check arrival');
+        }
+      },
+      (error) => {
+        toast.error('Could not get your location');
+      }
+    );
   };
 
   const getStatusColor = (status: string) => {
@@ -227,7 +275,10 @@ function RunnerDashboard() {
                           <h3 className="text-lg font-semibold text-slate-900">{task.title}</h3>
                           <p className="mt-1 line-clamp-2 text-sm text-slate-600">{task.description}</p>
                         </div>
-                        <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">R{task.budget}</span>
+                        <div className="flex gap-2">
+                          <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">R{task.budget}</span>
+                          <span className="rounded-full bg-sky-50 px-3 py-1 text-xs font-semibold text-sky-700">Net: R{(task.budget * (1 - commissionRate)).toFixed(2)}</span>
+                        </div>
                       </div>
                       <div className="mt-4 space-y-2 text-sm text-slate-600">
                         <div className="flex items-center gap-2">
@@ -288,27 +339,63 @@ function RunnerDashboard() {
                   <div className="mt-4 space-y-2 text-sm text-slate-600">
                     <div className="flex items-center gap-2">
                       <DollarSign className="h-4 w-4 text-emerald-500" />
-                      <span>R{task.budget}</span>
+                      <div className="flex-1">
+                        <div className="font-semibold text-emerald-700">Gross: R{task.budget}</div>
+                        <div className="text-xs text-slate-600">Net (after {(commissionRate * 100).toFixed(0)}%): R{(task.budget * (1 - commissionRate)).toFixed(2)}</div>
+                        {task.estimatedDistanceKm && (
+                          <div className="text-xs text-slate-500">{task.estimatedDistanceKm} km</div>
+                        )}
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <MapPin className="h-4 w-4 text-sky-500" />
-                      <span>
-                        {typeof task.location === 'string' 
-                          ? task.location 
-                          : task.location?.address || 'Location not specified'}
-                      </span>
-                    </div>
+                    {task.pickupLocation?.address && (
+                      <div className="flex items-start gap-2">
+                        <MapPin className="h-4 w-4 text-sky-500 mt-0.5" />
+                        <div className="flex-1">
+                          <div className="text-xs text-slate-500">Pickup</div>
+                          <div className="line-clamp-1">{task.pickupLocation.address}</div>
+                        </div>
+                      </div>
+                    )}
+                    {task.deliveryLocation?.address && (
+                      <div className="flex items-start gap-2">
+                        <MapPin className="h-4 w-4 text-green-500 mt-0.5" />
+                        <div className="flex-1">
+                          <div className="text-xs text-slate-500">Delivery</div>
+                          <div className="line-clamp-1">{task.deliveryLocation.address}</div>
+                        </div>
+                      </div>
+                    )}
                     <div className="flex items-center gap-2">
                       <Calendar className="h-4 w-4 text-sky-500" />
                       <span>{new Date(task.createdAt).toLocaleDateString()}</span>
                     </div>
                   </div>
-                  <Link
-                    href={`/tasks/${task._id}`}
-                    className="mt-5 inline-flex w-full justify-center rounded-full bg-gradient-to-r from-sky-500 via-cyan-500 to-teal-500 px-4 py-2 text-sm font-semibold text-white shadow-md shadow-sky-200 transition hover:scale-[1.01]"
-                  >
-                    View details
-                  </Link>
+                  <div className="mt-5 flex gap-2">
+                    {task.status === 'accepted' && (
+                      <button
+                        onClick={() => handleStartTask(task._id)}
+                        className="flex-1 rounded-full bg-gradient-to-r from-green-500 to-emerald-500 px-4 py-2 text-sm font-semibold text-white shadow-md transition hover:scale-[1.01]"
+                      >
+                        Start Errand
+                      </button>
+                    )}
+                    {task.status === 'in_progress' && (
+                      <>
+                        <button
+                          onClick={() => handleCheckArrival(task._id)}
+                          className="flex-1 rounded-full bg-gradient-to-r from-purple-500 to-indigo-500 px-4 py-2 text-sm font-semibold text-white shadow-md transition hover:scale-[1.01]"
+                        >
+                          Check Arrival
+                        </button>
+                      </>
+                    )}
+                    <Link
+                      href={`/tasks/${task._id}`}
+                      className="flex-1 inline-flex justify-center rounded-full bg-gradient-to-r from-sky-500 via-cyan-500 to-teal-500 px-4 py-2 text-sm font-semibold text-white shadow-md shadow-sky-200 transition hover:scale-[1.01]"
+                    >
+                      View details
+                    </Link>
+                  </div>
                 </div>
               ))}
             </div>
