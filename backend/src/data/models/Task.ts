@@ -5,14 +5,26 @@ export interface ITask extends Document {
   title: string;
   description: string;
   budget: number;
-  location: {
+  // Primary pickup point (where task starts)
+  pickupLocation: {
     type: string;
     coordinates: number[];
+    address?: string;
   };
-  status: "posted" | "accepted" | "completed" | "cancelled";
+  // Delivery/destination point
+  deliveryLocation?: {
+    type: string;
+    coordinates: number[];
+    address?: string;
+  } | null;
+  status: "posted" | "accepted" | "in_progress" | "completed" | "cancelled";
   client: mongoose.Types.ObjectId;
   runner?: mongoose.Types.ObjectId;
   escrowed: boolean;
+  // Estimated distance in kilometers between pickup and delivery (if provided)
+  estimatedDistanceKm?: number;
+  // Suggested fee calculated from pricing rules (local currency)
+  suggestedFee?: number;
   attachments: Array<{
     filename: string;
     path: string;
@@ -21,7 +33,10 @@ export interface ITask extends Document {
     uploadedAt: Date;
   }>;
   acceptedAt?: Date;
+  startedAt?: Date;
   completedAt?: Date;
+  // Whether the client has confirmed closure at the destination
+  closedAtDestination?: boolean;
   cancelledAt?: Date;
   createdAt: Date;
   updatedAt: Date;
@@ -32,13 +47,21 @@ const TaskSchema = new Schema<ITask>(
     title: { type: String, required: true, trim: true },
     description: { type: String, required: true },
     budget: { type: Number, required: true, min: 0 },
-    location: {
+    pickupLocation: {
       type: { type: String, enum: ["Point"], default: "Point" },
       coordinates: { type: [Number], required: true },
+      address: { type: String },
     },
+    deliveryLocation: {
+      type: { type: String, enum: ["Point"], default: "Point" },
+      coordinates: { type: [Number] },
+      address: { type: String },
+    },
+    estimatedDistanceKm: { type: Number },
+    suggestedFee: { type: Number },
     status: {
       type: String,
-      enum: ["posted", "accepted", "completed", "cancelled"],
+      enum: ["posted", "accepted", "in_progress", "completed", "cancelled"],
       default: "posted",
     },
     client: { type: Schema.Types.ObjectId, ref: "User", required: true },
@@ -53,8 +76,7 @@ const TaskSchema = new Schema<ITask>(
         uploadedAt: Date,
       },
     ],
-    acceptedAt: { type: Date },
-    completedAt: { type: Date },
+    acceptedAt: { type: Date },    startedAt: { type: Date },    completedAt: { type: Date },
     // Whether the client has confirmed delivery/closure at the destination
     closedAtDestination: { type: Boolean, default: false },
     cancelledAt: { type: Date },

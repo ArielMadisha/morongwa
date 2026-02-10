@@ -1,7 +1,7 @@
 // API client configuration with axios
 import axios from 'axios';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001/api';
+export const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001/api';
 
 export const api = axios.create({
   baseURL: API_URL,
@@ -57,8 +57,12 @@ export const tasksAPI = {
   getMyTasks: () => api.get('/tasks/my-tasks'),
   getMyAcceptedTasks: () => api.get('/tasks/my-accepted'),
   getById: (id: string) => api.get(`/tasks/${id}`),
+  getEscrow: (id: string) => api.get(`/tasks/${id}/escrow`),
   create: (data: any) => api.post('/tasks', data),
   accept: (id: string) => api.post(`/tasks/${id}/accept`),
+  startTask: (id: string) => api.post(`/tasks/${id}/start`),
+  checkArrival: (id: string, coords: { lat: number; lon: number }) => 
+    api.post(`/tasks/${id}/check-arrival`, coords),
   start: (id: string) => api.post(`/tasks/${id}/start`),
   complete: (id: string) => api.post(`/tasks/${id}/complete`),
   cancel: (id: string) => api.post(`/tasks/${id}/cancel`),

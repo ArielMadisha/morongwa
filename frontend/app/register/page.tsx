@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import { Mail, Lock, User, ArrowRight, Loader2, UserCircle, Package, AlertCircle, CheckCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
+import SiteHeader from '@/components/SiteHeader';
 
 export default function RegisterPage() {
   const [name, setName] = useState('');
@@ -82,7 +83,9 @@ export default function RegisterPage() {
   };
 
   return (
-    <div className="relative min-h-screen flex items-center justify-center overflow-hidden bg-gradient-to-br from-sky-50 via-blue-50 to-white text-slate-900 px-4 py-10">
+    <div className="relative min-h-screen flex flex-col overflow-hidden bg-gradient-to-br from-sky-50 via-blue-50 to-white text-slate-900">
+      <SiteHeader />
+      <div className="flex-1 flex items-center justify-center px-4 py-10">
       <div className="absolute inset-0 pointer-events-none">
         <div className="absolute -left-10 -top-24 h-72 w-72 rounded-full bg-gradient-to-br from-sky-200/60 to-blue-300/40 blur-3xl" />
         <div className="absolute right-[-6rem] top-6 h-80 w-80 rounded-full bg-gradient-to-tr from-cyan-200/60 via-blue-200/45 to-indigo-200/50 blur-3xl" />
@@ -362,6 +365,7 @@ export default function RegisterPage() {
             </div>
           </form>
         </div>
+      </div>
       </div>
     </div>
   );

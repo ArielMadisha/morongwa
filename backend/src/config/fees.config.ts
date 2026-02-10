@@ -95,6 +95,9 @@ export const PRICING_CONFIG: Record<Country, CountryConfig> = {
   },
 };
 
+// Default platform commission rate (15%)
+export const DEFAULT_COMMISSION_RATE = 0.15;
+
 // Enterprise subscription (monthly fee per country)
 export const ENTERPRISE_FEE_ZAR = 750;
 export const ENTERPRISE_COMMISSION_PCT = 0.12; // Reduced from 0.15

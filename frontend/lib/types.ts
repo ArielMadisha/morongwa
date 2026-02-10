@@ -23,7 +23,11 @@ export interface Task {
   // Location can be a simple string or a GeoJSON-like object with an address
   // e.g. { type: 'Point', coordinates: [lng, lat], address: '123 Main St' }
   location: string | { type?: string; coordinates?: number[]; address?: string };
-  status: 'pending' | 'accepted' | 'in_progress' | 'completed' | 'cancelled';
+  pickupLocation?: { type?: string; coordinates?: number[]; address?: string };
+  deliveryLocation?: { type?: string; coordinates?: number[]; address?: string };
+  estimatedDistanceKm?: number;
+  suggestedFee?: number;
+  status: 'pending' | 'posted' | 'accepted' | 'in_progress' | 'completed' | 'cancelled';
   client: User;
   runner?: User;
   review?: any;
@@ -36,7 +40,9 @@ export interface Task {
     uploadedAt: string;
   }>;
   acceptedAt?: string;
+  startedAt?: string;
   completedAt?: string;
+  closedAtDestination?: boolean;
   cancelledAt?: string;
   createdAt: string;
   updatedAt: string;

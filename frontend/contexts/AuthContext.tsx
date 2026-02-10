@@ -47,7 +47,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       
       toast.success('Login successful!');
     } catch (error: any) {
-      const message = error.response?.data?.error || 'Login failed';
+      const isNetworkError = !error.response && (error.code === 'ERR_NETWORK' || error.message === 'Network Error');
+      const message = isNetworkError
+        ? 'Cannot reach the server. Start the backend: cd backend && npm run dev'
+        : (error.response?.data?.error || 'Login failed');
       toast.error(message);
       throw error;
     }
@@ -74,7 +77,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       
       toast.success('Registration successful!');
     } catch (error: any) {
-      const message = error.response?.data?.error || 'Registration failed';
+      const isNetworkError = !error.response && (error.code === 'ERR_NETWORK' || error.message === 'Network Error');
+      const message = isNetworkError
+        ? 'Cannot reach the server. Start the backend: cd backend && npm run dev'
+        : (error.response?.data?.error || 'Registration failed');
       toast.error(message);
       throw error;
     }

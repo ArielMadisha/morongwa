@@ -19,7 +19,7 @@ export const loginSchema = Joi.object({
 export const taskSchema = Joi.object({
   title: Joi.string().min(3).max(200).required(),
   description: Joi.string().min(3).max(2000).required(),
-  budget: Joi.number().min(0).required(),
+  budget: Joi.number().min(0).optional(),
   location: Joi.alternatives().try(
     Joi.string().min(2).max(500),
     Joi.object({
@@ -27,7 +27,23 @@ export const taskSchema = Joi.object({
       coordinates: Joi.array().items(Joi.number()).length(2).required(),
       address: Joi.string().optional(),
     })
-  ).required(),
+  ).optional(),
+  pickupLocation: Joi.alternatives().try(
+    Joi.string().min(2).max(500),
+    Joi.object({
+      type: Joi.string().valid("Point").default("Point"),
+      coordinates: Joi.array().items(Joi.number()).length(2).required(),
+      address: Joi.string().optional(),
+    })
+  ).optional(),
+  deliveryLocation: Joi.alternatives().try(
+    Joi.string().min(2).max(500),
+    Joi.object({
+      type: Joi.string().valid("Point").default("Point"),
+      coordinates: Joi.array().items(Joi.number()).length(2).required(),
+      address: Joi.string().optional(),
+    })
+  ).optional(),
   category: Joi.string().optional(),
 });
 

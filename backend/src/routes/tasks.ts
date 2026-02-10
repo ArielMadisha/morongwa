@@ -2,6 +2,7 @@
 import express, { Response } from "express";
 import Task from "../data/models/Task";
 import Wallet from "../data/models/Wallet";
+import Escrow from "../data/models/Escrow";
 import AuditLog from "../data/models/AuditLog";
 import { authenticate, AuthRequest, authorize } from "../middleware/auth";
 import { upload } from "../middleware/upload";
@@ -9,6 +10,8 @@ import { taskSchema } from "../utils/validators";
 import { AppError } from "../middleware/errorHandler";
 import { getPaginationParams } from "../utils/helpers";
 import { sendNotification } from "../services/notification";
+import { calculateDistance } from "../utils/helpers";
+import { PRICING_CONFIG, DEFAULT_COMMISSION_RATE } from "../config/fees.config";
 import { findMatchingRunners } from "../services/matching";
 
 const router = express.Router();
@@ -24,7 +27,7 @@ router.post(
       const { error } = taskSchema.validate(req.body);
       if (error) throw new AppError(error.details[0].message, 400);
 
-      const { title, description, budget, location } = req.body;
+      const { title, description, budget, location, pickupLocation, deliveryLocation } = req.body;
 
       const attachments = (req.files as Express.Multer.File[])?.map((file) => ({
         filename: file.filename,
@@ -35,37 +38,111 @@ router.post(
       }));
 
       // Handle location - accept both string and GeoJSON object
-      let locationData;
-      if (typeof location === 'string') {
-        try {
-          locationData = JSON.parse(location);
-        } catch {
-          // If it's just a plain string address, create a simple object
-          locationData = {
-            type: "Point",
-            coordinates: [0, 0], // Default coordinates
-            address: location
-          };
+      // Parse pickup and delivery locations if passed as strings
+      const parseLoc = (val: any) => {
+        if (!val) return null;
+        if (typeof val === 'string') {
+          try {
+            return JSON.parse(val);
+          } catch {
+            return { type: 'Point', coordinates: [0, 0], address: val };
+          }
         }
-      } else {
-        locationData = location;
+        return val;
+      };
+
+      const pickup = parseLoc(pickupLocation) || parseLoc(location);
+      const delivery = parseLoc(deliveryLocation) || null;
+
+      let estimatedDistanceKm: number | undefined = undefined;
+      let suggestedFee: number | undefined = undefined;
+
+      // Use ZAR pricing config by default
+      const pricing = PRICING_CONFIG.ZAR;
+      if (pickup && delivery && pickup.coordinates && delivery.coordinates) {
+        const dist = calculateDistance([pickup.coordinates[0], pickup.coordinates[1]], [delivery.coordinates[0], delivery.coordinates[1]]);
+        estimatedDistanceKm = Math.round(dist * 100) / 100; // two decimals
+
+        // Calculate suggested fee: booking fee + per-km beyond baseRadius
+        const extraKm = Math.max(0, estimatedDistanceKm - pricing.baseRadiusKm);
+        suggestedFee = Math.round((pricing.bookingFeeLocal + extraKm * pricing.perKmRateLocal) * 100) / 100;
+      }
+
+      // Determine final budget (use provided or suggested)
+      const budgetValue = Number(budget ?? suggestedFee ?? 0) || 0;
+
+      // Ensure client wallet has sufficient balance and hold funds into escrow at creation time
+      let clientWallet = await Wallet.findOne({ user: req.user!._id });
+      if (!clientWallet) clientWallet = await Wallet.create({ user: req.user!._id });
+      if (budgetValue > 0 && clientWallet.balance < budgetValue) {
+        return res.status(400).json({
+          code: "INSUFFICIENT_FUNDS",
+          message: "Insufficient funds to create task. Please top up your wallet.",
+          balance: clientWallet.balance,
+          requiredAmount: Math.max(0, Math.ceil(budgetValue - clientWallet.balance)),
+        });
       }
 
       const task = await Task.create({
         title,
         description,
-        budget,
-        location: locationData,
+        budget: budgetValue,
+        pickupLocation: pickup,
+        deliveryLocation: delivery,
+        estimatedDistanceKm,
+        suggestedFee,
         client: req.user!._id,
         attachments: attachments || [],
+        escrowed: false,
       });
 
       await AuditLog.create({
         action: "TASK_CREATED",
         user: req.user!._id,
         target: task._id,
-        meta: { title, budget },
+        meta: { title, budget: budgetValue },
       });
+
+      // Escrow hold: deduct from client wallet now and create escrow record
+      if (budgetValue > 0) {
+        // Deduct from client wallet
+        clientWallet.balance -= budgetValue;
+        clientWallet.transactions.push({
+          type: "escrow",
+          amount: -budgetValue,
+          reference: task._id.toString(),
+          createdAt: new Date(),
+        });
+        await clientWallet.save();
+
+        // Calculate simple commission (15%) and create escrow doc
+        const commission = Math.round(budgetValue * 0.15 * 100) / 100;
+        const runnersNet = Math.max(0, Math.round((budgetValue - commission) * 100) / 100);
+
+        await Escrow.create({
+          task: task._id,
+          client: req.user!._id,
+          runner: task.runner || undefined,
+          currency: "ZAR",
+          taskPrice: budgetValue,
+          fees: {
+            bookingFee: 0,
+            commission,
+            distanceSurcharge: 0,
+            peakSurcharge: 0,
+            weightSurcharge: 0,
+            urgencySurcharge: 0,
+            total: commission, // tracking admin revenue here for now
+          },
+          totalHeld: budgetValue,
+          runnersNet,
+          status: "held",
+          paymentStatus: "settled",
+        });
+
+        task.escrowed = true;
+        await task.save();
+      }
 
       // Notify matching runners
       const matches = await findMatchingRunners(task._id.toString());
@@ -73,7 +150,7 @@ router.post(
         await sendNotification({
           userId: match.runnerId,
           type: "NEW_TASK",
-          message: `New task available: ${title}`,
+          message: `New task available: ${title} — est. ${task.suggestedFee || task.budget} ZAR (${task.estimatedDistanceKm || 0} km)` ,
         });
       }
 
@@ -176,7 +253,28 @@ router.get("/:id", authenticate, async (req: AuthRequest, res: Response, next) =
 
     if (!task) throw new AppError("Task not found", 404);
 
-    res.json({ task });
+    res.json({ task, commissionRate: DEFAULT_COMMISSION_RATE });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Get escrow details for a task
+router.get("/:id/escrow", authenticate, async (req: AuthRequest, res: Response, next) => {
+  try {
+    const task = await Task.findById(req.params.id);
+    if (!task) throw new AppError("Task not found", 404);
+
+    // Only client or assigned runner may view escrow
+    const isClient = task.client.toString() === req.user!._id.toString();
+    const isRunner = task.runner?.toString() === req.user!._id.toString();
+    if (!isClient && !isRunner) {
+      throw new AppError("Unauthorized", 403);
+    }
+
+    const escrow = await Escrow.findOne({ task: task._id });
+    if (!escrow) return res.status(404).json({ error: "Escrow not found" });
+    res.json({ escrow, commissionRate: DEFAULT_COMMISSION_RATE });
   } catch (err) {
     next(err);
   }
@@ -207,25 +305,9 @@ router.post(
         throw new AppError("Please confirm delivery at the destination for your last task before accepting a new one.", 400);
       }
 
-      // Check client wallet has enough balance
-      const clientWallet = await Wallet.findOne({ user: task.client });
-      if (!clientWallet || clientWallet.balance < task.budget) {
-        throw new AppError("This task cannot be accepted because the client has insufficient funds. The client needs to top up their wallet first.", 400);
-      }
-
-      // Escrow the funds
-      clientWallet.balance -= task.budget;
-      clientWallet.transactions.push({
-        type: "escrow",
-        amount: -task.budget,
-        reference: task._id.toString(),
-        createdAt: new Date(),
-      });
-      await clientWallet.save();
-
       task.status = "accepted";
       task.runner = req.user!._id;
-      task.escrowed = true;
+      // escrow already held on creation
       task.acceptedAt = new Date();
       await task.save();
 
@@ -254,6 +336,108 @@ router.post(
   }
 );
 
+// Start a task (runner begins the errand)
+router.post(
+  "/:id/start",
+  authenticate,
+  authorize("runner"),
+  async (req: AuthRequest, res: Response, next) => {
+    try {
+      const task = await Task.findById(req.params.id);
+      if (!task) throw new AppError("Task not found", 404);
+
+      if (task.runner?.toString() !== req.user!._id.toString()) {
+        throw new AppError("Unauthorized", 403);
+      }
+
+      if (task.status !== "accepted") {
+        throw new AppError("Task must be in accepted state to start", 400);
+      }
+
+      task.status = "in_progress";
+      task.startedAt = new Date();
+      await task.save();
+
+      await AuditLog.create({
+        action: "TASK_STARTED",
+        user: req.user!._id,
+        target: task._id,
+        meta: { taskId: task._id },
+      });
+
+      await sendNotification({
+        userId: task.client.toString(),
+        type: "TASK_STARTED",
+        message: `Runner has started your errand: "${task.title}"`,
+        channel: "realtime",
+      });
+
+      res.json({ message: "Task started successfully", task });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// Check if runner is at destination and update accordingly
+router.post(
+  "/:id/check-arrival",
+  authenticate,
+  authorize("runner"),
+  async (req: AuthRequest, res: Response, next) => {
+    try {
+      const { lat, lon } = req.body;
+      if (!lat || !lon) throw new AppError("Location coordinates required", 400);
+
+      const task = await Task.findById(req.params.id);
+      if (!task) throw new AppError("Task not found", 404);
+
+      if (task.runner?.toString() !== req.user!._id.toString()) {
+        throw new AppError("Unauthorized", 403);
+      }
+
+      if (task.status !== "in_progress") {
+        throw new AppError("Task is not in progress", 400);
+      }
+
+      // Check if there's a delivery location
+      if (!task.deliveryLocation || !task.deliveryLocation.coordinates) {
+        return res.json({ atDestination: false, message: "No delivery location set" });
+      }
+
+      // Calculate distance to destination
+      const destLon = task.deliveryLocation.coordinates[0];
+      const destLat = task.deliveryLocation.coordinates[1];
+      const distance = calculateDistance([parseFloat(lon), parseFloat(lat)], [destLon, destLat]);
+
+      // If within 100 meters (0.1 km), mark as arrived
+      const ARRIVAL_THRESHOLD_KM = 0.1;
+      if (distance <= ARRIVAL_THRESHOLD_KM) {
+        await sendNotification({
+          userId: task.client.toString(),
+          type: "RUNNER_ARRIVED",
+          message: `Runner has arrived at the destination for: "${task.title}"`,
+          channel: "realtime",
+        });
+
+        res.json({ 
+          atDestination: true, 
+          distance, 
+          message: "You have arrived at the destination. Please complete the task." 
+        });
+      } else {
+        res.json({ 
+          atDestination: false, 
+          distance, 
+          message: `${(distance * 1000).toFixed(0)}m to destination` 
+        });
+      }
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
 // Complete a task (runner)
 router.post(
   "/:id/complete",
@@ -268,22 +452,34 @@ router.post(
         throw new AppError("Unauthorized", 403);
       }
 
-      if (task.status !== "accepted") {
-        throw new AppError("Task is not in accepted state", 400);
+      if (task.status !== "in_progress" && task.status !== "accepted") {
+        throw new AppError("Task must be in progress or accepted to complete", 400);
       }
 
-      // Release escrow to runner
+      // Release escrow to runner (minus commission)
       const runnerWallet = await Wallet.findOne({ user: req.user!._id });
       if (!runnerWallet) throw new AppError("Wallet not found", 404);
 
-      runnerWallet.balance += task.budget;
+      // Find escrow for this task
+      const escrow = await Escrow.findOne({ task: task._id });
+      const commission = escrow?.fees?.commission ?? Math.round(task.budget * 0.15 * 100) / 100;
+      const runnersNet = escrow?.runnersNet ?? Math.max(0, Math.round((task.budget - commission) * 100) / 100);
+
+      runnerWallet.balance += runnersNet;
       runnerWallet.transactions.push({
         type: "credit",
-        amount: task.budget,
+        amount: runnersNet,
         reference: task._id.toString(),
         createdAt: new Date(),
       });
       await runnerWallet.save();
+
+      if (escrow) {
+        escrow.status = "released";
+        escrow.releasedAt = new Date();
+        escrow.releaseReason = "task_completed";
+        await escrow.save();
+      }
 
       task.status = "completed";
       task.completedAt = new Date();
@@ -329,8 +525,8 @@ router.post("/:id/cancel", authenticate, async (req: AuthRequest, res: Response,
       throw new AppError("Unauthorized", 403);
     }
 
-    // Refund escrow if task was accepted
-    if (task.escrowed && task.status === "accepted") {
+    // Refund escrow if task was funded and not completed
+    if (task.escrowed && (task.status === "posted" || task.status === "accepted" || task.status === "in_progress")) {
       const clientWallet = await Wallet.findOne({ user: task.client });
       if (clientWallet) {
         clientWallet.balance += task.budget;
@@ -341,6 +537,15 @@ router.post("/:id/cancel", authenticate, async (req: AuthRequest, res: Response,
           createdAt: new Date(),
         });
         await clientWallet.save();
+      }
+
+      // Mark escrow refunded if exists
+      const escrow = await Escrow.findOne({ task: task._id });
+      if (escrow) {
+        escrow.status = "refunded";
+        escrow.refundReason = "task_cancelled";
+        escrow.refundedAt = new Date();
+        await escrow.save();
       }
     }
 

@@ -5,6 +5,7 @@ import { policiesAPI } from '@/lib/policiesApi';
 import Link from 'next/link';
 import { BookOpen, Download, Eye, Archive, Tag, MapPin } from 'lucide-react';
 import toast from 'react-hot-toast';
+import SiteHeader from '@/components/SiteHeader';
 
 interface Policy {
   slug: string;
@@ -60,18 +61,15 @@ export default function PoliciesPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-sky-50 to-white">
-      {/* Header */}
-      <div className="bg-white border-b border-slate-100 sticky top-0 z-40">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-          <div className="flex items-center gap-3 mb-4">
+      <SiteHeader />
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="mb-8">
+          <div className="flex items-center gap-3 mb-2">
             <BookOpen className="h-8 w-8 text-sky-600" />
             <h1 className="text-3xl font-bold text-slate-900">Policies & Legal</h1>
           </div>
           <p className="text-slate-600">Review our policies, terms, and compliance documentation</p>
         </div>
-      </div>
-
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
         {/* Search & Filters */}
         <div className="mb-8 space-y-4">
           <input
