@@ -143,13 +143,13 @@ Commands:
 
 ```powershell
 # Backend (port 5001)
-Push-Location "C:\Users\Dell\OneDrive - Bonakude Consulting PTY LTD\Documents\Coding\Morongwa\backend"; $env:PORT=5001; $env:BACKEND_URL="http://localhost:5001"; npm run dev
+Push-Location "C:\Users\Dell\OneDrive - \Documents\Coding\Morongwa\backend"; $env:PORT=5001; $env:BACKEND_URL="http://localhost:5001"; npm run dev
 
 # Frontend (port 3001)
-Push-Location "C:\Users\Dell\OneDrive - Bonakude Consulting PTY LTD\Documents\Coding\Morongwa\frontend"; $env:PORT=3001; npm run dev
+Push-Location "C:\Users\Dell\OneDrive - \Documents\Coding\Morongwa\frontend"; $env:PORT=3001; npm run dev
 
 # Seed an admin (interactive)
-Push-Location "C:\Users\Dell\OneDrive - Bonakude Consulting PTY LTD\Documents\Coding\Morongwa\backend"; npm run create-admin
+Push-Location "C:\Users\Dell\OneDrive - \Documents\Coding\Morongwa\backend"; npm run create-admin
 ```
 
 - Backend: http://localhost:5001/api
@@ -347,7 +347,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 📞 Support
 
-For support, email support@morongwa.com or create an issue in the repository.
+For support, email tshipla3@gmail.com or create an issue in the repository.
 
 ## 🗺️ Roadmap
 
@@ -379,23 +379,14 @@ For support, email support@morongwa.com or create an issue in the repository.
 
 - **Current Version**: 1.0.0
 - **Status**: Production Ready
-- **Last Updated**: 2024
+- **Last Updated**: 2026
 
 ## 🔗 Links
 
-- **Production**: https://morongwa.vercel.app
+- **Production**: https://http://172.236.187.173:3001/
 - **API Docs**: https://api.morongwa.com/docs
-- **Repository**: https://github.com/yourusername/morongwa
+- **Repository**: https://github.com/ArielMadisha/morongwa
 
 ---
 
-**Made with ❤️ in South Africa**
-
-## Project Audit & Next Steps
-
-We maintain a short audit and continuation plan created after a recent review and hardening session. Review these files for details on implemented changes, test results, and prioritized next steps:
-
-- Repository audit: [DOCS/REPO_AUDIT_SUMMARY.md](DOCS/REPO_AUDIT_SUMMARY.md)
-- Continuation plan: [DOCS/CONTINUATION_PLAN.md](DOCS/CONTINUATION_PLAN.md)
-
-If you contributed changes during the audit session, create a PR from the branch `update-ignore-env` and follow the review checklist in the continuation plan.
+**Made with ❤️ in South Africa by Ariel Madisha**
