@@ -34,9 +34,11 @@ function UsersManagement() {
   const fetchUsers = async () => {
     try {
       const response = await adminAPI.getAllUsers();
-      setUsers(response.data);
+      const list = response.data?.users ?? response.data;
+      setUsers(Array.isArray(list) ? list : []);
     } catch (error) {
       toast.error('Failed to load users');
+      setUsers([]);
     } finally {
       setLoading(false);
     }
@@ -64,10 +66,10 @@ function UsersManagement() {
     }
   };
 
-  const filteredUsers = users.filter(user => {
-    const matchesSearch = user.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         user.email.toLowerCase().includes(searchTerm.toLowerCase());
-    const hasRole = (r: any, v: string) => Array.isArray(r) ? r.includes(v) : r === v;
+  const userList = Array.isArray(users) ? users : [];
+  const filteredUsers = userList.filter(user => {
+    const matchesSearch = (user.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         (user.email || '').toLowerCase().includes(searchTerm.toLowerCase());
     const matchesRole = filterRole === 'all' || hasRole(user.role, filterRole);
     return matchesSearch && matchesRole;
   });

@@ -258,28 +258,52 @@ function ClientDashboard() {
 
   const handleCalculateDistanceAndCostRef = useRef<( () => Promise<void>) | null>(null);
 
-  /** Geocode a single address string via Nominatim; returns first result or null */
+  /** Build fallback queries for Nominatim (same logic as LocationAutocomplete) */
+  const buildGeocodeFallbacks = (raw: string): string[] => {
+    const withSA = raw.includes('South Africa') || raw.includes('SA') || raw.includes('ZA') ? raw : `${raw}, South Africa`;
+    const parts = withSA.split(',').map((p) => p.trim()).filter(Boolean);
+    const fallbacks: string[] = [withSA];
+    const withoutPostal = parts.filter((p) => !/^\d{4}$/.test(p)).join(', ');
+    if (withoutPostal && withoutPostal !== withSA) fallbacks.push(withoutPostal);
+    if (parts.length >= 2) {
+      const suburbCity = parts.slice(-3).join(', ');
+      if (suburbCity && !fallbacks.includes(suburbCity)) fallbacks.push(suburbCity);
+    }
+    if (parts.length >= 1) {
+      const cityOnly = parts[parts.length - 1];
+      if (cityOnly && cityOnly !== 'South Africa') {
+        fallbacks.push(`${cityOnly}, Gauteng, South Africa`);
+        fallbacks.push(`${cityOnly}, South Africa`);
+      }
+    }
+    return fallbacks;
+  };
+
+  /** Geocode a single address string via Nominatim with fallbacks; returns first result or null */
   const geocodeAddress = async (address: string): Promise<{ address: string; lat: string; lon: string } | null> => {
     const raw = address.trim();
     if (raw.length < 2) return null;
-    const query = raw.includes('South Africa') || raw.includes('SA') || raw.includes('ZA')
-      ? raw
-      : `${raw}, South Africa`;
+    const queries = buildGeocodeFallbacks(raw);
+    const opts = { headers: { 'User-Agent': 'MorongwaApp/1.0', Accept: 'application/json' } };
     try {
-      const res = await fetch(
-        `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=5&countrycodes=za`,
-        { headers: { 'User-Agent': 'MorongwaApp/1.0', Accept: 'application/json' } }
-      );
-      if (!res.ok) return null;
-      const data = await res.json();
-      const list = Array.isArray(data) ? data : [];
-      const first = list[0];
-      if (!first || first.lat == null || first.lon == null) return null;
-      return {
-        address: first.display_name || (typeof first.address === 'string' ? first.address : query),
-        lat: String(first.lat),
-        lon: String(first.lon),
-      };
+      for (const q of queries) {
+        const res = await fetch(
+          `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=5&countrycodes=za`,
+          opts
+        );
+        if (!res.ok) continue;
+        const data = await res.json();
+        const list = Array.isArray(data) ? data : [];
+        const first = list[0];
+        if (first?.lat != null && first?.lon != null) {
+          return {
+            address: first.display_name || (typeof first.address === 'string' ? first.address : raw),
+            lat: String(first.lat),
+            lon: String(first.lon),
+          };
+        }
+      }
+      return null;
     } catch {
       return null;
     }

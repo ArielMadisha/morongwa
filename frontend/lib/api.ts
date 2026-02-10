@@ -1,7 +1,7 @@
 // API client configuration with axios
 import axios from 'axios';
 
-export const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001/api';
+export const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api';
 
 export const api = axios.create({
   baseURL: API_URL,
@@ -118,7 +118,25 @@ export const adminAPI = {
   getPayouts: () => api.get('/admin/payouts'),
   getPendingPayouts: () => api.get('/admin/payouts/pending'),
   approvePayout: (id: string) => api.post(`/admin/payouts/${id}/approve`),
-  rejectPayout: (id: string) => api.post(`/admin/payouts/${id}/reject`),
+  rejectPayout: (id: string, reason?: string) =>
+    api.post(`/admin/payouts/${id}/reject`, { reason }),
+
+  // Escrow & ledger
+  getEscrows: (params?: { page?: number; limit?: number; status?: string }) =>
+    api.get('/admin/escrows', { params }),
+  getEscrow: (id: string) => api.get(`/admin/escrows/${id}`),
+  releaseEscrow: (id: string) => api.post(`/admin/escrows/${id}/release`),
+  refundEscrow: (id: string, reason: string) =>
+    api.post(`/admin/escrows/${id}/refund`, { reason }),
+  initiateEscrowPayout: (id: string) => api.post(`/admin/escrows/${id}/initiate-payout`),
+  pollEscrowPayout: (id: string) => api.post(`/admin/escrows/${id}/poll-payout`),
+
+  // FNB
+  getFnbBalance: () => api.get('/admin/fnb/balance'),
+
+  // Audit
+  getAuditLogs: (params?: { page?: number; limit?: number; action?: string }) =>
+    api.get('/admin/audit', { params }),
 };
 
 export const supportAPI = {

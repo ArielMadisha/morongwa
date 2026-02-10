@@ -10,7 +10,8 @@
     "test": "jest",
     "test:functional": "node scripts/smoke.mjs",
     "lint": "eslint src/**/*.ts",
-    "create-admin": "ts-node-dev scripts/createAdmin.ts"
+    "create-admin": "ts-node-dev scripts/createAdmin.ts",
+    "seed-admin": "ts-node-dev scripts/seedAdmin.ts"
   },
   "keywords": [
     "marketplace",

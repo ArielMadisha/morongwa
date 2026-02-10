@@ -24,9 +24,12 @@ export default function PolicyPage() {
     try {
       const response = await policiesAPI.getPolicy(slug);
       setPolicy(response.data.data);
-    } catch (error) {
-      console.error('Failed to load policy:', error);
-      toast.error('Failed to load policy');
+    } catch (error: unknown) {
+      const is404 = typeof error === 'object' && error !== null && 'response' in error && (error as { response?: { status?: number } }).response?.status === 404;
+      if (!is404) {
+        console.error('Failed to load policy:', error);
+        toast.error('Failed to load policy');
+      }
     } finally {
       setLoading(false);
     }

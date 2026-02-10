@@ -16,6 +16,7 @@ import {
   User,
   MessageSquare,
   CheckCircle,
+  Home,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import ProtectedRoute from '@/components/ProtectedRoute';
@@ -155,6 +156,13 @@ function RunnerDashboard() {
             <p className="text-slate-600">Pick up nearby tasks, move fast, stay verified.</p>
           </div>
           <div className="flex flex-wrap gap-3">
+            <Link
+              href="/"
+              className="inline-flex items-center gap-2 rounded-full border border-sky-100 bg-white/80 px-4 py-2 text-sm font-semibold text-slate-800 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+            >
+              <Home className="h-4 w-4 text-sky-600" />
+              Home
+            </Link>
             <Link
               href="/wallet"
               className="inline-flex items-center gap-2 rounded-full border border-sky-100 bg-white/80 px-4 py-2 text-sm font-semibold text-slate-800 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"

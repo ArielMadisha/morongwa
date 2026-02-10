@@ -176,6 +176,8 @@ export default function Home() {
               <ul className="space-y-2 text-sm">
                 <li><Link href="/policies/pricing-fees" className="text-slate-600 hover:text-sky-600">Pricing & Fees</Link></li>
                 <li><Link href="/policies/escrow-payouts" className="text-slate-600 hover:text-sky-600">Escrow & Payouts</Link></li>
+                <li><Link href="/policies/marketplace" className="text-slate-600 hover:text-sky-600">Marketplace</Link></li>
+                <li><Link href="/policies/suppliers-manufacturers" className="text-slate-600 hover:text-sky-600">Suppliers & Manufacturers</Link></li>
                 <li><Link href="/policies/acceptable-use" className="text-slate-600 hover:text-sky-600">Community Guidelines</Link></li>
               </ul>
             </div>

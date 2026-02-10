@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
-import { tasksAPI } from '@/lib/api';
+import { adminAPI } from '@/lib/api';
 import { Task } from '@/lib/types';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -34,19 +34,15 @@ function AdminTasksPage() {
 
   const fetchTasks = async () => {
     try {
-      // Fetch all tasks via the generic tasks endpoint
-      const response = await fetch('/api/tasks', {
-        headers: {
-          Authorization: `Bearer ${localStorage.getItem('token')}`,
-        },
-      });
-      const data = await response.json();
-      setTasks(data.tasks || []);
-      if (data.commissionRate !== undefined) {
-        setCommissionRate(data.commissionRate);
+      const response = await adminAPI.getTasks();
+      const list = response.data?.tasks ?? response.data;
+      setTasks(Array.isArray(list) ? list : []);
+      if (response.data?.commissionRate !== undefined) {
+        setCommissionRate(response.data.commissionRate);
       }
     } catch (error) {
       toast.error('Failed to load tasks');
+      setTasks([]);
     } finally {
       setLoading(false);
     }
@@ -70,7 +66,8 @@ function AdminTasksPage() {
     }
   };
 
-  const filteredTasks = filter === 'all' ? tasks : tasks.filter((t) => t.status === filter);
+  const taskList = Array.isArray(tasks) ? tasks : [];
+  const filteredTasks = filter === 'all' ? taskList : taskList.filter((t) => t.status === filter);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-sky-50 via-white to-sky-100 text-slate-800">
