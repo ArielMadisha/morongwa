@@ -9,9 +9,12 @@ import Escrow from "../data/models/Escrow";
 import Supplier from "../data/models/Supplier";
 import Order from "../data/models/Order";
 import ResellerWall from "../data/models/ResellerWall";
+import Store from "../data/models/Store";
+import Product from "../data/models/Product";
 import { authenticate, AuthRequest, authorize } from "../middleware/auth";
 import { AppError } from "../middleware/errorHandler";
-import { getPaginationParams } from "../utils/helpers";
+import { getPaginationParams, slugify } from "../utils/helpers";
+import { upload } from "../middleware/upload";
 import { sendNotification } from "../services/notification";
 import payoutService from "../services/payoutService";
 import fnbService from "../services/fnbService";
@@ -497,10 +500,41 @@ router.get("/audit", async (req: AuthRequest, res: Response, next) => {
 
 // --- Marketplace / Suppliers / Orders / Reseller ---
 
-// List suppliers (filter by status)
+// List suppliers (filter by status). Ensures admin-created supplier stores have an approved Supplier so they appear here.
 router.get("/suppliers", async (req: AuthRequest, res: Response, next) => {
   try {
     const { page, limit, status } = req.query;
+    // Backfill: any Store type=supplier without supplierId should have an approved Supplier (so dropdown shows them)
+    const storesWithoutSupplier = await Store.find({ type: "supplier", $or: [{ supplierId: { $exists: false } }, { supplierId: null }] })
+      .populate("userId", "name email")
+      .lean();
+    for (const store of storesWithoutSupplier) {
+      const userId = (store.userId as any)?._id ?? store.userId;
+      if (!userId) continue;
+      let supplier = await Supplier.findOne({ userId, status: "approved" });
+      if (!supplier) {
+        const existing = await Supplier.findOne({ userId });
+        if (existing) {
+          existing.status = "approved";
+          existing.storeName = existing.storeName || store.name;
+          existing.reviewedAt = new Date();
+          existing.reviewedBy = req.user!._id;
+          existing.rejectionReason = undefined;
+          await existing.save();
+          supplier = existing;
+        } else {
+          supplier = await Supplier.create({
+            userId,
+            status: "approved",
+            type: "individual",
+            storeName: store.name,
+            reviewedAt: new Date(),
+            reviewedBy: req.user!._id,
+          });
+        }
+      }
+      await Store.updateOne({ _id: store._id }, { supplierId: supplier._id });
+    }
     const { skip, limit: limitNum } = getPaginationParams(
       page ? parseInt(page as string) : undefined,
       limit ? parseInt(limit as string) : undefined
@@ -531,7 +565,7 @@ router.get("/suppliers/:id", async (req: AuthRequest, res: Response, next) => {
   }
 });
 
-// Approve supplier
+// Approve supplier – create supplier store when approved
 router.post("/suppliers/:id/approve", async (req: AuthRequest, res: Response, next) => {
   try {
     const supplier = await Supplier.findById(req.params.id);
@@ -542,13 +576,30 @@ router.post("/suppliers/:id/approve", async (req: AuthRequest, res: Response, ne
     supplier.reviewedBy = req.user!._id;
     supplier.rejectionReason = undefined;
     await supplier.save();
+
+    // Create supplier store for this user if not exists
+    let store = await Store.findOne({ userId: supplier.userId, type: "supplier" });
+    if (!store) {
+      const name = supplier.storeName || "My Store";
+      let slug = slugify(name);
+      let n = 1;
+      while (await Store.findOne({ slug })) slug = `${slugify(name)}-${++n}`;
+      store = await Store.create({
+        userId: supplier.userId,
+        name,
+        slug,
+        type: "supplier",
+        supplierId: supplier._id,
+        createdBy: req.user!._id,
+      });
+    }
     await AuditLog.create({
       action: "SUPPLIER_APPROVED",
       user: req.user!._id,
       target: supplier.userId,
-      meta: { supplierId: supplier._id },
+      meta: { supplierId: supplier._id, storeId: store._id },
     });
-    res.json({ message: "Supplier approved", data: supplier });
+    res.json({ message: "Supplier approved", data: supplier, store });
   } catch (err) {
     next(err);
   }
@@ -615,6 +666,244 @@ router.get("/reseller-stats", async (req: AuthRequest, res: Response, next) => {
       wallsWithProducts,
       totalProductsOnWalls,
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ——— Stores (admin) ———
+
+router.get("/stores", async (req: AuthRequest, res: Response, next) => {
+  try {
+    const { page, limit, type } = req.query;
+    const { skip, limit: limitNum } = getPaginationParams(
+      page ? parseInt(page as string) : undefined,
+      limit ? parseInt(limit as string) : undefined
+    );
+    const query: any = {};
+    if (type) query.type = type as string;
+    const [stores, total] = await Promise.all([
+      Store.find(query).populate("userId", "name email").populate("supplierId", "storeName status").sort({ createdAt: -1 }).skip(skip).limit(limitNum).lean(),
+      Store.countDocuments(query),
+    ]);
+    res.json({
+      stores,
+      pagination: { total, page: Math.floor(skip / limitNum) + 1, limit: limitNum, pages: Math.ceil(total / limitNum) },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post("/stores", async (req: AuthRequest, res: Response, next) => {
+  try {
+    const { userId, name, type } = req.body as { userId: string; name: string; type: "supplier" | "reseller" };
+    if (!userId || !name || !type || !["supplier", "reseller"].includes(type)) {
+      throw new AppError("userId, name, and type (supplier|reseller) are required", 400);
+    }
+    let slug = slugify(name.trim());
+    let n = 1;
+    while (await Store.findOne({ slug })) slug = `${slugify(name.trim())}-${++n}`;
+    const storeData: any = { userId, name: name.trim(), slug, type, createdBy: req.user!._id };
+    if (type === "supplier") {
+      let supplier = await Supplier.findOne({ userId, status: "approved" });
+      if (!supplier) {
+        // Admin-created supplier store: ensure user has an approved Supplier so they appear in product dropdown
+        const existing = await Supplier.findOne({ userId });
+        if (existing) {
+          existing.status = "approved";
+          existing.storeName = existing.storeName || name.trim();
+          existing.reviewedAt = new Date();
+          existing.reviewedBy = req.user!._id;
+          existing.rejectionReason = undefined;
+          await existing.save();
+          supplier = existing;
+        } else {
+          supplier = await Supplier.create({
+            userId,
+            status: "approved",
+            type: "individual",
+            storeName: name.trim(),
+            reviewedAt: new Date(),
+            reviewedBy: req.user!._id,
+          });
+        }
+      }
+      storeData.supplierId = supplier._id;
+    }
+    const store = await Store.create(storeData);
+    await AuditLog.create({ action: "STORE_CREATED_BY_ADMIN", user: req.user!._id, target: store._id, meta: { userId, type } });
+    res.status(201).json({ message: "Store created", data: store });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get("/stores/:id", async (req: AuthRequest, res: Response, next) => {
+  try {
+    const store = await Store.findById(req.params.id).populate("userId", "name email").populate("supplierId", "storeName status").populate("createdBy", "name").lean();
+    if (!store) throw new AppError("Store not found", 404);
+    res.json({ data: store });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.put("/stores/:id", async (req: AuthRequest, res: Response, next) => {
+  try {
+    const { name } = req.body as { name?: string };
+    const store = await Store.findById(req.params.id);
+    if (!store) throw new AppError("Store not found", 404);
+    if (name != null && typeof name === "string" && name.trim()) {
+      let slug = slugify(name.trim());
+      let n = 1;
+      while (await Store.findOne({ slug, _id: { $ne: store._id } })) slug = `${slugify(name.trim())}-${++n}`;
+      store.name = name.trim();
+      store.slug = slug;
+      await store.save();
+    }
+    res.json({ message: "Store updated", data: store });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ——— Products (admin: load products for marketplace) ———
+
+router.post(
+  "/products/upload-images",
+  upload.array("images", 5),
+  async (req: AuthRequest, res: Response, next) => {
+    try {
+      const files = (req as any).files as Express.Multer.File[] | undefined;
+      if (!files?.length) throw new AppError("At least one image is required (max 5).", 400);
+      if (files.length > 5) throw new AppError("Maximum 5 images allowed.", 400);
+      const nonImage = files.find((f) => !f.mimetype?.startsWith("image/"));
+      if (nonImage) throw new AppError("All files must be images (e.g. JPEG, PNG, GIF, WebP).", 400);
+      const baseRaw = process.env.API_URL || `${req.protocol}://${req.get("host")}`;
+      const base = baseRaw.replace(/\/api\/?$/, "").replace(/\/$/, "");
+      const urls = files.map((f) => `${base}/uploads/${f.filename}`);
+      res.status(201).json({ urls });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+router.get("/products", async (req: AuthRequest, res: Response, next) => {
+  try {
+    const { page, limit, supplierId, active } = req.query;
+    const { skip, limit: limitNum } = getPaginationParams(
+      page ? parseInt(page as string) : undefined,
+      limit ? parseInt(limit as string) : undefined
+    );
+    const query: any = {};
+    if (supplierId) query.supplierId = supplierId;
+    if (active !== undefined) query.active = active === "true";
+    const [products, total] = await Promise.all([
+      Product.find(query).populate("supplierId", "storeName status").sort({ createdAt: -1 }).skip(skip).limit(limitNum).lean(),
+      Product.countDocuments(query),
+    ]);
+    res.json({
+      products,
+      pagination: { total, page: Math.floor(skip / limitNum) + 1, limit: limitNum, pages: Math.ceil(total / limitNum) },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post("/products", async (req: AuthRequest, res: Response, next) => {
+  try {
+    const body = req.body as {
+      supplierId: string;
+      title: string;
+      slug?: string;
+      description?: string;
+      images?: string[];
+      price: number;
+      currency?: string;
+      stock?: number;
+      sku?: string;
+      sizes?: string[];
+      allowResell?: boolean;
+      categories?: string[];
+      tags?: string[];
+    };
+    const { supplierId, title, price } = body;
+    if (!supplierId || !title || price == null) throw new AppError("supplierId, title, and price are required", 400);
+    const images = Array.isArray(body.images) ? body.images : [];
+    if (images.length < 1) throw new AppError("At least one product image is required (max 5).", 400);
+    if (images.length > 5) throw new AppError("Maximum 5 product images allowed.", 400);
+    const supplier = await Supplier.findById(supplierId);
+    if (!supplier || supplier.status !== "approved") throw new AppError("Supplier not found or not approved", 400);
+    let slug = (body.slug && body.slug.trim()) || slugify(title);
+    let n = 1;
+    while (await Product.findOne({ slug })) slug = `${slugify(title)}-${++n}`;
+    const product = await Product.create({
+      supplierId,
+      title: title.trim(),
+      slug,
+      description: body.description?.trim(),
+      images,
+      price: Number(price),
+      currency: body.currency || "ZAR",
+      stock: body.stock != null ? Number(body.stock) : 0,
+      sku: body.sku?.trim(),
+      sizes: Array.isArray(body.sizes) ? body.sizes : [],
+      allowResell: body.allowResell != null ? !!body.allowResell : true,
+      categories: Array.isArray(body.categories) ? body.categories : [],
+      tags: Array.isArray(body.tags) ? body.tags : [],
+      active: true,
+    });
+    await AuditLog.create({ action: "PRODUCT_CREATED_BY_ADMIN", user: req.user!._id, target: product._id, meta: { supplierId } });
+    res.status(201).json({ message: "Product created", data: product });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get("/products/:id", async (req: AuthRequest, res: Response, next) => {
+  try {
+    const product = await Product.findById(req.params.id).populate("supplierId", "storeName status").lean();
+    if (!product) throw new AppError("Product not found", 404);
+    res.json({ data: product });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.put("/products/:id", async (req: AuthRequest, res: Response, next) => {
+  try {
+    const product = await Product.findById(req.params.id);
+    if (!product) throw new AppError("Product not found", 404);
+    const body = req.body as Record<string, unknown>;
+    const allowed = ["title", "description", "images", "price", "currency", "stock", "sku", "sizes", "allowResell", "categories", "tags", "active"];
+    for (const key of allowed) {
+      if (body[key] !== undefined) {
+        (product as any)[key] = key === "active" ? !!body[key] : key === "images" && Array.isArray(body[key]) ? body[key] : body[key];
+      }
+    }
+    if (body.title && typeof body.title === "string") {
+      let slug = slugify(body.title);
+      let n = 1;
+      while (await Product.findOne({ slug, _id: { $ne: product._id } })) slug = `${slugify(body.title)}-${++n}`;
+      product.slug = slug;
+    }
+    await product.save();
+    res.json({ message: "Product updated", data: product });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.delete("/products/:id", async (req: AuthRequest, res: Response, next) => {
+  try {
+    const product = await Product.findById(req.params.id);
+    if (!product) throw new AppError("Product not found", 404);
+    await product.deleteOne();
+    await AuditLog.create({ action: "PRODUCT_DELETED_BY_ADMIN", user: req.user!._id, target: product._id, meta: {} });
+    res.json({ message: "Product deleted" });
   } catch (err) {
     next(err);
   }

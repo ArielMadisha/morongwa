@@ -4,7 +4,7 @@ import express, { Application } from "express";
 import http from "http";
 import { Server as SocketServer } from "socket.io";
 import cors from "cors";
-import { connectDB } from "./src/data/db";
+import { connectDB, isDbConnected } from "./src/data/db";
 
 // Load environment variables
 dotenv.config();
@@ -31,6 +31,13 @@ import supportRoutes from "./src/routes/support";
 import analyticsRoutes from "./src/routes/analytics";
 import pricingRoutes from "./src/routes/pricing";
 import policyRoutes from "./src/routes/policies";
+import runnersRoutes from "./src/routes/runners";
+import productsRoutes from "./src/routes/products";
+import suppliersRoutes from "./src/routes/suppliers";
+import cartRoutes from "./src/routes/cart";
+import checkoutRoutes from "./src/routes/checkout";
+import resellerRoutes from "./src/routes/reseller";
+import storesRoutes from "./src/routes/stores";
 import { ensureDefaultPolicies } from "./src/services/policyService";
 import { seedPricingConfig } from "./src/services/pricingConfig";
 
@@ -60,15 +67,28 @@ app.use(validateInput);
 // API rate limiting
 app.use("/api", apiLimiter);
 
+// Return 503 when DB is down so frontend gets a response instead of connection refused
+app.use("/api", (req, res, next) => {
+  if (!isDbConnected()) {
+    return res.status(503).json({
+      error: true,
+      message: "Database unavailable. Check MongoDB and try again.",
+    });
+  }
+  next();
+});
+
 // Static files (uploads)
 app.use("/uploads", express.static("uploads"));
 
-// Health check
+// Health check (always responds so load balancers see the server is up)
 app.get("/health", (req, res) => {
-  res.json({
-    status: "ok",
+  const dbOk = isDbConnected();
+  res.status(dbOk ? 200 : 503).json({
+    status: dbOk ? "ok" : "degraded",
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
+    database: dbOk ? "connected" : "disconnected",
   });
 });
 
@@ -88,6 +108,13 @@ app.use("/api/support", supportRoutes);
 app.use("/api/analytics", analyticsRoutes);
 app.use("/api/pricing", pricingRoutes);
 app.use("/api/policies", policyRoutes);
+app.use("/api/runners", runnersRoutes);
+app.use("/api/products", productsRoutes);
+app.use("/api/suppliers", suppliersRoutes);
+app.use("/api/cart", cartRoutes);
+app.use("/api/checkout", checkoutRoutes);
+app.use("/api/reseller", resellerRoutes);
+app.use("/api/stores", storesRoutes);
 
 // Error handling
 app.use(notFoundHandler);
@@ -101,33 +128,27 @@ const initializeServices = () => {
 };
 
 // Start server
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 4000;
 
 const startServer = async () => {
   try {
-    // Connect to database
     await connectDB();
-
-    // Seed baseline policies (idempotent)
     await ensureDefaultPolicies();
-
-    // Seed pricing configurations (idempotent)
     await seedPricingConfig();
-
-    // Initialize services
-    initializeServices();
-
-    // Start listening
-    server.listen(PORT, () => {
-      logger.info(`🚀 Server running on port ${PORT}`);
-      logger.info(`📝 Environment: ${process.env.NODE_ENV || "development"}`);
-      logger.info(`🔗 API: http://localhost:${PORT}/api`);
-      logger.info(`💬 Socket.IO: http://localhost:${PORT}`);
-    });
   } catch (error) {
-    logger.error("Failed to start server:", error);
-    process.exit(1);
+    logger.error("Database not available (server will start; API will return 503 until DB is up):", error);
   }
+
+  initializeServices();
+  server.listen(PORT, () => {
+    logger.info(`🚀 Server running on port ${PORT}`);
+    logger.info(`📝 Environment: ${process.env.NODE_ENV || "development"}`);
+    logger.info(`🔗 API: http://localhost:${PORT}/api`);
+    logger.info(`💬 Socket.IO: http://localhost:${PORT}`);
+    if (!isDbConnected()) {
+      logger.warn("⚠️ MongoDB not connected. API will return 503 until DB is available.");
+    }
+  });
 };
 
 // Graceful shutdown

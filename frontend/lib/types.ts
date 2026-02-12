@@ -141,6 +141,7 @@ export interface Product {
   price: number;
   currency: string;
   stock: number;
+  sizes?: string[];
   categories: string[];
   tags: string[];
   ratingAvg?: number;

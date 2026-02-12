@@ -6,10 +6,63 @@ import AuditLog from "../data/models/AuditLog";
 import { authenticate, AuthRequest } from "../middleware/auth";
 import { messageSchema } from "../utils/validators";
 import { AppError } from "../middleware/errorHandler";
-import { getPaginationParams } from "../utils/helpers";
 import { getTaskMessages, markMessagesAsRead } from "../services/chat";
 
 const router = express.Router();
+
+// Get conversations (tasks where user can message)
+router.get("/conversations", authenticate, async (req: AuthRequest, res: Response, next) => {
+  try {
+    const userId = req.user!._id.toString();
+    const tasks = await Task.find({
+      $or: [{ client: userId }, { runner: userId }],
+      runner: { $exists: true, $ne: null },
+      status: { $in: ["accepted", "in_progress"] },
+    })
+      .populate("client", "name")
+      .populate("runner", "name")
+      .sort({ updatedAt: -1 })
+      .lean();
+
+    const convos: any[] = [];
+    for (const t of tasks) {
+      const task = t as any;
+      const runnerId = task.runner?._id?.toString?.() ?? task.runner?.toString?.();
+      const clientId = task.client?._id?.toString?.() ?? task.client?.toString?.();
+      if (!runnerId) continue; // need a runner to message
+
+      const otherUser = userId === clientId ? task.runner : task.client;
+      const otherName = otherUser?.name ?? "Unknown";
+
+      const lastMsg = await Message.findOne({ task: task._id })
+        .sort({ createdAt: -1 })
+        .lean();
+      const unread = await Message.countDocuments({
+        task: task._id,
+        receiver: userId,
+        read: false,
+      });
+
+      convos.push({
+        _id: task._id.toString(),
+        taskId: task._id.toString(),
+        taskTitle: task.title,
+        user: {
+          _id: otherUser?._id?.toString?.() ?? otherUser,
+          name: otherName,
+          role: userId === clientId ? "runner" : "client",
+        },
+        lastMessage: lastMsg?.content ?? null,
+        lastMessageTime: lastMsg?.createdAt ?? task.updatedAt ?? task.createdAt,
+        unread,
+      });
+    }
+
+    res.json({ conversations: convos });
+  } catch (err) {
+    next(err);
+  }
+});
 
 // Get messages for a task
 router.get("/task/:taskId", authenticate, async (req: AuthRequest, res: Response, next) => {

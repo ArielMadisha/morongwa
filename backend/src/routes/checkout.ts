@@ -3,16 +3,26 @@ import Cart from "../data/models/Cart";
 import Order from "../data/models/Order";
 import Product from "../data/models/Product";
 import Supplier from "../data/models/Supplier";
+import ResellerWall from "../data/models/ResellerWall";
 import Wallet from "../data/models/Wallet";
 import Payment from "../data/models/Payment";
 import { authenticate, AuthRequest } from "../middleware/auth";
 import { AppError } from "../middleware/errorHandler";
 import { initiatePayment } from "../services/payment";
+import { ADMIN_PRODUCT_COMMISSION_PCT } from "../config/fees.config";
 
 const router = express.Router();
 
 const PLATFORM_FEE_PCT = parseFloat(process.env.PLATFORM_FEE_PCT || "2.5");
 const DEFAULT_SHIPPING = 100; // flat ZAR
+
+// Get reseller commission for a product from wall (3-7%)
+async function getResellerCommissionPct(resellerId: string, productId: string): Promise<number | null> {
+  const wall = await ResellerWall.findOne({ resellerId });
+  if (!wall) return null;
+  const wp = (wall.products as any[]).find((p) => (p.productId as any).toString() === productId);
+  return wp?.resellerCommissionPct ?? null;
+}
 
 // Get checkout quote from current cart
 router.post("/quote", authenticate, async (req: AuthRequest, res: Response, next) => {
@@ -28,30 +38,49 @@ router.post("/quote", authenticate, async (req: AuthRequest, res: Response, next
 
     let subtotal = 0;
     let commissionTotal = 0;
+    const breakdown: Array<{ productId: string; originalPrice: number; sellingPrice: number; adminCommission: number; resellerCommission?: number }> = [];
 
     for (const item of cart.items) {
       const product = productMap.get((item.productId as any).toString());
       if (!product) continue;
-      const linePrice = (product as any).price * item.qty;
-      subtotal += linePrice;
-      if (item.resellerId && (product as any).allowResell && (product as any).commissionPct) {
-        commissionTotal += (linePrice * (product as any).commissionPct) / 100;
+      const origPrice = (product as any).price;
+      let sellingPrice = origPrice;
+      let resellerCommissionPct: number | null = null;
+      if (item.resellerId && (product as any).allowResell) {
+        resellerCommissionPct = await getResellerCommissionPct((item.resellerId as any).toString(), (item.productId as any).toString());
+        if (resellerCommissionPct != null) {
+          sellingPrice = Math.round(origPrice * (1 + resellerCommissionPct / 100) * 100) / 100;
+          commissionTotal += (origPrice * resellerCommissionPct) / 100 * item.qty;
+        }
       }
+      const linePrice = sellingPrice * item.qty;
+      subtotal += linePrice;
+      const adminCommission = (origPrice * item.qty * ADMIN_PRODUCT_COMMISSION_PCT);
+      breakdown.push({
+        productId: (product as any)._id.toString(),
+        originalPrice: origPrice,
+        sellingPrice,
+        adminCommission,
+        resellerCommission: resellerCommissionPct != null ? (origPrice * resellerCommissionPct) / 100 : undefined,
+      });
     }
 
     const shipping = DEFAULT_SHIPPING;
     const platformFee = (subtotal * PLATFORM_FEE_PCT) / 100;
     const total = subtotal + shipping + platformFee;
+    const adminCommissionTotal = breakdown.reduce((s, b) => s + b.adminCommission, 0);
 
     res.json({
       data: {
         subtotal,
         shipping,
         commissionTotal,
+        adminCommissionTotal,
         platformFee,
         total,
         currency: "ZAR",
         itemCount: cart.items.length,
+        paymentBreakdown: breakdown,
       },
     });
   } catch (err) {
@@ -97,12 +126,21 @@ router.post("/pay", authenticate, async (req: AuthRequest, res: Response, next) 
         throw new AppError(`Insufficient stock for ${(product as any).title}`, 400);
       }
       if (!supplierId) supplierId = (product as any).supplierId?._id ?? (product as any).supplierId;
-      const price = (product as any).price;
+      let price = (product as any).price;
+      let commissionPct: number | undefined;
+      if (item.resellerId && (product as any).allowResell) {
+        const pct = await getResellerCommissionPct((item.resellerId as any).toString(), (item.productId as any).toString());
+        if (pct != null) {
+          commissionPct = pct;
+          price = Math.round(price * (1 + pct / 100) * 100) / 100;
+        }
+      }
       const lineTotal = price * item.qty;
       subtotal += lineTotal;
       let commissionValue = 0;
-      if (item.resellerId && (product as any).allowResell && (product as any).commissionPct) {
-        commissionValue = (lineTotal * (product as any).commissionPct) / 100;
+      if (commissionPct != null) {
+        const origPrice = (product as any).price;
+        commissionValue = (origPrice * item.qty * commissionPct) / 100;
         commissionTotal += commissionValue;
       }
       orderItems.push({
@@ -110,7 +148,7 @@ router.post("/pay", authenticate, async (req: AuthRequest, res: Response, next) 
         qty: item.qty,
         price,
         resellerId: item.resellerId,
-        commissionPct: (product as any).commissionPct,
+        commissionPct,
         commissionValue,
       });
     }

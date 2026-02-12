@@ -2,9 +2,9 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import {
-  ArrowLeft,
   ArrowUpRight,
   ArrowDownLeft,
   DollarSign,
@@ -16,9 +16,20 @@ import {
 import { useAuth } from '@/contexts/AuthContext';
 import ProtectedRoute from '@/components/ProtectedRoute';
 import { walletAPI } from '@/lib/api';
+import { useCartAndStores } from '@/lib/useCartAndStores';
+import { AppSidebar, AppSidebarMenuButton } from '@/components/AppSidebar';
+import { ProfileDropdown } from '@/components/ProfileDropdown';
 
 function WalletDashboard() {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
+  const router = useRouter();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const { cartCount, hasStore } = useCartAndStores(!!user);
+
+  const handleLogout = () => {
+    logout();
+    router.push('/');
+  };
   const [balance, setBalance] = useState(0);
   const [transactions, setTransactions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -93,35 +104,38 @@ function WalletDashboard() {
     }
   };
 
-  if (loading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-sky-50 via-white to-sky-100">
-        <Loader2 className="h-8 w-8 animate-spin text-sky-600" />
-      </div>
-    );
-  }
-
   return (
-    <ProtectedRoute>
-      <div className="min-h-screen bg-gradient-to-br from-sky-50 via-white to-sky-100 text-slate-800">
-        <header className="border-b border-white/60 bg-white/70 backdrop-blur">
-          <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-6">
-            <div>
-              <p className="text-xs uppercase tracking-[0.35em] text-sky-600">Morongwa</p>
-              <h1 className="mt-1 text-3xl font-semibold text-slate-900">Your wallet</h1>
-              <p className="mt-1 text-sm text-slate-600">Manage funds, top up, withdraw securely.</p>
+    <div className="min-h-screen bg-gradient-to-br from-sky-50 via-blue-50 to-white text-slate-900 flex">
+      <AppSidebar
+        variant="wall"
+        userName={user?.name}
+        cartCount={cartCount}
+        hasStore={hasStore}
+        onLogout={handleLogout}
+        menuOpen={menuOpen}
+        setMenuOpen={setMenuOpen}
+      />
+      <div className="flex-1 flex flex-col min-w-0 overflow-visible">
+        <header className="bg-white/85 backdrop-blur-md border-b border-slate-100 shadow-sm flex-shrink-0 overflow-visible">
+          <div className="px-4 sm:px-6 lg:px-8 py-4">
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex items-center gap-3 min-w-0">
+                <AppSidebarMenuButton onClick={() => setMenuOpen(true)} />
+                <p className="text-sm text-slate-600 truncate">Welcome back, {user?.name}</p>
+              </div>
+              <div className="shrink-0">
+                <ProfileDropdown userName={user?.name} onLogout={handleLogout} />
+              </div>
             </div>
-            <Link
-              href={user?.role?.includes('runner') ? '/dashboard/runner' : user?.role?.includes('client') ? '/dashboard/client' : '/dashboard'}
-              className="inline-flex items-center gap-2 rounded-full border border-sky-100 bg-white/80 px-4 py-2 text-sm font-semibold text-slate-800 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
-            >
-              <ArrowLeft className="h-4 w-4" />
-              Back
-            </Link>
           </div>
         </header>
-
-        <main className="mx-auto max-w-6xl px-6 py-8">
+        <div className="flex-1 flex gap-6 pt-6 min-h-0 overflow-auto">
+          <main className="flex-1 min-w-0 max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+          {loading ? (
+            <div className="flex min-h-[400px] items-center justify-center">
+              <Loader2 className="h-8 w-8 animate-spin text-sky-600" />
+            </div>
+          ) : (
           <div className="grid gap-6 lg:grid-cols-3">
             <div className="lg:col-span-2 space-y-6">
               <div className="rounded-2xl border border-white/60 bg-gradient-to-br from-sky-500 via-cyan-500 to-teal-500 p-8 text-white shadow-xl shadow-sky-200">
@@ -248,10 +262,21 @@ function WalletDashboard() {
               </div>
             </div>
           </div>
-        </main>
+          )}
+          </main>
+          <aside className="hidden lg:block w-56 xl:w-64 shrink-0 pr-4 lg:pr-6 pt-8">
+            <div className="sticky top-24 h-48 rounded-xl border border-dashed border-slate-200 bg-slate-50/50" aria-hidden="true" />
+          </aside>
+        </div>
       </div>
-    </ProtectedRoute>
+    </div>
   );
 }
 
-export default WalletDashboard;
+export default function WalletPage() {
+  return (
+    <ProtectedRoute>
+      <WalletDashboard />
+    </ProtectedRoute>
+  );
+}

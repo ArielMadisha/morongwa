@@ -2,8 +2,27 @@ import express, { Response } from "express";
 import Supplier from "../data/models/Supplier";
 import { authenticate, AuthRequest } from "../middleware/auth";
 import { AppError } from "../middleware/errorHandler";
+import { upload } from "../middleware/upload";
 
 const router = express.Router();
+
+// Upload a document (ID, form, etc.) for supplier application – auth required
+router.post("/upload-document", authenticate, upload.single("document"), async (req: AuthRequest, res: Response, next) => {
+  try {
+    if (!req.file) {
+      throw new AppError("No file uploaded. Please select a document (PDF, image).", 400);
+    }
+    const base = process.env.API_BASE_URL || `${req.protocol}://${req.get("host")}`;
+    const path = `${base.replace(/\/$/, "")}/uploads/${req.file.filename}`;
+    res.json({
+      success: true,
+      path: `/uploads/${req.file.filename}`,
+      fullUrl: path,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
 
 // Apply to become a supplier (seller/manufacturer) – auth required
 router.post("/apply", authenticate, async (req: AuthRequest, res: Response, next) => {

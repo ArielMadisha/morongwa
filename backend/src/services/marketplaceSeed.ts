@@ -2,7 +2,9 @@ import mongoose from "mongoose";
 import User from "../data/models/User";
 import Supplier from "../data/models/Supplier";
 import Product from "../data/models/Product";
+import Store from "../data/models/Store";
 import { logger } from "./monitoring";
+import { slugify } from "../utils/helpers";
 
 const SAMPLE_PRODUCTS = [
   { title: "Organic Honey 500g", slug: "organic-honey-500g", price: 89.99, category: "Food", tags: ["organic", "local"] },
@@ -44,6 +46,22 @@ export async function ensureDefaultProducts(): Promise<void> {
     supplier = await Supplier.findOne({ status: "approved" }).lean();
     if (!supplier) return;
     logger.info("Created demo supplier for marketplace seed.");
+    // Create supplier store for demo supplier
+    const existingStore = await Store.findOne({ userId: (supplier as any).userId, type: "supplier" });
+    if (!existingStore) {
+      const name = (supplier as any).storeName || "Morongwa Demo Store";
+      let slug = slugify(name);
+      let n = 1;
+      while (await Store.findOne({ slug })) slug = `${slugify(name)}-${++n}`;
+      await Store.create({
+        userId: (supplier as any).userId,
+        name,
+        slug,
+        type: "supplier",
+        supplierId: (supplier as any)._id,
+      });
+      logger.info("Created demo supplier store.");
+    }
   }
 
   const supplierId = supplier._id as mongoose.Types.ObjectId;
@@ -60,7 +78,6 @@ export async function ensureDefaultProducts(): Promise<void> {
         currency: "ZAR",
         stock: 50,
         allowResell: true,
-        commissionPct: 5,
         categories: [p.category],
         tags: p.tags,
         ratingAvg: 4.5,

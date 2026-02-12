@@ -37,6 +37,7 @@ import suppliersRoutes from "./routes/suppliers";
 import cartRoutes from "./routes/cart";
 import checkoutRoutes from "./routes/checkout";
 import resellerRoutes from "./routes/reseller";
+import storesRoutes from "./routes/stores";
 import { ensureDefaultPolicies } from "./services/policyService";
 import { ensureDefaultProducts } from "./services/marketplaceSeed";
 
@@ -100,6 +101,7 @@ app.use("/api/suppliers", suppliersRoutes);
 app.use("/api/cart", cartRoutes);
 app.use("/api/checkout", checkoutRoutes);
 app.use("/api/reseller", resellerRoutes);
+app.use("/api/stores", storesRoutes);
 
 // Error handling
 app.use(notFoundHandler);

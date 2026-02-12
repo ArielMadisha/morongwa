@@ -178,7 +178,7 @@ function TaskDetailPage() {
         </header>
 
         <main className="mx-auto max-w-4xl px-6 py-8">
-          <div className="grid gap-6 lg:grid-cols-3">
+          <div className="grid gap-6 lg:grid-cols-3" data-task-layout>
             <div className="lg:col-span-2 space-y-6">
               <div className="rounded-2xl border border-white/60 bg-white/80 p-6 shadow-xl shadow-sky-50 backdrop-blur">
                 <div className="mb-6">
@@ -345,6 +345,7 @@ function TaskDetailPage() {
                   <p className="text-sm text-slate-600">No escrow information available.</p>
                 )}
               </div>
+              <div className="rounded-2xl border border-white/60 bg-white/80 p-6 shadow-xl shadow-sky-50 backdrop-blur">
                 <div className="flex items-center gap-3 mb-4">
                   <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-sky-100 text-sky-600">
                     <Clock className="h-5 w-5" />
@@ -365,7 +366,6 @@ function TaskDetailPage() {
                   </li>
                 </ul>
               </div>
-
               <div className="rounded-2xl border border-white/60 bg-gradient-to-br from-sky-500 via-cyan-500 to-teal-500 p-6 text-white shadow-xl shadow-sky-200">
                 <p className="text-xs uppercase tracking-[0.25em]">Need help?</p>
                 <h3 className="mt-2 text-lg font-semibold">Contact support</h3>

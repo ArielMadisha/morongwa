@@ -51,6 +51,16 @@ export const sanitizeInput = (input: string): string => {
   return input.replace(/<script[^>]*>.*?<\/script>/gi, "").trim();
 };
 
+/** Create URL-safe slug from name; optional suffix for uniqueness */
+export function slugify(name: string, suffix?: string): string {
+  const base = name
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, "-")
+    .replace(/[^a-z0-9-]/g, "");
+  return suffix ? `${base}-${suffix}` : base || "store";
+}
+
 export const paginationDefaults = {
   limit: 20,
   page: 1,

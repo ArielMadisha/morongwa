@@ -2,10 +2,12 @@ import Link from 'next/link';
 import { ArrowRight, Package, UserCircle, Shield, MessageSquare, Sparkles } from 'lucide-react';
 import SiteHeader from '@/components/SiteHeader';
 import LandingMarketplaceCard from '@/components/LandingMarketplaceCard';
+import { AuthRedirectToWall } from '@/components/AuthRedirectToWall';
 
 export default function Home() {
   return (
     <div className="relative min-h-screen overflow-hidden bg-gradient-to-br from-sky-50 via-blue-50 to-white text-slate-900">
+      <AuthRedirectToWall />
       <div className="pointer-events-none absolute inset-0">
         <div className="absolute -left-20 -top-24 h-96 w-96 rounded-full bg-gradient-to-br from-sky-200/60 to-blue-300/35 blur-3xl" />
         <div className="absolute right-[-10rem] top-12 h-[28rem] w-[28rem] rounded-full bg-gradient-to-tr from-cyan-200/60 via-blue-200/45 to-indigo-200/50 blur-3xl" />
@@ -56,6 +58,12 @@ export default function Home() {
                 Escrow-secured payouts
               </div>
             </div>
+            <p className="text-sm text-slate-500 pt-2">
+              Already have an account?{' '}
+              <Link href="/login?role=client" className="font-medium text-blue-600 hover:text-blue-500">Sign in as Client</Link>
+              {' · '}
+              <Link href="/login?role=runner" className="font-medium text-emerald-600 hover:text-emerald-500">Sign in as Runner</Link>
+            </p>
           </div>
 
           <LandingMarketplaceCard />
