@@ -130,3 +130,20 @@ export interface AdminStats {
   pendingPayments: number;
   totalRevenue: number;
 }
+
+export interface Product {
+  _id: string;
+  supplierId: { _id: string; storeName?: string } | string;
+  title: string;
+  slug: string;
+  description?: string;
+  images: string[];
+  price: number;
+  currency: string;
+  stock: number;
+  sizes?: string[];
+  categories: string[];
+  tags: string[];
+  ratingAvg?: number;
+  ratingCount?: number;
+}

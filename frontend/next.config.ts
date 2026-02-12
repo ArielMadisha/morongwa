@@ -1,7 +1,12 @@
 import type { NextConfig } from "next";
 
+const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace(/\/api\/?$/, '') || 'http://localhost:4000';
+
 const nextConfig: NextConfig = {
   /* config options here */
+  async rewrites() {
+    return [{ source: '/uploads/:path*', destination: `${apiBase}/uploads/:path*` }];
+  },
   turbopack: {
     root: __dirname,
   },
@@ -20,7 +25,7 @@ const nextConfig: NextConfig = {
           headers: [
             {
               key: "Content-Security-Policy",
-              value: "script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' http://localhost:* https: blob:; style-src 'self' 'unsafe-inline' https:; img-src 'self' data: https: blob:; font-src 'self' data: https:; connect-src 'self' http://localhost:* https: ws: wss:; frame-src 'self' https:;",
+              value: "script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' http://localhost:* https: blob:; style-src 'self' 'unsafe-inline' https:; img-src 'self' data: https: http://localhost:* blob:; font-src 'self' data: https:; connect-src 'self' http://localhost:* https: ws: wss:; frame-src 'self' https:;",
             },
           ],
         },

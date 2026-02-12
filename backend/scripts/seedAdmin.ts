@@ -13,6 +13,10 @@ import bcrypt from "bcryptjs";
 import User from "../src/data/models/User";
 import Wallet from "../src/data/models/Wallet";
 
+// Prefer env so secrets are never committed. Local fallback for dev only.
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "admin@morongwa.com";
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "081276@Am";
+const ADMIN_NAME = process.env.ADMIN_NAME ?? "Admin";
 const ADMIN_EMAIL = "admin@morongwa.com";
 const ADMIN_PASSWORD = "";
 const ADMIN_NAME = "Admin";
@@ -60,7 +64,7 @@ async function seedAdmin() {
 
     console.log("\nAdmin login:");
     console.log("  Email:", ADMIN_EMAIL);
-    console.log("  Password:", ADMIN_PASSWORD);
+    console.log("  Password: (from ADMIN_PASSWORD in .env or default local)");
     console.log("\nSign in at: http://localhost:3001/admin");
     process.exit(0);
   } catch (err) {

@@ -95,8 +95,11 @@ export const PRICING_CONFIG: Record<Country, CountryConfig> = {
   },
 };
 
-// Default platform commission rate (15%)
+// Default platform commission rate (15%) for tasks
 export const DEFAULT_COMMISSION_RATE = 0.15;
+
+// Admin/product commission: Manufacturer/Supplier pays 7.5% on successful sale
+export const ADMIN_PRODUCT_COMMISSION_PCT = 0.075;
 
 // Enterprise subscription (monthly fee per country)
 export const ENTERPRISE_FEE_ZAR = 750;

@@ -11,26 +11,35 @@ import {
   MapPin,
   Calendar,
   Loader2,
-  LogOut,
-  Wallet,
-  User,
-  MessageSquare,
   CheckCircle,
-  Home,
+  ShoppingCart,
+  Store,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import ProtectedRoute from '@/components/ProtectedRoute';
-import { tasksAPI } from '@/lib/api';
+import { AppSidebar, AppSidebarMenuButton } from '@/components/AppSidebar';
+import { ProfileDropdown } from '@/components/ProfileDropdown';
+import { tasksAPI, productsAPI, getImageUrl } from '@/lib/api';
+import { useCartAndStores } from '@/lib/useCartAndStores';
 import { Task } from '@/lib/types';
+import type { Product } from '@/lib/types';
 
 function RunnerDashboard() {
   const { user, logout } = useAuth();
   const router = useRouter();
+  const [menuOpen, setMenuOpen] = useState(false);
   const [availableTasks, setAvailableTasks] = useState<Task[]>([]);
   const [myTasks, setMyTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'available' | 'my-tasks'>('available');
-  const [commissionRate, setCommissionRate] = useState<number>(0.15); // Default fallback
+  const [activeTab, setActiveTab] = useState<'available' | 'my-tasks' | 'products'>('available');
+  const [products, setProducts] = useState<Product[]>([]);
+  const [commissionRate, setCommissionRate] = useState<number>(0.15);
+  const { cartCount, hasStore } = useCartAndStores(!!user);
+
+  const handleLogout = () => {
+    logout();
+    router.push('/');
+  };
 
   const activeCount = useMemo(
     () => myTasks.filter((t) => t.status === 'accepted' || t.status === 'in_progress').length,
@@ -43,6 +52,16 @@ function RunnerDashboard() {
 
   useEffect(() => {
     fetchTasks();
+  }, []);
+
+  useEffect(() => {
+    productsAPI
+      .list({ limit: 12, random: true })
+      .then((res) => {
+        const raw = res.data?.data ?? res.data ?? [];
+        setProducts(Array.isArray(raw) ? raw : (raw as any)?.products ?? []);
+      })
+      .catch(() => setProducts([]));
   }, []);
 
   const fetchTasks = async () => {
@@ -137,65 +156,37 @@ function RunnerDashboard() {
     }
   };
 
-  const handleLogout = () => {
-    logout();
-    router.push('/');
-  };
-
   return (
-    <div className="min-h-screen bg-gradient-to-br from-sky-50 via-white to-sky-100 text-slate-800">
-      <header className="border-b border-white/60 bg-white/70 backdrop-blur">
-        <div className="mx-auto flex max-w-6xl flex-col gap-4 px-6 py-6 md:flex-row md:items-center md:justify-between">
-          <div>
-            <p className="text-xs uppercase tracking-[0.35em] text-sky-600">Morongwa</p>
-            <div className="mt-1 flex items-center gap-2 text-sm text-slate-500">
-              <Package className="h-4 w-4 text-sky-500" />
-              <span>Runner cockpit</span>
-            </div>
-            <h1 className="mt-1 text-3xl font-semibold text-slate-900">Welcome back, {user?.name}</h1>
-            <p className="text-slate-600">Pick up nearby tasks, move fast, stay verified.</p>
-          </div>
-          <div className="flex flex-wrap gap-3">
-            <Link
-              href="/"
-              className="inline-flex items-center gap-2 rounded-full border border-sky-100 bg-white/80 px-4 py-2 text-sm font-semibold text-slate-800 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
-            >
-              <Home className="h-4 w-4 text-sky-600" />
-              Home
-            </Link>
-            <Link
-              href="/wallet"
-              className="inline-flex items-center gap-2 rounded-full border border-sky-100 bg-white/80 px-4 py-2 text-sm font-semibold text-slate-800 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
-            >
-              <Wallet className="h-4 w-4 text-sky-600" />
-              Wallet
-            </Link>
-            <Link
-              href="/profile"
-              className="inline-flex items-center gap-2 rounded-full border border-sky-100 bg-white/80 px-4 py-2 text-sm font-semibold text-slate-800 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
-            >
-              <User className="h-4 w-4 text-sky-600" />
-              Profile
-            </Link>
-            <Link
-              href="/messages"
-              className="inline-flex items-center gap-2 rounded-full border border-sky-100 bg-white/80 px-4 py-2 text-sm font-semibold text-slate-800 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
-            >
-              <MessageSquare className="h-4 w-4 text-sky-600" />
-              Messages
-            </Link>
-            <button
-              onClick={handleLogout}
-              className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-sky-500 via-cyan-500 to-teal-500 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-sky-200 transition hover:scale-[1.01]"
-            >
-              <LogOut className="h-4 w-4" />
-              Logout
-            </button>
-          </div>
-        </div>
-      </header>
+    <div className="min-h-screen bg-gradient-to-br from-sky-50 via-blue-50 to-white text-slate-900 flex">
+      <AppSidebar
+        variant="runner"
+        userName={user?.name}
+        cartCount={cartCount}
+        hasStore={hasStore}
+        onLogout={handleLogout}
+        menuOpen={menuOpen}
+        setMenuOpen={setMenuOpen}
+      />
 
-      <main className="mx-auto max-w-6xl px-6 py-8">
+      <div className="flex-1 flex flex-col min-w-0 overflow-visible">
+        <header className="bg-white/85 backdrop-blur-md border-b border-slate-100 shadow-sm flex-shrink-0 overflow-visible">
+          <div className="px-4 sm:px-6 lg:px-8 py-4">
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex items-center gap-3 min-w-0">
+                <AppSidebarMenuButton onClick={() => setMenuOpen(true)} />
+                <div className="min-w-0">
+                  <p className="text-sm text-slate-600 truncate">Welcome back, {user?.name}</p>
+                </div>
+              </div>
+              <div className="shrink-0">
+                <ProfileDropdown userName={user?.name} onLogout={handleLogout} />
+              </div>
+            </div>
+          </div>
+        </header>
+
+        <div className="flex-1 flex gap-6 pt-6 min-h-0">
+      <main className="flex-1 min-w-0 max-w-6xl w-full mx-auto px-4 sm:px-6 lg:px-8">
         <div className="grid gap-4 md:grid-cols-3">
           {[{
             label: 'Available tasks',
@@ -234,7 +225,7 @@ function RunnerDashboard() {
               <span className="rounded-full bg-sky-100 px-3 py-1 text-xs font-semibold text-sky-700">Live feed</span>
               <p className="text-sm text-slate-600">Pick a task and move.</p>
             </div>
-            <div className="flex gap-2 text-sm font-semibold">
+            <div className="flex gap-2 text-sm font-semibold flex-wrap">
               <button
                 onClick={() => setActiveTab('available')}
                 className={`rounded-full px-4 py-2 transition ${
@@ -254,6 +245,16 @@ function RunnerDashboard() {
                 }`}
               >
                 My tasks ({myTasks.length})
+              </button>
+              <button
+                onClick={() => setActiveTab('products')}
+                className={`rounded-full px-4 py-2 transition ${
+                  activeTab === 'products'
+                    ? 'bg-sky-600 text-white shadow-md shadow-sky-200'
+                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                }`}
+              >
+                Products ({products.length})
               </button>
             </div>
           </div>
@@ -318,6 +319,41 @@ function RunnerDashboard() {
                       </button>
                     </div>
                   </div>
+                ))}
+              </div>
+            )
+          ) : activeTab === 'products' ? (
+            products.length === 0 ? (
+              <div className="py-12 text-center text-slate-600">
+                <Package className="mx-auto h-12 w-12 text-slate-300" />
+                <p className="mt-3 text-lg font-semibold text-slate-900">No products yet</p>
+                <p className="text-sm">Products from the marketplace will show here.</p>
+                <Link href="/marketplace" className="mt-4 inline-block text-sky-600 hover:text-sky-700 font-medium">
+                  Browse marketplace
+                </Link>
+              </div>
+            ) : (
+              <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {products.map((p) => (
+                  <Link
+                    key={p._id}
+                    href={`/marketplace/product/${p._id}`}
+                    className="rounded-2xl border border-slate-100 bg-white/90 overflow-hidden shadow hover:-translate-y-1 hover:shadow-lg transition"
+                  >
+                    <div className="aspect-square bg-slate-100 flex items-center justify-center">
+                      {p.images?.[0] ? (
+                        <img src={getImageUrl(p.images[0])} alt={p.title} className="w-full h-full object-cover" />
+                      ) : (
+                        <Package className="h-12 w-12 text-slate-300" />
+                      )}
+                    </div>
+                    <div className="p-4">
+                      <h3 className="font-semibold text-slate-900 line-clamp-2">{p.title}</h3>
+                      <p className="mt-1 font-bold text-slate-900">
+                        {new Intl.NumberFormat('en-ZA', { style: 'currency', currency: p.currency || 'ZAR' }).format(p.price)}
+                      </p>
+                    </div>
+                  </Link>
                 ))}
               </div>
             )
@@ -410,6 +446,13 @@ function RunnerDashboard() {
           )}
         </div>
       </main>
+
+          {/* Area 2: Reserved space - well below profile so dropdown displays properly */}
+          <aside className="hidden lg:block w-56 xl:w-64 shrink-0 pr-4 lg:pr-6 pt-8">
+            <div className="sticky top-24 h-48 rounded-xl border border-dashed border-slate-200 bg-slate-50/50" aria-hidden="true" />
+          </aside>
+        </div>
+      </div>
     </div>
   );
 }

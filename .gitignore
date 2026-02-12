@@ -8,9 +8,10 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
-# Env files
+# Env files (never commit secrets)
 .env
 .env.*
+!.env.example
 backend/.env
 frontend/.env
 .env.local

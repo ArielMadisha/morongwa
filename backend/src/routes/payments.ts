@@ -3,6 +3,7 @@ import express, { Request, Response } from "express";
 import Payment from "../data/models/Payment";
 import Wallet from "../data/models/Wallet";
 import Transaction from "../data/models/Transaction";
+import Order from "../data/models/Order";
 import AuditLog from "../data/models/AuditLog";
 import Escrow from "../data/models/Escrow";
 import LedgerEntry from "../data/models/LedgerEntry";
@@ -81,29 +82,40 @@ router.post("/webhook", async (req: Request, res: Response, next) => {
     await payment.save();
 
     if (result.status === "successful") {
-      // Credit wallet
-      let wallet = await Wallet.findOne({ user: payment.user });
-      if (!wallet) {
-        wallet = await Wallet.create({ user: payment.user });
+      if (payment.reference.startsWith("ORDER-")) {
+        const orderId = payment.reference.replace("ORDER-", "");
+        const order = await Order.findById(orderId);
+        if (order && order.status === "pending_payment") {
+          order.status = "paid";
+          order.paidAt = new Date();
+          order.paymentReference = payment.reference;
+          await order.save();
+        }
+      } else {
+        // Credit wallet (top-up)
+        let wallet = await Wallet.findOne({ user: payment.user });
+        if (!wallet) {
+          wallet = await Wallet.create({ user: payment.user });
+        }
+
+        wallet.balance += payment.amount;
+        wallet.transactions.push({
+          type: "topup",
+          amount: payment.amount,
+          reference: payment.reference,
+          createdAt: new Date(),
+        });
+        await wallet.save();
+
+        await Transaction.create({
+          wallet: wallet._id,
+          user: payment.user,
+          type: "topup",
+          amount: payment.amount,
+          reference: payment.reference,
+          status: "successful",
+        });
       }
-
-      wallet.balance += payment.amount;
-      wallet.transactions.push({
-        type: "topup",
-        amount: payment.amount,
-        reference: payment.reference,
-        createdAt: new Date(),
-      });
-      await wallet.save();
-
-      await Transaction.create({
-        wallet: wallet._id,
-        user: payment.user,
-        type: "topup",
-        amount: payment.amount,
-        reference: payment.reference,
-        status: "successful",
-      });
     }
 
     await AuditLog.create({

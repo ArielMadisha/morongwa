@@ -5,9 +5,10 @@ import { useAuth } from '@/contexts/AuthContext';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
 import LocationAutocomplete from '@/components/LocationAutocomplete';
 import { tasksAPI, walletAPI, API_URL } from '@/lib/api';
+import { useCartAndStores } from '@/lib/useCartAndStores';
 import { Task } from '@/lib/types';
 import Link from 'next/link';
-import { useRouter, usePathname } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import {
   Package,
   PlusCircle,
@@ -17,35 +18,29 @@ import {
   MapPin,
   Calendar,
   Loader2,
-  LogOut,
   Wallet,
-  User,
   MessageSquare,
   Menu,
   X,
-  Home,
-  HelpCircle,
-  Receipt,
+  ShoppingCart,
+  Store,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-
-const clientNavItems = [
-  { href: '/dashboard/client', label: 'Dashboard', icon: Package },
-  { href: '/wallet', label: 'Wallet', icon: Wallet },
-  { href: '/profile', label: 'Profile', icon: User },
-  { href: '/messages', label: 'Messages', icon: MessageSquare },
-  { href: '/pricing', label: 'Pricing', icon: Receipt },
-  { href: '/support', label: 'Support', icon: HelpCircle },
-];
+import { AppSidebar, AppSidebarMenuButton } from '@/components/AppSidebar';
+import { ProfileDropdown } from '@/components/ProfileDropdown';
 
 function ClientDashboard() {
   const { user, logout } = useAuth();
   const router = useRouter();
-  const pathname = usePathname();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+
+  const handleLogout = () => {
+    logout();
+    router.push('/');
+  };
 
   // Form states
   const [title, setTitle] = useState('');
@@ -80,6 +75,7 @@ function ClientDashboard() {
   const [topupSubmitting, setTopupSubmitting] = useState(false);
   const [pendingTaskData, setPendingTaskData] = useState<any>(null);
   const [commissionRate, setCommissionRate] = useState<number>(0.15); // Default fallback
+  const { cartCount, hasStore } = useCartAndStores(!!user);
 
   useEffect(() => {
     fetchTasks();
@@ -449,165 +445,38 @@ function ClientDashboard() {
     }
   };
 
-  const handleLogout = () => {
-    logout();
-    router.push('/');
-  };
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-sky-50 via-blue-50 to-white text-slate-900 flex">
-      {/* Sidebar - desktop */}
-      <aside className="hidden lg:flex lg:flex-col lg:w-64 lg:flex-shrink-0 bg-white/90 backdrop-blur-md border-r border-slate-200 shadow-sm">
-        <div className="p-4 border-b border-slate-100">
-          <Link href="/dashboard/client" className="flex items-center gap-2">
-            <Package className="h-8 w-8 text-blue-600" />
-            <span className="text-xl font-bold text-slate-900">Morongwa</span>
-          </Link>
-          <p className="text-xs text-slate-500 mt-1 truncate">Client · {user?.name}</p>
-        </div>
-        <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
-          {clientNavItems.map(({ href, label, icon: Icon }) => {
-            const isActive = pathname === href;
-            return (
-              <Link
-                key={href}
-                href={href}
-                className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-                  isActive
-                    ? 'bg-blue-100 text-blue-700'
-                    : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
-                }`}
-              >
-                <Icon className="h-5 w-5 flex-shrink-0" />
-                {label}
-              </Link>
-            );
-          })}
-        </nav>
-        <div className="p-3 border-t border-slate-100 space-y-1">
-          <Link
-            href="/"
-            className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-colors"
-          >
-            <Home className="h-5 w-5 flex-shrink-0" />
-            Home
-          </Link>
-          <button
-            onClick={handleLogout}
-            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-red-600 hover:bg-red-50 transition-colors"
-          >
-            <LogOut className="h-5 w-5 flex-shrink-0" />
-            Logout
-          </button>
-        </div>
-      </aside>
-
-      {/* Mobile menu overlay */}
-      {menuOpen && (
-        <div
-          className="fixed inset-0 bg-black/40 z-40 lg:hidden"
-          onClick={() => setMenuOpen(false)}
-          aria-hidden="true"
-        />
-      )}
-
-      {/* Sidebar - mobile drawer */}
-      <aside
-        className={`fixed top-0 left-0 z-50 h-full w-64 bg-white shadow-xl transform transition-transform duration-200 ease-out lg:hidden ${
-          menuOpen ? 'translate-x-0' : '-translate-x-full'
-        }`}
-      >
-        <div className="flex items-center justify-between p-4 border-b border-slate-200">
-          <span className="font-bold text-slate-900">Menu</span>
-          <button
-            type="button"
-            onClick={() => setMenuOpen(false)}
-            className="p-2 rounded-lg hover:bg-slate-100 text-slate-600"
-            aria-label="Close menu"
-          >
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-        <nav className="p-3 space-y-1">
-          {clientNavItems.map(({ href, label, icon: Icon }) => {
-            const isActive = pathname === href;
-            return (
-              <Link
-                key={href}
-                href={href}
-                onClick={() => setMenuOpen(false)}
-                className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-                  isActive ? 'bg-blue-100 text-blue-700' : 'text-slate-700 hover:bg-slate-100'
-                }`}
-              >
-                <Icon className="h-5 w-5 flex-shrink-0" />
-                {label}
-              </Link>
-            );
-          })}
-          <Link
-            href="/"
-            onClick={() => setMenuOpen(false)}
-            className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100"
-          >
-            <Home className="h-5 w-5 flex-shrink-0" />
-            Home
-          </Link>
-          <button
-            onClick={() => {
-              setMenuOpen(false);
-              handleLogout();
-            }}
-            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-red-600 hover:bg-red-50"
-          >
-            <LogOut className="h-5 w-5 flex-shrink-0" />
-            Logout
-          </button>
-        </nav>
-      </aside>
+      <AppSidebar
+        variant="client"
+        userName={user?.name}
+        cartCount={cartCount}
+        hasStore={hasStore}
+        onLogout={handleLogout}
+        menuOpen={menuOpen}
+        setMenuOpen={setMenuOpen}
+      />
 
       {/* Main content area */}
-      <div className="flex-1 flex flex-col min-w-0">
-        {/* Top bar with menu button and title */}
-        <header className="bg-white/85 backdrop-blur-md border-b border-slate-100 shadow-sm flex-shrink-0">
+      <div className="flex-1 flex flex-col min-w-0 overflow-visible">
+        <header className="bg-white/85 backdrop-blur-md border-b border-slate-100 shadow-sm flex-shrink-0 overflow-visible">
           <div className="px-4 sm:px-6 lg:px-8 py-4">
             <div className="flex items-center justify-between gap-4">
               <div className="flex items-center gap-3 min-w-0">
-                <button
-                  type="button"
-                  onClick={() => setMenuOpen(true)}
-                  className="lg:hidden p-2 rounded-lg hover:bg-slate-100 text-slate-600"
-                  aria-label="Open menu"
-                >
-                  <Menu className="h-6 w-6" />
-                </button>
+                <AppSidebarMenuButton onClick={() => setMenuOpen(true)} />
                 <div className="min-w-0">
-                  <h1 className="text-xl sm:text-2xl font-bold text-slate-900 truncate">Client Dashboard</h1>
                   <p className="text-sm text-slate-600 truncate">Welcome back, {user?.name}</p>
                 </div>
               </div>
-              <div className="hidden lg:flex items-center gap-2 flex-shrink-0">
-                <Link
-                  href="/"
-                  className="flex items-center gap-2 px-3 py-2 rounded-lg text-slate-600 hover:bg-slate-100 text-sm font-medium"
-                >
-                  <Home className="h-4 w-4" />
-                  Home
-                </Link>
-                <button
-                  onClick={handleLogout}
-                  className="flex items-center gap-2 px-3 py-2 rounded-lg text-red-600 hover:bg-red-50 text-sm font-medium"
-                >
-                  <LogOut className="h-4 w-4" />
-                  Logout
-                </button>
+              <div className="shrink-0">
+                <ProfileDropdown userName={user?.name} onLogout={handleLogout} />
               </div>
             </div>
           </div>
         </header>
 
-      {/* Main Content */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="flex-1 flex gap-6 pt-6 min-h-0">
+      <main className="flex-1 min-w-0 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Stats */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
           <div className="bg-white/90 backdrop-blur-md p-6 rounded-xl shadow border border-slate-100">
@@ -753,6 +622,12 @@ function ClientDashboard() {
           </div>
         )}
       </main>
+
+          {/* Area 2: Reserved space - well below profile so dropdown displays properly */}
+          <aside className="hidden lg:block w-56 xl:w-64 shrink-0 pr-4 lg:pr-6 pt-8">
+            <div className="sticky top-24 h-48 rounded-xl border border-dashed border-slate-200 bg-slate-50/50" aria-hidden="true" />
+          </aside>
+        </div>
 
       {/* Create Task Modal */}
       {showCreateModal && (

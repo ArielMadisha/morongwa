@@ -21,6 +21,9 @@ import {
   Lock,
   AlertCircle,
   Home,
+  Building2,
+  ShoppingBag,
+  LayoutGrid,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -287,7 +290,12 @@ function AdminDashboard() {
             {[
               { href: '/admin/users', icon: Users, title: 'Manage users', desc: 'View, suspend, activate accounts', color: 'sky' },
               { href: '/admin/tasks', icon: Package, title: 'Manage tasks', desc: 'Monitor & cancel tasks', color: 'emerald' },
-              { href: '/admin/escrows', icon: DollarSign, title: 'View escrow & ledger', desc: 'Escrow list, full ledger, release, refund', color: 'purple' },
+              { href: '/admin/suppliers', icon: Building2, title: 'Suppliers / Sellers', desc: 'Verify company & individual sellers', color: 'cyan' },
+              { href: '/admin/orders', icon: ShoppingBag, title: 'Marketplace orders', desc: 'Checkout & wallet orders', color: 'purple' },
+              { href: '/admin/products', icon: Package, title: 'Marketplace products', desc: 'Load and manage products for sale', color: 'emerald' },
+              { href: '/admin/stores', icon: Building2, title: 'Stores', desc: 'Create and manage supplier/reseller stores', color: 'cyan' },
+              { href: '/admin/reseller', icon: LayoutGrid, title: 'Reseller stats', desc: 'Walls and products on walls', color: 'indigo' },
+              { href: '/admin/escrows', icon: DollarSign, title: 'View escrow & ledger', desc: 'Escrow list, full ledger, release, refund', color: 'orange' },
               { href: '/admin/payouts', icon: Wallet, title: 'FNB payouts', desc: 'Initiate payouts, poll status, view balance', color: 'orange' },
               { href: '/admin/audit', icon: FileText, title: 'Audit log', desc: 'Role-based actions & audit trail', color: 'indigo' },
               { href: '/admin/pricing', icon: Settings, title: 'Pricing config', desc: 'Manage fees & FX rates', color: 'cyan' }

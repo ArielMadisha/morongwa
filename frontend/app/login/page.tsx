@@ -1,20 +1,29 @@
 'use client';
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useEffect, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import { Mail, Lock, ArrowRight, Loader2, AlertCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
 import SiteHeader from '@/components/SiteHeader';
 
-export default function LoginPage() {
+const PREFERRED_ROLE_KEY = 'morongwa_preferred_role';
+
+function LoginForm() {
+  const searchParams = useSearchParams();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [role, setRole] = useState<'client' | 'runner' | 'both'>('client');
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<{email?: string; password?: string}>({});
   const { login } = useAuth();
   const router = useRouter();
+
+  useEffect(() => {
+    const r = searchParams.get('role');
+    if (r === 'client' || r === 'runner' || r === 'both') setRole(r);
+  }, [searchParams]);
 
   const validateEmail = (email: string) => {
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
@@ -40,8 +49,13 @@ export default function LoginPage() {
 
     try {
       await login(email.trim().toLowerCase(), password);
+      if (typeof window !== 'undefined') {
+        window.localStorage.setItem(PREFERRED_ROLE_KEY, role);
+      }
       toast.success('Welcome back!');
-      router.push('/dashboard');
+      const returnTo = searchParams.get('returnTo');
+      const target = returnTo && returnTo.startsWith('/') && !returnTo.startsWith('//') ? returnTo : '/wall';
+      router.push(target);
     } catch (error: any) {
       const errorMsg = error.response?.data?.message || error.message || 'Login failed';
       toast.error(errorMsg);
@@ -97,6 +111,23 @@ export default function LoginPage() {
 
           <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
             <div className="space-y-4">
+              <div>
+                <label htmlFor="role" className="block text-sm font-medium text-slate-700 mb-1">
+                  I'm signing in as
+                </label>
+                <select
+                  id="role"
+                  name="role"
+                  value={role}
+                  onChange={(e) => setRole(e.target.value as 'client' | 'runner' | 'both')}
+                  className="block w-full px-3 py-3 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+                >
+                  <option value="client">Client</option>
+                  <option value="runner">Runner</option>
+                  <option value="both">Both</option>
+                </select>
+                <p className="mt-1 text-xs text-slate-500">You can switch between roles from your profile later.</p>
+              </div>
               <div>
                 <label htmlFor="email" className="block text-sm font-medium text-slate-700 mb-1">
                   Email address
@@ -209,5 +240,20 @@ export default function LoginPage() {
       </div>
       </div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex flex-col bg-gradient-to-br from-sky-50 via-blue-50 to-white">
+        <SiteHeader />
+        <div className="flex-1 flex items-center justify-center">
+          <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+        </div>
+      </div>
+    }>
+      <LoginForm />
+    </Suspense>
   );
 }

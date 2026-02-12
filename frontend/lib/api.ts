@@ -3,6 +3,19 @@ import axios from 'axios';
 
 export const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api';
 
+/** Backend base URL (no /api) - used for image URLs. */
+export const API_BASE = API_URL.replace(/\/api\/?$/, '').replace(/\/$/, '');
+
+/** Normalize product image URL - fix /api/uploads, handle relative paths, ensure absolute URL. */
+export function getImageUrl(url: string | undefined): string {
+  if (!url || typeof url !== 'string') return '';
+  let normalized = url.replace(/\/api\/uploads\//g, '/uploads/');
+  if (normalized.startsWith('/uploads/') && !normalized.startsWith('http')) {
+    normalized = `${API_BASE}${normalized}`;
+  }
+  return normalized;
+}
+
 export const api = axios.create({
   baseURL: API_URL,
   headers: {
@@ -10,7 +23,7 @@ export const api = axios.create({
   },
 });
 
-// Request interceptor to add auth token
+// Request interceptor to add auth token and fix FormData uploads
 api.interceptors.request.use(
   (config) => {
     if (typeof window !== 'undefined') {
@@ -18,6 +31,10 @@ api.interceptors.request.use(
       if (token) {
         config.headers.Authorization = `Bearer ${token}`;
       }
+    }
+    // Let the browser set Content-Type with boundary for FormData (fixes 400 on image uploads)
+    if (config.data instanceof FormData) {
+      delete config.headers['Content-Type'];
     }
     return config;
   },
@@ -91,6 +108,7 @@ export const reviewsAPI = {
 };
 
 export const messengerAPI = {
+  getConversations: () => api.get('/messenger/conversations'),
   getMessages: (taskId: string) => api.get(`/messenger/task/${taskId}`),
   sendMessage: (taskId: string, content: string) =>
     api.post(`/messenger/task/${taskId}`, { content }),
@@ -137,6 +155,56 @@ export const adminAPI = {
   // Audit
   getAuditLogs: (params?: { page?: number; limit?: number; action?: string }) =>
     api.get('/admin/audit', { params }),
+
+  // Suppliers (marketplace)
+  getSuppliers: (params?: { page?: number; limit?: number; status?: string }) =>
+    api.get('/admin/suppliers', { params }),
+  getSupplier: (id: string) => api.get(`/admin/suppliers/${id}`),
+  approveSupplier: (id: string) => api.post(`/admin/suppliers/${id}/approve`),
+  rejectSupplier: (id: string, reason?: string) =>
+    api.post(`/admin/suppliers/${id}/reject`, { reason }),
+
+  // Marketplace orders (checkout)
+  getOrders: (params?: { page?: number; limit?: number; status?: string }) =>
+    api.get('/admin/orders', { params }),
+
+  // Reseller stats
+  getResellerStats: () => api.get('/admin/reseller-stats'),
+
+  // Stores
+  getStores: (params?: { page?: number; limit?: number; type?: string }) =>
+    api.get('/admin/stores', { params }),
+  createStore: (data: { userId: string; name: string; type: 'supplier' | 'reseller' }) =>
+    api.post('/admin/stores', data),
+  getStore: (id: string) => api.get(`/admin/stores/${id}`),
+  updateStore: (id: string, data: { name?: string }) => api.put(`/admin/stores/${id}`, data),
+
+  // Products (admin load products for marketplace)
+  getProducts: (params?: { page?: number; limit?: number; supplierId?: string; active?: boolean }) =>
+    api.get('/admin/products', { params }),
+  uploadProductImages: (files: File[]) => {
+    const formData = new FormData();
+    files.forEach((f) => formData.append('images', f));
+    return api.post<{ urls: string[] }>('/admin/products/upload-images', formData);
+  },
+  createProduct: (data: {
+    supplierId: string;
+    title: string;
+    slug?: string;
+    description?: string;
+    images: string[];
+    price: number;
+    currency?: string;
+    stock?: number;
+    sku?: string;
+    sizes?: string[];
+    allowResell?: boolean;
+    categories?: string[];
+    tags?: string[];
+  }) => api.post('/admin/products', data),
+  getProduct: (id: string) => api.get(`/admin/products/${id}`),
+  updateProduct: (id: string, data: Record<string, unknown>) => api.put(`/admin/products/${id}`, data),
+  deleteProduct: (id: string) => api.delete(`/admin/products/${id}`),
 };
 
 export const supportAPI = {
@@ -180,4 +248,79 @@ export const policiesAPI = {
     api.post(`/policies/${slug}/version`, data),
   publishVersion: (slug: string, version: number) => api.post(`/policies/${slug}/publish`, { version }),
   acceptPolicies: (slugs: string[], meta?: any) => api.post('/policies/accept', { slugs, meta }),
+};
+
+export const productsAPI = {
+  list: (params?: { limit?: number; random?: boolean }) =>
+    api.get('/products', { params: { ...params, random: params?.random ? '1' : undefined } }),
+  getByIdOrSlug: (idOrSlug: string) => api.get(`/products/${idOrSlug}`),
+  /** Upload 1–5 product images. Returns { urls: string[] }. */
+  uploadImages: (files: File[]) => {
+    const formData = new FormData();
+    files.forEach((f) => formData.append('images', f));
+    return api.post<{ urls: string[] }>('/products/upload-images', formData);
+  },
+  create: (data: {
+    title: string;
+    description?: string;
+    images: string[];
+    price: number;
+    currency?: string;
+    stock?: number;
+    sku?: string;
+    sizes?: string[];
+    allowResell?: boolean;
+    categories?: string[];
+    tags?: string[];
+  }) => api.post('/products', data),
+};
+
+export const cartAPI = {
+  get: () => api.get('/cart'),
+  add: (productId: string, qty?: number, resellerId?: string) =>
+    api.post('/cart', { productId, qty: qty ?? 1, resellerId }),
+  updateItem: (productId: string, qty: number) =>
+    api.put(`/cart/item/${productId}`, { qty }),
+  removeItem: (productId: string) => api.delete(`/cart/item/${productId}`),
+};
+
+export const checkoutAPI = {
+  quote: () => api.post('/checkout/quote'),
+  pay: (paymentMethod: 'wallet' | 'card', deliveryAddress?: string) =>
+    api.post('/checkout/pay', { paymentMethod, deliveryAddress }),
+  getOrder: (orderId: string) => api.get(`/checkout/order/${orderId}`),
+};
+
+export const resellerAPI = {
+  getWall: (userId: string) => api.get(`/reseller/wall/${userId}`),
+  getMyWall: () => api.get('/reseller/wall/me'),
+  addToWall: (productId: string, resellerCommissionPct?: number) =>
+    api.post(`/reseller/wall/add/${productId}`, { resellerCommissionPct }),
+  removeFromWall: (productId: string) => api.delete(`/reseller/wall/remove/${productId}`),
+};
+
+export const storesAPI = {
+  getMyStores: () => api.get('/stores/me'),
+  renameStore: (id: string, name: string) => api.put(`/stores/${id}`, { name }),
+  getBySlug: (slug: string) => api.get(`/stores/by-slug/${slug}`),
+};
+
+export const suppliersAPI = {
+  uploadDocument: (file: File) => {
+    const formData = new FormData();
+    formData.append('document', file);
+    return api.post<{ success: boolean; path: string; fullUrl: string }>('/suppliers/upload-document', formData);
+  },
+  apply: (data: {
+    type: 'company' | 'individual';
+    storeName?: string;
+    pickupAddress?: string;
+    companyRegNo?: string;
+    directorsIdDoc?: string;
+    idDocument?: string;
+    contactEmail: string;
+    contactPhone: string;
+    verificationFeeWaived?: boolean;
+  }) => api.post('/suppliers/apply', data),
+  getMe: () => api.get('/suppliers/me'),
 };
