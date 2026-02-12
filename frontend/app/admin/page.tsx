@@ -147,7 +147,7 @@ function AdminLoginForm() {
             </button>
           </form>
           <p className="mt-6 text-center text-sm text-slate-500">
-            <Link href="/login" className="text-sky-600 hover:underline">User login</Link>
+            <Link href="/?signin=1" className="text-sky-600 hover:underline">User login</Link>
             {' · '}
             <Link href="/" className="text-sky-600 hover:underline">Home</Link>
           </p>

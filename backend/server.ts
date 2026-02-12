@@ -138,8 +138,9 @@ const initializeServices = () => {
   logger.info("Services initialized successfully");
 };
 
-// Start server
-const PORT = process.env.PORT || 4000;
+// Start server (try preferred port, then next available if EADDRINUSE)
+const PREFERRED_PORT = parseInt(process.env.PORT || "4000", 10);
+const MAX_PORT_ATTEMPTS = 5;
 
 const startServer = async () => {
   try {
@@ -151,15 +152,31 @@ const startServer = async () => {
   }
 
   initializeServices();
-  server.listen(PORT, () => {
-    logger.info(`🚀 Server running on port ${PORT}`);
-    logger.info(`📝 Environment: ${process.env.NODE_ENV || "development"}`);
-    logger.info(`🔗 API: http://localhost:${PORT}/api`);
-    logger.info(`💬 Socket.IO: http://localhost:${PORT}`);
-    if (!isDbConnected()) {
-      logger.warn("⚠️ MongoDB not connected. API will return 503 until DB is available.");
-    }
-  });
+
+  const tryListen = (port: number, attempt: number): void => {
+    server.once("error", (err: NodeJS.ErrnoException) => {
+      if (err.code === "EADDRINUSE" && attempt < MAX_PORT_ATTEMPTS) {
+        logger.warn(`Port ${port} in use, trying ${port + 1}...`);
+        tryListen(port + 1, attempt + 1);
+      } else {
+        logger.error("Failed to start server:", err);
+        process.exit(1);
+      }
+    });
+    server.listen(port, () => {
+      logger.info(`🚀 Server running on port ${port}`);
+      if (port !== PREFERRED_PORT) {
+        logger.warn(`⚠️ Port ${PREFERRED_PORT} was in use. Update frontend .env.local: NEXT_PUBLIC_API_URL=http://localhost:${port}/api`);
+      }
+      logger.info(`📝 Environment: ${process.env.NODE_ENV || "development"}`);
+      logger.info(`🔗 API: http://localhost:${port}/api`);
+      logger.info(`💬 Socket.IO: http://localhost:${port}`);
+      if (!isDbConnected()) {
+        logger.warn("⚠️ MongoDB not connected. API will return 503 until DB is available.");
+      }
+    });
+  };
+  tryListen(PREFERRED_PORT, 0);
 };
 
 // Graceful shutdown

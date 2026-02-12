@@ -1,5 +1,7 @@
 // Main server entry point
 import dotenv from "dotenv";
+import path from "path";
+import fs from "fs";
 import express, { Application } from "express";
 import http from "http";
 import { Server as SocketServer } from "socket.io";
@@ -74,8 +76,12 @@ app.use(validateInput);
 // API rate limiting
 app.use("/api", apiLimiter);
 
-// Static files (uploads)
-app.use("/uploads", express.static("uploads"));
+// Ensure uploads dirs exist (backend/uploads, backend/uploads/tv) and serve static files
+const uploadsDir = path.join(process.cwd(), "uploads");
+const uploadsTvDir = path.join(uploadsDir, "tv");
+if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
+if (!fs.existsSync(uploadsTvDir)) fs.mkdirSync(uploadsTvDir, { recursive: true });
+app.use("/uploads", express.static(uploadsDir));
 
 // Health check
 app.get("/health", (req, res) => {

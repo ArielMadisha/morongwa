@@ -57,10 +57,10 @@ api.interceptors.response.use(
     if (error.response?.status === 401 && typeof window !== 'undefined') {
       localStorage.removeItem('token');
       localStorage.removeItem('user');
-      // Only redirect if not already on login (avoid duplicate nav)
-      if (!window.location.pathname.startsWith('/login')) {
+      // Only redirect if not already on landing sign-in (avoid duplicate nav)
+      if (window.location.pathname !== '/' || !window.location.search.includes('signin=1')) {
         const returnTo = encodeURIComponent(window.location.pathname + window.location.search);
-        window.location.href = returnTo ? `/login?returnTo=${returnTo}` : '/login';
+        window.location.href = returnTo ? `/?signin=1&returnTo=${returnTo}` : '/?signin=1';
       }
     }
     return Promise.reject(error);

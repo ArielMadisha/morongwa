@@ -99,13 +99,13 @@ export default function SiteHeader({ minimal }: SiteHeaderProps) {
             ) : (
               <>
                 <Link
-                  href="/login"
-                  className="px-3 py-2 text-sm font-medium text-slate-600 hover:text-sky-600 transition-colors"
+                  href="/?signin=1"
+                  className="px-3 py-2 text-sm font-medium text-slate-600 hover:text-blue-600 transition-colors"
                 >
                   Sign in
                 </Link>
                 <Link
-                  href="/register"
+                  href="/"
                   className="flex items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-lg text-sm font-semibold hover:from-blue-700 hover:to-indigo-700 transition-colors shadow-sm"
                 >
                   Get Started

@@ -64,7 +64,7 @@ export default function LandingMarketplaceCard() {
         ) : loadError ? (
           <div className="rounded-2xl border border-amber-100 bg-amber-50/80 p-4">
             <p className="text-sm text-amber-800">
-              Products temporarily unavailable. Check your internet and try again.
+              Products temporarily unavailable. If you’re running locally, start the backend (<code className="text-xs bg-amber-100/80 px-1 rounded">cd backend && npm run dev</code>) and refresh.
             </p>
           </div>
         ) : products.length > 0 ? (

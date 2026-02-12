@@ -16,7 +16,7 @@ export default function ProtectedRoute({ children, allowedRoles }: ProtectedRout
 
   useEffect(() => {
     if (!loading && !user) {
-      const returnTo = pathname ? `/login?returnTo=${encodeURIComponent(pathname)}` : '/login';
+      const returnTo = pathname ? `/?signin=1&returnTo=${encodeURIComponent(pathname)}` : '/?signin=1';
       router.push(returnTo);
     } else if (!loading && user && allowedRoles) {
       const userRoles = Array.isArray(user.role) ? user.role : [user.role];
