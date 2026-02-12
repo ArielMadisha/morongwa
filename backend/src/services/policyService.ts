@@ -22,8 +22,8 @@ const defaultPolicies: PolicySeed[] = [
     visibility: "public",
     countryScope: ["ZA", "BW", "LS", "NA", "ZW", "ZM"],
     tags: ["contract", "marketplace", "ecta", "cpa"],
-    summary: "Master contract covering roles, task lifecycle, escrow, payouts, cancellations, disputes, and deactivation.",
-    content: `# Terms of Service\n\n**Roles:** Clients post tasks; Runners are independent contractors who accept tasks.\n**Task lifecycle:** posting → acceptance → completion → review. Payment is held in escrow until completion or timeout.\n**Escrow & payouts:** Funds are released when the task is marked complete and review window closes, or via timeout rules.\n**Cancellations:** Before acceptance: full refund of fees; after acceptance: see Refunds & Cancellations policy.\n**Disputes:** Evidence-based resolution with escalation path.\n**Ratings:** Anti-fraud; manipulation may lead to removal.\n**Prohibited uses:** Illegal/unsafe tasks, harassment, discrimination, deceptive listings, platform abuse.\n**IP:** You grant Morongwa a license to host/display task content; ownership remains with you.\n**Liability:** Platform provides a marketplace; no warranty on outcomes; capped liability per CPA.\n**Termination:** Accounts may be suspended for violations; appeal path provided.\n**Governing law:** South Africa; electronic contracting per ECTA; consumer protections per CPA.`,
+    summary: "Master contract covering roles, task lifecycle, escrow, payouts, Morongwa-TV, marketplace products, product enquiry, and deactivation.",
+    content: `# Terms of Service\n\n**Roles:** Clients post tasks; Runners are independent contractors who accept tasks. Resellers, suppliers, and content creators can list products and share content on Morongwa-TV.\n**Task lifecycle:** posting → acceptance → completion → review. Payment is held in escrow until completion or timeout.\n**Escrow & payouts:** Funds are released when the task is marked complete and review window closes, or via timeout rules.\n**Morongwa-TV (Qwerty TV):** Content platform for videos, images, and product promotions. User-generated content is subject to Acceptable Use; automated moderation may flag sensitive material; users may report posts. Content may carry a platform watermark.\n**Marketplace products:** Products can be bought through the marketplace; product enquiry messages route to sellers for notifications.\n**Product enquiry:** Buyers may enquire about products via Messages; enquiries are routed to sellers; see Privacy Policy for message data.\n**Cancellations:** Before acceptance: full refund of fees; after acceptance: see Refunds & Cancellations policy.\n**Disputes:** Evidence-based resolution with escalation path.\n**Ratings:** Anti-fraud; manipulation may lead to removal.\n**Prohibited uses:** Illegal/unsafe tasks, harassment, discrimination, deceptive listings, platform abuse; on Morongwa-TV: sexual, pornographic, or violent content.\n**IP:** You grant Morongwa a license to host/display task and content; ownership remains with you; platform watermark may be applied to Morongwa-TV content.\n**Liability:** Platform provides a marketplace; no warranty on outcomes; capped liability per CPA.\n**Termination:** Accounts may be suspended for violations; appeal path provided.\n**Governing law:** South Africa; electronic contracting per ECTA; consumer protections per CPA.`,
   },
   {
     slug: "privacy-policy",
@@ -32,8 +32,8 @@ const defaultPolicies: PolicySeed[] = [
     visibility: "public",
     countryScope: ["ZA", "BW", "LS", "NA", "ZW", "ZM"],
     tags: ["popia", "privacy", "data-subject-rights"],
-    summary: "Explains personal data use, lawful basis, rights, security safeguards, cross-border transfers, and breach notices.",
-    content: `# Privacy Policy\n\nWe process personal information to operate Morongwa.\n- **Lawful basis:** performance of contract, consent (cookies/marketing), legitimate interests (fraud prevention).\n- **Data collected:** identity, contact, payment, device, location (for tasks), ratings, communications.\n- **Use:** account, task facilitation, payments, fraud checks, support.\n- **Sharing:** payment processors (DPO/PayGate), payout banks, verification/KYC vendors, support tools as operators.\n- **Cross-border transfers:** safeguarded per POPIA Chapter 9; equivalents or contractual safeguards.\n- **Retention:** kept as needed for legal/operational purposes; then deleted or de-identified.\n- **Security:** encryption in transit, access controls, monitoring.\n- **Rights:** access, correction, deletion, objection, restriction; channels via app/email; response per 2025 POPIA regs.\n- **Breach notification:** we will notify the Information Regulator and affected users where required.\n- **Contact:** Information Officer details in app.`,
+    summary: "Explains personal data use, lawful basis, rights, security safeguards, Morongwa-TV content data, product enquiry messages, and breach notices.",
+    content: `# Privacy Policy\n\nWe process personal information to operate Morongwa.\n- **Lawful basis:** performance of contract, consent (cookies/marketing), legitimate interests (fraud prevention).\n- **Data collected:** identity, contact, payment, device, location (for tasks), ratings, communications; Morongwa-TV content (videos, images, captions, likes, comments); product enquiry messages.\n- **Use:** account, task facilitation, payments, fraud checks, support; Morongwa-TV content hosting and moderation; product enquiry routing to sellers.\n- **Sharing:** payment processors (DPO/PayGate), payout banks, verification/KYC vendors, support tools as operators; product enquiry messages are shared with the relevant seller.\n- **Cross-border transfers:** safeguarded per POPIA Chapter 9; equivalents or contractual safeguards.\n- **Retention:** kept as needed for legal/operational purposes; then deleted or de-identified.\n- **Security:** encryption in transit, access controls, monitoring.\n- **Rights:** access, correction, deletion, objection, restriction; channels via app/email; response per 2025 POPIA regs.\n- **Breach notification:** we will notify the Information Regulator and affected users where required.\n- **Contact:** Information Officer details in app.`,
   },
   {
     slug: "cookies-tracking",
@@ -52,8 +52,8 @@ const defaultPolicies: PolicySeed[] = [
     visibility: "public",
     countryScope: ["ZA", "BW", "LS", "NA", "ZW", "ZM"],
     tags: ["pricing", "fees", "commission"],
-    summary: "Commission 15%, booking fee base, surcharges (distance/peak/heavy/urgency), FX disclosure, examples.",
-    content: `# Pricing & Fees\n\n- **Commission:** 15% on task price.\n- **Booking fee:** base R8 (converted locally).\n- **Surcharges:** distance beyond base radius, peak, heavy items, urgent (<2h).\n- **FX:** quotes shown in local currency; conversions use disclosed FX rates.\n- **Examples:** see pricing page for live calculator.`,
+    summary: "Commission 15%, booking fee base, surcharges, product pricing (discounts, out of stock), FX disclosure, examples.",
+    content: `# Pricing & Fees\n\n- **Commission:** 15% on task price.\n- **Booking fee:** base R8 (converted locally).\n- **Surcharges:** distance beyond base radius, peak, heavy items, urgent (<2h).\n- **Products:** marketplace products may have discount prices; out-of-stock items cannot be purchased.\n- **FX:** quotes shown in local currency; conversions use disclosed FX rates.\n- **Examples:** see pricing page for live calculator.`,
   },
   {
     slug: "escrow-payouts",
@@ -72,8 +72,18 @@ const defaultPolicies: PolicySeed[] = [
     visibility: "public",
     countryScope: ["ZA", "BW", "LS", "NA", "ZW", "ZM"],
     tags: ["marketplace", "platform", "listing"],
-    summary: "How the Morongwa marketplace works: task posting, matching, pricing, and completion.",
-    content: `# Marketplace Policy\n\n- **Overview:** Morongwa is a task marketplace connecting clients who need errands done with runners who perform them.\n- **Posting:** Clients post tasks with description, location, and budget; tasks must be lawful and clearly described.\n- **Matching:** Runners see available tasks and may accept; clients may also invite specific runners where applicable.\n- **Pricing:** Task price, booking fee, and surcharges are shown before payment; see Pricing & Fees policy.\n- **Completion:** Runner marks task complete; client may review; funds are released per Escrow & Payouts policy.\n- **Standards:** All participants must follow Acceptable Use and Community Guidelines.`,
+    summary: "How the Morongwa marketplace works: tasks, products, Morongwa-TV, product enquiry, and completion.",
+    content: `# Marketplace Policy\n\n- **Overview:** Morongwa is a task and product marketplace connecting clients who need errands done with runners, and buyers with suppliers/resellers. Morongwa-TV (Qwerty TV) allows content creators to share videos and images and promote products.\n- **Tasks:** Clients post tasks with description, location, and budget; tasks must be lawful and clearly described. Runners see available tasks and may accept.\n- **Products:** Suppliers list products; resellers can add products to their wall. Products appear in the marketplace and on Morongwa-TV. Buyers can purchase or enquire via Messages.\n- **Product enquiry:** Buyers may send enquiries about products; messages are routed to the seller for response.\n- **Morongwa-TV:** Content creators can upload videos and images; products may be linked to posts; content is subject to automated moderation and user reporting.\n- **Pricing:** Task price, booking fee, and surcharges are shown before payment; product prices may include discounts; see Pricing & Fees policy.\n- **Completion:** For tasks, runner marks complete; client may review; funds released per Escrow & Payouts policy.\n- **Standards:** All participants must follow Acceptable Use and Community Guidelines.`,
+  },
+  {
+    slug: "morongwa-tv",
+    title: "Morongwa-TV (Qwerty TV) Content Policy",
+    category: "platform",
+    visibility: "public",
+    countryScope: ["ZA", "BW", "LS", "NA", "ZW", "ZM"],
+    tags: ["content", "qwerty-tv", "moderation", "watermark"],
+    summary: "Content platform for videos and images; watermark; automated moderation; reporting; product promotion.",
+    content: `# Morongwa-TV (Qwerty TV) Content Policy\n\nMorongwa-TV (also known as Qwerty TV) is a content platform for resellers, content creators, and manufacturers to share videos and images, including product promotions.\n\n- **Content types:** Videos, images, and carousels. Content may link to marketplace products.\n- **Who can post:** Authenticated users; content creators, resellers, suppliers.\n- **Watermark:** Content may display a platform watermark ("The Digital Home for Doers, Sellers & Creators - Qwertymates.com") at the start and end of videos and on images.\n- **Moderation:** Posts are published automatically. Automated sensitive-content detection may block sexual, pornographic, violent, or sensitive material. Users may report posts; admins review reports.\n- **Prohibited content:** Sexual, pornographic, violent, or sensitive material (e.g. hacked victim imagery). Violations may result in removal and account suspension.\n- **Interactions:** Like, comment, share, repost, report. Product enquiry routes to Messages.\n- **Products:** Featured products may appear on Morongwa-TV; buyers can purchase or enquire.`,
   },
   {
     slug: "suppliers-manufacturers",
@@ -122,8 +132,8 @@ const defaultPolicies: PolicySeed[] = [
     visibility: "public",
     countryScope: ["ZA", "BW", "LS", "NA", "ZW", "ZM"],
     tags: ["safety", "conduct"],
-    summary: "Bans illegal/unsafe tasks, harassment, discrimination, deceptive listings, rating abuse, and platform misuse.",
-    content: `# Acceptable Use\n\n- No illegal, unsafe, or violent tasks.\n- No harassment, hate, or discrimination.\n- No deceptive listings or fraud.\n- No rating manipulation or spam.\n- Comply with local laws and platform safety rules.`,
+    summary: "Bans illegal/unsafe tasks, harassment, discrimination, deceptive listings, rating abuse, Morongwa-TV prohibited content, and platform misuse.",
+    content: `# Acceptable Use\n\n- No illegal, unsafe, or violent tasks.\n- No harassment, hate, or discrimination.\n- No deceptive listings or fraud.\n- No rating manipulation or spam.\n- **Morongwa-TV:** No sexual, pornographic, violent, or sensitive content (e.g. hacked victim imagery). Automated moderation may detect and block such content; users may report posts. Content showing prohibited material will be removed; repeat offenders may be suspended.\n- Comply with local laws and platform safety rules.`,
   },
   {
     slug: "ratings-reviews",
@@ -152,8 +162,8 @@ const defaultPolicies: PolicySeed[] = [
     visibility: "public",
     countryScope: ["ZA", "BW", "LS", "NA", "ZW", "ZM"],
     tags: ["ip", "content"],
-    summary: "Ownership of task content, license to host, takedown process, and infringement reporting.",
-    content: `# Intellectual Property & Content\n\n- **Ownership:** you retain ownership of your task content.\n- **License:** you grant Morongwa a license to host and display content for service delivery.\n- **Takedowns:** report infringement; we may remove or disable access.\n- **Repeat infringers:** may be suspended.`,
+    summary: "Ownership of task and user content, license to host, Morongwa-TV watermark, takedown process, and infringement reporting.",
+    content: `# Intellectual Property & Content\n\n- **Ownership:** you retain ownership of your task and user-generated content.\n- **License:** you grant Morongwa a license to host and display content for service delivery.\n- **Morongwa-TV watermark:** Content shared on Morongwa-TV (Qwerty TV) may include a platform watermark ("The Digital Home for Doers, Sellers & Creators - Qwertymates.com") at the start and end of videos and on images.\n- **Takedowns:** report infringement; we may remove or disable access.\n- **Repeat infringers:** may be suspended.`,
   },
   {
     slug: "security-vulnerability",
@@ -519,6 +529,29 @@ export const ensureDefaultPolicies = async (userId?: string) => {
       });
 
       logger.info(`Seeded policy ${policy.slug}`);
+    } else {
+      const latestVer = existing.versions.find(
+        (v) => v.version === existing.latestPublishedVersion && v.status === "published"
+      );
+      if (latestVer && latestVer.content !== policy.content) {
+        const nextVersion = (existing.currentVersion || 0) + 1;
+        const newVersion: IPolicyVersion = {
+          version: nextVersion,
+          status: "published",
+          title: policy.title,
+          summary: policy.summary,
+          content: policy.content,
+          publishedAt: new Date(),
+          createdBy: userId ? (userId as any) : undefined,
+          updatedBy: userId ? (userId as any) : undefined,
+        };
+        existing.versions.push(newVersion);
+        existing.currentVersion = nextVersion;
+        existing.latestPublishedVersion = nextVersion;
+        existing.title = policy.title;
+        await existing.save();
+        logger.info(`Updated policy ${policy.slug} to version ${nextVersion}`);
+      }
     }
   }
 };

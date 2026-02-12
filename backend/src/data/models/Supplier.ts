@@ -9,6 +9,8 @@ export interface ISupplier extends Document {
   type: SupplierType;
   storeName?: string;
   pickupAddress?: string;
+  /** Shipping cost in ZAR for orders from this supplier. Default 100 if not set. */
+  shippingCost?: number;
   // Company: company reg no, directors ID doc
   companyRegNo?: string;
   directorsIdDoc?: string; // path or reference to uploaded document
@@ -35,6 +37,7 @@ const SupplierSchema = new Schema<ISupplier>(
     type: { type: String, enum: ["company", "individual"], required: true },
     storeName: { type: String },
     pickupAddress: { type: String },
+    shippingCost: { type: Number },
     companyRegNo: { type: String },
     directorsIdDoc: { type: String },
     idDocument: { type: String },

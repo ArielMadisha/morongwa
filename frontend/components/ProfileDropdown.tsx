@@ -42,7 +42,7 @@ export function ProfileDropdown({ userName, onLogout }: ProfileDropdownProps) {
 
       {open && (
         <div
-          className="absolute right-0 top-full mt-1 py-1 w-48 bg-white rounded-lg border border-slate-200 shadow-lg z-[100]"
+          className="absolute right-0 top-full mt-1 py-1 w-48 bg-white rounded-lg border border-slate-200 shadow-xl z-[9999]"
           onMouseLeave={() => setOpen(false)}
         >
           <Link

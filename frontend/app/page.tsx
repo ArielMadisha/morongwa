@@ -14,7 +14,7 @@ export default function Home() {
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_15%_20%,rgba(59,130,246,0.12),transparent_42%),radial-gradient(circle_at_80%_0%,rgba(14,165,233,0.12),transparent_38%),radial-gradient(circle_at_55%_78%,rgba(79,70,229,0.12),transparent_45%)]" />
       </div>
 
-      <SiteHeader />
+      <SiteHeader minimal />
 
       {/* Hero Section */}
       <main className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20">
@@ -22,30 +22,32 @@ export default function Home() {
           <div className="space-y-6">
             <div className="inline-flex items-center gap-2 text-sm font-semibold text-sky-700 bg-white/80 backdrop-blur-md px-4 py-2 rounded-full shadow-sm border border-sky-100">
               <Sparkles className="h-4 w-4" />
-              Your errand guys
+              Join the Qwerty Revolution
             </div>
             <h1 className="text-5xl md:text-6xl font-extrabold text-slate-900 leading-tight">
-              Your tasks, our runners.
-              <span className="block text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-indigo-600 mt-2">
-                Simple as that.
+              <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-indigo-600">
+                The Digital Home for Doers, Sellers & Creators.
               </span>
             </h1>
-            <p className="text-xl text-slate-600 max-w-2xl">
-              Connect with trusted errand runners who get things done. Post a task or earn money by helping others.
-            </p>
             <div className="flex flex-col sm:flex-row gap-4">
               <Link
                 href="/register"
                 className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white px-8 py-4 rounded-xl hover:from-blue-700 hover:to-indigo-700 font-semibold text-lg transition-all inline-flex items-center justify-center shadow-lg shadow-blue-600/20"
               >
-                Post a Task
+                Get Started
                 <ArrowRight className="ml-2 h-5 w-5" />
               </Link>
               <Link
                 href="/register"
                 className="bg-white/80 text-blue-700 px-8 py-4 rounded-xl hover:bg-white font-semibold text-lg border-2 border-blue-100 transition-all inline-flex items-center justify-center shadow-sm"
               >
-                Become a Runner
+                Register
+              </Link>
+              <Link
+                href="/login"
+                className="bg-white/80 text-blue-700 px-8 py-4 rounded-xl hover:bg-white font-semibold text-lg border-2 border-blue-100 transition-all inline-flex items-center justify-center shadow-sm"
+              >
+                Sign in
               </Link>
             </div>
             <div className="flex items-center gap-4 text-sm text-slate-600">
@@ -58,12 +60,6 @@ export default function Home() {
                 Escrow-secured payouts
               </div>
             </div>
-            <p className="text-sm text-slate-500 pt-2">
-              Already have an account?{' '}
-              <Link href="/login?role=client" className="font-medium text-blue-600 hover:text-blue-500">Sign in as Client</Link>
-              {' · '}
-              <Link href="/login?role=runner" className="font-medium text-emerald-600 hover:text-emerald-500">Sign in as Runner</Link>
-            </p>
           </div>
 
           <LandingMarketplaceCard />

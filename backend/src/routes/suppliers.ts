@@ -107,6 +107,25 @@ router.post("/apply", authenticate, async (req: AuthRequest, res: Response, next
   }
 });
 
+// Update my supplier profile (shipping cost, etc.) – approved suppliers only
+router.put("/me", authenticate, async (req: AuthRequest, res: Response, next) => {
+  try {
+    const supplier = await Supplier.findOne({ userId: req.user!._id });
+    if (!supplier) throw new AppError("Supplier not found", 404);
+    if (supplier.status !== "approved") throw new AppError("Only approved suppliers can update profile", 403);
+    const body = req.body as Record<string, unknown>;
+    if (body.shippingCost !== undefined) {
+      const val = Number(body.shippingCost);
+      (supplier as any).shippingCost = val >= 0 ? val : undefined;
+    }
+    if (body.pickupAddress !== undefined) (supplier as any).pickupAddress = body.pickupAddress;
+    await supplier.save();
+    res.json({ message: "Profile updated", data: supplier });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // Get my supplier application/status – auth required
 router.get("/me", authenticate, async (req: AuthRequest, res: Response, next) => {
   try {

@@ -139,8 +139,11 @@ export interface Product {
   description?: string;
   images: string[];
   price: number;
+  /** Discount/sale price. When set, customers pay this instead of price. */
+  discountPrice?: number;
   currency: string;
   stock: number;
+  outOfStock?: boolean;
   sizes?: string[];
   categories: string[];
   tags: string[];

@@ -15,6 +15,7 @@ interface SupplierDetail {
   type: string;
   storeName?: string;
   pickupAddress?: string;
+  shippingCost?: number;
   companyRegNo?: string;
   directorsIdDoc?: string;
   idDocument?: string;
@@ -34,6 +35,13 @@ export default function AdminSupplierDetailPage() {
   const [loading, setLoading] = useState(true);
   const [rejectReason, setRejectReason] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [shippingCost, setShippingCost] = useState<string>('');
+  const [savingShipping, setSavingShipping] = useState(false);
+
+  useEffect(() => {
+    if (supplier && (supplier as any).shippingCost != null) setShippingCost(String((supplier as any).shippingCost));
+    else if (supplier) setShippingCost('100');
+  }, [supplier]);
 
   useEffect(() => {
     if (!id) return;
@@ -51,6 +59,21 @@ export default function AdminSupplierDetailPage() {
       toast.error(e.response?.data?.message ?? 'Failed');
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleSaveShipping = async () => {
+    const val = Number(shippingCost);
+    if (isNaN(val) || val < 0) { toast.error('Enter a valid shipping cost (ZAR)'); return; }
+    setSavingShipping(true);
+    try {
+      await adminAPI.updateSupplier(id, { shippingCost: val });
+      toast.success('Shipping cost updated');
+      setSupplier((s) => (s ? { ...s, shippingCost: val } as any : null));
+    } catch (e: any) {
+      toast.error(e.response?.data?.message ?? 'Failed');
+    } finally {
+      setSavingShipping(false);
     }
   };
 
@@ -126,6 +149,26 @@ export default function AdminSupplierDetailPage() {
                   <li><strong>ID document:</strong> {supplier.idDocument ? <span className="text-sky-600">{supplier.idDocument}</span> : '—'}</li>
                   {supplier.storeName && <li><strong>Store name:</strong> {supplier.storeName}</li>}
                 </ul>
+              </section>
+            )}
+
+            {(supplier.status === 'approved' || (supplier as any).shippingCost != null) && (
+              <section>
+                <h2 className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-3">Shipping cost (ZAR)</h2>
+                <p className="text-slate-600 text-sm mb-2">Shipping charged per order from this supplier. Default R100 if not set.</p>
+                <div className="flex gap-2 items-center">
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={shippingCost}
+                    onChange={(e) => setShippingCost(e.target.value)}
+                    className="rounded-lg border border-slate-200 px-3 py-2 w-24 text-slate-900"
+                  />
+                  <button type="button" onClick={handleSaveShipping} disabled={savingShipping} className="rounded-lg bg-sky-600 px-4 py-2 text-white text-sm font-medium hover:bg-sky-700 disabled:opacity-50">
+                    {savingShipping ? 'Saving...' : 'Save'}
+                  </button>
+                </div>
               </section>
             )}
 

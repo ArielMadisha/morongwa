@@ -1,5 +1,6 @@
 // Admin routes for platform management
 import express, { Response } from "express";
+import bcrypt from "bcryptjs";
 import User from "../data/models/User";
 import Task from "../data/models/Task";
 import Payment from "../data/models/Payment";
@@ -11,6 +12,10 @@ import Order from "../data/models/Order";
 import ResellerWall from "../data/models/ResellerWall";
 import Store from "../data/models/Store";
 import Product from "../data/models/Product";
+import TVPost from "../data/models/TVPost";
+import TVComment from "../data/models/TVComment";
+import TVReport from "../data/models/TVReport";
+import AdminPermission, { AdminSection } from "../data/models/AdminPermission";
 import { authenticate, AuthRequest, authorize } from "../middleware/auth";
 import { AppError } from "../middleware/errorHandler";
 import { getPaginationParams, slugify } from "../utils/helpers";
@@ -20,6 +25,25 @@ import payoutService from "../services/payoutService";
 import fnbService from "../services/fnbService";
 
 const router = express.Router();
+
+const isSuperAdmin = (req: AuthRequest) =>
+  req.user?.role?.includes("superadmin") ?? false;
+
+/** Require super-admin only */
+const requireSuperAdmin = (_req: AuthRequest, res: Response, next: express.NextFunction) => {
+  if (isSuperAdmin(_req)) return next();
+  res.status(403).json({ error: "Super-admin only" });
+};
+
+/** Require super-admin OR admin with section permission */
+const requireSection = (section: AdminSection) => {
+  return async (req: AuthRequest, res: Response, next: express.NextFunction) => {
+    if (isSuperAdmin(req)) return next();
+    const perm = await AdminPermission.findOne({ userId: req.user!._id }).lean();
+    if (perm?.sections?.includes(section)) return next();
+    res.status(403).json({ error: "Insufficient permissions for this section" });
+  };
+};
 
 // All routes require admin or superadmin role (role-based access control)
 router.use(authenticate, authorize("admin", "superadmin"));
@@ -605,6 +629,24 @@ router.post("/suppliers/:id/approve", async (req: AuthRequest, res: Response, ne
   }
 });
 
+// Update supplier (e.g. shipping cost)
+router.put("/suppliers/:id", async (req: AuthRequest, res: Response, next) => {
+  try {
+    const supplier = await Supplier.findById(req.params.id);
+    if (!supplier) throw new AppError("Supplier not found", 404);
+    const body = req.body as Record<string, unknown>;
+    if (body.shippingCost !== undefined) {
+      const val = Number(body.shippingCost);
+      (supplier as any).shippingCost = val >= 0 ? val : undefined;
+    }
+    if (body.pickupAddress !== undefined) (supplier as any).pickupAddress = body.pickupAddress;
+    await supplier.save();
+    res.json({ message: "Supplier updated", data: supplier });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // Reject supplier
 router.post("/suppliers/:id/reject", async (req: AuthRequest, res: Response, next) => {
   try {
@@ -822,8 +864,10 @@ router.post("/products", async (req: AuthRequest, res: Response, next) => {
       description?: string;
       images?: string[];
       price: number;
+      discountPrice?: number;
       currency?: string;
       stock?: number;
+      outOfStock?: boolean;
       sku?: string;
       sizes?: string[];
       allowResell?: boolean;
@@ -840,6 +884,7 @@ router.post("/products", async (req: AuthRequest, res: Response, next) => {
     let slug = (body.slug && body.slug.trim()) || slugify(title);
     let n = 1;
     while (await Product.findOne({ slug })) slug = `${slugify(title)}-${++n}`;
+    const discountPrice = body.discountPrice != null ? Number(body.discountPrice) : undefined;
     const product = await Product.create({
       supplierId,
       title: title.trim(),
@@ -847,8 +892,10 @@ router.post("/products", async (req: AuthRequest, res: Response, next) => {
       description: body.description?.trim(),
       images,
       price: Number(price),
+      ...(discountPrice != null && discountPrice >= 0 && discountPrice < Number(price) && { discountPrice }),
       currency: body.currency || "ZAR",
       stock: body.stock != null ? Number(body.stock) : 0,
+      outOfStock: body.outOfStock != null ? !!body.outOfStock : false,
       sku: body.sku?.trim(),
       sizes: Array.isArray(body.sizes) ? body.sizes : [],
       allowResell: body.allowResell != null ? !!body.allowResell : true,
@@ -878,10 +925,21 @@ router.put("/products/:id", async (req: AuthRequest, res: Response, next) => {
     const product = await Product.findById(req.params.id);
     if (!product) throw new AppError("Product not found", 404);
     const body = req.body as Record<string, unknown>;
-    const allowed = ["title", "description", "images", "price", "currency", "stock", "sku", "sizes", "allowResell", "categories", "tags", "active"];
+    const allowed = ["title", "description", "images", "price", "discountPrice", "currency", "stock", "outOfStock", "sku", "sizes", "allowResell", "categories", "tags", "active"];
     for (const key of allowed) {
       if (body[key] !== undefined) {
-        (product as any)[key] = key === "active" ? !!body[key] : key === "images" && Array.isArray(body[key]) ? body[key] : body[key];
+        if (key === "discountPrice") {
+          const val = body[key];
+          if (val === null || val === "") {
+            (product as any).discountPrice = undefined;
+          } else {
+            const num = Number(val);
+            const price = product.price ?? 0;
+            if (num >= 0 && num < price) (product as any).discountPrice = num;
+          }
+        } else {
+          (product as any)[key] = key === "active" ? !!body[key] : key === "images" && Array.isArray(body[key]) ? body[key] : body[key];
+        }
       }
     }
     if (body.title && typeof body.title === "string") {
@@ -904,6 +962,163 @@ router.delete("/products/:id", async (req: AuthRequest, res: Response, next) => 
     await product.deleteOne();
     await AuditLog.create({ action: "PRODUCT_DELETED_BY_ADMIN", user: req.user!._id, target: product._id, meta: {} });
     res.json({ message: "Product deleted" });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ————— Super-admin only: create admins with section permissions —————
+router.post("/admins", requireSuperAdmin, async (req: AuthRequest, res: Response, next) => {
+  try {
+    const { email, name, password, sections } = req.body;
+    if (!email?.trim() || !name?.trim() || !password?.trim()) {
+      throw new AppError("email, name, and password required", 400);
+    }
+    const existing = await User.findOne({ email: email.trim().toLowerCase() });
+    if (existing) throw new AppError("User with this email already exists", 400);
+
+    const passwordHash = await bcrypt.hash(password, 10);
+    const user = await User.create({
+      email: email.trim().toLowerCase(),
+      name: name.trim(),
+      passwordHash,
+      role: ["admin"],
+    });
+
+    const validSections: AdminSection[] = (sections || []).filter((s: string) =>
+      ["tv_posts", "tv_comments", "tv_reports", "products", "suppliers", "users", "orders", "tasks", "support", "policies"].includes(s)
+    );
+    await AdminPermission.create({
+      userId: user._id,
+      sections: validSections,
+      createdBy: req.user!._id,
+    });
+
+    await AuditLog.create({
+      action: "ADMIN_CREATED",
+      user: req.user!._id,
+      target: user._id,
+      meta: { email: user.email, sections: validSections },
+    });
+
+    res.status(201).json({
+      data: {
+        _id: user._id,
+        email: user.email,
+        name: user.name,
+        sections: validSections,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ————— Morongwa-TV admin moderation —————
+router.get("/tv/posts", requireSection("tv_posts"), async (req: AuthRequest, res: Response, next) => {
+  try {
+    const { page, limit, status } = req.query;
+    const { skip, limit: limitNum } = getPaginationParams(
+      page ? parseInt(page as string) : undefined,
+      limit ? parseInt(limit as string) : undefined
+    );
+    const query: any = {};
+    if (status) query.status = status;
+
+    const [posts, total] = await Promise.all([
+      TVPost.find(query)
+        .populate("creatorId", "name avatar email")
+        .populate("productId", "title price")
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limitNum)
+        .lean(),
+      TVPost.countDocuments(query),
+    ]);
+
+    res.json({
+      data: posts,
+      pagination: { total, page: Math.floor(skip / limitNum) + 1, limit: limitNum, pages: Math.ceil(total / limitNum) },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post("/tv/posts/:id/approve", requireSection("tv_posts"), async (req: AuthRequest, res: Response, next) => {
+  try {
+    const post = await TVPost.findByIdAndUpdate(req.params.id, { status: "approved" }, { new: true });
+    if (!post) throw new AppError("Post not found", 404);
+    await AuditLog.create({ action: "TV_POST_APPROVED", user: req.user!._id, target: post._id, meta: {} });
+    res.json({ data: post });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post("/tv/posts/:id/reject", requireSection("tv_posts"), async (req: AuthRequest, res: Response, next) => {
+  try {
+    const { reason } = req.body;
+    const post = await TVPost.findByIdAndUpdate(req.params.id, { status: "rejected" }, { new: true });
+    if (!post) throw new AppError("Post not found", 404);
+    await AuditLog.create({ action: "TV_POST_REJECTED", user: req.user!._id, target: post._id, meta: { reason } });
+    res.json({ data: post });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get("/tv/reports", requireSection("tv_reports"), async (req: AuthRequest, res: Response, next) => {
+  try {
+    const { page, limit } = req.query;
+    const { skip, limit: limitNum } = getPaginationParams(
+      page ? parseInt(page as string) : undefined,
+      limit ? parseInt(limit as string) : undefined
+    );
+
+    const [reports, total] = await Promise.all([
+      TVReport.find({ targetType: "post" })
+        .populate("reporterId", "name email")
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limitNum)
+        .lean(),
+      TVReport.countDocuments({ targetType: "post" }),
+    ]);
+
+    res.json({
+      data: reports,
+      pagination: { total, page: Math.floor(skip / limitNum) + 1, limit: limitNum, pages: Math.ceil(total / limitNum) },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post("/tv/reports/:id/resolve", requireSection("tv_reports"), async (req: AuthRequest, res: Response, next) => {
+  try {
+    const report = await TVReport.findByIdAndUpdate(
+      req.params.id,
+      { status: "reviewed", reviewedBy: req.user!._id, reviewedAt: new Date() },
+      { new: true }
+    );
+    if (!report) throw new AppError("Report not found", 404);
+    await AuditLog.create({ action: "TV_REPORT_RESOLVED", user: req.user!._id, target: report._id, meta: {} });
+    res.json({ data: report });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// List admin permissions (super-admin only)
+router.get("/admins", requireSuperAdmin, async (req: AuthRequest, res: Response, next) => {
+  try {
+    const perms = await AdminPermission.find()
+      .populate("userId", "name email")
+      .populate("createdBy", "name")
+      .sort({ createdAt: -1 })
+      .lean();
+    res.json({ data: perms });
   } catch (err) {
     next(err);
   }

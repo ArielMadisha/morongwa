@@ -11,6 +11,7 @@ interface AuthContextType {
   login: (email: string, password: string) => Promise<void>;
   register: (name: string, email: string, password: string, role: string[], policyAcceptances?: string[]) => Promise<void>;
   logout: () => void;
+  refreshUser: () => Promise<void>;
   isAuthenticated: boolean;
 }
 
@@ -21,19 +22,45 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Check if user is logged in on mount
+    // Check if user is logged in on mount and validate token with backend
     const token = localStorage.getItem('token');
     const savedUser = localStorage.getItem('user');
     
-    if (token && savedUser) {
-      try {
-        setUser(JSON.parse(savedUser));
-      } catch (error) {
-        localStorage.removeItem('token');
-        localStorage.removeItem('user');
-      }
+    if (!token || !savedUser) {
+      setLoading(false);
+      return;
     }
-    setLoading(false);
+    
+    try {
+      const parsed = JSON.parse(savedUser);
+      setUser(parsed);
+      // Validate token with backend - prevents showing "logged in" with expired/invalid token
+      authAPI.getCurrentUser()
+        .then((res) => {
+          const serverUser = res.data?.user;
+          if (serverUser) {
+            const normalized = {
+              ...serverUser,
+              _id: serverUser._id || serverUser.id,
+              id: serverUser.id || serverUser._id,
+              role: Array.isArray(serverUser.role) ? serverUser.role : [serverUser.role],
+            };
+            setUser(normalized);
+            localStorage.setItem('user', JSON.stringify(normalized));
+          }
+        })
+        .catch(() => {
+          localStorage.removeItem('token');
+          localStorage.removeItem('user');
+          setUser(null);
+        })
+        .finally(() => setLoading(false));
+    } catch {
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+      setUser(null);
+      setLoading(false);
+    }
   }, []);
 
   const login = async (email: string, password: string) => {
@@ -93,6 +120,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     toast.success('Logged out successfully');
   };
 
+  const refreshUser = async () => {
+    try {
+      const res = await authAPI.getCurrentUser();
+      const serverUser = res.data?.user;
+      if (serverUser) {
+        const normalized = {
+          ...serverUser,
+          _id: serverUser._id || serverUser.id,
+          id: serverUser.id || serverUser._id,
+          role: Array.isArray(serverUser.role) ? serverUser.role : [serverUser.role],
+        };
+        setUser(normalized);
+        localStorage.setItem('user', JSON.stringify(normalized));
+      }
+    } catch {
+      // Ignore - user may have logged out
+    }
+  };
+
   return (
     <AuthContext.Provider
       value={{
@@ -101,6 +147,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         login,
         register,
         logout,
+        refreshUser,
         isAuthenticated: !!user,
       }}
     >

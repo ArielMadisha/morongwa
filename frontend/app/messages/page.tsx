@@ -10,7 +10,7 @@ import ProtectedRoute from '@/components/ProtectedRoute';
 import { useCartAndStores } from '@/lib/useCartAndStores';
 import { AppSidebar, AppSidebarMenuButton } from '@/components/AppSidebar';
 import { ProfileDropdown } from '@/components/ProfileDropdown';
-import { messengerAPI } from '@/lib/api';
+import { messengerAPI, productEnquiryAPI } from '@/lib/api';
 
 function MessagesPageContent() {
   const { user, logout } = useAuth();
@@ -31,6 +31,14 @@ function MessagesPageContent() {
   const [newMessage, setNewMessage] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [newChatOpen, setNewChatOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<'tasks' | 'enquiries'>('tasks');
+  const [enquiries, setEnquiries] = useState<any[]>([]);
+  const [enquiriesLoading, setEnquiriesLoading] = useState(false);
+  const [selectedEnquiry, setSelectedEnquiry] = useState<any>(null);
+  const [enquiryMessages, setEnquiryMessages] = useState<any[]>([]);
+  const [enquiryMessagesLoading, setEnquiryMessagesLoading] = useState(false);
+  const [enquirySending, setEnquirySending] = useState(false);
+  const [enquiryNewMessage, setEnquiryNewMessage] = useState('');
 
   const fetchConversations = async () => {
     try {
@@ -46,11 +54,75 @@ function MessagesPageContent() {
     }
   };
 
+  const fetchEnquiries = async () => {
+    try {
+      setEnquiriesLoading(true);
+      const res = await productEnquiryAPI.getMyEnquiries();
+      const list = res.data?.data ?? res.data ?? [];
+      setEnquiries(Array.isArray(list) ? list : []);
+    } catch {
+      setEnquiries([]);
+    } finally {
+      setEnquiriesLoading(false);
+    }
+  };
+
   useEffect(() => {
     fetchConversations();
   }, []);
 
+  useEffect(() => {
+    if (activeTab === 'enquiries') fetchEnquiries();
+  }, [activeTab]);
+
+  const handleSelectEnquiry = async (enquiry: any) => {
+    setSelectedChat(null);
+    setSelectedEnquiry(enquiry);
+    setEnquiryMessagesLoading(true);
+    setEnquiryMessages([]);
+    try {
+      const res = await productEnquiryAPI.getMessages(enquiry._id);
+      const list = res.data?.data ?? res.data ?? [];
+      setEnquiryMessages(Array.isArray(list) ? list : []);
+    } catch {
+      setEnquiryMessages([]);
+    } finally {
+      setEnquiryMessagesLoading(false);
+    }
+  };
+
+  const handleSendEnquiryMessage = async () => {
+    if (!enquiryNewMessage.trim() || !selectedEnquiry) return;
+    setEnquirySending(true);
+    const text = enquiryNewMessage.trim();
+    setEnquiryNewMessage('');
+    try {
+      await productEnquiryAPI.sendMessage(selectedEnquiry._id, text);
+      setEnquiryMessages((prev) => [
+        ...prev,
+        {
+          _id: Date.now().toString(),
+          senderId: user?._id,
+          content: text,
+          createdAt: new Date(),
+        },
+      ]);
+      setEnquiries((prev) =>
+        prev.map((e) =>
+          e._id === selectedEnquiry._id ? { ...e, lastMessageAt: new Date() } : e
+        )
+      );
+      toast.success('Message sent');
+    } catch (e: any) {
+      setEnquiryNewMessage(text);
+      toast.error(e.response?.data?.message || 'Failed to send');
+    } finally {
+      setEnquirySending(false);
+    }
+  };
+
   const handleSelectChat = async (conversation: any) => {
+    setSelectedEnquiry(null);
     setSelectedChat(conversation);
     setMessagesLoading(true);
     setMessages([]);
@@ -160,27 +232,44 @@ function MessagesPageContent() {
           <div className="grid gap-6 lg:grid-cols-3 h-[600px]">
             <div className="rounded-2xl border border-white/60 bg-white/80 shadow-xl shadow-sky-50 backdrop-blur overflow-hidden flex flex-col">
               <div className="p-4 border-b border-slate-100">
+                <div className="flex gap-2 mb-4">
+                  <button
+                    onClick={() => { setActiveTab('tasks'); setSelectedEnquiry(null); }}
+                    className={`flex-1 py-2 rounded-lg text-sm font-medium ${activeTab === 'tasks' ? 'bg-sky-500 text-white' : 'bg-slate-100 text-slate-700'}`}
+                  >
+                    Tasks
+                  </button>
+                  <button
+                    onClick={() => { setActiveTab('enquiries'); setSelectedChat(null); }}
+                    className={`flex-1 py-2 rounded-lg text-sm font-medium ${activeTab === 'enquiries' ? 'bg-sky-500 text-white' : 'bg-slate-100 text-slate-700'}`}
+                  >
+                    Product enquiries
+                  </button>
+                </div>
                 <div className="relative mb-4">
                   <Search className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
                   <input
                     type="text"
-                    placeholder="Search conversations..."
+                    placeholder={activeTab === 'tasks' ? 'Search conversations...' : 'Search enquiries...'}
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     className="w-full rounded-lg border border-slate-200 bg-white/80 pl-10 pr-4 py-2 text-sm text-slate-900 transition focus:border-sky-300 focus:outline-none focus:ring-2 focus:ring-sky-100"
                   />
                 </div>
-                <button
-                  onClick={openNewChat}
-                  className="w-full rounded-lg border border-sky-200 bg-sky-50 px-4 py-2 text-sm font-semibold text-sky-700 transition hover:bg-sky-100 flex items-center justify-center gap-2"
-                >
-                  <Plus className="h-4 w-4" />
-                  New chat
-                </button>
+                {activeTab === 'tasks' && (
+                  <button
+                    onClick={openNewChat}
+                    className="w-full rounded-lg border border-sky-200 bg-sky-50 px-4 py-2 text-sm font-semibold text-sky-700 transition hover:bg-sky-100 flex items-center justify-center gap-2"
+                  >
+                    <Plus className="h-4 w-4" />
+                    New chat
+                  </button>
+                )}
               </div>
 
               <div className="flex-1 overflow-y-auto space-y-2 p-2">
-                {filteredConversations.length === 0 ? (
+                {activeTab === 'tasks' ? (
+                  filteredConversations.length === 0 ? (
                   <div className="py-8 text-center text-slate-600">
                     <MessageCircle className="mx-auto mb-2 h-8 w-8 text-slate-300" />
                     <p className="text-sm">No conversations yet</p>
@@ -211,12 +300,107 @@ function MessagesPageContent() {
                       </div>
                     </button>
                   ))
+                )
+                ) : enquiriesLoading ? (
+                  <div className="py-8 flex justify-center">
+                    <Loader2 className="h-8 w-8 animate-spin text-sky-600" />
+                  </div>
+                ) : enquiries.filter((e) =>
+                  `${(e.productId as any)?.title ?? ''} ${(e.buyerId as any)?.name ?? ''} ${(e.sellerId as any)?.name ?? ''}`
+                    .toLowerCase()
+                    .includes(searchQuery.toLowerCase())
+                ).length === 0 ? (
+                  <div className="py-8 text-center text-slate-600">
+                    <MessageCircle className="mx-auto mb-2 h-8 w-8 text-slate-300" />
+                    <p className="text-sm">No product enquiries yet</p>
+                    <p className="text-xs mt-1">Enquire about products on Morongwa-TV or the marketplace</p>
+                  </div>
+                ) : (
+                  enquiries
+                    .filter((e) =>
+                      `${(e.productId as any)?.title ?? ''} ${(e.buyerId as any)?.name ?? ''} ${(e.sellerId as any)?.name ?? ''}`
+                        .toLowerCase()
+                        .includes(searchQuery.toLowerCase())
+                    )
+                    .map((enq) => (
+                      <button
+                        key={enq._id}
+                        onClick={() => handleSelectEnquiry(enq)}
+                        className={`w-full text-left rounded-lg p-3 transition ${
+                          selectedEnquiry?._id === enq._id ? 'bg-sky-100' : 'hover:bg-slate-50'
+                        }`}
+                      >
+                        <div>
+                          <p className="font-semibold text-slate-900">{(enq.productId as any)?.title ?? 'Product'}</p>
+                          <p className="text-xs text-slate-600">
+                            {enq.buyerId?._id === user?._id || String(enq.buyerId?._id) === String(user?._id)
+                              ? `You → ${(enq.sellerId as any)?.name ?? 'Seller'}`
+                              : `${(enq.buyerId as any)?.name ?? 'Buyer'} → You`}
+                          </p>
+                        </div>
+                      </button>
+                    ))
                 )}
               </div>
             </div>
 
             <div className="lg:col-span-2 rounded-2xl border border-white/60 bg-white/80 shadow-xl shadow-sky-50 backdrop-blur overflow-hidden flex flex-col">
-              {selectedChat ? (
+              {activeTab === 'enquiries' && selectedEnquiry ? (
+                <>
+                  <div className="border-b border-slate-100 p-4">
+                    <h2 className="text-lg font-semibold text-slate-900">{(selectedEnquiry.productId as any)?.title ?? 'Product enquiry'}</h2>
+                    <p className="text-xs text-slate-600">
+                      {selectedEnquiry.buyerId?._id === user?._id || String(selectedEnquiry.buyerId?._id) === String(user?._id)
+                        ? `Chat with seller ${(selectedEnquiry.sellerId as any)?.name}`
+                        : `Chat with buyer ${(selectedEnquiry.buyerId as any)?.name}`}
+                    </p>
+                  </div>
+                  <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                    {enquiryMessagesLoading ? (
+                      <div className="flex justify-center py-8">
+                        <Loader2 className="h-8 w-8 animate-spin text-sky-600" />
+                      </div>
+                    ) : (
+                      enquiryMessages.map((msg) => (
+                        <div
+                          key={msg._id}
+                          className={`flex ${String(msg.senderId?._id ?? msg.senderId) === String(user?._id) ? 'justify-end' : 'justify-start'}`}
+                        >
+                          <div
+                            className={`rounded-lg px-4 py-2 max-w-xs ${
+                              String(msg.senderId?._id ?? msg.senderId) === String(user?._id)
+                                ? 'bg-gradient-to-r from-sky-500 via-cyan-500 to-teal-500 text-white'
+                                : 'bg-slate-100 text-slate-900'
+                            }`}
+                          >
+                            <p className="text-sm">{msg.content}</p>
+                            <p className={`text-xs mt-1 ${String(msg.senderId?._id ?? msg.senderId) === String(user?._id) ? 'text-white/70' : 'text-slate-600'}`}>
+                              {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            </p>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                  <div className="border-t border-slate-100 p-4 flex gap-2">
+                    <input
+                      type="text"
+                      placeholder="Type a message..."
+                      value={enquiryNewMessage}
+                      onChange={(e) => setEnquiryNewMessage(e.target.value)}
+                      onKeyPress={(e) => e.key === 'Enter' && handleSendEnquiryMessage()}
+                      className="flex-1 rounded-lg border border-slate-200 bg-white/80 px-4 py-2 text-sm text-slate-900"
+                    />
+                    <button
+                      onClick={handleSendEnquiryMessage}
+                      disabled={enquirySending || !enquiryNewMessage.trim()}
+                      className="rounded-lg bg-sky-500 px-4 py-2 text-white font-semibold disabled:opacity-50 flex items-center gap-2"
+                    >
+                      {enquirySending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                    </button>
+                  </div>
+                </>
+              ) : activeTab === 'tasks' && selectedChat ? (
                 <>
                   <div className="border-b border-slate-100 p-4">
                     <h2 className="text-lg font-semibold text-slate-900">{selectedChat.user?.name ?? 'Unknown'}</h2>
@@ -273,7 +457,9 @@ function MessagesPageContent() {
                 <div className="flex items-center justify-center h-full">
                   <div className="text-center">
                     <MessageCircle className="mx-auto mb-4 h-16 w-16 text-slate-300" />
-                    <p className="text-slate-600">Select a conversation or click + New chat</p>
+                    <p className="text-slate-600">
+                      {activeTab === 'enquiries' ? 'Select a product enquiry' : 'Select a conversation or click + New chat'}
+                    </p>
                   </div>
                 </div>
               )}

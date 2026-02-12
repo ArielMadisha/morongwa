@@ -18,6 +18,7 @@ function formatPrice(price: number, currency: string) {
 export default function LandingMarketplaceCard() {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
 
   useEffect(() => {
     productsAPI
@@ -25,8 +26,12 @@ export default function LandingMarketplaceCard() {
       .then((res) => {
         const list = res.data?.data ?? res.data ?? [];
         setProducts(Array.isArray(list) ? list.slice(0, 5) : []);
+        setLoadError(false);
       })
-      .catch(() => setProducts([]))
+      .catch(() => {
+        setProducts([]);
+        setLoadError(true);
+      })
       .finally(() => setLoading(false));
   }, []);
 
@@ -43,10 +48,10 @@ export default function LandingMarketplaceCard() {
             M
           </div>
           <div>
-            <p className="text-sm text-slate-500">From verified suppliers</p>
             <p className="text-lg font-semibold text-slate-900 group-hover:text-sky-700 transition-colors">
-              Morongwa Marketplace
+              QwertyHub
             </p>
+            <p className="text-sm text-slate-500">Buy from verified suppliers</p>
           </div>
         </div>
 
@@ -55,6 +60,12 @@ export default function LandingMarketplaceCard() {
             {[1, 2, 3].map((i) => (
               <div key={i} className="h-14 bg-slate-100 rounded-xl animate-pulse" />
             ))}
+          </div>
+        ) : loadError ? (
+          <div className="rounded-2xl border border-amber-100 bg-amber-50/80 p-4">
+            <p className="text-sm text-amber-800">
+              Products temporarily unavailable. Check your internet and try again.
+            </p>
           </div>
         ) : products.length > 0 ? (
           <div className="space-y-3">
@@ -76,9 +87,16 @@ export default function LandingMarketplaceCard() {
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium text-slate-900 truncate">{p.title}</p>
-                  <p className="text-sm font-semibold text-sky-600">
-                    {formatPrice(p.price, p.currency)}
-                  </p>
+                  <div className="text-sm">
+                    {p.discountPrice != null && p.discountPrice < p.price ? (
+                      <>
+                        <span className="font-semibold text-sky-600">{formatPrice(p.discountPrice, p.currency)}</span>
+                        <span className="ml-1 text-slate-400 line-through text-xs">{formatPrice(p.price, p.currency)}</span>
+                      </>
+                    ) : (
+                      <p className="font-semibold text-sky-600">{formatPrice(p.price, p.currency)}</p>
+                    )}
+                  </div>
                 </div>
               </div>
             ))}
@@ -92,7 +110,7 @@ export default function LandingMarketplaceCard() {
         )}
 
         <div className="flex items-center justify-end gap-2 text-sky-600 font-medium text-sm group-hover:gap-3 transition-all">
-          <span>View marketplace</span>
+          <span>View QwertyHub</span>
           <ArrowRight className="h-4 w-4" />
         </div>
       </div>

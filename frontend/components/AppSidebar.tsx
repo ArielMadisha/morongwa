@@ -42,7 +42,8 @@ export function AppSidebar({
   const isActive = (href: string) => pathname === href || (href !== '/' && pathname.startsWith(href));
 
   const navItems = [
-    { href: '/wall', label: 'Wall', icon: LayoutGrid, showChevron: false },
+    { href: '/wall', label: 'Home', icon: LayoutGrid, showChevron: false },
+    { href: '/marketplace', label: 'QwertyHub', icon: Package, showChevron: false },
     { href: '/dashboard/client', label: 'Client Dashboard', icon: LayoutDashboard, showChevron: true },
     { href: '/dashboard/runner', label: 'Runner Cockpit', icon: Box, showChevron: true },
     { href: '/cart', label: 'Cart', icon: ShoppingCart, badge: cartCount, showChevron: false },

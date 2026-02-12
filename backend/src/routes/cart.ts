@@ -7,6 +7,12 @@ import { AppError } from "../middleware/errorHandler";
 
 const router = express.Router();
 
+function getEffectivePrice(product: { price: number; discountPrice?: number }): number {
+  const p = product as any;
+  if (p.discountPrice != null && p.discountPrice >= 0 && p.discountPrice < p.price) return p.discountPrice;
+  return p.price;
+}
+
 async function getResellerPrice(resellerId: string, productId: string, basePrice: number): Promise<number> {
   const wall = await ResellerWall.findOne({ resellerId });
   if (!wall) return basePrice;
@@ -26,7 +32,7 @@ router.get("/", authenticate, async (req: AuthRequest, res: Response, next) => {
 
     const productIds = cart.items.map((i) => i.productId);
     const products = await Product.find({ _id: { $in: productIds }, active: true })
-      .select("title slug images price currency stock allowResell")
+      .select("title slug images price discountPrice currency stock outOfStock allowResell")
       .lean();
 
     const productMap = new Map(products.map((p) => [p._id.toString(), p]));
@@ -34,7 +40,7 @@ router.get("/", authenticate, async (req: AuthRequest, res: Response, next) => {
     for (const item of cart.items) {
       const product = productMap.get((item.productId as any).toString?.() ?? item.productId);
       if (!product) continue;
-      let price = (product as any).price;
+      let price = getEffectivePrice(product as any);
       if (item.resellerId) {
         price = await getResellerPrice((item.resellerId as any).toString(), (item.productId as any).toString(), price);
       }
@@ -48,8 +54,11 @@ router.get("/", authenticate, async (req: AuthRequest, res: Response, next) => {
           slug: product.slug,
           images: product.images,
           price,
+          originalPrice: (product as any).price,
+          discountPrice: (product as any).discountPrice,
           currency: product.currency,
           stock: product.stock,
+          outOfStock: (product as any).outOfStock,
           allowResell: product.allowResell,
         },
         lineTotal: price * item.qty,
@@ -72,6 +81,7 @@ router.post("/", authenticate, async (req: AuthRequest, res: Response, next) => 
 
     const product = await Product.findOne({ _id: productId, active: true });
     if (!product) throw new AppError("Product not found", 404);
+    if ((product as any).outOfStock) throw new AppError("Product is out of stock", 400);
     if (product.stock < qty) throw new AppError("Insufficient stock", 400);
 
     let cart = await Cart.findOne({ user: req.user!._id });
@@ -97,13 +107,13 @@ router.post("/", authenticate, async (req: AuthRequest, res: Response, next) => 
 
     const productIds = cart.items.map((i) => i.productId);
     const products = await Product.find({ _id: { $in: productIds }, active: true })
-      .select("title slug images price currency stock")
+      .select("title slug images price discountPrice currency stock outOfStock")
       .lean();
     const productMap = new Map(products.map((p) => [p._id.toString(), p]));
     const items: any[] = [];
     for (const item of cart.items) {
       const product = productMap.get((item.productId as any).toString());
-      let price = product ? (product as any).price : 0;
+      let price = product ? getEffectivePrice(product as any) : 0;
       if (product && item.resellerId) {
         price = await getResellerPrice((item.resellerId as any).toString(), (item.productId as any).toString(), price);
       }
@@ -141,7 +151,9 @@ router.put("/item/:productId", authenticate, async (req: AuthRequest, res: Respo
       cart.items = cart.items.filter((i) => (i.productId as any).toString() !== productId);
     } else {
       const product = await Product.findById(productId);
-      if (!product || product.stock < qty) throw new AppError("Insufficient stock", 400);
+      if (!product) throw new AppError("Product not found", 404);
+      if ((product as any).outOfStock) throw new AppError("Product is out of stock", 400);
+      if (product.stock < qty) throw new AppError("Insufficient stock", 400);
       item.qty = qty;
     }
 

@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
-import { Mail, Lock, User, ArrowRight, Loader2, UserCircle, Package, AlertCircle, CheckCircle } from 'lucide-react';
+import { Mail, Lock, User, ArrowRight, Loader2, AlertCircle, CheckCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
 import SiteHeader from '@/components/SiteHeader';
 
@@ -12,7 +12,6 @@ export default function RegisterPage() {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [role, setRole] = useState<'client' | 'runner' | 'both'>('both');
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<{name?: string; email?: string; password?: string; consent?: string}>({});
   const [acceptTos, setAcceptTos] = useState(false);
@@ -66,11 +65,9 @@ export default function RegisterPage() {
     setLoading(true);
 
     try {
-      // Convert selected role to array for API
-      const roleToSend: string[] = role === 'both' ? ['client', 'runner'] : [role];
-      await register(name.trim(), email.trim().toLowerCase(), password, roleToSend, ['terms-of-service', 'privacy-policy']);
+      await register(name.trim(), email.trim().toLowerCase(), password, ['client'], ['terms-of-service', 'privacy-policy']);
       toast.success('🎉 Welcome to Morongwa!');
-      router.push('/dashboard');
+      router.push('/wall');
     } catch (error: any) {
       const errorMsg = error.response?.data?.message || error.message || 'Registration failed';
       toast.error(errorMsg);
@@ -100,7 +97,7 @@ export default function RegisterPage() {
           </div>
           <div className="space-y-3">
             <p className="text-4xl font-semibold leading-tight text-slate-900">
-              Your errand guys
+              Join the Qwerty Revolution
             </p>
             <p className="text-base text-slate-600 max-w-xl">
               Seamless tasks, real-time updates, secure payouts. We keep your errands moving so you can focus on living.
@@ -119,57 +116,10 @@ export default function RegisterPage() {
         <div className="bg-white rounded-2xl shadow-2xl p-8 sm:p-10 text-slate-900">
           <div className="space-y-2">
             <h2 className="text-3xl font-bold text-slate-900 text-center">Create your account</h2>
-            <p className="text-center text-sm text-slate-600">Join Morongwa marketplace today</p>
+            <p className="text-center text-sm text-slate-600">One account for tasks, marketplace, reselling & more</p>
           </div>
 
           <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
-            <div className="grid grid-cols-3 gap-3">
-              <button
-                type="button"
-                onClick={() => setRole('client')}
-                className={`p-4 rounded-lg border-2 transition-all ${
-                  role === 'client'
-                    ? 'border-blue-600 bg-blue-50 ring-2 ring-blue-600'
-                    : 'border-slate-200 hover:border-slate-300'
-                }`}
-              >
-                <UserCircle className={`h-8 w-8 mx-auto mb-2 ${role === 'client' ? 'text-blue-600' : 'text-slate-400'}`} />
-                <div className="font-medium text-sm">Client</div>
-                <div className="text-xs text-slate-500 mt-1">Post tasks</div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setRole('runner')}
-                className={`p-4 rounded-lg border-2 transition-all ${
-                  role === 'runner'
-                    ? 'border-blue-600 bg-blue-50 ring-2 ring-blue-600'
-                    : 'border-slate-200 hover:border-slate-300'
-                }`}
-              >
-                <Package className={`h-8 w-8 mx-auto mb-2 ${role === 'runner' ? 'text-blue-600' : 'text-slate-400'}`} />
-                <div className="font-medium text-sm">Runner</div>
-                <div className="text-xs text-slate-500 mt-1">Earn money</div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setRole('both')}
-                className={`p-4 rounded-lg border-2 transition-all ${
-                  role === 'both'
-                    ? 'border-blue-600 bg-blue-50 ring-2 ring-blue-600'
-                    : 'border-slate-200 hover:border-slate-300'
-                }`}
-              >
-                <div className="flex justify-center mb-2">
-                  <UserCircle className={`h-6 w-6 ${role === 'both' ? 'text-blue-600' : 'text-slate-400'}`} />
-                  <Package className={`h-6 w-6 -ml-2 ${role === 'both' ? 'text-blue-600' : 'text-slate-400'}`} />
-                </div>
-                <div className="font-medium text-sm">Both</div>
-                <div className="text-xs text-slate-500 mt-1">Do it all</div>
-              </button>
-            </div>
-
             <div className="space-y-4">
               <div>
                 <label htmlFor="name" className="block text-sm font-medium text-slate-700 mb-1">

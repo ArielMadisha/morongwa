@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, Suspense } from 'react';
+import { useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
@@ -8,22 +8,14 @@ import { Mail, Lock, ArrowRight, Loader2, AlertCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
 import SiteHeader from '@/components/SiteHeader';
 
-const PREFERRED_ROLE_KEY = 'morongwa_preferred_role';
-
 function LoginForm() {
   const searchParams = useSearchParams();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [role, setRole] = useState<'client' | 'runner' | 'both'>('client');
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<{email?: string; password?: string}>({});
   const { login } = useAuth();
   const router = useRouter();
-
-  useEffect(() => {
-    const r = searchParams.get('role');
-    if (r === 'client' || r === 'runner' || r === 'both') setRole(r);
-  }, [searchParams]);
 
   const validateEmail = (email: string) => {
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
@@ -49,12 +41,11 @@ function LoginForm() {
 
     try {
       await login(email.trim().toLowerCase(), password);
-      if (typeof window !== 'undefined') {
-        window.localStorage.setItem(PREFERRED_ROLE_KEY, role);
-      }
       toast.success('Welcome back!');
       const returnTo = searchParams.get('returnTo');
       const target = returnTo && returnTo.startsWith('/') && !returnTo.startsWith('//') ? returnTo : '/wall';
+      // Allow React state and localStorage to settle before navigation
+      await new Promise((r) => setTimeout(r, 50));
       router.push(target);
     } catch (error: any) {
       const errorMsg = error.response?.data?.message || error.message || 'Login failed';
@@ -87,7 +78,7 @@ function LoginForm() {
           </div>
           <div className="space-y-3">
             <p className="text-4xl font-semibold leading-tight text-slate-900">
-              Your errand guys
+              Join the Qwerty Revolution
             </p>
             <p className="text-base text-slate-600 max-w-xl">
               Seamless tasks, real-time updates, secure payouts. We keep your errands moving so you can focus on living.
@@ -111,23 +102,6 @@ function LoginForm() {
 
           <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
             <div className="space-y-4">
-              <div>
-                <label htmlFor="role" className="block text-sm font-medium text-slate-700 mb-1">
-                  I'm signing in as
-                </label>
-                <select
-                  id="role"
-                  name="role"
-                  value={role}
-                  onChange={(e) => setRole(e.target.value as 'client' | 'runner' | 'both')}
-                  className="block w-full px-3 py-3 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
-                >
-                  <option value="client">Client</option>
-                  <option value="runner">Runner</option>
-                  <option value="both">Both</option>
-                </select>
-                <p className="mt-1 text-xs text-slate-500">You can switch between roles from your profile later.</p>
-              </div>
               <div>
                 <label htmlFor="email" className="block text-sm font-medium text-slate-700 mb-1">
                   Email address

@@ -8,6 +8,7 @@ import AuditLog from "../data/models/AuditLog";
 import { registerSchema, loginSchema } from "../utils/validators";
 import { authLimiter } from "../middleware/rateLimit";
 import { AppError } from "../middleware/errorHandler";
+import { authenticate, AuthRequest } from "../middleware/auth";
 
 const router = express.Router();
 
@@ -31,19 +32,17 @@ router.post("/register", authLimiter, async (req: Request, res: Response, next) 
 
     const passwordHash = await bcrypt.hash(password, 10);
 
-    // Convert single role to array, or default to both client and runner
+    // Unified registration: default to client only. Runner requires separate verification.
     let roles: string[];
     if (role) {
       roles = Array.isArray(role) ? role : [role];
     } else {
-      // Default: user can be both client and runner
-      roles = ["client", "runner"];
+      roles = ["client"];
     }
 
-    // Filter out invalid roles
     const validRoles = roles.filter(r => r === "client" || r === "runner");
     if (validRoles.length === 0) {
-      validRoles.push("client"); // Ensure at least client role
+      validRoles.push("client");
     }
 
     const user = await User.create({
@@ -122,6 +121,36 @@ router.post("/login", authLimiter, async (req: Request, res: Response, next) => 
         role: user.role,
         avatar: user.avatar,
       },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Request runner role (application to become a runner - adds role, verification separate)
+router.post("/request-runner", authenticate, authLimiter, async (req: AuthRequest, res: Response, next) => {
+  try {
+    const user = await User.findById(req.user!._id);
+    if (!user) throw new AppError("User not found", 404);
+
+    const roles = Array.isArray(user.role) ? user.role : [user.role];
+    if (roles.includes("runner")) {
+      return res.json({ message: "Already a runner", user: user.toJSON() });
+    }
+
+    user.role = [...roles, "runner"];
+    await user.save();
+
+    await AuditLog.create({
+      action: "RUNNER_APPLICATION",
+      user: user._id,
+      meta: { requestedAt: new Date() },
+    });
+
+    const userJson = user.toJSON ? user.toJSON() : user.toObject ? user.toObject() : user;
+    res.json({
+      message: "Runner application submitted. Complete verification (PDP, criminal record, vehicle) for admin approval.",
+      user: userJson,
     });
   } catch (err) {
     next(err);

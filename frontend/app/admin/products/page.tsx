@@ -45,7 +45,9 @@ export default function AdminProductsPage() {
     title: '',
     description: '',
     price: '',
+    discountPrice: '',
     stock: '0',
+    outOfStock: false,
     sizes: '',
     allowResell: true,
     categories: '',
@@ -118,13 +120,16 @@ export default function AdminProductsPage() {
         setSubmitting(false);
         return;
       }
+      const discountPrice = form.discountPrice.trim() ? Number(form.discountPrice) : undefined;
       await adminAPI.createProduct({
         supplierId: form.supplierId,
         title: form.title.trim(),
         description: form.description.trim() || undefined,
         images: urls,
         price: Number(form.price),
+        ...(discountPrice != null && discountPrice >= 0 && discountPrice < Number(form.price) && { discountPrice }),
         stock: Number(form.stock) || 0,
+        outOfStock: form.outOfStock,
         sizes: form.sizes ? form.sizes.split(',').map((s) => s.trim()).filter(Boolean) : [],
         allowResell: form.allowResell,
         categories: form.categories ? form.categories.split(',').map((s) => s.trim()).filter(Boolean) : [],
@@ -135,7 +140,7 @@ export default function AdminProductsPage() {
       imagePreviews.forEach((url) => URL.revokeObjectURL(url));
       setImageFiles([]);
       setImagePreviews([]);
-      setForm({ supplierId: form.supplierId, title: '', description: '', price: '', stock: '0', sizes: '', allowResell: true, categories: '', tags: '' });
+      setForm({ supplierId: form.supplierId, title: '', description: '', price: '', discountPrice: '', stock: '0', outOfStock: false, sizes: '', allowResell: true, categories: '', tags: '' });
       fetchProducts();
     } catch (err: any) {
       toast.error(err.response?.data?.message || 'Failed to create product');
@@ -261,6 +266,19 @@ export default function AdminProductsPage() {
                   <p className="text-xs text-slate-500 mt-1">7.5% commission to Morongwa (paid after sale).</p>
                 </div>
                 <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Discount price (ZAR)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={form.discountPrice}
+                    onChange={(e) => setForm((f) => ({ ...f, discountPrice: e.target.value }))}
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-slate-900 focus:border-sky-300 focus:outline-none focus:ring-2 focus:ring-sky-100"
+                    placeholder="Optional — e.g. 799 for sale"
+                  />
+                  <p className="text-xs text-slate-500 mt-1">Cheaper price for discounted orders. Must be less than regular price.</p>
+                </div>
+                <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">Stock</label>
                   <input
                     type="number"
@@ -269,6 +287,13 @@ export default function AdminProductsPage() {
                     onChange={(e) => setForm((f) => ({ ...f, stock: e.target.value }))}
                     className="w-full rounded-lg border border-slate-200 px-3 py-2 text-slate-900 focus:border-sky-300 focus:outline-none focus:ring-2 focus:ring-sky-100"
                   />
+                </div>
+                <div>
+                  <label className="flex items-center gap-2">
+                    <input type="checkbox" checked={form.outOfStock} onChange={(e) => setForm((f) => ({ ...f, outOfStock: e.target.checked }))} className="rounded border-slate-300 text-sky-600" />
+                    <span className="text-sm text-slate-700">Mark as out of stock</span>
+                  </label>
+                  <p className="text-xs text-slate-500 mt-1">When checked, customers cannot add this product to cart.</p>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">Sizes (comma-separated)</label>
@@ -359,7 +384,13 @@ export default function AdminProductsPage() {
                           <p className="text-xs text-slate-500">{p.slug}</p>
                         </td>
                         <td className="py-3 px-4 text-sm">{(p.supplierId as any)?.storeName ?? '—'}</td>
-                        <td className="py-3 px-4 text-right font-medium text-slate-900">{formatPrice(p.price)}</td>
+                        <td className="py-3 px-4 text-right font-medium text-slate-900">
+                          {(p as any).discountPrice != null && (p as any).discountPrice < p.price ? (
+                            <span><span className="text-sky-600">{formatPrice((p as any).discountPrice)}</span> <span className="text-slate-400 line-through text-sm">{formatPrice(p.price)}</span></span>
+                          ) : (
+                            formatPrice(p.price)
+                          )}
+                        </td>
                         <td className="py-3 px-4 text-right text-sm">{p.stock}</td>
                         <td className="py-3 px-4 text-sm">{p.active ? 'Active' : 'Inactive'}</td>
                         <td className="py-3 px-4 text-right">

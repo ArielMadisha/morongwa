@@ -7,8 +7,12 @@ export interface IProduct extends Document {
   description?: string;
   images: string[];
   price: number;
+  /** Discount/sale price. When set and less than price, customers pay this instead. */
+  discountPrice?: number;
   currency: string;
   stock: number;
+  /** When true, product cannot be purchased (e.g. depleted stock). */
+  outOfStock?: boolean;
   sku?: string;
   sizes?: string[];
   allowResell: boolean;
@@ -30,8 +34,10 @@ const ProductSchema = new Schema<IProduct>(
     description: { type: String },
     images: { type: [String], default: [] },
     price: { type: Number, required: true },
+    discountPrice: { type: Number },
     currency: { type: String, default: "ZAR" },
     stock: { type: Number, default: 0 },
+    outOfStock: { type: Boolean, default: false },
     sku: { type: String },
     sizes: { type: [String], default: [] },
     allowResell: { type: Boolean, default: false },

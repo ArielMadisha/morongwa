@@ -14,6 +14,10 @@ import {
   CheckCircle,
   ShoppingCart,
   Store,
+  Shield,
+  FileCheck,
+  Car,
+  ArrowRight,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import ProtectedRoute from '@/components/ProtectedRoute';
@@ -36,6 +40,8 @@ function RunnerDashboard() {
   const [commissionRate, setCommissionRate] = useState<number>(0.15);
   const { cartCount, hasStore } = useCartAndStores(!!user);
 
+  const hasRunnerRole = user?.role && (Array.isArray(user.role) ? user.role.includes('runner') : user.role === 'runner');
+
   const handleLogout = () => {
     logout();
     router.push('/');
@@ -51,8 +57,9 @@ function RunnerDashboard() {
   );
 
   useEffect(() => {
-    fetchTasks();
-  }, []);
+    if (hasRunnerRole) fetchTasks();
+    else setLoading(false);
+  }, [hasRunnerRole]);
 
   useEffect(() => {
     productsAPI
@@ -187,6 +194,44 @@ function RunnerDashboard() {
 
         <div className="flex-1 flex gap-6 pt-6 min-h-0">
       <main className="flex-1 min-w-0 max-w-6xl w-full mx-auto px-4 sm:px-6 lg:px-8">
+        {!hasRunnerRole && (
+          <div className="mb-8 rounded-2xl border-2 border-sky-200 bg-sky-50/80 p-8">
+            <h2 className="text-xl font-bold text-slate-900 mb-2">Become a verified runner</h2>
+            <p className="text-slate-600 mb-6">Complete runner verification to accept tasks and earn. Requirements (Bolt-style):</p>
+            <div className="grid sm:grid-cols-3 gap-4 mb-6">
+              <div className="flex gap-3 p-4 rounded-xl bg-white border border-sky-100">
+                <FileCheck className="h-8 w-8 text-sky-600 shrink-0" />
+                <div>
+                  <h3 className="font-semibold text-slate-900">Driver&apos;s licence + PDP</h3>
+                  <p className="text-sm text-slate-600">Professional Driving Permit required</p>
+                </div>
+              </div>
+              <div className="flex gap-3 p-4 rounded-xl bg-white border border-sky-100">
+                <Shield className="h-8 w-8 text-sky-600 shrink-0" />
+                <div>
+                  <h3 className="font-semibold text-slate-900">Clear criminal record</h3>
+                  <p className="text-sm text-slate-600">From recommended supplier; results shared with admin</p>
+                </div>
+              </div>
+              <div className="flex gap-3 p-4 rounded-xl bg-white border border-sky-100">
+                <Car className="h-8 w-8 text-sky-600 shrink-0" />
+                <div>
+                  <h3 className="font-semibold text-slate-900">Vehicle inspection</h3>
+                  <p className="text-sm text-slate-600">CarScan or similar; automated report</p>
+                </div>
+              </div>
+            </div>
+            <Link
+              href="/runner/apply"
+              className="inline-flex items-center gap-2 px-6 py-3 bg-sky-600 text-white rounded-xl font-semibold hover:bg-sky-700 transition-colors"
+            >
+              Apply to become a runner
+              <ArrowRight className="h-5 w-5" />
+            </Link>
+          </div>
+        )}
+        {hasRunnerRole && (
+        <>
         <div className="grid gap-4 md:grid-cols-3">
           {[{
             label: 'Available tasks',
@@ -349,9 +394,16 @@ function RunnerDashboard() {
                     </div>
                     <div className="p-4">
                       <h3 className="font-semibold text-slate-900 line-clamp-2">{p.title}</h3>
-                      <p className="mt-1 font-bold text-slate-900">
-                        {new Intl.NumberFormat('en-ZA', { style: 'currency', currency: p.currency || 'ZAR' }).format(p.price)}
-                      </p>
+                      <div className="mt-1">
+                        {p.discountPrice != null && p.discountPrice < p.price ? (
+                          <>
+                            <span className="font-bold text-sky-600">{new Intl.NumberFormat('en-ZA', { style: 'currency', currency: p.currency || 'ZAR' }).format(p.discountPrice)}</span>
+                            <span className="ml-1 text-sm text-slate-400 line-through">{new Intl.NumberFormat('en-ZA', { style: 'currency', currency: p.currency || 'ZAR' }).format(p.price)}</span>
+                          </>
+                        ) : (
+                          <p className="font-bold text-slate-900">{new Intl.NumberFormat('en-ZA', { style: 'currency', currency: p.currency || 'ZAR' }).format(p.price)}</p>
+                        )}
+                      </div>
                     </div>
                   </Link>
                 ))}
@@ -445,6 +497,8 @@ function RunnerDashboard() {
             </div>
           )}
         </div>
+        </>
+        )}
       </main>
 
           {/* Area 2: Reserved space - well below profile so dropdown displays properly */}
@@ -459,7 +513,7 @@ function RunnerDashboard() {
 
 export default function ProtectedRunnerDashboard() {
   return (
-    <ProtectedRoute allowedRoles={['runner']}>
+    <ProtectedRoute>
       <RunnerDashboard />
     </ProtectedRoute>
   );

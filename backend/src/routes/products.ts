@@ -57,7 +57,7 @@ router.get("/", async (req: Request, res: Response) => {
       supplierId: { $in: approvedSupplierIds },
       active: true,
     })
-      .select("title slug description images price currency stock categories tags ratingAvg ratingCount")
+      .select("title slug description images price discountPrice currency stock outOfStock categories tags ratingAvg ratingCount")
       .populate("supplierId", "storeName")
       .lean();
 
@@ -128,8 +128,10 @@ router.post("/", authenticate, async (req: AuthRequest, res: Response, next) => 
       description?: string;
       images?: string[];
       price: number;
+      discountPrice?: number;
       currency?: string;
       stock?: number;
+      outOfStock?: boolean;
       sku?: string;
       sizes?: string[];
       allowResell?: boolean;
@@ -146,6 +148,7 @@ router.post("/", authenticate, async (req: AuthRequest, res: Response, next) => 
     let slug = slugify(title.trim());
     let n = 1;
     while (await Product.findOne({ slug })) slug = `${slugify(title.trim())}-${++n}`;
+    const discountPrice = body.discountPrice != null ? Number(body.discountPrice) : undefined;
     const product = await Product.create({
       supplierId: supplier._id,
       title: title.trim(),
@@ -153,8 +156,10 @@ router.post("/", authenticate, async (req: AuthRequest, res: Response, next) => 
       description: body.description?.trim(),
       images,
       price: Number(price),
+      ...(discountPrice != null && discountPrice >= 0 && discountPrice < Number(price) && { discountPrice }),
       currency: body.currency || "ZAR",
       stock: body.stock != null ? Number(body.stock) : 0,
+      outOfStock: body.outOfStock != null ? !!body.outOfStock : false,
       sku: body.sku?.trim(),
       sizes: Array.isArray(body.sizes) ? body.sizes : [],
       allowResell: body.allowResell != null ? !!body.allowResell : true,
