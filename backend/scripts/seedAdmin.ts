@@ -17,6 +17,9 @@ import Wallet from "../src/data/models/Wallet";
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "admin@morongwa.com";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "081276@Am";
 const ADMIN_NAME = process.env.ADMIN_NAME ?? "Admin";
+const ADMIN_EMAIL = "admin@morongwa.com";
+const ADMIN_PASSWORD = "";
+const ADMIN_NAME = "Admin";
 
 async function seedAdmin() {
   try {
