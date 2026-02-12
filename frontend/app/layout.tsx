@@ -10,7 +10,7 @@ const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
   title: "Morongwa - Errand Runner Marketplace",
-  description: "Connect with trusted errand runners for your daily tasks",
+  description: "The Digital Home for Doers, Sellers & Creators.",
 };
 
 export default function RootLayout({

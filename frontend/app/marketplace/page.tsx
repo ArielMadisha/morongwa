@@ -77,8 +77,11 @@ export default function MarketplacePage() {
               <Link
                 key={p._id}
                 href={`/marketplace/product/${p._id}`}
-                className="group bg-white/90 backdrop-blur rounded-2xl border border-slate-100 overflow-hidden shadow-sm hover:shadow-lg hover:border-sky-200 transition-all"
+                className="group relative bg-white/90 backdrop-blur rounded-2xl border border-slate-100 overflow-hidden shadow-sm hover:shadow-lg hover:border-sky-200 transition-all"
               >
+                {((p as any).outOfStock || (p.stock != null && p.stock < 1)) && (
+                  <span className="absolute top-2 right-2 z-10 px-2 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800">Out of stock</span>
+                )}
                 <div className="aspect-square bg-slate-100 flex items-center justify-center">
                   {p.images?.[0] ? (
                     <img
@@ -94,9 +97,16 @@ export default function MarketplacePage() {
                   <h3 className="font-semibold text-slate-900 group-hover:text-sky-700 truncate">
                     {p.title}
                   </h3>
-                  <p className="text-lg font-bold text-sky-600 mt-1">
-                    {formatPrice(p.price, p.currency)}
-                  </p>
+                  <div className="mt-1">
+                    {p.discountPrice != null && p.discountPrice < p.price ? (
+                      <>
+                        <span className="text-lg font-bold text-sky-600">{formatPrice(p.discountPrice, p.currency)}</span>
+                        <span className="ml-2 text-sm text-slate-400 line-through">{formatPrice(p.price, p.currency)}</span>
+                      </>
+                    ) : (
+                      <p className="text-lg font-bold text-sky-600">{formatPrice(p.price, p.currency)}</p>
+                    )}
+                  </div>
                   {p.ratingAvg != null && (
                     <p className="text-sm text-slate-500 mt-1">
                       {p.ratingAvg.toFixed(1)}★

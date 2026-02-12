@@ -22,17 +22,13 @@ export default function Home() {
           <div className="space-y-6">
             <div className="inline-flex items-center gap-2 text-sm font-semibold text-sky-700 bg-white/80 backdrop-blur-md px-4 py-2 rounded-full shadow-sm border border-sky-100">
               <Sparkles className="h-4 w-4" />
-              Your errand guys
+              Join the Qwerty Revolution
             </div>
             <h1 className="text-5xl md:text-6xl font-extrabold text-slate-900 leading-tight">
-              Your tasks, our runners.
-              <span className="block text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-indigo-600 mt-2">
-                Simple as that.
+              <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-indigo-600">
+                The Digital Home for Doers, Sellers & Creators.
               </span>
             </h1>
-            <p className="text-xl text-slate-600 max-w-2xl">
-              Connect with trusted errand runners who get things done. Post a task or earn money by helping others.
-            </p>
             <div className="flex flex-col sm:flex-row gap-4">
               <Link
                 href="/register"

@@ -20,7 +20,9 @@ export default function SupplierProductsPage() {
     title: '',
     description: '',
     price: '',
+    discountPrice: '',
     stock: '0',
+    outOfStock: false,
     sizes: '',
     allowResell: true,
     categories: '',
@@ -65,12 +67,15 @@ export default function SupplierProductsPage() {
         setSubmitting(false);
         return;
       }
+      const discountPrice = form.discountPrice.trim() ? Number(form.discountPrice) : undefined;
       await productsAPI.create({
         title: form.title.trim(),
         description: form.description.trim() || undefined,
         images: urls,
         price: Number(form.price),
+        ...(discountPrice != null && discountPrice >= 0 && discountPrice < Number(form.price) && { discountPrice }),
         stock: Number(form.stock) || 0,
+        outOfStock: form.outOfStock,
         sizes: form.sizes ? form.sizes.split(',').map((s) => s.trim()).filter(Boolean) : [],
         allowResell: form.allowResell,
         categories: form.categories ? form.categories.split(',').map((s) => s.trim()).filter(Boolean) : [],
@@ -80,7 +85,7 @@ export default function SupplierProductsPage() {
       imagePreviews.forEach((url) => URL.revokeObjectURL(url));
       setImageFiles([]);
       setImagePreviews([]);
-      setForm({ title: '', description: '', price: '', stock: '0', sizes: '', allowResell: true, categories: '', tags: '' });
+      setForm({ title: '', description: '', price: '', discountPrice: '', stock: '0', outOfStock: false, sizes: '', allowResell: true, categories: '', tags: '' });
     } catch (err: any) {
       const msg = err.response?.data?.message || 'Failed to create product';
       toast.error(msg);
@@ -98,6 +103,9 @@ export default function SupplierProductsPage() {
             <Link href="/marketplace" className="text-sky-600 hover:underline">Marketplace</Link>
             <span>/</span>
             <span className="text-slate-800 font-medium">Add product</span>
+            <span className="ml-auto">
+              <Link href="/supplier/settings" className="text-sky-600 hover:underline">Supplier settings</Link>
+            </span>
           </nav>
           <h1 className="text-2xl font-bold text-slate-900 mb-2">Add product</h1>
           <p className="text-slate-600 mb-4">As a verified supplier, you can load products to sell on the marketplace.</p>
@@ -183,6 +191,19 @@ export default function SupplierProductsPage() {
               <p className="text-xs text-slate-500 mt-1">e.g. R1000 — 7.5% to be paid to Morongwa after sale.</p>
             </div>
             <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Discount price (ZAR)</label>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                value={form.discountPrice}
+                onChange={(e) => setForm((f) => ({ ...f, discountPrice: e.target.value }))}
+                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-slate-900 focus:border-sky-300 focus:outline-none focus:ring-2 focus:ring-sky-100"
+                placeholder="Optional — e.g. 799 for sale"
+              />
+              <p className="text-xs text-slate-500 mt-1">Cheaper price for discounted orders. Must be less than regular price.</p>
+            </div>
+            <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Stock</label>
               <input
                 type="number"
@@ -191,6 +212,13 @@ export default function SupplierProductsPage() {
                 onChange={(e) => setForm((f) => ({ ...f, stock: e.target.value }))}
                 className="w-full rounded-lg border border-slate-200 px-3 py-2 text-slate-900 focus:border-sky-300 focus:outline-none focus:ring-2 focus:ring-sky-100"
               />
+            </div>
+            <div>
+              <label className="flex items-center gap-2">
+                <input type="checkbox" checked={form.outOfStock} onChange={(e) => setForm((f) => ({ ...f, outOfStock: e.target.checked }))} className="rounded border-slate-300 text-sky-600" />
+                <span className="text-sm text-slate-700">Mark as out of stock</span>
+              </label>
+              <p className="text-xs text-slate-500 mt-1">When checked, customers cannot add this product to cart.</p>
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Sizes (comma-separated)</label>

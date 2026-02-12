@@ -76,9 +76,16 @@ export default function LandingMarketplaceCard() {
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium text-slate-900 truncate">{p.title}</p>
-                  <p className="text-sm font-semibold text-sky-600">
-                    {formatPrice(p.price, p.currency)}
-                  </p>
+                  <div className="text-sm">
+                    {p.discountPrice != null && p.discountPrice < p.price ? (
+                      <>
+                        <span className="font-semibold text-sky-600">{formatPrice(p.discountPrice, p.currency)}</span>
+                        <span className="ml-1 text-slate-400 line-through text-xs">{formatPrice(p.price, p.currency)}</span>
+                      </>
+                    ) : (
+                      <p className="font-semibold text-sky-600">{formatPrice(p.price, p.currency)}</p>
+                    )}
+                  </div>
                 </div>
               </div>
             ))}

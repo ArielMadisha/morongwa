@@ -44,10 +44,17 @@ import { ensureDefaultProducts } from "./services/marketplaceSeed";
 const app: Application = express();
 const server = http.createServer(app);
 
+// Allowed CORS origins (supports both common dev ports)
+const allowedOrigins = [
+  "http://localhost:3000",
+  "http://localhost:3001",
+  process.env.FRONTEND_URL,
+].filter(Boolean) as string[];
+
 // Socket.IO setup with CORS
 const io = new SocketServer(server, {
   cors: {
-    origin: process.env.FRONTEND_URL || "http://localhost:3000",
+    origin: allowedOrigins.length ? allowedOrigins : "http://localhost:3000",
     methods: ["GET", "POST"],
     credentials: true,
   },
@@ -55,7 +62,7 @@ const io = new SocketServer(server, {
 
 // Middleware
 app.use(cors({
-  origin: process.env.FRONTEND_URL || "http://localhost:3000",
+  origin: allowedOrigins.length ? allowedOrigins : "http://localhost:3000",
   credentials: true,
 }));
 app.use(express.json());

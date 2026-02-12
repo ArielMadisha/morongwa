@@ -16,6 +16,7 @@ export default function CheckoutPage() {
   const [quote, setQuote] = useState<{
     subtotal: number;
     shipping: number;
+    shippingBreakdown?: Array<{ supplierId: string; storeName?: string; shippingCost: number }>;
     platformFee: number;
     commissionTotal?: number;
     adminCommissionTotal?: number;
@@ -98,7 +99,18 @@ export default function CheckoutPage() {
                 </div>
               )}
               <div className="flex justify-between text-slate-600"><span>Subtotal ({quote.itemCount} items)</span><span>{formatPrice(quote.subtotal)}</span></div>
-              <div className="flex justify-between text-slate-600"><span>Shipping</span><span>{formatPrice(quote.shipping)}</span></div>
+              {quote.shippingBreakdown && quote.shippingBreakdown.length > 1 ? (
+                <div className="space-y-1">
+                  <div className="flex justify-between text-slate-600"><span>Shipping</span><span>{formatPrice(quote.shipping)}</span></div>
+                  <div className="pl-4 text-sm text-slate-500 space-y-0.5">
+                    {quote.shippingBreakdown.map((s) => (
+                      <div key={s.supplierId} className="flex justify-between"><span>{s.storeName ?? 'Supplier'}</span><span>{formatPrice(s.shippingCost)}</span></div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="flex justify-between text-slate-600"><span>Shipping</span><span>{formatPrice(quote.shipping)}</span></div>
+              )}
               <div className="flex justify-between text-slate-600"><span>Platform fee</span><span>{formatPrice(quote.platformFee)}</span></div>
               <div className="border-t border-slate-200 pt-3 flex justify-between font-bold text-slate-900 text-lg"><span>Total</span><span>{formatPrice(quote.total)}</span></div>
             </div>

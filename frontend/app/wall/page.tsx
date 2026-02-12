@@ -91,8 +91,11 @@ function WallPageContent() {
                 <Link
                   key={p._id}
                   href={`/marketplace/product/${p._id}`}
-                  className="group bg-white/90 backdrop-blur rounded-2xl border border-slate-100 overflow-hidden shadow-sm hover:shadow-lg hover:border-sky-200 transition-all"
+                  className="group relative bg-white/90 backdrop-blur rounded-2xl border border-slate-100 overflow-hidden shadow-sm hover:shadow-lg hover:border-sky-200 transition-all"
                 >
+                  {((p as any).outOfStock || (p.stock != null && p.stock < 1)) && (
+                    <span className="absolute top-2 right-2 z-10 px-2 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800">Out of stock</span>
+                  )}
                   <div className="aspect-square bg-slate-100 flex items-center justify-center">
                     {p.images?.[0] ? (
                       <img
@@ -108,9 +111,16 @@ function WallPageContent() {
                     <h3 className="font-semibold text-slate-900 line-clamp-2 group-hover:text-sky-600 transition-colors">
                       {p.title}
                     </h3>
-                    <p className="mt-1 text-lg font-bold text-slate-900">
-                      {formatPrice(p.price, p.currency || 'ZAR')}
-                    </p>
+                    <div className="mt-1">
+                      {p.discountPrice != null && p.discountPrice < p.price ? (
+                        <>
+                          <span className="text-lg font-bold text-sky-600">{formatPrice(p.discountPrice, p.currency || 'ZAR')}</span>
+                          <span className="ml-2 text-sm text-slate-400 line-through">{formatPrice(p.price, p.currency || 'ZAR')}</span>
+                        </>
+                      ) : (
+                        <p className="text-lg font-bold text-slate-900">{formatPrice(p.price, p.currency || 'ZAR')}</p>
+                      )}
+                    </div>
                   </div>
                 </Link>
               ))}

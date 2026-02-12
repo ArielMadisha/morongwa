@@ -38,16 +38,25 @@ import cartRoutes from "./src/routes/cart";
 import checkoutRoutes from "./src/routes/checkout";
 import resellerRoutes from "./src/routes/reseller";
 import storesRoutes from "./src/routes/stores";
+import tvRoutes from "./src/routes/tv";
+import productEnquiryRoutes from "./src/routes/productEnquiry";
 import { ensureDefaultPolicies } from "./src/services/policyService";
 import { seedPricingConfig } from "./src/services/pricingConfig";
 
 const app: Application = express();
 const server = http.createServer(app);
 
+// Allowed CORS origins (supports both common dev ports)
+const allowedOrigins = [
+  "http://localhost:3000",
+  "http://localhost:3001",
+  process.env.FRONTEND_URL,
+].filter(Boolean) as string[];
+
 // Socket.IO setup with CORS
 const io = new SocketServer(server, {
   cors: {
-    origin: process.env.FRONTEND_URL || "http://localhost:3000",
+    origin: allowedOrigins.length ? allowedOrigins : "http://localhost:3000",
     methods: ["GET", "POST"],
     credentials: true,
   },
@@ -55,7 +64,7 @@ const io = new SocketServer(server, {
 
 // Middleware
 app.use(cors({
-  origin: process.env.FRONTEND_URL || "http://localhost:3000",
+  origin: allowedOrigins.length ? allowedOrigins : "http://localhost:3000",
   credentials: true,
 }));
 app.use(express.json());
@@ -115,6 +124,8 @@ app.use("/api/cart", cartRoutes);
 app.use("/api/checkout", checkoutRoutes);
 app.use("/api/reseller", resellerRoutes);
 app.use("/api/stores", storesRoutes);
+app.use("/api/tv", tvRoutes);
+app.use("/api/product-enquiry", productEnquiryRoutes);
 
 // Error handling
 app.use(notFoundHandler);

@@ -6,13 +6,20 @@ export const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000
 /** Backend base URL (no /api) - used for image URLs. */
 export const API_BASE = API_URL.replace(/\/api\/?$/, '').replace(/\/$/, '');
 
-/** Normalize product image URL - fix /api/uploads, handle relative paths, ensure absolute URL. */
+/** Effective price for a product (discountPrice when set and valid, else price). */
+export function getEffectivePrice(p: { price: number; discountPrice?: number }): number {
+  if (p.discountPrice != null && p.discountPrice >= 0 && p.discountPrice < p.price) return p.discountPrice;
+  return p.price;
+}
+
+/** Normalize product image URL - use /uploads/... so Next.js proxy serves same-origin (avoids CORS/cross-origin blocking). */
 export function getImageUrl(url: string | undefined): string {
   if (!url || typeof url !== 'string') return '';
   let normalized = url.replace(/\/api\/uploads\//g, '/uploads/');
-  if (normalized.startsWith('/uploads/') && !normalized.startsWith('http')) {
-    normalized = `${API_BASE}${normalized}`;
-  }
+  // If backend returned full URL (e.g. http://localhost:4000/uploads/...), use path only for same-origin proxy
+  const uploadsMatch = normalized.match(/\/uploads\/.+$/);
+  if (uploadsMatch) return uploadsMatch[0];
+  if (normalized.startsWith('/uploads/')) return normalized;
   return normalized;
 }
 
@@ -47,12 +54,13 @@ api.interceptors.request.use(
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401) {
-      // Unauthorized - clear token and redirect to login
-      if (typeof window !== 'undefined') {
-        localStorage.removeItem('token');
-        localStorage.removeItem('user');
-        window.location.href = '/login';
+    if (error.response?.status === 401 && typeof window !== 'undefined') {
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+      // Only redirect if not already on login (avoid duplicate nav)
+      if (!window.location.pathname.startsWith('/login')) {
+        const returnTo = encodeURIComponent(window.location.pathname + window.location.search);
+        window.location.href = returnTo ? `/login?returnTo=${returnTo}` : '/login';
       }
     }
     return Promise.reject(error);
@@ -160,6 +168,8 @@ export const adminAPI = {
   getSuppliers: (params?: { page?: number; limit?: number; status?: string }) =>
     api.get('/admin/suppliers', { params }),
   getSupplier: (id: string) => api.get(`/admin/suppliers/${id}`),
+  updateSupplier: (id: string, data: { shippingCost?: number; pickupAddress?: string }) =>
+    api.put(`/admin/suppliers/${id}`, data),
   approveSupplier: (id: string) => api.post(`/admin/suppliers/${id}/approve`),
   rejectSupplier: (id: string, reason?: string) =>
     api.post(`/admin/suppliers/${id}/reject`, { reason }),
@@ -194,8 +204,10 @@ export const adminAPI = {
     description?: string;
     images: string[];
     price: number;
+    discountPrice?: number;
     currency?: string;
     stock?: number;
+    outOfStock?: boolean;
     sku?: string;
     sizes?: string[];
     allowResell?: boolean;
@@ -205,6 +217,20 @@ export const adminAPI = {
   getProduct: (id: string) => api.get(`/admin/products/${id}`),
   updateProduct: (id: string, data: Record<string, unknown>) => api.put(`/admin/products/${id}`, data),
   deleteProduct: (id: string) => api.delete(`/admin/products/${id}`),
+
+  // Morongwa-TV moderation
+  getTVPosts: (params?: { page?: number; limit?: number; status?: string }) =>
+    api.get('/admin/tv/posts', { params }),
+  approveTVPost: (id: string) => api.post(`/admin/tv/posts/${id}/approve`),
+  rejectTVPost: (id: string, reason?: string) => api.post(`/admin/tv/posts/${id}/reject`, { reason }),
+  getTVReports: (params?: { page?: number; limit?: number }) =>
+    api.get('/admin/tv/reports', { params }),
+  resolveTVReport: (id: string) => api.post(`/admin/tv/reports/${id}/resolve`),
+
+  // Super-admin: create admins
+  createAdmin: (data: { email: string; name: string; password: string; sections?: string[] }) =>
+    api.post('/admin/admins', data),
+  getAdmins: () => api.get('/admin/admins'),
 };
 
 export const supportAPI = {
@@ -265,8 +291,10 @@ export const productsAPI = {
     description?: string;
     images: string[];
     price: number;
+    discountPrice?: number;
     currency?: string;
     stock?: number;
+    outOfStock?: boolean;
     sku?: string;
     sizes?: string[];
     allowResell?: boolean;
@@ -305,12 +333,53 @@ export const storesAPI = {
   getBySlug: (slug: string) => api.get(`/stores/by-slug/${slug}`),
 };
 
+export const productEnquiryAPI = {
+  enquire: (productId: string, message?: string) =>
+    api.post(`/product-enquiry/product/${productId}`, { message }),
+  getMyEnquiries: () => api.get('/product-enquiry'),
+  getMessages: (enquiryId: string) => api.get(`/product-enquiry/${enquiryId}/messages`),
+  sendMessage: (enquiryId: string, content: string) =>
+    api.post(`/product-enquiry/${enquiryId}/messages`, { content }),
+};
+
+export const tvAPI = {
+  getFeed: (params?: { page?: number; limit?: number; sort?: 'newest' | 'trending' | 'random' }) =>
+    api.get('/tv', { params }),
+  uploadMedia: (file: File) => {
+    const formData = new FormData();
+    formData.append('media', file);
+    return api.post<{ url: string }>('/tv/upload', formData);
+  },
+  uploadImages: (files: File[]) => {
+    const formData = new FormData();
+    files.forEach((f) => formData.append('images', f));
+    return api.post<{ urls: string[] }>('/tv/upload-images', formData);
+  },
+  createPost: (data: {
+    type: 'video' | 'image' | 'carousel' | 'product';
+    mediaUrls: string[];
+    caption?: string;
+    productId?: string;
+    filter?: string;
+  }) => api.post('/tv', data),
+  repost: (id: string) => api.post(`/tv/${id}/repost`),
+  like: (id: string) => api.post(`/tv/${id}/like`),
+  getLiked: (id: string) => api.get<{ data: { liked: boolean } }>(`/tv/${id}/liked`),
+  report: (id: string, reason: string) => api.post(`/tv/${id}/report`, { reason }),
+  getComments: (id: string) => api.get(`/tv/${id}/comments`),
+  addComment: (id: string, text: string) => api.post(`/tv/${id}/comments`, { text }),
+  getWatermark: () => api.get<{ data: { watermark: string } }>('/tv/watermark'),
+  getFeaturedProducts: () => api.get('/tv/products/featured'),
+};
+
 export const suppliersAPI = {
   uploadDocument: (file: File) => {
     const formData = new FormData();
     formData.append('document', file);
     return api.post<{ success: boolean; path: string; fullUrl: string }>('/suppliers/upload-document', formData);
   },
+  updateMe: (data: { shippingCost?: number; pickupAddress?: string }) =>
+    api.put('/suppliers/me', data),
   apply: (data: {
     type: 'company' | 'individual';
     storeName?: string;

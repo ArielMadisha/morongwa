@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { Package, ArrowLeft, ShoppingCart, LayoutGrid, X } from 'lucide-react';
-import { productsAPI, cartAPI, resellerAPI, getImageUrl } from '@/lib/api';
+import { productsAPI, cartAPI, resellerAPI, getImageUrl, getEffectivePrice } from '@/lib/api';
 import { invalidateCartStoresCache } from '@/lib/useCartAndStores';
 import { useAuth } from '@/contexts/AuthContext';
 import type { Product } from '@/lib/types';
@@ -65,8 +65,10 @@ export default function ProductPage() {
     ? product.supplierId.storeName
     : null;
   const allowResell = 'allowResell' in product ? (product as any).allowResell : false;
+  const isOutOfStock = (product as any).outOfStock || (product.stock != null && product.stock < 1);
 
   const addToCart = () => {
+    if (isOutOfStock) { toast.error('Product is out of stock'); return; }
     if (!user) { toast.error('Sign in to add to cart'); return; }
     setAddingCart(true);
     cartAPI.add(product._id, 1).then(() => { toast.success('Added to cart'); invalidateCartStoresCache(); setAddingCart(false); }).catch(() => { toast.error('Failed'); setAddingCart(false); });
@@ -118,10 +120,20 @@ export default function ProductPage() {
               )}
             </div>
             <div className="p-8 flex flex-col justify-center">
-              <h1 className="text-2xl font-bold text-slate-900">{product.title}</h1>
-              <p className="text-2xl font-bold text-sky-600 mt-2">
-                {formatPrice(product.price, product.currency)}
-              </p>
+              <div className="flex items-center gap-2">
+                <h1 className="text-2xl font-bold text-slate-900">{product.title}</h1>
+                {isOutOfStock && <span className="px-2 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800">Out of stock</span>}
+              </div>
+              <div className="mt-2">
+                {product.discountPrice != null && product.discountPrice < product.price ? (
+                  <>
+                    <span className="text-2xl font-bold text-sky-600">{formatPrice(product.discountPrice, product.currency)}</span>
+                    <span className="ml-2 text-base text-slate-400 line-through">{formatPrice(product.price, product.currency)}</span>
+                  </>
+                ) : (
+                  <p className="text-2xl font-bold text-sky-600">{formatPrice(product.price, product.currency)}</p>
+                )}
+              </div>
               <p className="text-xs text-slate-500 mt-1">Manufacturer/Supplier pays 7.5% to Morongwa on successful sale.</p>
               {storeName && (
                 <p className="text-sm text-slate-500 mt-1">Sold by {storeName}</p>
@@ -142,11 +154,11 @@ export default function ProductPage() {
                 <button
                   type="button"
                   onClick={addToCart}
-                  disabled={addingCart}
+                  disabled={addingCart || isOutOfStock}
                   className="inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-sky-600 text-white font-medium hover:bg-sky-700 disabled:opacity-50"
                 >
                   <ShoppingCart className="h-4 w-4" />
-                  {addingCart ? 'Adding...' : 'Add to cart'}
+                  {isOutOfStock ? 'Out of stock' : addingCart ? 'Adding...' : 'Add to cart'}
                 </button>
                 {allowResell && (
                   <button
@@ -189,7 +201,7 @@ export default function ProductPage() {
                   onChange={(e) => setResellerCommissionPct(Number(e.target.value))}
                   className="w-full"
                 />
-                <p className="text-sm font-semibold text-sky-600 mt-1">{resellerCommissionPct}% — Selling price: {formatPrice(Math.round(product.price * (1 + resellerCommissionPct / 100) * 100) / 100, product.currency)}</p>
+                <p className="text-sm font-semibold text-sky-600 mt-1">{resellerCommissionPct}% — Selling price: {formatPrice(Math.round(getEffectivePrice(product) * (1 + resellerCommissionPct / 100) * 100) / 100, product.currency)}</p>
               </div>
               <div className="flex gap-2">
                 <button onClick={addToWall} disabled={addingWall} className="flex-1 rounded-lg bg-sky-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-700 disabled:opacity-50">

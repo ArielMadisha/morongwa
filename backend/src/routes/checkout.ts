@@ -14,7 +14,13 @@ import { ADMIN_PRODUCT_COMMISSION_PCT } from "../config/fees.config";
 const router = express.Router();
 
 const PLATFORM_FEE_PCT = parseFloat(process.env.PLATFORM_FEE_PCT || "2.5");
-const DEFAULT_SHIPPING = 100; // flat ZAR
+const DEFAULT_SHIPPING_PER_SUPPLIER = 100; // flat ZAR per supplier when not set
+
+function getEffectivePrice(product: { price: number; discountPrice?: number }): number {
+  const p = product as any;
+  if (p.discountPrice != null && p.discountPrice >= 0 && p.discountPrice < p.price) return p.discountPrice;
+  return p.price;
+}
 
 // Get reseller commission for a product from wall (3-7%)
 async function getResellerCommissionPct(resellerId: string, productId: string): Promise<number | null> {
@@ -33,8 +39,29 @@ router.post("/quote", authenticate, async (req: AuthRequest, res: Response, next
     }
 
     const productIds = cart.items.map((i) => i.productId);
-    const products = await Product.find({ _id: { $in: productIds }, active: true }).lean();
+    const products = await Product.find({ _id: { $in: productIds }, active: true })
+      .populate("supplierId", "shippingCost storeName")
+      .lean();
     const productMap = new Map(products.map((p) => [p._id.toString(), p]));
+
+    const uniqueSupplierIds = new Set<string>();
+    for (const item of cart.items) {
+      const product = productMap.get((item.productId as any).toString());
+      if (product) {
+        const sid = (product as any).supplierId?._id ?? (product as any).supplierId;
+        if (sid) uniqueSupplierIds.add(sid.toString());
+      }
+    }
+
+    const supplierIds = Array.from(uniqueSupplierIds);
+    const suppliers = await Supplier.find({ _id: { $in: supplierIds } }).select("shippingCost storeName").lean();
+    const supplierMap = new Map(suppliers.map((s) => [s._id.toString(), s]));
+    let shipping = 0;
+    const DEFAULT_SHIPPING_PER_SUPPLIER = 100;
+    for (const sid of supplierIds) {
+      const s = supplierMap.get(sid);
+      shipping += (s as any)?.shippingCost ?? DEFAULT_SHIPPING_PER_SUPPLIER;
+    }
 
     let subtotal = 0;
     let commissionTotal = 0;
@@ -44,36 +71,42 @@ router.post("/quote", authenticate, async (req: AuthRequest, res: Response, next
       const product = productMap.get((item.productId as any).toString());
       if (!product) continue;
       const origPrice = (product as any).price;
-      let sellingPrice = origPrice;
+      const effectivePrice = getEffectivePrice(product as any);
+      let sellingPrice = effectivePrice;
       let resellerCommissionPct: number | null = null;
       if (item.resellerId && (product as any).allowResell) {
         resellerCommissionPct = await getResellerCommissionPct((item.resellerId as any).toString(), (item.productId as any).toString());
         if (resellerCommissionPct != null) {
-          sellingPrice = Math.round(origPrice * (1 + resellerCommissionPct / 100) * 100) / 100;
-          commissionTotal += (origPrice * resellerCommissionPct) / 100 * item.qty;
+          sellingPrice = Math.round(effectivePrice * (1 + resellerCommissionPct / 100) * 100) / 100;
+          commissionTotal += (effectivePrice * resellerCommissionPct) / 100 * item.qty;
         }
       }
       const linePrice = sellingPrice * item.qty;
       subtotal += linePrice;
-      const adminCommission = (origPrice * item.qty * ADMIN_PRODUCT_COMMISSION_PCT);
+      const adminCommission = (effectivePrice * item.qty * ADMIN_PRODUCT_COMMISSION_PCT);
       breakdown.push({
         productId: (product as any)._id.toString(),
         originalPrice: origPrice,
         sellingPrice,
         adminCommission,
-        resellerCommission: resellerCommissionPct != null ? (origPrice * resellerCommissionPct) / 100 : undefined,
+        resellerCommission: resellerCommissionPct != null ? (effectivePrice * resellerCommissionPct) / 100 : undefined,
       });
     }
 
-    const shipping = DEFAULT_SHIPPING;
     const platformFee = (subtotal * PLATFORM_FEE_PCT) / 100;
     const total = subtotal + shipping + platformFee;
     const adminCommissionTotal = breakdown.reduce((s, b) => s + b.adminCommission, 0);
+
+    const shippingBreakdown = supplierIds.map((sid) => {
+      const s = supplierMap.get(sid);
+      return { supplierId: sid, storeName: (s as any)?.storeName ?? "Supplier", shippingCost: (s as any)?.shippingCost ?? DEFAULT_SHIPPING_PER_SUPPLIER };
+    });
 
     res.json({
       data: {
         subtotal,
         shipping,
+        shippingBreakdown,
         commissionTotal,
         adminCommissionTotal,
         platformFee,
@@ -103,9 +136,25 @@ router.post("/pay", authenticate, async (req: AuthRequest, res: Response, next) 
 
     const productIds = cart.items.map((i) => i.productId);
     const products = await Product.find({ _id: { $in: productIds }, active: true })
-      .populate("supplierId", "userId")
+      .populate("supplierId", "userId shippingCost")
       .lean();
     const productMap = new Map(products.map((p) => [p._id.toString(), p]));
+
+    const uniqueSupplierIds = new Set<string>();
+    for (const item of cart.items) {
+      const product = productMap.get((item.productId as any).toString());
+      if (product) {
+        const sid = (product as any).supplierId?._id ?? (product as any).supplierId;
+        if (sid) uniqueSupplierIds.add(sid.toString());
+      }
+    }
+    const suppliers = await Supplier.find({ _id: { $in: Array.from(uniqueSupplierIds) } }).select("shippingCost").lean();
+    const supplierMap = new Map(suppliers.map((s) => [s._id.toString(), s]));
+    let shipping = 0;
+    for (const sid of uniqueSupplierIds) {
+      const s = supplierMap.get(sid);
+      shipping += (s as any)?.shippingCost ?? DEFAULT_SHIPPING_PER_SUPPLIER;
+    }
 
     const orderItems: Array<{
       productId: any;
@@ -122,11 +171,14 @@ router.post("/pay", authenticate, async (req: AuthRequest, res: Response, next) 
     for (const item of cart.items) {
       const product = productMap.get((item.productId as any).toString());
       if (!product) throw new AppError(`Product not found: ${item.productId}`, 400);
+      if ((product as any).outOfStock) {
+        throw new AppError(`Product ${(product as any).title} is out of stock`, 400);
+      }
       if ((product as any).stock < item.qty) {
         throw new AppError(`Insufficient stock for ${(product as any).title}`, 400);
       }
       if (!supplierId) supplierId = (product as any).supplierId?._id ?? (product as any).supplierId;
-      let price = (product as any).price;
+      let price = getEffectivePrice(product as any);
       let commissionPct: number | undefined;
       if (item.resellerId && (product as any).allowResell) {
         const pct = await getResellerCommissionPct((item.resellerId as any).toString(), (item.productId as any).toString());
@@ -139,8 +191,8 @@ router.post("/pay", authenticate, async (req: AuthRequest, res: Response, next) 
       subtotal += lineTotal;
       let commissionValue = 0;
       if (commissionPct != null) {
-        const origPrice = (product as any).price;
-        commissionValue = (origPrice * item.qty * commissionPct) / 100;
+        const effectiveBase = getEffectivePrice(product as any);
+        commissionValue = (effectiveBase * item.qty * commissionPct) / 100;
         commissionTotal += commissionValue;
       }
       orderItems.push({
@@ -153,7 +205,6 @@ router.post("/pay", authenticate, async (req: AuthRequest, res: Response, next) 
       });
     }
 
-    const shipping = DEFAULT_SHIPPING;
     const platformFee = (subtotal * PLATFORM_FEE_PCT) / 100;
     const total = subtotal + shipping + platformFee;
 

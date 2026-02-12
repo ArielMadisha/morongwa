@@ -121,7 +121,7 @@ register(name, email, password, role, policyAcceptances?: string[])
 
 ## 20 Policies Implemented
 
-### Public Policies (14)
+### Public Policies (15)
 
 1. **Terms of Service**
    - Slug: `terms-of-service`
@@ -182,6 +182,11 @@ register(name, email, password, role, policyAcceptances?: string[])
 14. **Accessibility Statement**
     - Slug: `accessibility`
     - WCAG 2.1 AA commitment, feedback loop
+
+15. **Morongwa-TV (Qwerty TV) Content Policy**
+    - Slug: `morongwa-tv`
+    - Content platform for videos/images; watermark; automated moderation; reporting; product promotion
+    - Added: Feb 2026
 
 ### Internal Compliance Docs (6)
 
@@ -491,6 +496,8 @@ frontend/
 
 ---
 
-*Last Updated: January 9, 2026*
+*Last Updated: February 12, 2026*
+
+**Recent updates (Feb 2026):** Added Morongwa-TV policy; updated Terms, Privacy, Marketplace, Acceptable Use, Intellectual Property, Pricing to include Morongwa-TV, product enquiry, marketplace products, discount pricing, content moderation, watermark.
 *System: Morongwa Multi-Country Marketplace*
 *Compliance Scope: Botswana, Lesotho, Namibia, South Africa, Zimbabwe, Zambia*

@@ -100,7 +100,7 @@ export default function RegisterPage() {
           </div>
           <div className="space-y-3">
             <p className="text-4xl font-semibold leading-tight text-slate-900">
-              Your errand guys
+              Join the Qwerty Revolution
             </p>
             <p className="text-base text-slate-600 max-w-xl">
               Seamless tasks, real-time updates, secure payouts. We keep your errands moving so you can focus on living.

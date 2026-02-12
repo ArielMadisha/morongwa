@@ -48,7 +48,9 @@ export function useCartAndStores(isAuthenticated: boolean) {
   }, [isAuthenticated]);
 
   useEffect(() => {
-    fetchData();
+    // Short delay to avoid race: ensure token is persisted before first auth request
+    const t = setTimeout(fetchData, 100);
+    return () => clearTimeout(t);
   }, [fetchData]);
 
   const invalidate = useCallback(() => {

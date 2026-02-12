@@ -349,9 +349,16 @@ function RunnerDashboard() {
                     </div>
                     <div className="p-4">
                       <h3 className="font-semibold text-slate-900 line-clamp-2">{p.title}</h3>
-                      <p className="mt-1 font-bold text-slate-900">
-                        {new Intl.NumberFormat('en-ZA', { style: 'currency', currency: p.currency || 'ZAR' }).format(p.price)}
-                      </p>
+                      <div className="mt-1">
+                        {p.discountPrice != null && p.discountPrice < p.price ? (
+                          <>
+                            <span className="font-bold text-sky-600">{new Intl.NumberFormat('en-ZA', { style: 'currency', currency: p.currency || 'ZAR' }).format(p.discountPrice)}</span>
+                            <span className="ml-1 text-sm text-slate-400 line-through">{new Intl.NumberFormat('en-ZA', { style: 'currency', currency: p.currency || 'ZAR' }).format(p.price)}</span>
+                          </>
+                        ) : (
+                          <p className="font-bold text-slate-900">{new Intl.NumberFormat('en-ZA', { style: 'currency', currency: p.currency || 'ZAR' }).format(p.price)}</p>
+                        )}
+                      </div>
                     </div>
                   </Link>
                 ))}

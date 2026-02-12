@@ -24,6 +24,7 @@ import {
   Building2,
   ShoppingBag,
   LayoutGrid,
+  Tv,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -293,6 +294,8 @@ function AdminDashboard() {
               { href: '/admin/suppliers', icon: Building2, title: 'Suppliers / Sellers', desc: 'Verify company & individual sellers', color: 'cyan' },
               { href: '/admin/orders', icon: ShoppingBag, title: 'Marketplace orders', desc: 'Checkout & wallet orders', color: 'purple' },
               { href: '/admin/products', icon: Package, title: 'Marketplace products', desc: 'Load and manage products for sale', color: 'emerald' },
+              { href: '/admin/tv', icon: Tv, title: 'Morongwa-TV', desc: 'Moderate posts, comments & reports', color: 'purple' },
+              { href: '/admin/admins', icon: Shield, title: 'Create admins', desc: 'Super-admin: create admins with section permissions', color: 'indigo' },
               { href: '/admin/stores', icon: Building2, title: 'Stores', desc: 'Create and manage supplier/reseller stores', color: 'cyan' },
               { href: '/admin/reseller', icon: LayoutGrid, title: 'Reseller stats', desc: 'Walls and products on walls', color: 'indigo' },
               { href: '/admin/escrows', icon: DollarSign, title: 'View escrow & ledger', desc: 'Escrow list, full ledger, release, refund', color: 'orange' },

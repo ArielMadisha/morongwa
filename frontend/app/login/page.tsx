@@ -55,6 +55,8 @@ function LoginForm() {
       toast.success('Welcome back!');
       const returnTo = searchParams.get('returnTo');
       const target = returnTo && returnTo.startsWith('/') && !returnTo.startsWith('//') ? returnTo : '/wall';
+      // Allow React state and localStorage to settle before navigation
+      await new Promise((r) => setTimeout(r, 50));
       router.push(target);
     } catch (error: any) {
       const errorMsg = error.response?.data?.message || error.message || 'Login failed';
@@ -87,7 +89,7 @@ function LoginForm() {
           </div>
           <div className="space-y-3">
             <p className="text-4xl font-semibold leading-tight text-slate-900">
-              Your errand guys
+              Join the Qwerty Revolution
             </p>
             <p className="text-base text-slate-600 max-w-xl">
               Seamless tasks, real-time updates, secure payouts. We keep your errands moving so you can focus on living.

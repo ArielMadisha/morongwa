@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { Package, ShoppingBag, User } from 'lucide-react';
-import { resellerAPI, cartAPI, getImageUrl } from '@/lib/api';
+import { resellerAPI, cartAPI, getImageUrl, getEffectivePrice } from '@/lib/api';
 import { invalidateCartStoresCache } from '@/lib/useCartAndStores';
 import { useAuth } from '@/contexts/AuthContext';
 import SiteHeader from '@/components/SiteHeader';
@@ -81,9 +81,12 @@ export default function ResellerWallPage() {
               const p = wp.product;
               if (!p) return null;
               const markup = wp.resellerCommissionPct ?? 5;
-              const resellerPrice = Math.round(p.price * (1 + markup / 100) * 100) / 100;
+              const basePrice = getEffectivePrice(p);
+              const resellerPrice = Math.round(basePrice * (1 + markup / 100) * 100) / 100;
+              const isOutOfStock = (p as any).outOfStock || (p.stock != null && p.stock < 1);
               return (
-                <div key={wp.productId} className="bg-white/90 backdrop-blur rounded-2xl border border-slate-100 overflow-hidden shadow-sm hover:shadow-lg transition-all">
+                <div key={wp.productId} className="relative bg-white/90 backdrop-blur rounded-2xl border border-slate-100 overflow-hidden shadow-sm hover:shadow-lg transition-all">
+                  {isOutOfStock && <span className="absolute top-2 right-2 z-10 px-2 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800">Out of stock</span>}
                   <Link href={`/marketplace/product/${p._id}`} className="block aspect-square bg-slate-100">
                     {p.images?.[0] ? <img src={getImageUrl(p.images[0])} alt={p.title} className="w-full h-full object-cover" /> : <Package className="h-16 w-16 text-slate-300 m-auto" />}
                   </Link>
@@ -93,10 +96,10 @@ export default function ResellerWallPage() {
                     <button
                       type="button"
                       onClick={() => addToCart(p._id, userId)}
-                      disabled={adding === p._id}
+                      disabled={adding === p._id || isOutOfStock}
                       className="mt-3 w-full py-2 rounded-xl bg-sky-600 text-white text-sm font-medium hover:bg-sky-700 disabled:opacity-50"
                     >
-                      {adding === p._id ? 'Adding...' : 'Add to cart'}
+                      {isOutOfStock ? 'Out of stock' : adding === p._id ? 'Adding...' : 'Add to cart'}
                     </button>
                   </div>
                 </div>
