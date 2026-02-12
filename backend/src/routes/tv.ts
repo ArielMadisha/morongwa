@@ -18,14 +18,20 @@ function mediaUrl(filename: string) {
   return `/uploads/tv/${filename}`;
 }
 
-// GET /api/tv - list posts (feed, scroll). sort=newest|trending|random
+// GET /api/tv - list posts (feed, scroll). sort=newest|trending|random, type=video|image|carousel|product
 router.get("/", async (req: express.Request, res: Response, next) => {
   try {
     const page = Math.max(1, parseInt(req.query.page as string) || 1);
     const limit = Math.min(50, parseInt(req.query.limit as string) || 20);
     const sort = (req.query.sort as string) || "newest";
+    const type = req.query.type as string; // optional: video, image, carousel, product
 
-    let query = TVPost.find({ status: "approved" })
+    const match: Record<string, unknown> = { status: "approved" };
+    if (type && ["video", "image", "carousel", "product"].includes(type)) {
+      match.type = type;
+    }
+
+    let query = TVPost.find(match)
       .populate("creatorId", "name avatar")
       .populate({ path: "productId", populate: { path: "supplierId", select: "userId" } });
 
@@ -33,7 +39,7 @@ router.get("/", async (req: express.Request, res: Response, next) => {
       query = query.sort({ likeCount: -1, commentCount: -1, createdAt: -1 });
     } else if (sort === "random") {
       query = query.aggregate([
-        { $match: { status: "approved" } },
+        { $match: match },
         { $sample: { size: limit } },
         {
           $lookup: {
@@ -69,13 +75,13 @@ router.get("/", async (req: express.Request, res: Response, next) => {
         { $unwind: { path: "$productId", preserveNullAndEmptyArrays: true } },
       ]);
       const posts = await query;
-      const total = await TVPost.countDocuments({ status: "approved" });
+      const total = await TVPost.countDocuments(match);
       return res.json({ data: posts, total, page: 1, limit });
     }
 
     const skip = (page - 1) * limit;
     const posts = await query.sort({ createdAt: -1 }).skip(skip).limit(limit).lean();
-    const total = await TVPost.countDocuments({ status: "approved" });
+    const total = await TVPost.countDocuments(match);
     res.json({ data: posts, total, page, limit });
   } catch (err) {
     next(err);

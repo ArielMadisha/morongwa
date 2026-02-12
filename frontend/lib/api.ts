@@ -69,11 +69,12 @@ api.interceptors.response.use(
 
 // API endpoints
 export const authAPI = {
-  register: (data: { name: string; email: string; password: string; role: string[] }) =>
+  register: (data: { name: string; email: string; password: string; role?: string[] }) =>
     api.post('/auth/register', data),
   login: (data: { email: string; password: string }) =>
     api.post('/auth/login', data),
   getCurrentUser: () => api.get('/auth/me'),
+  requestRunnerRole: () => api.post('/auth/request-runner'),
 };
 
 export const tasksAPI = {
@@ -343,7 +344,7 @@ export const productEnquiryAPI = {
 };
 
 export const tvAPI = {
-  getFeed: (params?: { page?: number; limit?: number; sort?: 'newest' | 'trending' | 'random' }) =>
+  getFeed: (params?: { page?: number; limit?: number; sort?: 'newest' | 'trending' | 'random'; type?: 'video' | 'image' | 'carousel' | 'product' }) =>
     api.get('/tv', { params }),
   uploadMedia: (file: File) => {
     const formData = new FormData();
@@ -352,7 +353,7 @@ export const tvAPI = {
   },
   uploadImages: (files: File[]) => {
     const formData = new FormData();
-    files.forEach((f) => formData.append('images', f));
+    files.forEach((f) => formData.append('images', f, f.name));
     return api.post<{ urls: string[] }>('/tv/upload-images', formData);
   },
   createPost: (data: {

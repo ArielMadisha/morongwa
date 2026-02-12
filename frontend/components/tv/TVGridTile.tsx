@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { tvAPI, getImageUrl, getEffectivePrice } from '@/lib/api';
 import type { Product } from '@/lib/types';
+import { TVCommentModal } from './TVCommentModal';
 
 const TV_WATERMARK = 'The Digital Home for Doers, Sellers & Creators - Qwertymates.com';
 const WATERMARK_DURATION = 3; // seconds at start and end
@@ -56,19 +57,23 @@ interface TVGridTileProps {
   onLike?: (id: string, liked: boolean) => void;
   onRepost?: (id: string) => void;
   onEnquire?: (productId: string) => void;
+  onCommentAdded?: (id: string) => void;
   isVisible?: boolean;
 }
 
-export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, isVisible = true }: TVGridTileProps) {
+export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, onCommentAdded, isVisible = true }: TVGridTileProps) {
   const [showOverlay, setShowOverlay] = useState(false);
   const [watermarkPhase, setWatermarkPhase] = useState<'start' | 'middle' | 'end'>('start');
   const [reportOpen, setReportOpen] = useState(false);
   const [reportReason, setReportReason] = useState('');
+  const [commentModalOpen, setCommentModalOpen] = useState(false);
+  const [carouselIndex, setCarouselIndex] = useState(0);
   const videoRef = useRef<HTMLVideoElement>(null);
 
   const isProductTile = item.type === 'product_tile';
   const isVideo = !isProductTile && (item.type === 'video' || (item.mediaUrls?.[0]?.match(/\.(mp4|webm)$/i)));
-  const mediaUrl = isProductTile ? (item.images?.[0] || '') : (item.mediaUrls?.[0] || '');
+  const isCarousel = !isProductTile && !isVideo && (item.mediaUrls?.length ?? 0) > 1;
+  const mediaUrl = isProductTile ? (item.images?.[0] || '') : (item.mediaUrls?.[carouselIndex] || item.mediaUrls?.[0] || '');
 
   // TikTok-style watermark: show at start (first 3s) and end (last 3s)
   useEffect(() => {
@@ -161,11 +166,26 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, i
           className={`w-full h-full object-cover ${filterClass}`}
         />
       ) : (
-        <img
-          src={getImageUrl(mediaUrl)}
-          alt={item.caption || 'Post'}
-          className={`w-full h-full object-cover ${filterClass}`}
-        />
+        <div
+          className="relative w-full h-full"
+          onClick={() => isCarousel && setCarouselIndex((i) => (i + 1) % (item.mediaUrls?.length ?? 1))}
+        >
+          <img
+            src={getImageUrl(mediaUrl)}
+            alt={item.caption || 'Post'}
+            className={`w-full h-full object-cover ${filterClass} ${isCarousel ? 'cursor-pointer' : ''}`}
+          />
+          {isCarousel && (
+            <div className="absolute bottom-1 left-0 right-0 flex justify-center gap-1">
+              {(item.mediaUrls ?? []).map((_, i) => (
+                <span
+                  key={i}
+                  className={`w-1.5 h-1.5 rounded-full ${i === carouselIndex ? 'bg-white' : 'bg-white/50'}`}
+                />
+              ))}
+            </div>
+          )}
+        </div>
       )}
 
       {/* TikTok-style watermark: at start and end */}
@@ -234,10 +254,13 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, i
               </button>
               {item.type !== 'product_tile' && (
                 <>
-                  <span className="text-white/80 flex items-center gap-1">
+                  <button
+                    onClick={() => setCommentModalOpen(true)}
+                    className="text-white/80 flex items-center gap-1 hover:text-white transition-colors"
+                  >
                     <MessageCircle className="h-5 w-5" />
                     <span className="text-sm">{item.commentCount ?? 0}</span>
-                  </span>
+                  </button>
                   <button onClick={() => onRepost?.(item._id)} className="text-white/80">
                     <Repeat2 className="h-5 w-5" />
                   </button>
@@ -276,6 +299,13 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, i
           <p className="text-[8px] text-white/70 truncate px-1">{TV_WATERMARK}</p>
         </div>
       )}
+
+      <TVCommentModal
+        open={commentModalOpen}
+        onClose={() => setCommentModalOpen(false)}
+        item={item}
+        onCommentAdded={() => onCommentAdded?.(item._id)}
+      />
     </div>
   );
 }

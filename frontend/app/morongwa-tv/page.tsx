@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { Tv, Plus, Package, Loader2, Clock, Flame, Shuffle } from 'lucide-react';
+import { Tv, Plus, Loader2, Radio } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import ProtectedRoute from '@/components/ProtectedRoute';
 import { useCartAndStores } from '@/lib/useCartAndStores';
@@ -15,8 +15,6 @@ import { tvAPI, productEnquiryAPI } from '@/lib/api';
 import type { Product } from '@/lib/types';
 import toast from 'react-hot-toast';
 
-type SortType = 'newest' | 'trending' | 'random';
-
 function MorongwaTVPageContent() {
   const { user, logout } = useAuth();
   const router = useRouter();
@@ -26,7 +24,6 @@ function MorongwaTVPageContent() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
-  const [sort, setSort] = useState<SortType>('newest');
   const [createOpen, setCreateOpen] = useState(false);
   const [enquireOpen, setEnquireOpen] = useState(false);
   const [enquireProductId, setEnquireProductId] = useState<string | null>(null);
@@ -37,73 +34,63 @@ function MorongwaTVPageContent() {
   const containerRef = useRef<HTMLDivElement>(null);
   const limit = 24;
 
-  const loadFeed = useCallback(
-    async (pageNum = 1, append = false) => {
-      if (pageNum === 1) setLoading(true);
-      else setLoadingMore(true);
-      try {
-        const res = await tvAPI.getFeed({ page: pageNum, limit, sort });
-        const data = res.data?.data ?? res.data ?? [];
-        const posts = Array.isArray(data) ? data : [];
-        setTotal(res.data?.total ?? posts.length);
-        setGridItems((prev) => (append ? [...prev, ...posts] : posts));
-      } catch {
-        if (!append) setGridItems([]);
-      } finally {
-        setLoading(false);
-        setLoadingMore(false);
-      }
-    },
-    [sort]
-  );
-
-  const [productTiles, setProductTiles] = useState<TVGridItem[]>([]);
-
-  const loadFeaturedProducts = useCallback(() => {
-    tvAPI
-      .getFeaturedProducts()
-      .then((res) => {
-        const list = res.data?.data ?? res.data ?? [];
-        const products = Array.isArray(list) ? list : [];
-        setProductTiles(
-          products.map((p: any) => ({
-            _id: p._id,
-            type: 'product_tile' as const,
-            title: p.title,
-            images: p.images,
-            price: p.price,
-            discountPrice: p.discountPrice,
-            currency: p.currency,
-            supplierId: p.supplierId,
-            likeCount: 0,
-            commentCount: 0,
-            shareCount: 0,
-          }))
-        );
-      })
-      .catch(() => setProductTiles([]));
+  const loadFeed = useCallback(async (pageNum = 1, append = false) => {
+    if (pageNum === 1) setLoading(true);
+    else setLoadingMore(true);
+    try {
+      const res = await tvAPI.getFeed({ page: pageNum, limit, type: 'video' });
+      const data = res.data?.data ?? res.data ?? [];
+      const posts = Array.isArray(data) ? data : [];
+      setTotal(res.data?.total ?? posts.length);
+      setGridItems((prev) => (append ? [...prev, ...posts] : posts));
+    } catch {
+      if (!append) setGridItems([]);
+    } finally {
+      setLoading(false);
+      setLoadingMore(false);
+    }
   }, []);
 
   useEffect(() => {
     loadFeed(1);
-    loadFeaturedProducts();
-  }, [loadFeed, loadFeaturedProducts]);
+  }, [loadFeed]);
 
   const loadMore = () => {
-    if (loadingMore || gridItems.length >= total || sort === 'random') return;
+    if (loadingMore || gridItems.length >= total) return;
     const nextPage = page + 1;
     setPage(nextPage);
     loadFeed(nextPage, true);
   };
 
   const handleLike = (id: string, liked: boolean) => {
-    tvAPI.like(id).then((res) => {
-      const likeCount = res.data?.data?.likeCount;
-      setLikedMap((m) => ({ ...m, [id]: liked }));
-      setGridItems((prev) =>
-        prev.map((p) => (p._id === id ? { ...p, likeCount: likeCount ?? p.likeCount } : p))
-      );
-    });
+    setLikedMap((m) => ({ ...m, [id]: liked }));
+    setGridItems((prev) =>
+      prev.map((p) =>
+        p._id === id
+          ? { ...p, likeCount: Math.max(0, (p.likeCount ?? 0) + (liked ? 1 : -1)) }
+          : p
+      )
+    );
+    tvAPI
+      .like(id)
+      .then((res) => {
+        const likeCount = res.data?.data?.likeCount ?? res.data?.likeCount;
+        if (typeof likeCount === 'number') {
+          setGridItems((prev) =>
+            prev.map((p) => (p._id === id ? { ...p, likeCount } : p))
+          );
+        }
+      })
+      .catch(() => {
+        setLikedMap((m) => ({ ...m, [id]: !liked }));
+        setGridItems((prev) =>
+          prev.map((p) =>
+            p._id === id
+              ? { ...p, likeCount: Math.max(0, (p.likeCount ?? 0) + (liked ? -1 : 1)) }
+              : p
+          )
+        );
+      });
   };
 
   const handleRepost = (id: string) => {
@@ -113,13 +100,19 @@ function MorongwaTVPageContent() {
     });
   };
 
+  const handleCommentAdded = (id: string) => {
+    setGridItems((prev) =>
+      prev.map((p) => (p._id === id ? { ...p, commentCount: (p.commentCount ?? 0) + 1 } : p))
+    );
+  };
+
   const handleEnquire = (productId: string) => {
     setEnquireProductId(productId);
     setEnquireMessage('');
     setEnquireOpen(true);
   };
 
-  const       submitEnquire = () => {
+  const submitEnquire = () => {
     if (!enquireProductId) return;
     setEnquireSending(true);
     productEnquiryAPI
@@ -138,8 +131,7 @@ function MorongwaTVPageContent() {
     router.push('/');
   };
 
-  // Merge product tiles + posts for grid (products first, then feed)
-  const allItems: TVGridItem[] = [...productTiles, ...gridItems];
+  const allItems: TVGridItem[] = [...gridItems];
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-sky-50 via-blue-50 to-white text-slate-900 flex">
@@ -166,27 +158,9 @@ function MorongwaTVPageContent() {
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                <div className="flex rounded-xl border border-slate-200 bg-slate-50/50 p-0.5">
-                  {[
-                    { id: 'newest' as SortType, label: 'Newest', icon: Clock },
-                    { id: 'trending' as SortType, label: 'Trending', icon: Flame },
-                    { id: 'random' as SortType, label: 'Random', icon: Shuffle },
-                  ].map(({ id, label, icon: Icon }) => (
-                    <button
-                      key={id}
-                      onClick={() => {
-                        setSort(id);
-                        setPage(1);
-                        loadFeed(1);
-                      }}
-                      className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                        sort === id ? 'bg-sky-500 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'
-                      }`}
-                    >
-                      <Icon className="h-4 w-4" />
-                      {label}
-                    </button>
-                  ))}
+                <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-sky-100 text-sky-700 font-medium">
+                  <Radio className="h-5 w-5" />
+                  Live TV
                 </div>
                 <button
                   onClick={() => setCreateOpen(true)}
@@ -232,12 +206,13 @@ function MorongwaTVPageContent() {
                   onLike={handleLike}
                   onRepost={item.type !== 'product_tile' ? handleRepost : undefined}
                   onEnquire={handleEnquire}
+                  onCommentAdded={item.type !== 'product_tile' ? handleCommentAdded : undefined}
                 />
               ))}
             </div>
           )}
 
-          {!loading && allItems.length < total && sort !== 'random' && (
+          {!loading && allItems.length < total && (
             <div className="flex justify-center py-8">
               <button
                 onClick={loadMore}

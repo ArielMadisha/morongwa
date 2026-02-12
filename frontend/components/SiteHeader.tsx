@@ -6,7 +6,11 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useCartAndStores } from '@/lib/useCartAndStores';
 import { Package, Home, ArrowRight, LayoutDashboard, ShoppingBag, ShoppingCart, LayoutGrid, Store } from 'lucide-react';
 
-export default function SiteHeader() {
+type SiteHeaderProps = {
+  minimal?: boolean;
+};
+
+export default function SiteHeader({ minimal }: SiteHeaderProps) {
   const pathname = usePathname();
   const { user, isAuthenticated } = useAuth();
   const { hasStore } = useCartAndStores(!!isAuthenticated && !!user);
@@ -19,6 +23,7 @@ export default function SiteHeader() {
             <Package className="h-8 w-8 text-blue-600" />
             <span className="text-xl font-bold text-slate-900">Morongwa</span>
           </Link>
+          {!minimal && (
           <nav className="flex items-center gap-1 sm:gap-2">
             <Link
               href="/"
@@ -36,7 +41,7 @@ export default function SiteHeader() {
               }`}
             >
               <ShoppingBag className="h-4 w-4 hidden sm:block" />
-              <span className="whitespace-nowrap">Marketplace</span>
+              <span className="whitespace-nowrap">QwertyHub</span>
             </Link>
             {isAuthenticated && user ? (
               <Link
@@ -109,6 +114,7 @@ export default function SiteHeader() {
               </>
             )}
           </nav>
+          )}
         </div>
       </div>
     </header>

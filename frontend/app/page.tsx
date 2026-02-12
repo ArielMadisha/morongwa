@@ -14,7 +14,7 @@ export default function Home() {
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_15%_20%,rgba(59,130,246,0.12),transparent_42%),radial-gradient(circle_at_80%_0%,rgba(14,165,233,0.12),transparent_38%),radial-gradient(circle_at_55%_78%,rgba(79,70,229,0.12),transparent_45%)]" />
       </div>
 
-      <SiteHeader />
+      <SiteHeader minimal />
 
       {/* Hero Section */}
       <main className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20">
@@ -34,14 +34,20 @@ export default function Home() {
                 href="/register"
                 className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white px-8 py-4 rounded-xl hover:from-blue-700 hover:to-indigo-700 font-semibold text-lg transition-all inline-flex items-center justify-center shadow-lg shadow-blue-600/20"
               >
-                Post a Task
+                Get Started
                 <ArrowRight className="ml-2 h-5 w-5" />
               </Link>
               <Link
                 href="/register"
                 className="bg-white/80 text-blue-700 px-8 py-4 rounded-xl hover:bg-white font-semibold text-lg border-2 border-blue-100 transition-all inline-flex items-center justify-center shadow-sm"
               >
-                Become a Runner
+                Register
+              </Link>
+              <Link
+                href="/login"
+                className="bg-white/80 text-blue-700 px-8 py-4 rounded-xl hover:bg-white font-semibold text-lg border-2 border-blue-100 transition-all inline-flex items-center justify-center shadow-sm"
+              >
+                Sign in
               </Link>
             </div>
             <div className="flex items-center gap-4 text-sm text-slate-600">
@@ -54,12 +60,6 @@ export default function Home() {
                 Escrow-secured payouts
               </div>
             </div>
-            <p className="text-sm text-slate-500 pt-2">
-              Already have an account?{' '}
-              <Link href="/login?role=client" className="font-medium text-blue-600 hover:text-blue-500">Sign in as Client</Link>
-              {' · '}
-              <Link href="/login?role=runner" className="font-medium text-emerald-600 hover:text-emerald-500">Sign in as Runner</Link>
-            </p>
           </div>
 
           <LandingMarketplaceCard />

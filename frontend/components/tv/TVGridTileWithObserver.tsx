@@ -9,6 +9,7 @@ interface TVGridTileWithObserverProps {
   onLike?: (id: string, liked: boolean) => void;
   onRepost?: (id: string) => void;
   onEnquire?: (productId: string) => void;
+  onCommentAdded?: (id: string) => void;
 }
 
 export function TVGridTileWithObserver(props: TVGridTileWithObserverProps) {

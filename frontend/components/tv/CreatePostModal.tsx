@@ -76,11 +76,13 @@ export function CreatePostModal({
           return;
         }
         const res = await tvAPI.uploadImages(imageFiles.slice(0, 10));
-        const urls = res.data?.urls ?? (res.data as any)?.urls ?? [];
+        const urls = res.data?.urls ?? (res.data as any)?.urls ?? (res.data as any)?.data?.urls ?? [];
         if (urls.length) {
           setMediaUrls(urls);
           setType('carousel');
           setStep('details');
+        } else {
+          toast.error('No images could be uploaded. Try again or use smaller images.');
         }
       }
     } catch (err: any) {
@@ -163,9 +165,25 @@ export function CreatePostModal({
         ) : (
           <div className="p-6 space-y-4">
             {/* Preview */}
-            <div className="aspect-square max-h-48 rounded-xl overflow-hidden bg-slate-100">
+            <div className="aspect-square max-h-48 rounded-xl overflow-hidden bg-slate-100 relative">
               {type === 'video' ? (
                 <video src={mediaUrls[0]} controls className="w-full h-full object-contain" />
+              ) : type === 'carousel' && mediaUrls.length > 1 ? (
+                <>
+                  <img
+                    src={getImageUrl(mediaUrls[0])}
+                    alt={`Preview 1 of ${mediaUrls.length}`}
+                    className="w-full h-full object-contain"
+                  />
+                  <div className="absolute bottom-2 left-0 right-0 flex justify-center gap-1">
+                    {mediaUrls.map((_, i) => (
+                      <span
+                        key={i}
+                        className={`w-2 h-2 rounded-full ${i === 0 ? 'bg-sky-500' : 'bg-white/60'}`}
+                      />
+                    ))}
+                  </div>
+                </>
               ) : (
                 <img
                   src={getImageUrl(mediaUrls[0])}

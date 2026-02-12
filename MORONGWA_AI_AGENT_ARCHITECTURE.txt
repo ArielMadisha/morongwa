@@ -1,0 +1,361 @@
+================================================================================
+        MORONGWA AI AGENT ARCHITECTURE - "Grok-style" Assistant
+================================================================================
+        The Digital Home for Doers, Sellers & Creators
+        Document Version: 1.0 | Last Updated: 2025
+================================================================================
+
+
+1. EXECUTIVE SUMMARY
+--------------------------------------------------------------------------------
+This document outlines the concrete architecture for an AI agent (similar to
+Grok / xAI) integrated into the Morongwa platform. The agent will assist users
+with tasks, marketplace, Morongwa-TV, policies, wallet, and support—tailored
+to the existing Next.js frontend and Express/MongoDB backend.
+
+
+2. EXISTING MORONGWA STACK (REFERENCE)
+--------------------------------------------------------------------------------
+FRONTEND:
+  - Next.js (App Router)
+  - React + TypeScript
+  - Axios API client (lib/api.ts)
+  - AuthContext (contexts/AuthContext.tsx)
+  - Key pages: wall (Home), morongwa-tv, marketplace, tasks, cart, checkout,
+    messages, wallet, profile, support, policies
+
+BACKEND:
+  - Express + TypeScript
+  - MongoDB ( Mongoose models)
+  - Socket.IO (chat service for task messaging)
+  - Key routes: auth, tasks, products, cart, checkout, tv, wallet, messenger,
+    policies, productEnquiry, reseller, support
+
+CORE MODELS:
+  - User, Task, Product, Order, Cart, Wallet, TVPost, TVComment, Message
+  - Policy, ProductEnquiry, ProductEnquiryMessage
+  - Supplier, Store, ResellerWall, Escrow, Payment
+
+
+3. AI AGENT ARCHITECTURE OVERVIEW
+--------------------------------------------------------------------------------
+
++------------------+     +------------------+     +------------------+
+|   FRONTEND       |     |   BACKEND        |     |   EXTERNAL       |
+|   (Next.js)      |     |   (Express)       |     |   SERVICES       |
++------------------+     +------------------+     +------------------+
+|                  |     |                  |     |                  |
+|  ChatBubble.tsx  |-----|  /api/ai/chat    |-----|  OpenAI / Claude |
+|  (floating UI)   |     |  (streaming)     |     |  Grok API        |
+|                  |     |                  |     |  or self-hosted  |
+|  ChatPanel.tsx   |     |  aiAgentService  |     |                  |
+|  (sidebar)       |     |  toolExecutor    |     |  Vector DB       |
+|                  |     |  conversationDB  |     |  (Pinecone, etc) |
++------------------+     +------------------+     +------------------+
+
+
+4. DATA MODELS (NEW)
+--------------------------------------------------------------------------------
+
+4.1 AgentConversation (MongoDB)
+  - _id: ObjectId
+  - userId: ObjectId (ref: User)
+  - title: string (auto-generated or user-set, e.g. "Task help")
+  - createdAt: Date
+  - updatedAt: Date
+
+4.2 AgentMessage (MongoDB)
+  - _id: ObjectId
+  - conversationId: ObjectId (ref: AgentConversation)
+  - role: "user" | "assistant" | "system"
+  - content: string
+  - metadata: { toolCalls?: string[], toolResults?: any }
+  - createdAt: Date
+
+4.3 AgentDocumentEmbedding (for RAG - optional, if using vector store)
+  - _id: ObjectId
+  - sourceType: "policy" | "product" | "faq" | "help"
+  - sourceId: string
+  - content: string (chunk)
+  - embedding: number[] (vector)
+  - createdAt: Date
+
+
+5. BACKEND COMPONENTS
+--------------------------------------------------------------------------------
+
+5.1 Route: POST /api/ai/chat
+  Input: { conversationId?: string, message: string }
+  Output: Streaming response (SSE or chunked transfer)
+  Auth: Required (Bearer token)
+  Flow:
+    1. Load or create conversation
+    2. Append user message
+    3. Build context (recent messages + RAG snippets)
+    4. Call LLM with tools
+    5. If tool calls returned, execute tools, re-call LLM
+    6. Stream response chunks to client
+    7. Save assistant message
+
+5.2 Route: GET /api/ai/conversations
+  Output: List of user's conversations
+  Auth: Required
+
+5.3 Route: GET /api/ai/conversations/:id
+  Output: Conversation + messages
+  Auth: Required (own conversations only)
+
+5.4 Route: DELETE /api/ai/conversations/:id
+  Auth: Required
+
+5.5 Service: aiAgentService.ts
+  - buildSystemPrompt(user): string
+  - buildContext(messages, ragSnippets): Message[]
+  - callLLM(messages, tools): AsyncGenerator<string>
+  - parseToolCalls(llmResponse): ToolCall[]
+
+5.6 Service: toolExecutor.ts
+  - executeTool(name, args, userId): Promise<any>
+  - Tools: search_products, search_tasks, get_wallet_balance, get_policies,
+    create_task_draft, add_to_cart, send_product_enquiry, get_my_orders,
+    get_my_tasks, explain_pricing, get_support_resources
+
+5.7 Service: ragService.ts (optional Phase 2)
+  - indexPolicy(policyId): void
+  - indexProduct(productId): void
+  - indexFAQ(): void
+  - search(query: string, topK: number): Promise<SearchResult[]>
+
+
+6. AI TOOLS (FUNCTION CALLING)
+--------------------------------------------------------------------------------
+
+Tool definitions for the LLM (OpenAI/Anthropic function format):
+
+TOOL: search_products
+  Description: Search marketplace products by keyword, category, or price range.
+  Parameters: { query?: string, category?: string, minPrice?: number, maxPrice?: number }
+  Implementation: Call Product.find() with filters, return summary list.
+
+TOOL: search_tasks
+  Description: Search available errand tasks for runners.
+  Parameters: { status?: string, limit?: number }
+  Implementation: Call Task.find() with filters.
+
+TOOL: get_wallet_balance
+  Description: Get the user's wallet balance.
+  Parameters: {}
+  Implementation: Call Wallet.findOne({ user: userId }).
+
+TOOL: get_policies
+  Description: Retrieve policy content (terms, privacy, marketplace, etc.).
+  Parameters: { slug?: string }
+  Implementation: Call Policy.findOne({ slug }) or Policy.find().
+
+TOOL: get_pricing_info
+  Description: Get task pricing, fees, and escrow info.
+  Parameters: {}
+  Implementation: Call PricingConfig, fees.config.ts logic.
+
+TOOL: add_to_cart
+  Description: Add a product to the user's cart.
+  Parameters: { productId: string, quantity?: number }
+  Implementation: Call cart service (existing cart API).
+
+TOOL: send_product_enquiry
+  Description: Send an enquiry about a product to the seller.
+  Parameters: { productId: string, message?: string }
+  Implementation: Call productEnquiryAPI.enquire.
+
+TOOL: get_my_orders
+  Description: List the user's orders.
+  Parameters: { limit?: number }
+  Implementation: Call Order.find({ user: userId }).
+
+TOOL: get_my_tasks
+  Description: List the user's tasks (as client or runner).
+  Parameters: { role?: "client" | "runner" }
+  Implementation: Call Task.find with client/runner filter.
+
+TOOL: create_task_draft
+  Description: Create a draft task (not posted yet) for the user to review.
+  Parameters: { title: string, description: string, budget: number }
+  Implementation: Return structured draft; user confirms to post.
+
+TOOL: get_support_resources
+  Description: Get support links, FAQ, contact info.
+  Parameters: {}
+  Implementation: Return static support content.
+
+
+7. SYSTEM PROMPT (MORONGWA PERSONA)
+--------------------------------------------------------------------------------
+
+You are Morongwa Assistant, the AI helper for Morongwa—"The Digital Home for
+Doers, Sellers & Creators." You help users with:
+
+- TASKS & ERRANDS: Posting tasks, finding runners, understanding escrow and payouts
+- MARKETPLACE: Finding products, adding to cart, product enquiries, reseller walls
+- MORONGWA-TV: Content, posts, creating, product links
+- WALLET: Balance, top-up, withdrawals
+- POLICIES: Terms, privacy, pricing, escrow, community guidelines
+- SUPPORT: FAQ, troubleshooting, contact
+
+You are friendly, concise, and accurate. You only use tools when needed. You
+never fabricate data—if you don't know, say so and point to support. You respect
+user privacy and never expose other users' data.
+
+User context: {name}, roles: {roles}, has store: {hasStore}
+
+
+8. FRONTEND COMPONENTS
+--------------------------------------------------------------------------------
+
+8.1 AIChatBubble.tsx (global, floating)
+  Location: components/AIChatBubble.tsx
+  Usage: Add to layout.tsx (inside authenticated layout)
+  UI: Floating button (bottom-right), expands to chat panel on click
+  State: isOpen, messages, input, loading
+  API: aiAPI.chat(), aiAPI.getConversations()
+
+8.2 AIChatPanel.tsx (full panel)
+  Location: components/ai/AIChatPanel.tsx
+  Features:
+    - Message list (user/assistant)
+    - Streaming text display
+    - Input + send
+    - Conversation history sidebar (optional)
+    - "New chat" button
+
+8.3 API client additions (lib/api.ts)
+  aiAPI: {
+    chat: (conversationId, message) => fetch with streaming
+    getConversations: () => api.get('/ai/conversations')
+    getConversation: (id) => api.get(`/ai/conversations/${id}`)
+    deleteConversation: (id) => api.delete(`/ai/conversations/${id}`)
+  }
+
+
+9. FILE STRUCTURE
+--------------------------------------------------------------------------------
+
+backend/src/
+  routes/
+    ai.ts                 # POST /chat, GET/DELETE /conversations
+  services/
+    aiAgentService.ts     # LLM calls, prompt building
+    aiToolExecutor.ts     # Tool execution
+    aiRagService.ts       # RAG indexing & search (Phase 2)
+  data/models/
+    AgentConversation.ts
+    AgentMessage.ts
+
+frontend/
+  components/
+    AIChatBubble.tsx      # Floating trigger + panel
+  components/ai/
+    AIChatPanel.tsx
+    AIChatMessage.tsx
+    AIChatInput.tsx
+  lib/
+    api.ts                # + aiAPI
+    aiStreamReader.ts     # SSE/stream parsing
+
+
+10. ENVIRONMENT VARIABLES
+--------------------------------------------------------------------------------
+
+# LLM Provider (choose one)
+OPENAI_API_KEY=...
+ANTHROPIC_API_KEY=...
+GROK_API_KEY=...          # If using xAI Grok
+
+# Or self-hosted
+LLM_BASE_URL=https://...
+LLM_MODEL=llama-3-70b
+
+# RAG (Phase 2)
+VECTOR_DB_URL=...         # Pinecone, Supabase, etc.
+EMBEDDING_MODEL=text-embedding-3-small
+
+
+11. IMPLEMENTATION PHASES
+--------------------------------------------------------------------------------
+
+PHASE 1: MVP (2–3 weeks)
+  - AgentConversation, AgentMessage models
+  - POST /api/ai/chat (non-streaming initially)
+  - aiAgentService with OpenAI/Claude
+  - 5 tools: search_products, get_policies, get_wallet_balance, get_pricing_info, get_support_resources
+  - AIChatBubble + simple AIChatPanel
+  - No RAG; policies fetched via tool
+
+PHASE 2: Streaming + More Tools (1–2 weeks)
+  - Streaming response (SSE)
+  - add_to_cart, send_product_enquiry, get_my_tasks, get_my_orders
+  - Conversation history UI
+
+PHASE 3: RAG + Actions (2–3 weeks)
+  - Vector DB, embed policies + product summaries
+  - create_task_draft, search_tasks
+  - Improved context from RAG
+
+PHASE 4: Polish (1 week)
+  - Rate limiting, audit logging
+  - Personality tuning
+  - Mobile UX
+
+
+12. SECURITY & COMPLIANCE
+--------------------------------------------------------------------------------
+
+- All AI routes behind authenticate middleware
+- Tool execution scoped to req.user._id (never expose other users)
+- Rate limit: 30 requests/minute per user
+- AuditLog entries for tool calls that modify data (cart, enquiry)
+- No PII in LLM prompts beyond user's own name/role
+- Policy content: fetch from DB, never hardcode
+- Consider content moderation for user-generated input to the agent
+
+
+13. COST ESTIMATES (ROUGH)
+--------------------------------------------------------------------------------
+
+OpenAI GPT-4o-mini: ~$0.15/1M input, ~$0.60/1M output
+  - 1000 users, 10 msgs/day each = 300K msgs/month
+  - ~500 tokens/msg avg → 150M tokens → ~$30–60/month
+
+Anthropic Claude Haiku: similar order of magnitude
+Self-hosted (Ollama, vLLM): compute cost only
+
+
+14. DEPENDENCIES TO ADD
+--------------------------------------------------------------------------------
+
+Backend:
+  openai                    # or @anthropic-ai/sdk
+  # For streaming: native fetch or axios with responseType: 'stream'
+
+Frontend:
+  # No new deps if using fetch for SSE; optional: react-markdown for rich responses
+
+
+15. INTEGRATION POINTS WITH EXISTING CODE
+--------------------------------------------------------------------------------
+
+- Auth: use req.user from authenticate middleware (already in place)
+- Products: productsAPI, Product model
+- Tasks: tasksAPI, Task model
+- Cart: cart routes
+- Wallet: walletAPI
+- Policies: policyService.ensureDefaultPolicies, Policy model
+- Product Enquiry: productEnquiryAPI
+- Support: support routes, SupportTicket model
+
+The agent sits alongside these; it does not replace them. It calls existing
+APIs/services via tools.
+
+
+================================================================================
+                              END OF DOCUMENT
+================================================================================

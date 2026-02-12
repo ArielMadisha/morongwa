@@ -11,6 +11,7 @@ interface AuthContextType {
   login: (email: string, password: string) => Promise<void>;
   register: (name: string, email: string, password: string, role: string[], policyAcceptances?: string[]) => Promise<void>;
   logout: () => void;
+  refreshUser: () => Promise<void>;
   isAuthenticated: boolean;
 }
 
@@ -119,6 +120,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     toast.success('Logged out successfully');
   };
 
+  const refreshUser = async () => {
+    try {
+      const res = await authAPI.getCurrentUser();
+      const serverUser = res.data?.user;
+      if (serverUser) {
+        const normalized = {
+          ...serverUser,
+          _id: serverUser._id || serverUser.id,
+          id: serverUser.id || serverUser._id,
+          role: Array.isArray(serverUser.role) ? serverUser.role : [serverUser.role],
+        };
+        setUser(normalized);
+        localStorage.setItem('user', JSON.stringify(normalized));
+      }
+    } catch {
+      // Ignore - user may have logged out
+    }
+  };
+
   return (
     <AuthContext.Provider
       value={{
@@ -127,6 +147,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         login,
         register,
         logout,
+        refreshUser,
         isAuthenticated: !!user,
       }}
     >
