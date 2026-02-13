@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import { Mail, Lock, User, ArrowRight, Loader2, AlertCircle, CheckCircle } from 'lucide-react';
@@ -10,6 +10,7 @@ import SiteHeader from '@/components/SiteHeader';
 import AuthBackground from '@/components/AuthBackground';
 
 export default function RegisterPage() {
+  const searchParams = useSearchParams();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -68,7 +69,9 @@ export default function RegisterPage() {
     try {
       await register(name.trim(), email.trim().toLowerCase(), password, ['client'], ['terms-of-service', 'privacy-policy']);
       toast.success('🎉 Welcome to Morongwa!');
-      router.push('/wall');
+      const returnTo = searchParams.get('returnTo');
+      const target = returnTo && returnTo.startsWith('/') && !returnTo.startsWith('//') ? returnTo : '/wall';
+      router.push(target);
     } catch (error: any) {
       const errorMsg = error.response?.data?.message || error.message || 'Registration failed';
       toast.error(errorMsg);

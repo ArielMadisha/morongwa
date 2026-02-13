@@ -1,8 +1,9 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useParams } from 'next/navigation';
+import { useParams, usePathname } from 'next/navigation';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { Package, ArrowLeft, ShoppingCart, LayoutGrid, X } from 'lucide-react';
 import { productsAPI, cartAPI, resellerAPI, getImageUrl, getEffectivePrice } from '@/lib/api';
 import { invalidateCartStoresCache } from '@/lib/useCartAndStores';
@@ -22,6 +23,8 @@ function formatPrice(price: number, currency: string) {
 
 export default function ProductPage() {
   const params = useParams();
+  const router = useRouter();
+  const pathname = usePathname();
   const id = params.id as string;
   const { user } = useAuth();
   const [product, setProduct] = useState<Product | null>(null);
@@ -69,13 +72,19 @@ export default function ProductPage() {
 
   const addToCart = () => {
     if (isOutOfStock) { toast.error('Product is out of stock'); return; }
-    if (!user) { toast.error('Sign in to add to cart'); return; }
+    if (!user) {
+      router.push(`/register?returnTo=${encodeURIComponent(pathname || `/marketplace/product/${id}`)}`);
+      return;
+    }
     setAddingCart(true);
     cartAPI.add(product._id, 1).then(() => { toast.success('Added to cart'); invalidateCartStoresCache(); setAddingCart(false); }).catch(() => { toast.error('Failed'); setAddingCart(false); });
   };
 
   const openAddToWallModal = () => {
-    if (!user) { toast.error('Sign in to add to your wall'); return; }
+    if (!user) {
+      router.push(`/register?returnTo=${encodeURIComponent(pathname || `/marketplace/product/${id}`)}`);
+      return;
+    }
     setAddToWallModal(true);
   };
 
@@ -173,7 +182,7 @@ export default function ProductPage() {
                 )}
               </div>
               <p className="text-sm text-slate-500 mt-4">
-                <Link href="/cart" className="text-sky-600 hover:text-sky-700">View cart</Link>
+                <Link href={user ? '/cart' : `/register?returnTo=${encodeURIComponent('/cart')}`} className="text-sky-600 hover:text-sky-700">View cart</Link>
                 {' · '}
                 <Link href="/marketplace" className="text-sky-600 hover:text-sky-700">Back to marketplace</Link>
               </p>
