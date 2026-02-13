@@ -198,7 +198,7 @@ function WallPageContent() {
                   <Plus className="h-5 w-5" />
                   Create
                 </button>
-                <ProfileDropdown userName={user?.name} onLogout={handleLogout} />
+                <ProfileDropdown userName={user?.name} />
               </div>
             </div>
           </div>

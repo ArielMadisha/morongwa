@@ -216,7 +216,7 @@ function MessagesPageContent() {
                 <p className="text-sm text-slate-600 truncate">Welcome back, {user?.name}</p>
               </div>
               <div className="shrink-0">
-                <ProfileDropdown userName={user?.name} onLogout={handleLogout} />
+                <ProfileDropdown userName={user?.name} />
               </div>
             </div>
           </div>

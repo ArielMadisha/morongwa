@@ -15,7 +15,7 @@ import {
 import { tvAPI, getImageUrl, getEffectivePrice } from '@/lib/api';
 import type { Product } from '@/lib/types';
 
-const TV_WATERMARK = 'The Digital Home for Doers, Sellers & Creators - Qwertymates.com';
+const TV_WATERMARK = 'Qwertymates.com';
 
 interface TVPost {
   _id: string;
@@ -207,7 +207,7 @@ export function TVPostCard({ post, liked = false, onLike, onRepost, onComment }:
               className={`w-full h-full object-contain ${filterClass}`}
             />
             {post.hasWatermark !== false && (
-              <div className="absolute bottom-2 left-0 right-0 text-center pointer-events-none">
+              <div className="absolute bottom-2 right-2 pointer-events-none">
                 <p className="text-[10px] sm:text-xs text-white/90 drop-shadow-lg font-medium">
                   {TV_WATERMARK}
                 </p>
@@ -233,7 +233,7 @@ export function TVPostCard({ post, liked = false, onLike, onRepost, onComment }:
                   ))}
                 </div>
                 {post.hasWatermark !== false && (
-                  <div className="absolute bottom-8 left-0 right-0 text-center pointer-events-none">
+                  <div className="absolute bottom-2 right-2 pointer-events-none">
                     <p className="text-[10px] sm:text-xs text-white/90 drop-shadow-lg font-medium">
                       {TV_WATERMARK}
                     </p>
@@ -248,7 +248,7 @@ export function TVPostCard({ post, liked = false, onLike, onRepost, onComment }:
                   className={`w-full h-full object-contain ${filterClass}`}
                 />
                 {post.hasWatermark !== false && (
-                  <div className="absolute bottom-2 left-0 right-0 text-center pointer-events-none">
+                  <div className="absolute bottom-2 right-2 pointer-events-none">
                     <p className="text-[10px] sm:text-xs text-white/90 drop-shadow-lg font-medium">
                       {TV_WATERMARK}
                     </p>

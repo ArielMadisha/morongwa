@@ -469,7 +469,7 @@ function ClientDashboard() {
                 </div>
               </div>
               <div className="shrink-0">
-                <ProfileDropdown userName={user?.name} onLogout={handleLogout} />
+                <ProfileDropdown userName={user?.name} />
               </div>
             </div>
           </div>

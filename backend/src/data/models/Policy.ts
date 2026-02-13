@@ -83,7 +83,7 @@ const PolicyAcceptanceSchema = new Schema<IPolicyAcceptance>(
     policy: { type: Schema.Types.ObjectId, ref: "Policy", required: true, index: true },
     slug: { type: String, required: true, index: true },
     version: { type: Number, required: true },
-    user: { type: Schema.Types.ObjectId, ref: "User", default: null, index: true },
+    user: { type: Schema.Types.ObjectId, ref: "User", default: null },
     acceptedAt: { type: Date, default: Date.now },
     ip: { type: String },
     userAgent: { type: String },

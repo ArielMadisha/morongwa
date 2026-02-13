@@ -73,7 +73,7 @@ function MarketplacePageContent() {
                 <Link href="/supplier/apply" className="shrink-0 rounded-xl border border-sky-200 bg-white/80 px-4 py-2 text-sm font-medium text-sky-700 hover:bg-sky-50 transition-colors">
                   Become a supplier
                 </Link>
-                <ProfileDropdown userName={user?.name} onLogout={handleLogout} />
+                <ProfileDropdown userName={user?.name} />
               </div>
             </div>
           </div>

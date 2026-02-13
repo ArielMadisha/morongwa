@@ -7,6 +7,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { Mail, Lock, ArrowRight, Loader2, AlertCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
 import SiteHeader from '@/components/SiteHeader';
+import AuthBackground from '@/components/AuthBackground';
 
 function LoginForm() {
   const searchParams = useSearchParams();
@@ -61,39 +62,11 @@ function LoginForm() {
   };
 
   return (
-    <div className="relative min-h-screen flex flex-col overflow-hidden bg-gradient-to-br from-sky-50 via-blue-50 to-white text-slate-900">
-      <SiteHeader />
-      <div className="flex-1 flex items-center justify-center px-4 py-10">
-      <div className="absolute inset-0 pointer-events-none">
-        <div className="absolute -left-10 -top-24 h-72 w-72 rounded-full bg-gradient-to-br from-sky-200/60 to-blue-300/40 blur-3xl" />
-        <div className="absolute right-[-6rem] top-6 h-80 w-80 rounded-full bg-gradient-to-tr from-cyan-200/60 via-blue-200/45 to-indigo-200/50 blur-3xl" />
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,rgba(59,130,246,0.14),transparent_45%),radial-gradient(circle_at_80%_0%,rgba(14,165,233,0.12),transparent_40%),radial-gradient(circle_at_50%_80%,rgba(99,102,241,0.10),transparent_45%)]" />
-      </div>
-
-      <div className="relative z-10 grid max-w-5xl w-full grid-cols-1 lg:grid-cols-[1.1fr_0.9fr] gap-8 items-center">
-        <div className="hidden lg:flex flex-col gap-6 bg-white/80 border border-sky-100 rounded-3xl p-10 shadow-2xl backdrop-blur-lg">
-          <div className="inline-flex items-center gap-3 text-sky-700 uppercase tracking-[0.3em] text-xs font-semibold">
-            <span className="h-px w-10 bg-sky-500/50" />
-            <span className="text-3xl font-bold leading-none">Morongwa</span>
-          </div>
-          <div className="space-y-3">
-            <p className="text-4xl font-semibold leading-tight text-slate-900">
-              Join the Qwerty Revolution
-            </p>
-            <p className="text-base text-slate-600 max-w-xl">
-              Seamless tasks, real-time updates, secure payouts. We keep your errands moving so you can focus on living.
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-3 text-sm text-sky-800">
-            <span className="px-3 py-1 rounded-full bg-sky-100 border border-sky-200">#iceboy</span>
-            <span className="px-3 py-1 rounded-full bg-sky-100 border border-sky-200">#spaceman</span>
-          </div>
-          <div className="flex items-center gap-2 text-sm text-slate-600">
-            <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-            Live and secure · 24/7 uptime
-          </div>
-        </div>
-
+    <div className="relative min-h-screen flex flex-col overflow-hidden text-slate-900">
+      <AuthBackground />
+      <SiteHeader minimal />
+      <div className="relative flex-1 flex items-center justify-center px-4 py-10">
+      <div className="relative z-10 w-full max-w-md mx-auto">
         <div className="bg-white rounded-2xl shadow-2xl p-8 sm:p-10 text-slate-900">
           <div className="space-y-2">
             <h2 className="text-3xl font-bold text-slate-900 text-center">Welcome back</h2>

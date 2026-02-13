@@ -15,6 +15,7 @@ import {
   ChevronRight,
   Receipt,
   HelpCircle,
+  LogOut,
 } from 'lucide-react';
 
 export type SidebarVariant = 'wall' | 'client' | 'runner';
@@ -88,7 +89,7 @@ export function AppSidebar({
         ))}
       </nav>
 
-      <div className="p-3 border-t border-slate-100">
+      <div className="p-3 border-t border-slate-100 space-y-1">
         {footerNav.map(({ href, label, icon: Icon }) => (
           <Link
             key={href}
@@ -100,6 +101,19 @@ export function AppSidebar({
             {label}
           </Link>
         ))}
+        {onLogout && (
+          <button
+            type="button"
+            onClick={() => {
+              setMenuOpen?.(false);
+              onLogout();
+            }}
+            className="flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-100 hover:text-slate-900 transition-colors text-left"
+          >
+            <LogOut className="h-4 w-4 flex-shrink-0" />
+            Logout
+          </button>
+        )}
       </div>
     </div>
   );

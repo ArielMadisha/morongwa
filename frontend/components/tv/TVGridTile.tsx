@@ -11,12 +11,15 @@ import {
   MoreHorizontal,
   Package,
   ShoppingCart,
+  X,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import { tvAPI, getImageUrl, getEffectivePrice } from '@/lib/api';
 import type { Product } from '@/lib/types';
 import { TVCommentModal } from './TVCommentModal';
 
-const TV_WATERMARK = 'The Digital Home for Doers, Sellers & Creators - Qwertymates.com';
+const TV_WATERMARK = 'Qwertymates.com';
 const WATERMARK_DURATION = 3; // seconds at start and end
 
 function formatPrice(price: number, currency: string) {
@@ -68,6 +71,7 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
   const [reportReason, setReportReason] = useState('');
   const [commentModalOpen, setCommentModalOpen] = useState(false);
   const [carouselIndex, setCarouselIndex] = useState(0);
+  const [lightboxOpen, setLightboxOpen] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
 
   const isProductTile = item.type === 'product_tile';
@@ -101,6 +105,13 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
   }, [isVideo, isVisible]);
 
   const showWatermark = item.hasWatermark !== false && (watermarkPhase === 'start' || watermarkPhase === 'end');
+
+  useEffect(() => {
+    if (!lightboxOpen) return;
+    const onEscape = (e: KeyboardEvent) => e.key === 'Escape' && setLightboxOpen(false);
+    window.addEventListener('keydown', onEscape);
+    return () => window.removeEventListener('keydown', onEscape);
+  }, [lightboxOpen]);
 
   // Autoplay when visible
   useEffect(() => {
@@ -166,17 +177,21 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
           className={`w-full h-full object-cover ${filterClass}`}
         />
       ) : (
-        <div
-          className="relative w-full h-full"
-          onClick={() => isCarousel && setCarouselIndex((i) => (i + 1) % (item.mediaUrls?.length ?? 1))}
+        <button
+          type="button"
+          className="relative w-full h-full cursor-pointer block focus:outline-none"
+          onClick={(e) => {
+            e.stopPropagation();
+            setLightboxOpen(true);
+          }}
         >
           <img
             src={getImageUrl(mediaUrl)}
             alt={item.caption || 'Post'}
-            className={`w-full h-full object-cover ${filterClass} ${isCarousel ? 'cursor-pointer' : ''}`}
+            className={`w-full h-full object-cover ${filterClass}`}
           />
           {isCarousel && (
-            <div className="absolute bottom-1 left-0 right-0 flex justify-center gap-1">
+            <div className="absolute bottom-1 left-0 right-0 flex justify-center gap-1 pointer-events-none">
               {(item.mediaUrls ?? []).map((_, i) => (
                 <span
                   key={i}
@@ -185,13 +200,13 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
               ))}
             </div>
           )}
-        </div>
+        </button>
       )}
 
-      {/* TikTok-style watermark: at start and end */}
+      {/* Watermark: bottom right */}
       {!isProductTile && showWatermark && (
-        <div className="absolute inset-0 flex items-center justify-center pointer-events-none bg-black/20">
-          <p className="text-[10px] sm:text-xs text-white drop-shadow-lg font-medium text-center px-2">
+        <div className="absolute bottom-2 right-2 pointer-events-none">
+          <p className="text-[10px] sm:text-xs text-white drop-shadow-lg font-medium">
             {TV_WATERMARK}
           </p>
         </div>
@@ -295,8 +310,67 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
 
       {/* Watermark badge (always visible subtle) when not in start/end phase for videos */}
       {!isProductTile && !showWatermark && item.hasWatermark !== false && (
-        <div className="absolute bottom-1 left-0 right-0 text-center pointer-events-none">
-          <p className="text-[8px] text-white/70 truncate px-1">{TV_WATERMARK}</p>
+        <div className="absolute bottom-2 right-2 pointer-events-none">
+          <p className="text-[8px] text-white/70">{TV_WATERMARK}</p>
+        </div>
+      )}
+
+      {/* Lightbox for image posts */}
+      {!isProductTile && !isVideo && lightboxOpen && (
+        <div
+          className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center"
+          onClick={() => setLightboxOpen(false)}
+        >
+          <button
+            type="button"
+            className="absolute top-4 right-4 p-2 text-white/80 hover:text-white"
+            onClick={() => setLightboxOpen(false)}
+            aria-label="Close"
+          >
+            <X className="h-8 w-8" />
+          </button>
+          <div
+            className="relative max-w-[90vw] max-h-[90vh]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <img
+              src={getImageUrl(mediaUrl)}
+              alt={item.caption || 'Post'}
+              className={`max-w-full max-h-[90vh] object-contain ${filterClass}`}
+            />
+            {isCarousel && (item.mediaUrls?.length ?? 0) > 1 && (
+              <>
+                <button
+                  type="button"
+                  className="absolute left-2 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/50 text-white hover:bg-black/70"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setCarouselIndex((i) => (i - 1 + (item.mediaUrls?.length ?? 1)) % (item.mediaUrls?.length ?? 1));
+                  }}
+                >
+                  <ChevronLeft className="h-6 w-6" />
+                </button>
+                <button
+                  type="button"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/50 text-white hover:bg-black/70"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setCarouselIndex((i) => (i + 1) % (item.mediaUrls?.length ?? 1));
+                  }}
+                >
+                  <ChevronRight className="h-6 w-6" />
+                </button>
+                <div className="absolute bottom-2 left-0 right-0 flex justify-center gap-1">
+                  {(item.mediaUrls ?? []).map((_, i) => (
+                    <span
+                      key={i}
+                      className={`w-2 h-2 rounded-full ${i === carouselIndex ? 'bg-white' : 'bg-white/50'}`}
+                    />
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
         </div>
       )}
 

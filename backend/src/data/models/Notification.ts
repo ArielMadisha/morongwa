@@ -13,7 +13,7 @@ export interface INotification extends Document {
 
 const NotificationSchema = new Schema<INotification>(
   {
-    user: { type: Schema.Types.ObjectId, ref: "User", index: true },
+    user: { type: Schema.Types.ObjectId, ref: "User" },
     type: { type: String, required: true },
     message: { type: String, required: true },
     channel: {

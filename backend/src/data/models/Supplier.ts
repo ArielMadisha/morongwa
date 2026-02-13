@@ -53,7 +53,6 @@ const SupplierSchema = new Schema<ISupplier>(
   { timestamps: true }
 );
 
-SupplierSchema.index({ userId: 1 });
 SupplierSchema.index({ status: 1 });
 SupplierSchema.index({ type: 1 });
 
