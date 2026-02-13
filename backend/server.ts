@@ -42,6 +42,7 @@ import tvRoutes from "./src/routes/tv";
 import productEnquiryRoutes from "./src/routes/productEnquiry";
 import { ensureDefaultPolicies } from "./src/services/policyService";
 import { seedPricingConfig } from "./src/services/pricingConfig";
+import { ensureDefaultProducts } from "./src/services/marketplaceSeed";
 
 const app: Application = express();
 const server = http.createServer(app);
@@ -146,6 +147,7 @@ const startServer = async () => {
     await connectDB();
     await ensureDefaultPolicies();
     await seedPricingConfig();
+    await ensureDefaultProducts();
   } catch (error) {
     logger.error("Database not available (server will start; API will return 503 until DB is up):", error);
   }
