@@ -5,8 +5,11 @@ export interface IUser extends Document {
   name: string;
   email: string;
   passwordHash: string;
+  dateOfBirth?: Date;
   role: ("client" | "runner" | "admin" | "superadmin")[];
   avatar?: string;
+  /** Custom background for status strip (profile customization) */
+  stripBackgroundPic?: string;
   isVerified: boolean;
   active: boolean;
   suspended: boolean;
@@ -28,6 +31,10 @@ export interface IUser extends Document {
   location?: { type: string; coordinates: number[]; updatedAt?: Date };
   // Runner verification flag (vehicles + PDP verified by admin)
   runnerVerified?: boolean;
+  /** Private account: follow requests require acceptance */
+  isPrivate?: boolean;
+  /** Currently broadcasting live - shows in statuses and LiveTV */
+  isLive?: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -37,6 +44,7 @@ const UserSchema = new Schema<IUser>(
     name: { type: String, required: true },
     email: { type: String, required: true, unique: true, lowercase: true, trim: true },
     passwordHash: { type: String, required: true },
+    dateOfBirth: { type: Date },
     role: { 
       type: [String], 
       enum: ["client", "runner", "admin", "superadmin"], 
@@ -49,6 +57,7 @@ const UserSchema = new Schema<IUser>(
       }
     },
     avatar: { type: String },
+    stripBackgroundPic: { type: String },
     vehicles: [
       {
         make: String,
@@ -76,6 +85,8 @@ const UserSchema = new Schema<IUser>(
       updatedAt: { type: Date },
     },
     runnerVerified: { type: Boolean, default: false },
+    isPrivate: { type: Boolean, default: false },
+    isLive: { type: Boolean, default: false },
     isVerified: { type: Boolean, default: false },
     active: { type: Boolean, default: true },
     suspended: { type: Boolean, default: false },

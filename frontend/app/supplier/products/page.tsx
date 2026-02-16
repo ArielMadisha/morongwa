@@ -1,18 +1,41 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
-import { productsAPI } from '@/lib/api';
+import { productsAPI, suppliersAPI } from '@/lib/api';
 import Link from 'next/link';
-import { ArrowLeft, Loader2, Package, ImagePlus, X } from 'lucide-react';
+import { Loader2, Package, ImagePlus, X, AlertTriangle } from 'lucide-react';
 import toast from 'react-hot-toast';
-import SiteHeader from '@/components/SiteHeader';
+import { useAuth } from '@/contexts/AuthContext';
+import { useCartAndStores } from '@/lib/useCartAndStores';
+import { AppSidebar, AppSidebarMenuButton } from '@/components/AppSidebar';
+import { ProfileDropdown } from '@/components/ProfileDropdown';
 
 const MAX_IMAGES = 5;
 const MIN_IMAGES = 1;
 
 export default function SupplierProductsPage() {
+  const { user, logout } = useAuth();
+  const router = useRouter();
+  const { cartCount, hasStore } = useCartAndStores(!!user);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [verifiedSupplier, setVerifiedSupplier] = useState<boolean | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  const handleLogout = () => {
+    logout();
+    router.push('/');
+  };
+
+  useEffect(() => {
+    suppliersAPI.getMe()
+      .then((res) => {
+        const s = res.data?.data ?? res.data;
+        setVerifiedSupplier(s?.status === 'approved');
+      })
+      .catch(() => setVerifiedSupplier(false));
+  }, []);
   const [imageFiles, setImageFiles] = useState<File[]>([]);
   const [imagePreviews, setImagePreviews] = useState<string[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -81,7 +104,7 @@ export default function SupplierProductsPage() {
         categories: form.categories ? form.categories.split(',').map((s) => s.trim()).filter(Boolean) : [],
         tags: form.tags ? form.tags.split(',').map((s) => s.trim()).filter(Boolean) : [],
       });
-      toast.success('Product created and listed on the marketplace');
+      toast.success('Product created and listed on QwertyHub');
       imagePreviews.forEach((url) => URL.revokeObjectURL(url));
       setImageFiles([]);
       setImagePreviews([]);
@@ -94,41 +117,72 @@ export default function SupplierProductsPage() {
     }
   };
 
+  // Block reseller-only stores: if user has a store from reselling but is NOT a verified supplier, they cannot add physical products
+  if (verifiedSupplier === false) {
+    return (
+      <ProtectedRoute>
+        <div className="min-h-screen bg-gradient-to-br from-slate-50 via-amber-50/20 to-sky-50 text-slate-800 flex">
+          <AppSidebar variant="wall" userName={user?.name} cartCount={cartCount} hasStore={hasStore} onLogout={handleLogout} menuOpen={menuOpen} setMenuOpen={setMenuOpen} />
+          <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+            <header className="bg-white/85 backdrop-blur-md border-b border-slate-100 px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between gap-4">
+              <AppSidebarMenuButton onClick={() => setMenuOpen(true)} />
+              <ProfileDropdown userName={user?.name} className="ml-auto" />
+            </header>
+            <main className="flex-1 overflow-y-auto px-4 sm:px-6 lg:px-8 py-8">
+              <div className="max-w-xl mx-auto">
+                <div className="rounded-2xl border border-amber-200 bg-amber-50 p-6 text-center">
+                  <AlertTriangle className="h-12 w-12 text-amber-600 mx-auto mb-4" />
+                  <h1 className="text-xl font-bold text-slate-900 mb-2">Supplier verification required</h1>
+                  <p className="text-slate-700 mb-4">
+                    Your store was created automatically when you added products from QwertyHub. To add your own physical products and sell inventory, you must first get verified as a supplier.
+                  </p>
+                  <Link href="/supplier/apply" className="inline-flex items-center gap-2 rounded-lg bg-sky-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-sky-700">
+                    Apply to become a supplier
+                  </Link>
+                  <p className="text-sm text-slate-500 mt-4">
+                    <Link href="/store" className="text-sky-600 hover:underline">Back to MyStore</Link>
+                  </p>
+                </div>
+              </div>
+            </main>
+          </div>
+        </div>
+      </ProtectedRoute>
+    );
+  }
+
+  if (verifiedSupplier === null) {
+    return (
+      <ProtectedRoute>
+        <div className="min-h-screen bg-gradient-to-br from-slate-50 via-amber-50/20 to-sky-50 flex items-center justify-center">
+          <Loader2 className="h-10 w-10 animate-spin text-sky-600" />
+        </div>
+      </ProtectedRoute>
+    );
+  }
+
   return (
     <ProtectedRoute>
-      <div className="min-h-screen bg-gradient-to-br from-sky-50 via-white to-sky-100 text-slate-800">
-        <SiteHeader />
-        <main className="max-w-xl mx-auto px-4 sm:px-6 py-12">
-          <nav className="flex items-center gap-2 text-sm text-slate-600 mb-6">
-            <Link href="/marketplace" className="text-sky-600 hover:underline">Marketplace</Link>
-            <span>/</span>
-            <span className="text-slate-800 font-medium">Add product</span>
-            <span className="ml-auto">
-              <Link href="/supplier/settings" className="text-sky-600 hover:underline">Supplier settings</Link>
-            </span>
-          </nav>
-          <h1 className="text-2xl font-bold text-slate-900 mb-2">Add product</h1>
-          <p className="text-slate-600 mb-4">As a verified supplier, you can load products to sell on the marketplace.</p>
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-amber-50/20 to-sky-50 text-slate-800 flex">
+        <AppSidebar variant="wall" userName={user?.name} cartCount={cartCount} hasStore={hasStore} onLogout={handleLogout} menuOpen={menuOpen} setMenuOpen={setMenuOpen} />
+        <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+          <header className="bg-white/85 backdrop-blur-md border-b border-slate-100 px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between gap-4">
+            <AppSidebarMenuButton onClick={() => setMenuOpen(true)} />
+            <ProfileDropdown userName={user?.name} className="ml-auto" />
+          </header>
+          <main className="flex-1 overflow-y-auto px-4 sm:px-6 lg:px-8 py-8">
+            <div className="max-w-xl mx-auto">
+              <div className="flex items-center justify-between mb-6">
+                <div>
+                  <h1 className="text-2xl font-bold text-slate-900">Add product</h1>
+                  <p className="text-slate-600 text-sm mt-0.5">Load products to sell on QwertyHub.</p>
+                </div>
+                <Link href="/supplier/settings" className="text-sm font-medium text-sky-600 hover:text-sky-700">
+                  Supplier settings
+                </Link>
+              </div>
 
-          <div className="mb-8 rounded-xl border border-sky-100 bg-sky-50/50 p-4">
-            <p className="text-sm font-semibold text-slate-800 mb-3">Add product flow</p>
-            <ol className="space-y-2 text-sm text-slate-700 list-none">
-              <li className="flex gap-3">
-                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-sky-600 text-white text-xs font-bold">1</span>
-                <span><strong>Be verified</strong> — Only approved suppliers can add products. Not yet? <Link href="/supplier/apply" className="text-sky-600 hover:underline">Become a supplier</Link>.</span>
-              </li>
-              <li className="flex gap-3">
-                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-sky-600 text-white text-xs font-bold">2</span>
-                <span><strong>Fill the form</strong> — Title, price, description, sizes, and options (e.g. allow resell).</span>
-              </li>
-              <li className="flex gap-3">
-                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-sky-600 text-white text-xs font-bold">3</span>
-                <span><strong>Product goes live</strong> — It appears on the marketplace and can be bought or resold by others.</span>
-              </li>
-            </ol>
-          </div>
-
-          <form onSubmit={handleSubmit} className="rounded-2xl border border-white/60 bg-white/80 p-6 shadow-xl shadow-sky-50 space-y-4">
+              <form onSubmit={handleSubmit} className="rounded-2xl border border-white/60 bg-white/80 p-6 shadow-xl shadow-sky-50 space-y-4">
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Product pictures * (1–5 images)</label>
               <input
@@ -261,10 +315,12 @@ export default function SupplierProductsPage() {
               <button type="submit" disabled={submitting} className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-700 disabled:opacity-50 flex items-center gap-2">
                 {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Package className="h-4 w-4" />} Create product
               </button>
-              <Link href="/marketplace" className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Cancel</Link>
+              <Link href="/store" className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Back to MyStore</Link>
             </div>
           </form>
-        </main>
+            </div>
+          </main>
+        </div>
       </div>
     </ProtectedRoute>
   );

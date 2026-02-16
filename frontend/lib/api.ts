@@ -69,12 +69,17 @@ api.interceptors.response.use(
 
 // API endpoints
 export const authAPI = {
-  register: (data: { name: string; email: string; password: string; role?: string[] }) =>
+  register: (data: { name: string; email: string; password: string; role?: string[]; dateOfBirth?: string }) =>
     api.post('/auth/register', data),
   login: (data: { email: string; password: string }) =>
     api.post('/auth/login', data),
   getCurrentUser: () => api.get('/auth/me'),
   requestRunnerRole: () => api.post('/auth/request-runner'),
+};
+
+export const advertsAPI = {
+  getAdverts: (slot?: 'random' | 'promo') =>
+    api.get('/adverts', { params: slot ? { slot } : {} }),
 };
 
 export const tasksAPI = {
@@ -139,6 +144,31 @@ export const adminAPI = {
   suspendUser: (id: string, reason?: string) =>
     api.post(`/admin/users/${id}/suspend`, { reason }),
   activateUser: (id: string) => api.post(`/admin/users/${id}/activate`),
+  verifyRunnerVehicle: (userId: string, vehicleIndex: number) =>
+    api.post(`/admin/users/${userId}/vehicles/${vehicleIndex}/verify`),
+  verifyRunnerPdp: (userId: string) => api.post(`/admin/users/${userId}/pdp/verify`),
+
+  // Adverts
+  getAdverts: (params?: { slot?: string }) => api.get('/admin/adverts', { params }),
+  createAdvert: (data: { title: string; imageUrl: string; linkUrl?: string; slot: 'random' | 'promo'; productId?: string; active?: boolean; startDate?: string; endDate?: string; order?: number }) =>
+    api.post('/admin/adverts', data),
+  updateAdvert: (id: string, data: Partial<{ title: string; imageUrl: string; linkUrl: string; slot: string; productId: string; active: boolean; startDate: string; endDate: string; order: number }>) =>
+    api.put(`/admin/adverts/${id}`, data),
+  deleteAdvert: (id: string) => api.delete(`/admin/adverts/${id}`),
+
+  // Landing backgrounds (login/register page)
+  getLandingBackgrounds: () => api.get('/admin/landing-backgrounds'),
+  uploadLandingBackground: (file: File) => {
+    const formData = new FormData();
+    formData.append('image', file);
+    return api.post<{ url: string }>('/admin/landing-backgrounds/upload', formData);
+  },
+  createLandingBackground: (data: { imageUrl: string; order?: number }) =>
+    api.post('/admin/landing-backgrounds', data),
+  updateLandingBackground: (id: string, data: Partial<{ imageUrl: string; order: number; active: boolean }>) =>
+    api.put(`/admin/landing-backgrounds/${id}`, data),
+  deleteLandingBackground: (id: string) => api.delete(`/admin/landing-backgrounds/${id}`),
+
   getTasks: (params?: any) => api.get('/admin/tasks', { params }),
   cancelTask: (id: string, reason?: string) =>
     api.post(`/admin/tasks/${id}/cancel`, { reason }),
@@ -252,8 +282,9 @@ export const analyticsAPI = {
 
 export const usersAPI = {
   getProfile: (id: string) => api.get(`/users/${id}`),
-  updateProfile: (id: string, data: { name: string }) =>
+  updateProfile: (id: string, data: { name?: string; isPrivate?: boolean; avatar?: string; stripBackgroundPic?: string }) =>
     api.put(`/users/${id}`, data),
+  toggleLive: (id: string) => api.patch(`/users/${id}/live`),
   uploadAvatar: (id: string, file: File) => {
     const formData = new FormData();
     formData.append('avatar', file);
@@ -261,10 +292,32 @@ export const usersAPI = {
       headers: { 'Content-Type': 'multipart/form-data' },
     });
   },
+  setAvatarFromUrl: (id: string, url: string) =>
+    api.patch(`/users/${id}/avatar-url`, { url }),
+  uploadStripBackground: (id: string, file: File) => {
+    const formData = new FormData();
+    formData.append('image', file);
+    return api.post(`/users/${id}/strip-background`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
   addRole: (id: string, role: 'client' | 'runner') =>
     api.post(`/users/${id}/roles`, { action: 'add', role }),
   removeRole: (id: string, role: 'client' | 'runner') =>
     api.post(`/users/${id}/roles`, { action: 'remove', role }),
+  uploadPdp: (id: string, file: File) => {
+    const formData = new FormData();
+    formData.append('pdp', file);
+    return api.post(`/users/${id}/pdp`, formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+  },
+  uploadVehicle: (id: string, data: { make?: string; model?: string; plate?: string }, documents: File[]) => {
+    const formData = new FormData();
+    if (data.make) formData.append('make', data.make);
+    if (data.model) formData.append('model', data.model);
+    if (data.plate) formData.append('plate', data.plate);
+    documents.forEach((f) => formData.append('documents', f));
+    return api.post(`/users/${id}/vehicles`, formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+  },
 };
 
 export const policiesAPI = {
@@ -331,7 +384,25 @@ export const resellerAPI = {
 export const storesAPI = {
   getMyStores: () => api.get('/stores/me'),
   renameStore: (id: string, name: string) => api.put(`/stores/${id}`, { name }),
+  updateStore: (id: string, data: { name?: string; address?: string; email?: string; cellphone?: string; whatsapp?: string; stripBackgroundPic?: string }) =>
+    api.put(`/stores/${id}`, data),
+  uploadStripBackground: (id: string, file: File) => {
+    const formData = new FormData();
+    formData.append('image', file);
+    return api.post<{ url: string; data: any }>(`/stores/${id}/strip-background`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
   getBySlug: (slug: string) => api.get(`/stores/by-slug/${slug}`),
+};
+
+export const followsAPI = {
+  follow: (userId: string) => api.post(`/follows/${userId}`),
+  unfollow: (userId: string) => api.delete(`/follows/${userId}`),
+  getStatus: (userId: string) => api.get(`/follows/${userId}/status`),
+  getPendingRequests: () => api.get('/follows/requests/pending'),
+  acceptRequest: (followerId: string) => api.post(`/follows/${followerId}/accept`),
+  rejectRequest: (followerId: string) => api.post(`/follows/${followerId}/reject`),
 };
 
 export const productEnquiryAPI = {
@@ -346,6 +417,7 @@ export const productEnquiryAPI = {
 export const tvAPI = {
   getFeed: (params?: { page?: number; limit?: number; sort?: 'newest' | 'trending' | 'random'; type?: 'video' | 'image' | 'carousel' | 'product' }) =>
     api.get('/tv', { params }),
+  getStatuses: () => api.get('/tv/statuses'),
   uploadMedia: (file: File) => {
     const formData = new FormData();
     formData.append('media', file);
@@ -387,10 +459,12 @@ export const suppliersAPI = {
     pickupAddress?: string;
     companyRegNo?: string;
     directorsIdDoc?: string;
+    directorsIdDocs?: string[];
     idDocument?: string;
     contactEmail: string;
     contactPhone: string;
     verificationFeeWaived?: boolean;
   }) => api.post('/suppliers/apply', data),
   getMe: () => api.get('/suppliers/me'),
+  getMyProducts: () => api.get('/suppliers/me/products'),
 };

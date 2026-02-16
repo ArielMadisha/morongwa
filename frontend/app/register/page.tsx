@@ -1,19 +1,22 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
-import { Mail, Lock, User, ArrowRight, Loader2, AlertCircle, CheckCircle } from 'lucide-react';
+import { Mail, Lock, User, ArrowRight, Loader2, AlertCircle, CheckCircle, Calendar } from 'lucide-react';
 import toast from 'react-hot-toast';
 import SiteHeader from '@/components/SiteHeader';
+import AuthBackground from '@/components/AuthBackground';
 
 export default function RegisterPage() {
+  const searchParams = useSearchParams();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [dateOfBirth, setDateOfBirth] = useState('');
   const [loading, setLoading] = useState(false);
-  const [errors, setErrors] = useState<{name?: string; email?: string; password?: string; consent?: string}>({});
+  const [errors, setErrors] = useState<{name?: string; email?: string; password?: string; consent?: string; dateOfBirth?: string}>({});
   const [acceptTos, setAcceptTos] = useState(false);
   const [acceptPrivacy, setAcceptPrivacy] = useState(false);
   const { register } = useAuth();
@@ -21,6 +24,22 @@ export default function RegisterPage() {
 
   const validateEmail = (email: string) => {
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+  };
+
+  const getMinBirthDate = () => {
+    const d = new Date();
+    d.setFullYear(d.getFullYear() - 13);
+    return d.toISOString().split('T')[0];
+  };
+
+  const isAtLeast13 = (dob: string) => {
+    if (!dob) return false;
+    const birth = new Date(dob);
+    const today = new Date();
+    let age = today.getFullYear() - birth.getFullYear();
+    const m = today.getMonth() - birth.getMonth();
+    if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) age--;
+    return age >= 13;
   };
 
   const getPasswordStrength = (password: string) => {
@@ -39,7 +58,7 @@ export default function RegisterPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const newErrors: {name?: string; email?: string; password?: string; consent?: string} = {};
+    const newErrors: {name?: string; email?: string; password?: string; consent?: string; dateOfBirth?: string} = {};
 
     if (!name.trim()) newErrors.name = 'Name is required';
     else if (name.trim().length < 2) newErrors.name = 'Name must be at least 2 characters';
@@ -50,8 +69,10 @@ export default function RegisterPage() {
     if (!password) newErrors.password = 'Password is required';
     else if (password.length < 8) newErrors.password = 'Password must be at least 8 characters';
 
+    if (!dateOfBirth) newErrors.dateOfBirth = 'Date of birth is required';
+    else if (!isAtLeast13(dateOfBirth)) newErrors.dateOfBirth = 'You must be at least 13 years old to register';
+
     if (!acceptTos || !acceptPrivacy) {
-      newErrors.email = newErrors.email; // keep existing typings intact
       newErrors.consent = 'Please accept the Terms and Privacy Policy';
     }
 
@@ -65,9 +86,11 @@ export default function RegisterPage() {
     setLoading(true);
 
     try {
-      await register(name.trim(), email.trim().toLowerCase(), password, ['client'], ['terms-of-service', 'privacy-policy']);
+      await register(name.trim(), email.trim().toLowerCase(), password, ['client'], ['terms-of-service', 'privacy-policy'], dateOfBirth);
       toast.success('🎉 Welcome to Morongwa!');
-      router.push('/wall');
+      const returnTo = searchParams.get('returnTo');
+      const target = returnTo && returnTo.startsWith('/') && !returnTo.startsWith('//') ? returnTo : '/wall';
+      router.push(target);
     } catch (error: any) {
       const errorMsg = error.response?.data?.message || error.message || 'Registration failed';
       toast.error(errorMsg);
@@ -80,39 +103,11 @@ export default function RegisterPage() {
   };
 
   return (
-    <div className="relative min-h-screen flex flex-col overflow-hidden bg-gradient-to-br from-sky-50 via-blue-50 to-white text-slate-900">
-      <SiteHeader />
-      <div className="flex-1 flex items-center justify-center px-4 py-10">
-      <div className="absolute inset-0 pointer-events-none">
-        <div className="absolute -left-10 -top-24 h-72 w-72 rounded-full bg-gradient-to-br from-sky-200/60 to-blue-300/40 blur-3xl" />
-        <div className="absolute right-[-6rem] top-6 h-80 w-80 rounded-full bg-gradient-to-tr from-cyan-200/60 via-blue-200/45 to-indigo-200/50 blur-3xl" />
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,rgba(59,130,246,0.14),transparent_45%),radial-gradient(circle_at_80%_0%,rgba(14,165,233,0.12),transparent_40%),radial-gradient(circle_at_50%_80%,rgba(99,102,241,0.10),transparent_45%)]" />
-      </div>
-
-      <div className="relative z-10 grid max-w-5xl w-full grid-cols-1 lg:grid-cols-[1.1fr_0.9fr] gap-8 items-center">
-        <div className="hidden lg:flex flex-col gap-6 bg-white/80 border border-sky-100 rounded-3xl p-10 shadow-2xl backdrop-blur-lg">
-          <div className="inline-flex items-center gap-3 text-sky-700 uppercase tracking-[0.3em] text-xs font-semibold">
-            <span className="h-px w-10 bg-sky-500/50" />
-            <span className="text-3xl font-bold leading-none">Morongwa</span>
-          </div>
-          <div className="space-y-3">
-            <p className="text-4xl font-semibold leading-tight text-slate-900">
-              Join the Qwerty Revolution
-            </p>
-            <p className="text-base text-slate-600 max-w-xl">
-              Seamless tasks, real-time updates, secure payouts. We keep your errands moving so you can focus on living.
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-3 text-sm text-sky-800">
-            <span className="px-3 py-1 rounded-full bg-sky-100 border border-sky-200">#iceboy</span>
-            <span className="px-3 py-1 rounded-full bg-sky-100 border border-sky-200">#spaceman</span>
-          </div>
-          <div className="flex items-center gap-2 text-sm text-slate-600">
-            <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-            Live and secure · 24/7 uptime
-          </div>
-        </div>
-
+    <div className="relative min-h-screen flex flex-col overflow-hidden text-slate-900">
+      <AuthBackground />
+      <SiteHeader minimal />
+      <div className="relative flex-1 flex items-center justify-center px-4 py-10">
+      <div className="relative z-10 w-full max-w-md mx-auto">
         <div className="bg-white rounded-2xl shadow-2xl p-8 sm:p-10 text-slate-900">
           <div className="space-y-2">
             <h2 className="text-3xl font-bold text-slate-900 text-center">Create your account</h2>
@@ -150,6 +145,40 @@ export default function RegisterPage() {
                   <p className="mt-1 text-sm text-red-600 flex items-center gap-1">
                     <AlertCircle className="h-3 w-3" />
                     {errors.name}
+                  </p>
+                )}
+              </div>
+
+              <div>
+                <label htmlFor="dateOfBirth" className="block text-sm font-medium text-slate-700 mb-1">
+                  Date of birth
+                </label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <Calendar className="h-5 w-5 text-slate-400" />
+                  </div>
+                  <input
+                    id="dateOfBirth"
+                    name="dateOfBirth"
+                    type="date"
+                    required
+                    max={getMinBirthDate()}
+                    value={dateOfBirth}
+                    onChange={(e) => {
+                      setDateOfBirth(e.target.value);
+                      if (errors.dateOfBirth) setErrors({ ...errors, dateOfBirth: undefined });
+                    }}
+                    className={`block w-full pl-10 pr-3 py-3 border rounded-lg placeholder-slate-400 focus:outline-none focus:ring-2 transition ${
+                      errors.dateOfBirth ? 'border-red-300 bg-red-50 focus:ring-red-200' : 'border-slate-200 focus:ring-blue-500 focus:border-transparent'
+                    }`}
+                    aria-invalid={!!errors.dateOfBirth}
+                  />
+                </div>
+                <p className="mt-1 text-xs text-slate-500">You must be at least 13 years old to register</p>
+                {errors.dateOfBirth && (
+                  <p className="mt-1 text-sm text-red-600 flex items-center gap-1">
+                    <AlertCircle className="h-3 w-3" />
+                    {errors.dateOfBirth}
                   </p>
                 )}
               </div>

@@ -1,9 +1,16 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import Link from "next/link";
-import { ArrowLeft, LogOut, ShieldCheck, Sparkles, UserRound } from "lucide-react";
+import { ArrowLeft, LayoutDashboard, Wallet, ClipboardList, HelpCircle, ShieldCheck, Lock, Radio, UserCheck, Camera } from "lucide-react";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import { useAuth } from "@/contexts/AuthContext";
+import { usersAPI, followsAPI } from "@/lib/api";
+import { AppSidebar, AppSidebarMenuButton } from "@/components/AppSidebar";
+import { SetPictureOptionsModal } from "@/components/SetPictureOptionsModal";
+import { useCartAndStores } from "@/lib/useCartAndStores";
+import { getImageUrl } from "@/lib/api";
+import toast from "react-hot-toast";
 
 function initials(name: string) {
   if (!name) return "M";
@@ -13,216 +20,334 @@ function initials(name: string) {
 }
 
 export default function ProfilePage() {
-  const { user, logout } = useAuth();
+  const { user, logout, refreshUser } = useAuth();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [isPrivate, setIsPrivate] = useState(false);
+  const [isLive, setIsLive] = useState(false);
+  const [pendingRequests, setPendingRequests] = useState<any[]>([]);
+  const [pictureOptionsOpen, setPictureOptionsOpen] = useState(false);
+  const [selectedPictureFile, setSelectedPictureFile] = useState<File | null>(null);
+  const { cartCount, hasStore } = useCartAndStores(!!user);
+
+  useEffect(() => {
+    if (user) {
+      setIsPrivate(!!(user as any).isPrivate);
+      setIsLive(!!(user as any).isLive);
+      followsAPI.getPendingRequests().then((res) => {
+        const data = res.data?.data ?? res.data ?? [];
+        setPendingRequests(Array.isArray(data) ? data : []);
+      }).catch(() => setPendingRequests([]));
+    }
+  }, [user]);
+
+  const handleTogglePrivate = async () => {
+    if (!user?._id && !user?.id) return;
+    try {
+      await usersAPI.updateProfile(user._id || user.id!, { isPrivate: !isPrivate });
+      setIsPrivate(!isPrivate);
+      refreshUser?.();
+    } catch {
+      // error handled by toast in API
+    }
+  };
+
+  const handleToggleLive = async () => {
+    if (!user?._id && !user?.id) return;
+    try {
+      const res = await usersAPI.toggleLive(user._id || user.id!);
+      setIsLive(res.data?.isLive ?? false);
+      refreshUser?.();
+    } catch {
+      // error handled
+    }
+  };
+
+  const getFollowerId = (r: any) => (r.followerId && typeof r.followerId === 'object' ? r.followerId._id : r.followerId)?.toString?.() ?? '';
+  const handleAcceptRequest = async (followerId: string) => {
+    try {
+      await followsAPI.acceptRequest(followerId);
+      setPendingRequests((p) => p.filter((r: any) => getFollowerId(r) !== followerId));
+    } catch {
+      // error
+    }
+  };
+
+  const handleRejectRequest = async (followerId: string) => {
+    try {
+      await followsAPI.rejectRequest(followerId);
+      setPendingRequests((p) => p.filter((r: any) => getFollowerId(r) !== followerId));
+    } catch {
+      // error
+    }
+  };
+
+  const handlePictureFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file && file.type.startsWith('image/')) {
+      setSelectedPictureFile(file);
+      setPictureOptionsOpen(true);
+    }
+    e.target.value = '';
+  };
+
+  const handleSetProfilePic = async () => {
+    if (!selectedPictureFile || !user?._id && !user?.id) return;
+    try {
+      await usersAPI.uploadAvatar(user._id || user.id!, selectedPictureFile);
+      toast.success('Profile picture updated');
+      setSelectedPictureFile(null);
+      refreshUser?.();
+    } catch (e: any) {
+      toast.error(e.response?.data?.message || 'Failed to update profile picture');
+    }
+  };
+
+  const handleSetStripBackground = async () => {
+    if (!selectedPictureFile || !user?._id && !user?.id) return;
+    try {
+      await usersAPI.uploadStripBackground(user._id || user.id!, selectedPictureFile);
+      toast.success('Strip background updated');
+      setSelectedPictureFile(null);
+      refreshUser?.();
+    } catch (e: any) {
+      toast.error(e.response?.data?.message || 'Failed to update strip background');
+    }
+  };
 
   if (!user) return null;
 
   const roles = Array.isArray(user.role) ? user.role : [user.role];
-  const hasMultipleRoles = roles.length > 1;
+  const statusLabel = user.suspended ? "Suspended" : user.active ? "Active" : "Inactive";
+  const variant = roles.includes("runner") ? "runner" : "client";
 
-  const dashboardHref = roles.includes('admin') || roles.includes('superadmin')
-    ? '/admin'
-    : hasMultipleRoles
-    ? '/dashboard'
-    : roles.includes('runner')
-    ? '/dashboard/runner'
-    : '/dashboard/client';
+  const dashboardHref = roles.includes("admin") || roles.includes("superadmin")
+    ? "/admin"
+    : roles.length > 1
+    ? "/dashboard"
+    : roles.includes("runner")
+    ? "/dashboard/runner"
+    : "/dashboard/client";
 
   return (
     <ProtectedRoute>
-      <div className="min-h-screen bg-gradient-to-br from-sky-50 via-white to-sky-100 text-slate-800">
-        <div className="max-w-6xl mx-auto px-6 py-10">
-          <div className="flex items-center justify-between mb-8">
-            <div>
-              <p className="text-sm uppercase tracking-[0.3em] text-sky-600">Morongwa</p>
-              <h1 className="text-3xl font-semibold text-slate-900">Your profile</h1>
-              <p className="text-slate-600 mt-2">Stay trusted. Stay ready to trade securely.</p>
+      <div className="min-h-screen bg-gradient-to-br from-sky-50 via-blue-50 to-white text-slate-900 flex">
+        <AppSidebar
+          variant={variant}
+          userName={user?.name}
+          cartCount={cartCount}
+          hasStore={hasStore}
+          onLogout={logout}
+          menuOpen={menuOpen}
+          setMenuOpen={setMenuOpen}
+        />
+        <div className="flex-1 flex flex-col min-w-0">
+          <header className="bg-white/85 backdrop-blur-md border-b border-slate-100 shadow-sm flex-shrink-0">
+            <div className="px-4 sm:px-6 lg:px-8 py-4">
+              <div className="flex items-center gap-3 min-w-0">
+                <AppSidebarMenuButton onClick={() => setMenuOpen(true)} />
+                <Link
+                  href={dashboardHref}
+                  className="inline-flex items-center gap-2 text-sm font-medium text-slate-700 hover:text-blue-600 transition-colors"
+                >
+                  <ArrowLeft className="h-4 w-4" />
+                  Back to dashboard
+                </Link>
+              </div>
             </div>
-            <div className="flex items-center gap-3">
-              <Link
-                href={dashboardHref}
-                className="inline-flex items-center gap-2 rounded-full border border-white/60 bg-white/70 px-4 py-2 text-sm font-medium text-slate-700 shadow-sm backdrop-blur transition hover:-translate-y-0.5 hover:shadow-lg"
-              >
-                <ArrowLeft className="h-4 w-4" />
-                Back to dashboard
-              </Link>
-              <button
-                onClick={logout}
-                className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-sky-500 via-cyan-500 to-teal-500 px-4 py-2 text-sm font-medium text-white shadow-lg shadow-sky-200 transition hover:scale-[1.01]"
-              >
-                <LogOut className="h-4 w-4" />
-                Logout
-              </button>
+          </header>
+          <div className="flex-1 overflow-auto">
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 py-8">
+          <div className="mb-8">
+            <h1 className="text-2xl sm:text-3xl font-bold text-slate-900">My profile</h1>
+            <p className="text-slate-600 mt-1">The Digital Home for Doers, Sellers & Creators.</p>
+          </div>
+
+          {/* Profile card */}
+          <div className="rounded-2xl bg-white border border-slate-100 shadow-lg shadow-blue-900/5 overflow-hidden">
+            <div className="p-6 sm:p-8">
+              <div className="flex flex-col sm:flex-row sm:items-center gap-6">
+                <label className="relative flex h-20 w-20 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-r from-blue-600 to-indigo-600 text-2xl font-semibold text-white overflow-hidden cursor-pointer group">
+                  <input type="file" accept="image/*" className="hidden" onChange={handlePictureFileSelect} />
+                  {(user as any).avatar ? (
+                    <img src={getImageUrl((user as any).avatar)} alt="" className="w-full h-full object-cover" />
+                  ) : (
+                    initials(user.name)
+                  )}
+                  <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                    <Camera className="h-8 w-8 text-white" />
+                  </div>
+                </label>
+                <div className="flex-1 min-w-0">
+                  <h2 className="text-xl font-semibold text-slate-900">{user.name}</h2>
+                  <p className="text-slate-600">{user.email}</p>
+                  <div className="mt-2 inline-flex items-center gap-2 rounded-lg bg-blue-50 px-3 py-1.5 text-sm font-medium text-blue-700">
+                    <ShieldCheck className="h-4 w-4" />
+                    {roles.map((r) => r.charAt(0).toUpperCase() + r.slice(1)).join(" + ")}
+                  </div>
+                </div>
+              </div>
+
+              {/* Status row */}
+              <div className="mt-6 pt-6 border-t border-slate-100 grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div>
+                  <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Status</p>
+                  <p className="mt-1 text-sm font-semibold text-slate-900">{statusLabel}</p>
+                </div>
+                <div>
+                  <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Verification</p>
+                  <p className="mt-1 text-sm font-semibold text-slate-900">
+                    {user.isVerified ? "Verified" : "Pending"}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Joined</p>
+                  <p className="mt-1 text-sm font-semibold text-slate-900">
+                    {new Date(user.createdAt || '').toLocaleDateString()}
+                  </p>
+                </div>
+              </div>
+
+              {/* Privacy & Go Live */}
+              <div className="mt-6 pt-6 border-t border-slate-100 space-y-4">
+                <h3 className="text-sm font-semibold text-slate-700">Privacy & live</h3>
+                <label className="flex items-center justify-between gap-4 cursor-pointer">
+                  <span className="flex items-center gap-2 text-sm text-slate-700">
+                    <Lock className="h-4 w-4 text-slate-500" />
+                    Private account
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={isPrivate}
+                    onChange={handleTogglePrivate}
+                    className="rounded text-sky-600"
+                  />
+                </label>
+                <p className="text-xs text-slate-500">When private, others must request to follow. You approve each request.</p>
+                <label className="flex items-center justify-between gap-4 cursor-pointer">
+                  <span className="flex items-center gap-2 text-sm text-slate-700">
+                    <Radio className="h-4 w-4 text-red-500" />
+                    Go live
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={isLive}
+                    onChange={handleToggleLive}
+                    className="rounded text-sky-600"
+                  />
+                </label>
+                <p className="text-xs text-slate-500">When live, you appear in statuses and on MorongwaTV.</p>
+              </div>
+
+              {/* Upload profile picture / strip background */}
+              <div className="mt-6 pt-6 border-t border-slate-100">
+                <h3 className="text-sm font-semibold text-slate-700 mb-2">Profile picture</h3>
+                <p className="text-xs text-slate-500 mb-2">Click your avatar above to upload a new picture. You can set it as profile picture or strip background.</p>
+              </div>
+
+              {isPrivate && pendingRequests.length > 0 && (
+                <div className="mt-6 pt-6 border-t border-slate-100">
+                  <h3 className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2">
+                    <UserCheck className="h-4 w-4" /> Follow requests ({pendingRequests.length})
+                  </h3>
+                  <ul className="space-y-2">
+                    {pendingRequests.map((req: any) => {
+                      const follower = req.followerId || req;
+                      const fid = String(typeof follower === 'object' ? follower._id : follower);
+                      return (
+                        <li key={req._id || fid} className="flex items-center justify-between gap-2 py-2 border-b border-slate-100 last:border-0">
+                          <span className="text-sm font-medium text-slate-900">
+                            {typeof follower === 'object' ? follower.name : 'User'}
+                          </span>
+                          <div className="flex gap-2">
+                            <button onClick={() => handleAcceptRequest(fid)} className="px-3 py-1 rounded-lg bg-sky-500 text-white text-xs font-medium hover:bg-sky-600">Accept</button>
+                            <button onClick={() => handleRejectRequest(fid)} className="px-3 py-1 rounded-lg border border-slate-200 text-slate-600 text-xs font-medium hover:bg-slate-50">Reject</button>
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              )}
             </div>
           </div>
 
-          <div className="grid gap-6 lg:grid-cols-3">
-            <div className="lg:col-span-2 space-y-6">
-              <div className="rounded-2xl border border-white/60 bg-white/70 p-6 shadow-xl shadow-sky-50 backdrop-blur">
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-6">
-                  <div className="flex items-center gap-4">
-                    <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-sky-500/90 via-cyan-500/90 to-teal-500/80 text-xl font-semibold text-white shadow-lg shadow-sky-200">
-                      {initials(user.name)}
-                    </div>
-                    <div>
-                      <p className="text-sm uppercase tracking-[0.2em] text-sky-600">Morongwa</p>
-                      <h2 className="text-2xl font-semibold text-slate-900">{user.name}</h2>
-                      <p className="text-slate-600">{user.email}</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 rounded-full border border-sky-100 bg-sky-50 px-4 py-2 text-sm font-medium text-sky-700">
-                    <ShieldCheck className="h-4 w-4" />
-                    {roles.map(r => r.toUpperCase()).join(' + ')} role{roles.length > 1 ? 's' : ''}
-                  </div>
+          {/* Quick links */}
+          <div className="mt-6">
+            <h3 className="text-sm font-semibold text-slate-700 mb-4">Quick links</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <Link
+                href={dashboardHref}
+                className="flex items-center gap-4 rounded-xl border border-slate-100 bg-white p-4 shadow-sm transition hover:border-blue-200 hover:shadow-md"
+              >
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-blue-100 text-blue-600">
+                  <LayoutDashboard className="h-5 w-5" />
                 </div>
-
-                <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                  <div className="rounded-xl border border-slate-100 bg-white/80 p-4 shadow-sm">
-                    <p className="text-xs uppercase tracking-wide text-slate-500">Status</p>
-                    <p className="mt-2 text-sm font-semibold text-slate-900">{user.suspended ? "Suspended" : user.active ? "Active" : "Inactive"}</p>
-                    <p className="text-xs text-slate-500">Account state</p>
-                  </div>
-                  <div className="rounded-xl border border-slate-100 bg-white/80 p-4 shadow-sm">
-                    <p className="text-xs uppercase tracking-wide text-slate-500">Verification</p>
-                    <p className="mt-2 text-sm font-semibold text-slate-900">{user.isVerified ? "Verified" : "Pending"}</p>
-                    <p className="text-xs text-slate-500">Identity status</p>
-                  </div>
-                  <div className="rounded-xl border border-slate-100 bg-white/80 p-4 shadow-sm">
-                    <p className="text-xs uppercase tracking-wide text-slate-500">Joined</p>
-                    <p className="mt-2 text-sm font-semibold text-slate-900">{new Date(user.createdAt).toLocaleDateString()}</p>
-                    <p className="text-xs text-slate-500">Member since</p>
-                  </div>
+                <div>
+                  <p className="font-medium text-slate-900">Dashboard</p>
+                  <p className="text-sm text-slate-500">Stay on top of tasks</p>
                 </div>
-              </div>
-
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="rounded-2xl border border-white/60 bg-white/80 p-6 shadow-lg shadow-sky-50 backdrop-blur">
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-sky-500/90 via-cyan-500/90 to-teal-500/80 text-white shadow-md">
-                      <UserRound className="h-5 w-5" />
-                    </div>
-                    <div>
-                      <p className="text-xs uppercase tracking-[0.2em] text-sky-600">Profile</p>
-                      <h3 className="text-lg font-semibold text-slate-900">Account snapshot</h3>
-                    </div>
-                  </div>
-                  <ul className="mt-4 space-y-3 text-sm text-slate-600">
-                    <li className="flex items-center gap-2">
-                      <span className="h-2 w-2 rounded-full bg-sky-400" />
-                      Stay verified to unlock seamless payments.
-                    </li>
-                    <li className="flex items-center gap-2">
-                      <span className="h-2 w-2 rounded-full bg-cyan-400" />
-                      Keep your details fresh for faster trust.
-                    </li>
-                    <li className="flex items-center gap-2">
-                      <span className="h-2 w-2 rounded-full bg-teal-400" />
-                      Need changes? Reach out via Support.
-                    </li>
-                  </ul>
-                  <Link
-                    href="/support"
-                    className="mt-5 inline-flex items-center gap-2 text-sm font-semibold text-sky-700 hover:text-sky-800"
-                  >
-                    Open a support ticket
-                    <Sparkles className="h-4 w-4" />
-                  </Link>
+              </Link>
+              <Link
+                href="/wallet"
+                className="flex items-center gap-4 rounded-xl border border-slate-100 bg-white p-4 shadow-sm transition hover:border-blue-200 hover:shadow-md"
+              >
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-blue-100 text-blue-600">
+                  <Wallet className="h-5 w-5" />
                 </div>
-
-                <div className="rounded-2xl border border-white/60 bg-white/80 p-6 shadow-lg shadow-sky-50 backdrop-blur">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-xs uppercase tracking-[0.2em] text-sky-600">Navigation</p>
-                      <h3 className="text-lg font-semibold text-slate-900">Quick links</h3>
-                    </div>
-                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-sky-100 text-sky-600">
-                      <Sparkles className="h-5 w-5" />
-                    </div>
-                  </div>
-                  <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    <Link
-                      href={dashboardHref}
-                      className="group rounded-xl border border-slate-100 bg-white/80 p-3 text-sm font-medium text-slate-800 shadow-sm transition hover:-translate-y-1 hover:border-sky-200 hover:shadow-md"
-                    >
-                      <span className="block">Go to dashboard</span>
-                      <span className="text-xs text-slate-500 group-hover:text-sky-600">Stay on top of tasks</span>
-                    </Link>
-                    <Link
-                      href="/wallet"
-                      className="group rounded-xl border border-slate-100 bg-white/80 p-3 text-sm font-medium text-slate-800 shadow-sm transition hover:-translate-y-1 hover:border-sky-200 hover:shadow-md"
-                    >
-                      <span className="block">Wallet & payments</span>
-                      <span className="text-xs text-slate-500 group-hover:text-sky-600">Manage your funds</span>
-                    </Link>
-                    <Link
-                      href="/tasks"
-                      className="group rounded-xl border border-slate-100 bg-white/80 p-3 text-sm font-medium text-slate-800 shadow-sm transition hover:-translate-y-1 hover:border-sky-200 hover:shadow-md"
-                    >
-                      <span className="block">Browse tasks</span>
-                      <span className="text-xs text-slate-500 group-hover:text-sky-600">Find the right fit</span>
-                    </Link>
-                    <Link
-                      href="/support"
-                      className="group rounded-xl border border-slate-100 bg-white/80 p-3 text-sm font-medium text-slate-800 shadow-sm transition hover:-translate-y-1 hover:border-sky-200 hover:shadow-md"
-                    >
-                      <span className="block">Get help</span>
-                      <span className="text-xs text-slate-500 group-hover:text-sky-600">We respond quickly</span>
-                    </Link>
-                  </div>
+                <div>
+                  <p className="font-medium text-slate-900">Wallet & payments</p>
+                  <p className="text-sm text-slate-500">Manage your funds</p>
                 </div>
-              </div>
+              </Link>
+              <Link
+                href="/wall"
+                className="flex items-center gap-4 rounded-xl border border-slate-100 bg-white p-4 shadow-sm transition hover:border-blue-200 hover:shadow-md"
+              >
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-blue-100 text-blue-600">
+                  <ClipboardList className="h-5 w-5" />
+                </div>
+                <div>
+                  <p className="font-medium text-slate-900">Browse tasks</p>
+                  <p className="text-sm text-slate-500">Find the right fit</p>
+                </div>
+              </Link>
+              <Link
+                href="/support"
+                className="flex items-center gap-4 rounded-xl border border-slate-100 bg-white p-4 shadow-sm transition hover:border-blue-200 hover:shadow-md"
+              >
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-blue-100 text-blue-600">
+                  <HelpCircle className="h-5 w-5" />
+                </div>
+                <div>
+                  <p className="font-medium text-slate-900">Get help</p>
+                  <p className="text-sm text-slate-500">Support & contact</p>
+                </div>
+              </Link>
             </div>
+          </div>
 
-            <div className="space-y-4">
-              <div className="rounded-2xl border border-white/60 bg-white/80 p-6 shadow-lg shadow-sky-50 backdrop-blur">
-                <p className="text-xs uppercase tracking-[0.2em] text-sky-600">Morongwa pulse</p>
-                <h3 className="mt-2 text-lg font-semibold text-slate-900">Trust indicators</h3>
-                <p className="text-sm text-slate-600">
-                  Keep your profile tidy. Verified accounts get faster matches and quicker payouts.
-                </p>
-                <div className="mt-4 space-y-3 text-sm">
-                  <div className="flex items-center gap-2">
-                    <span className="h-2 w-2 rounded-full bg-sky-400" />
-                    Email status: {user.isVerified ? "Verified" : "Pending"}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="h-2 w-2 rounded-full bg-teal-400" />
-                    Role{roles.length > 1 ? 's' : ''}: {roles.join(', ')}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="h-2 w-2 rounded-full bg-cyan-400" />
-                    Account: {user.suspended ? "Suspended" : user.active ? "Active" : "Inactive"}
-                  </div>
-                </div>
-              </div>
-
-              <div className="rounded-2xl border border-white/60 bg-gradient-to-br from-sky-500 via-cyan-500 to-teal-500 p-6 text-white shadow-xl shadow-sky-200">
-                <p className="text-xs uppercase tracking-[0.25em]">Stay protected</p>
-                <h3 className="mt-2 text-xl font-semibold">Keep your sessions secure</h3>
-                <p className="mt-2 text-sm text-white/80">
-                  Remember to log out on shared devices. If you spot anything unusual, let us know immediately.
-                </p>
-                <div className="mt-4 flex flex-wrap gap-3 text-sm font-semibold">
-                  <Link
-                    href="/support"
-                    className="inline-flex items-center gap-2 rounded-full bg-white/15 px-4 py-2 backdrop-blur transition hover:bg-white/20"
-                  >
-                    <ShieldCheck className="h-4 w-4" />
-                    Report an issue
-                  </Link>
-                  <button
-                    onClick={logout}
-                    className="inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 text-slate-900 shadow-sm transition hover:shadow"
-                  >
-                    <LogOut className="h-4 w-4" />
-                    Logout now
-                  </button>
-                </div>
-              </div>
-            </div>
+          {/* Security tip */}
+          <div className="mt-8 rounded-xl border border-blue-100 bg-blue-50/50 p-4">
+            <p className="text-sm text-slate-600">
+              <span className="font-medium text-slate-700">Stay secure:</span> Log out on shared devices.
+              Spot something unusual?{" "}
+              <Link href="/support" className="font-medium text-blue-600 hover:text-blue-700">
+                Report an issue
+              </Link>
+            </p>
+          </div>
+        </div>
           </div>
         </div>
       </div>
+
+      <SetPictureOptionsModal
+        open={pictureOptionsOpen}
+        onClose={() => { setPictureOptionsOpen(false); setSelectedPictureFile(null); }}
+        imagePreview={selectedPictureFile ?? undefined}
+        onSetProfilePic={handleSetProfilePic}
+        onSetStripBackground={handleSetStripBackground}
+      />
     </ProtectedRoute>
   );
 }

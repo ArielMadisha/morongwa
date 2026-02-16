@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { Tv, Plus, Loader2, Radio } from 'lucide-react';
+import Link from 'next/link';
+import { Tv, Plus, Loader2, Radio, User } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import ProtectedRoute from '@/components/ProtectedRoute';
 import { useCartAndStores } from '@/lib/useCartAndStores';
@@ -11,6 +12,8 @@ import { ProfileDropdown } from '@/components/ProfileDropdown';
 import { TVGridTileWithObserver } from '@/components/tv/TVGridTileWithObserver';
 import type { TVGridItem } from '@/components/tv/TVGridTile';
 import { CreatePostModal } from '@/components/tv/CreatePostModal';
+import { AdvertSlot } from '@/components/AdvertSlot';
+import { FollowButton } from '@/components/FollowButton';
 import { tvAPI, productEnquiryAPI } from '@/lib/api';
 import type { Product } from '@/lib/types';
 import toast from 'react-hot-toast';
@@ -30,9 +33,24 @@ function MorongwaTVPageContent() {
   const [enquireMessage, setEnquireMessage] = useState('');
   const [enquireSending, setEnquireSending] = useState(false);
   const [likedMap, setLikedMap] = useState<Record<string, boolean>>({});
+  const [liveUsers, setLiveUsers] = useState<Array<{ userId: string; name?: string; avatar?: string }>>([]);
   const { cartCount, hasStore } = useCartAndStores(!!user);
   const containerRef = useRef<HTMLDivElement>(null);
   const limit = 24;
+
+  const loadLiveUsers = useCallback(() => {
+    tvAPI.getStatuses().then((res) => {
+      const statuses = res.data?.data ?? res.data ?? [];
+      const live = Array.isArray(statuses)
+        ? statuses.filter((s: any) => s.isLive).map((s: any) => ({
+            userId: String(s.userId?._id ?? s.userId),
+            name: s.name,
+            avatar: s.avatar,
+          }))
+        : [];
+      setLiveUsers(live);
+    }).catch(() => setLiveUsers([]));
+  }, []);
 
   const loadFeed = useCallback(async (pageNum = 1, append = false) => {
     if (pageNum === 1) setLoading(true);
@@ -53,7 +71,8 @@ function MorongwaTVPageContent() {
 
   useEffect(() => {
     loadFeed(1);
-  }, [loadFeed]);
+    loadLiveUsers();
+  }, [loadFeed, loadLiveUsers]);
 
   const loadMore = () => {
     if (loadingMore || gridItems.length >= total) return;
@@ -158,10 +177,13 @@ function MorongwaTVPageContent() {
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-sky-100 text-sky-700 font-medium">
+                <Link
+                  href="/morongwa-tv/live"
+                  className="flex items-center gap-2 px-4 py-2 rounded-xl bg-sky-100 text-sky-700 font-medium hover:bg-sky-200 transition-colors"
+                >
                   <Radio className="h-5 w-5" />
                   Live TV
-                </div>
+                </Link>
                 <button
                   onClick={() => setCreateOpen(true)}
                   className="flex items-center gap-2 px-4 py-2 rounded-xl bg-sky-500 text-white font-medium hover:bg-sky-600 transition-colors"
@@ -169,16 +191,52 @@ function MorongwaTVPageContent() {
                   <Plus className="h-5 w-5" />
                   Create
                 </button>
-                <ProfileDropdown userName={user?.name} onLogout={handleLogout} />
+                <ProfileDropdown userName={user?.name} />
               </div>
             </div>
           </div>
         </header>
 
+        <div className="flex-1 flex gap-6 min-h-0 overflow-hidden">
         <main
           ref={containerRef}
-          className="flex-1 overflow-y-auto px-4 sm:px-6 lg:px-8 py-6"
+          className="flex-1 min-w-0 overflow-y-auto px-4 sm:px-6 lg:px-8 py-6"
         >
+          {/* Live TV section - users currently live */}
+          {liveUsers.length > 0 && (
+            <div id="live-tv-section" className="mb-6 scroll-mt-4">
+              <h2 className="text-base font-semibold text-slate-800 mb-3 flex items-center gap-2">
+                <span className="inline-flex h-2 w-2 rounded-full bg-red-500 animate-pulse" />
+                Live now ({liveUsers.length})
+              </h2>
+              <div className="flex gap-4 overflow-x-auto pb-2 -mx-1 scrollbar-thin">
+                {liveUsers.map((u) => (
+                  <div
+                    key={u.userId}
+                    className="flex-shrink-0 flex flex-col items-center gap-2 p-3 rounded-2xl border-2 border-red-200 bg-white/90 hover:border-red-400 transition-colors min-w-[100px]"
+                  >
+                    <Link href="/morongwa-tv" className="flex flex-col items-center gap-2">
+                      <div className="relative">
+                        <div className="h-14 w-14 rounded-full bg-sky-100 border-2 border-red-300 flex items-center justify-center overflow-hidden">
+                          {u.avatar ? (
+                            <img src={u.avatar} alt="" className="h-full w-full object-cover" />
+                          ) : (
+                            <User className="h-7 w-7 text-sky-600" />
+                          )}
+                        </div>
+                        <span className="absolute -bottom-0.5 -right-0.5 inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-red-500 text-white text-[10px] font-bold">
+                          LIVE
+                        </span>
+                      </div>
+                      <span className="text-sm font-medium text-slate-800 truncate max-w-[90px]">{u.name || 'User'}</span>
+                    </Link>
+                    <FollowButton targetUserId={u.userId} currentUserId={user?._id || user?.id} className="!px-2 !py-1 !text-xs w-full justify-center" />
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {loading && allItems.length === 0 ? (
             <div className="flex justify-center py-24">
               <Loader2 className="h-12 w-12 text-sky-500 animate-spin" />
@@ -205,6 +263,7 @@ function MorongwaTVPageContent() {
                   liked={likedMap[item._id]}
                   onLike={handleLike}
                   onRepost={item.type !== 'product_tile' ? handleRepost : undefined}
+                  currentUserId={user?._id || user?.id}
                   onEnquire={handleEnquire}
                   onCommentAdded={item.type !== 'product_tile' ? handleCommentAdded : undefined}
                 />
@@ -224,6 +283,8 @@ function MorongwaTVPageContent() {
             </div>
           )}
         </main>
+        <AdvertSlot />
+        </div>
       </div>
 
       <CreatePostModal
@@ -232,8 +293,10 @@ function MorongwaTVPageContent() {
         onCreated={() => {
           setPage(1);
           loadFeed(1);
+          loadLiveUsers();
         }}
         featuredProducts={[]}
+        currentUserId={user?._id || user?.id}
       />
 
       {enquireOpen && (

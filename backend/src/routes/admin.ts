@@ -15,6 +15,8 @@ import Product from "../data/models/Product";
 import TVPost from "../data/models/TVPost";
 import TVComment from "../data/models/TVComment";
 import TVReport from "../data/models/TVReport";
+import Advert from "../data/models/Advert";
+import LandingBackground from "../data/models/LandingBackground";
 import AdminPermission, { AdminSection } from "../data/models/AdminPermission";
 import { authenticate, AuthRequest, authorize } from "../middleware/auth";
 import { AppError } from "../middleware/errorHandler";
@@ -962,6 +964,144 @@ router.delete("/products/:id", async (req: AuthRequest, res: Response, next) => 
     await product.deleteOne();
     await AuditLog.create({ action: "PRODUCT_DELETED_BY_ADMIN", user: req.user!._id, target: product._id, meta: {} });
     res.json({ message: "Product deleted" });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ——— Adverts (admin: create/manage platform adverts) ———
+
+router.get("/adverts", async (req: AuthRequest, res: Response, next) => {
+  try {
+    const { slot } = req.query;
+    const query: any = {};
+    if (slot && (slot === "random" || slot === "promo")) query.slot = slot;
+    const adverts = await Advert.find(query).sort({ order: 1, createdAt: -1 }).lean();
+    res.json({ data: adverts });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post("/adverts", async (req: AuthRequest, res: Response, next) => {
+  try {
+    const { title, imageUrl, linkUrl, slot, productId, active, startDate, endDate, order } = req.body;
+    if (!title?.trim() || !imageUrl?.trim() || !slot) {
+      throw new AppError("title, imageUrl, and slot (random|promo) are required", 400);
+    }
+    if (slot !== "random" && slot !== "promo") throw new AppError("slot must be 'random' or 'promo'", 400);
+    const advert = await Advert.create({
+      title: title.trim(),
+      imageUrl: imageUrl.trim(),
+      linkUrl: linkUrl?.trim() || undefined,
+      slot,
+      productId: productId || undefined,
+      active: active !== false,
+      startDate: startDate ? new Date(startDate) : undefined,
+      endDate: endDate ? new Date(endDate) : undefined,
+      order: order != null ? Number(order) : 0,
+    });
+    await AuditLog.create({ action: "ADVERT_CREATED", user: req.user!._id, target: advert._id, meta: { slot } });
+    res.status(201).json({ message: "Advert created", data: advert });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.put("/adverts/:id", async (req: AuthRequest, res: Response, next) => {
+  try {
+    const advert = await Advert.findById(req.params.id);
+    if (!advert) throw new AppError("Advert not found", 404);
+    const { title, imageUrl, linkUrl, slot, productId, active, startDate, endDate, order } = req.body;
+    if (title !== undefined) advert.title = title.trim();
+    if (imageUrl !== undefined) advert.imageUrl = imageUrl.trim();
+    if (linkUrl !== undefined) advert.linkUrl = linkUrl?.trim() || undefined;
+    if (slot === "random" || slot === "promo") advert.slot = slot;
+    if (productId !== undefined) advert.productId = productId || undefined;
+    if (active !== undefined) advert.active = !!active;
+    if (startDate !== undefined) advert.startDate = startDate ? new Date(startDate) : undefined;
+    if (endDate !== undefined) advert.endDate = endDate ? new Date(endDate) : undefined;
+    if (order !== undefined) advert.order = Number(order);
+    await advert.save();
+    await AuditLog.create({ action: "ADVERT_UPDATED", user: req.user!._id, target: advert._id, meta: {} });
+    res.json({ message: "Advert updated", data: advert });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.delete("/adverts/:id", async (req: AuthRequest, res: Response, next) => {
+  try {
+    const advert = await Advert.findById(req.params.id);
+    if (!advert) throw new AppError("Advert not found", 404);
+    await advert.deleteOne();
+    await AuditLog.create({ action: "ADVERT_DELETED", user: req.user!._id, target: advert._id, meta: {} });
+    res.json({ message: "Advert deleted" });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ——— Landing backgrounds (admin: upload backgrounds for login/register pages) ———
+
+router.get("/landing-backgrounds", async (req: AuthRequest, res: Response, next) => {
+  try {
+    const items = await LandingBackground.find().sort({ order: 1 }).lean();
+    res.json({ data: items });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post("/landing-backgrounds/upload", upload.single("image"), async (req: AuthRequest, res: Response, next) => {
+  try {
+    if (!req.file) throw new AppError("No file uploaded", 400);
+    const url = `/uploads/${req.file.filename}`;
+    res.json({ url });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post("/landing-backgrounds", async (req: AuthRequest, res: Response, next) => {
+  try {
+    const { imageUrl, order } = req.body;
+    if (!imageUrl?.trim()) throw new AppError("imageUrl is required", 400);
+    const bg = await LandingBackground.create({
+      imageUrl: imageUrl.trim(),
+      order: order != null ? Number(order) : 0,
+      active: true,
+    });
+    await AuditLog.create({ action: "LANDING_BG_CREATED", user: req.user!._id, target: bg._id, meta: {} });
+    res.status(201).json({ message: "Background added", data: bg });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.put("/landing-backgrounds/:id", async (req: AuthRequest, res: Response, next) => {
+  try {
+    const bg = await LandingBackground.findById(req.params.id);
+    if (!bg) throw new AppError("Background not found", 404);
+    const { imageUrl, order, active } = req.body;
+    if (imageUrl !== undefined) bg.imageUrl = imageUrl.trim();
+    if (order !== undefined) bg.order = Number(order);
+    if (active !== undefined) bg.active = !!active;
+    await bg.save();
+    await AuditLog.create({ action: "LANDING_BG_UPDATED", user: req.user!._id, target: bg._id, meta: {} });
+    res.json({ message: "Background updated", data: bg });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.delete("/landing-backgrounds/:id", async (req: AuthRequest, res: Response, next) => {
+  try {
+    const bg = await LandingBackground.findById(req.params.id);
+    if (!bg) throw new AppError("Background not found", 404);
+    await bg.deleteOne();
+    await AuditLog.create({ action: "LANDING_BG_DELETED", user: req.user!._id, target: bg._id, meta: {} });
+    res.json({ message: "Background deleted" });
   } catch (err) {
     next(err);
   }

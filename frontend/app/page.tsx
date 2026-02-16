@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { ArrowRight, Package, UserCircle, Shield, MessageSquare, Sparkles } from 'lucide-react';
+import { ArrowRight, Package, UserCircle, Shield, MessageSquare, Sparkles, Store } from 'lucide-react';
 import SiteHeader from '@/components/SiteHeader';
 import LandingMarketplaceCard from '@/components/LandingMarketplaceCard';
 import { AuthRedirectToWall } from '@/components/AuthRedirectToWall';
@@ -66,7 +66,7 @@ export default function Home() {
         </div>
 
         {/* Features */}
-        <div className="mt-24 grid md:grid-cols-3 gap-8">
+        <div className="mt-24 grid md:grid-cols-2 lg:grid-cols-4 gap-8">
           <div className="bg-white/85 backdrop-blur-md p-8 rounded-2xl shadow-lg hover:shadow-xl transition-shadow border border-slate-100">
             <div className="bg-blue-100 w-16 h-16 rounded-full flex items-center justify-center mb-6">
               <UserCircle className="h-8 w-8 text-blue-600" />
@@ -95,6 +95,22 @@ export default function Home() {
             <p className="text-slate-600">
               Stay in touch with your runner through our built-in messaging system.
             </p>
+          </div>
+
+          <div className="bg-white/85 backdrop-blur-md p-8 rounded-2xl shadow-lg hover:shadow-xl transition-shadow border border-slate-100">
+            <div className="bg-amber-100 w-16 h-16 rounded-full flex items-center justify-center mb-6">
+              <Store className="h-8 w-8 text-amber-600" />
+            </div>
+            <h3 className="text-xl font-bold text-slate-900 mb-3">Open Your Own Store</h3>
+            <p className="text-slate-600">
+              You don&apos;t have to keep stock. Suppliers handle the stock and shipping.
+            </p>
+            <Link
+              href="/marketplace"
+              className="mt-4 inline-flex items-center gap-1.5 text-amber-600 hover:text-amber-700 font-semibold text-sm"
+            >
+              Browse products <ArrowRight className="h-4 w-4" />
+            </Link>
           </div>
         </div>
 

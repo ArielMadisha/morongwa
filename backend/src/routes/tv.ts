@@ -18,6 +18,67 @@ function mediaUrl(filename: string) {
   return `/uploads/tv/${filename}`;
 }
 
+// GET /api/tv/statuses - Instagram-style statuses: users with recent posts (last 24h) + live users
+router.get("/statuses", async (req: express.Request, res: Response, next) => {
+  try {
+    const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const User = require("../data/models/User").default;
+    const [agg, liveUsers] = await Promise.all([
+      TVPost.aggregate([
+        { $match: { status: "approved", createdAt: { $gte: cutoff } } },
+        { $sort: { createdAt: -1 } },
+        { $group: { _id: "$creatorId", latestPost: { $first: "$$ROOT" } } },
+        {
+          $lookup: {
+            from: "users",
+            localField: "_id",
+            foreignField: "_id",
+            as: "user",
+            pipeline: [{ $project: { name: 1, avatar: 1, isLive: 1 } }],
+          },
+        },
+        { $unwind: "$user" },
+        { $sort: { "latestPost.createdAt": -1 } },
+        { $limit: 50 },
+      ]),
+      User.find({ isLive: true }).select("_id name avatar isLive").lean(),
+    ]);
+    const seen = new Set<string>();
+    const statuses: any[] = [];
+    for (const u of liveUsers) {
+      const id = (u as any)._id.toString();
+      if (!seen.has(id)) {
+        seen.add(id);
+        statuses.push({
+          userId: (u as any)._id,
+          name: (u as any).name,
+          avatar: (u as any).avatar,
+          isLive: true,
+          latestPost: null,
+        });
+      }
+    }
+    for (const s of agg) {
+      const id = s._id.toString();
+      if (!seen.has(id)) {
+        seen.add(id);
+        statuses.push({
+          userId: s._id,
+          name: s.user?.name,
+          avatar: s.user?.avatar,
+          isLive: !!s.user?.isLive,
+          latestPost: s.latestPost
+            ? { _id: s.latestPost._id, type: s.latestPost.type, mediaUrls: s.latestPost.mediaUrls, createdAt: s.latestPost.createdAt }
+            : null,
+        });
+      }
+    }
+    res.json({ data: statuses });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // GET /api/tv - list posts (feed, scroll). sort=newest|trending|random, type=video|image|carousel|product
 router.get("/", async (req: express.Request, res: Response, next) => {
   try {
@@ -145,7 +206,7 @@ router.get("/watermark", (_req, res) => {
 router.get("/products/featured", async (_req, res: Response, next) => {
   try {
     const products = await Product.find({ active: true })
-      .select("title price discountPrice images currency slug")
+      .select("title price discountPrice images currency slug allowResell")
       .populate("supplierId", "userId")
       .limit(12)
       .lean();
@@ -174,7 +235,7 @@ router.post("/", authenticate, async (req: AuthRequest, res: Response, next) => 
     });
     const populated = await TVPost.findById(post._id)
       .populate("creatorId", "name avatar")
-      .populate("productId", "title price discountPrice images currency")
+      .populate("productId", "title price discountPrice images currency allowResell")
       .lean();
     res.status(201).json({ data: populated });
   } catch (err) {
@@ -205,7 +266,7 @@ router.post("/:id/repost", authenticate, async (req: AuthRequest, res: Response,
 
     const populated = await TVPost.findById(repost._id)
       .populate("creatorId", "name avatar")
-      .populate("productId", "title price discountPrice images currency")
+      .populate("productId", "title price discountPrice images currency allowResell")
       .populate("originalPostId", "creatorId")
       .lean();
     res.status(201).json({ data: populated });

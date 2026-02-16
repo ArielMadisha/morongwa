@@ -11,12 +11,17 @@ import {
   MoreHorizontal,
   Package,
   ShoppingCart,
+  X,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import { tvAPI, getImageUrl, getEffectivePrice } from '@/lib/api';
 import type { Product } from '@/lib/types';
 import { TVCommentModal } from './TVCommentModal';
+import { FollowButton } from '@/components/FollowButton';
+import { SetPictureOptionsModal } from '@/components/SetPictureOptionsModal';
 
-const TV_WATERMARK = 'The Digital Home for Doers, Sellers & Creators - Qwertymates.com';
+const TV_WATERMARK = 'Qwertymates.com';
 const WATERMARK_DURATION = 3; // seconds at start and end
 
 function formatPrice(price: number, currency: string) {
@@ -49,6 +54,7 @@ export interface TVGridItem {
   currency?: string;
   slug?: string;
   supplierId?: { userId?: string } | string;
+  allowResell?: boolean;
 }
 
 interface TVGridTileProps {
@@ -59,15 +65,20 @@ interface TVGridTileProps {
   onEnquire?: (productId: string) => void;
   onCommentAdded?: (id: string) => void;
   isVisible?: boolean;
+  currentUserId?: string;
+  onSetProfilePicFromUrl?: (url: string) => Promise<void>;
+  onSetStripBackgroundFromUrl?: (url: string) => Promise<void>;
 }
 
-export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, onCommentAdded, isVisible = true }: TVGridTileProps) {
+export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, onCommentAdded, isVisible = true, currentUserId, onSetProfilePicFromUrl, onSetStripBackgroundFromUrl }: TVGridTileProps) {
   const [showOverlay, setShowOverlay] = useState(false);
   const [watermarkPhase, setWatermarkPhase] = useState<'start' | 'middle' | 'end'>('start');
   const [reportOpen, setReportOpen] = useState(false);
   const [reportReason, setReportReason] = useState('');
   const [commentModalOpen, setCommentModalOpen] = useState(false);
   const [carouselIndex, setCarouselIndex] = useState(0);
+  const [lightboxOpen, setLightboxOpen] = useState(false);
+  const [pictureOptionsOpen, setPictureOptionsOpen] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
 
   const isProductTile = item.type === 'product_tile';
@@ -101,6 +112,13 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
   }, [isVideo, isVisible]);
 
   const showWatermark = item.hasWatermark !== false && (watermarkPhase === 'start' || watermarkPhase === 'end');
+
+  useEffect(() => {
+    if (!lightboxOpen) return;
+    const onEscape = (e: KeyboardEvent) => e.key === 'Escape' && setLightboxOpen(false);
+    window.addEventListener('keydown', onEscape);
+    return () => window.removeEventListener('keydown', onEscape);
+  }, [lightboxOpen]);
 
   // Autoplay when visible
   useEffect(() => {
@@ -166,17 +184,21 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
           className={`w-full h-full object-cover ${filterClass}`}
         />
       ) : (
-        <div
-          className="relative w-full h-full"
-          onClick={() => isCarousel && setCarouselIndex((i) => (i + 1) % (item.mediaUrls?.length ?? 1))}
+        <button
+          type="button"
+          className="relative w-full h-full cursor-pointer block focus:outline-none"
+          onClick={(e) => {
+            e.stopPropagation();
+            setLightboxOpen(true);
+          }}
         >
           <img
             src={getImageUrl(mediaUrl)}
             alt={item.caption || 'Post'}
-            className={`w-full h-full object-cover ${filterClass} ${isCarousel ? 'cursor-pointer' : ''}`}
+            className={`w-full h-full object-cover ${filterClass}`}
           />
           {isCarousel && (
-            <div className="absolute bottom-1 left-0 right-0 flex justify-center gap-1">
+            <div className="absolute bottom-1 left-0 right-0 flex justify-center gap-1 pointer-events-none">
               {(item.mediaUrls ?? []).map((_, i) => (
                 <span
                   key={i}
@@ -185,13 +207,13 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
               ))}
             </div>
           )}
-        </div>
+        </button>
       )}
 
-      {/* TikTok-style watermark: at start and end */}
+      {/* Watermark: bottom right */}
       {!isProductTile && showWatermark && (
-        <div className="absolute inset-0 flex items-center justify-center pointer-events-none bg-black/20">
-          <p className="text-[10px] sm:text-xs text-white drop-shadow-lg font-medium text-center px-2">
+        <div className="absolute bottom-2 right-2 pointer-events-none">
+          <p className="text-[10px] sm:text-xs text-white drop-shadow-lg font-medium">
             {TV_WATERMARK}
           </p>
         </div>
@@ -200,10 +222,19 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
       {/* Overlay on hover */}
       {showOverlay && (
         <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/40 flex flex-col justify-between p-3">
-          <div className="flex justify-between items-start">
-            <span className="text-white text-sm font-medium truncate">
-              {isProductTile ? item.title : item.creatorId?.name || 'Creator'}
+          <div className="flex justify-between items-start gap-2 min-w-0">
+            <span className="text-white text-sm font-medium truncate flex-shrink min-w-0">
+              {isProductTile ? item.title : (
+                <Link href={item.creatorId?._id === currentUserId ? '/store' : '/morongwa-tv'} className="hover:underline">
+                  {item.creatorId?.name || 'Creator'}
+                </Link>
+              )}
             </span>
+            {!isProductTile && item.creatorId?._id && (
+              <div className="flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+                <FollowButton targetUserId={item.creatorId._id} currentUserId={currentUserId} className="!px-2 !py-1 !text-xs" />
+              </div>
+            )}
             <div className="relative">
               <button
                 onClick={(e) => {
@@ -216,6 +247,17 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
               </button>
               {reportOpen && item.type !== 'product_tile' && (
                 <div className="absolute right-0 top-full mt-1 py-2 bg-white rounded-xl border border-slate-200 shadow-lg z-20 min-w-[180px]">
+                  {mediaUrl && currentUserId && (onSetProfilePicFromUrl || onSetStripBackgroundFromUrl) && (
+                    <>
+                      <button
+                        onClick={() => { setReportOpen(false); setPictureOptionsOpen(true); }}
+                        className="w-full px-4 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                      >
+                        Use this image
+                      </button>
+                      <div className="border-t border-slate-100 my-2" />
+                    </>
+                  )}
                   <input
                     type="text"
                     placeholder="Report reason..."
@@ -270,10 +312,18 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
                 <Share2 className="h-5 w-5" />
               </button>
               {(isProductTile || productId) && (
-                <div className="flex gap-1">
+                <div className="flex gap-1 flex-wrap">
+                  {((item as any).allowResell || (item.productId as any)?.allowResell) && (
+                    <Link
+                      href={`/marketplace/product/${productId || item._id}?view=resell`}
+                      className="inline-flex items-center justify-center px-2 py-1 rounded-lg bg-sky-100 text-sky-700 text-sm font-medium hover:bg-sky-600 hover:text-white transition-colors"
+                    >
+                      Resell
+                    </Link>
+                  )}
                   <Link
                     href={`/marketplace/product/${productId || item._id}`}
-                    className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-sky-500 text-white text-sm font-medium"
+                    className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-sky-500 text-white text-sm font-medium hover:bg-sky-600"
                   >
                     <ShoppingCart className="h-4 w-4" />
                     Buy
@@ -295,8 +345,67 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
 
       {/* Watermark badge (always visible subtle) when not in start/end phase for videos */}
       {!isProductTile && !showWatermark && item.hasWatermark !== false && (
-        <div className="absolute bottom-1 left-0 right-0 text-center pointer-events-none">
-          <p className="text-[8px] text-white/70 truncate px-1">{TV_WATERMARK}</p>
+        <div className="absolute bottom-2 right-2 pointer-events-none">
+          <p className="text-[8px] text-white/70">{TV_WATERMARK}</p>
+        </div>
+      )}
+
+      {/* Lightbox for image posts */}
+      {!isProductTile && !isVideo && lightboxOpen && (
+        <div
+          className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center"
+          onClick={() => setLightboxOpen(false)}
+        >
+          <button
+            type="button"
+            className="absolute top-4 right-4 p-2 text-white/80 hover:text-white"
+            onClick={() => setLightboxOpen(false)}
+            aria-label="Close"
+          >
+            <X className="h-8 w-8" />
+          </button>
+          <div
+            className="relative max-w-[90vw] max-h-[90vh]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <img
+              src={getImageUrl(mediaUrl)}
+              alt={item.caption || 'Post'}
+              className={`max-w-full max-h-[90vh] object-contain ${filterClass}`}
+            />
+            {isCarousel && (item.mediaUrls?.length ?? 0) > 1 && (
+              <>
+                <button
+                  type="button"
+                  className="absolute left-2 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/50 text-white hover:bg-black/70"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setCarouselIndex((i) => (i - 1 + (item.mediaUrls?.length ?? 1)) % (item.mediaUrls?.length ?? 1));
+                  }}
+                >
+                  <ChevronLeft className="h-6 w-6" />
+                </button>
+                <button
+                  type="button"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/50 text-white hover:bg-black/70"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setCarouselIndex((i) => (i + 1) % (item.mediaUrls?.length ?? 1));
+                  }}
+                >
+                  <ChevronRight className="h-6 w-6" />
+                </button>
+                <div className="absolute bottom-2 left-0 right-0 flex justify-center gap-1">
+                  {(item.mediaUrls ?? []).map((_, i) => (
+                    <span
+                      key={i}
+                      className={`w-2 h-2 rounded-full ${i === carouselIndex ? 'bg-white' : 'bg-white/50'}`}
+                    />
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
         </div>
       )}
 
@@ -305,7 +414,18 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
         onClose={() => setCommentModalOpen(false)}
         item={item}
         onCommentAdded={() => onCommentAdded?.(item._id)}
+        currentUserId={currentUserId}
       />
+
+      {mediaUrl && (
+        <SetPictureOptionsModal
+          open={pictureOptionsOpen}
+          onClose={() => setPictureOptionsOpen(false)}
+          imagePreview={mediaUrl}
+          onSetProfilePic={() => onSetProfilePicFromUrl?.(mediaUrl)}
+          onSetStripBackground={() => onSetStripBackgroundFromUrl?.(mediaUrl)}
+        />
+      )}
     </div>
   );
 }

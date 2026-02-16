@@ -10,6 +10,7 @@ import ProtectedRoute from '@/components/ProtectedRoute';
 import { useAuth } from '@/contexts/AuthContext';
 import { AppSidebar, AppSidebarMenuButton } from '@/components/AppSidebar';
 import { ProfileDropdown } from '@/components/ProfileDropdown';
+import { AdvertSlot } from '@/components/AdvertSlot';
 
 interface CartItem {
   productId: string;
@@ -104,7 +105,7 @@ function CartPageContent() {
                 <p className="text-sm text-slate-600 truncate">Welcome back, {user?.name}</p>
               </div>
               <div className="shrink-0">
-                <ProfileDropdown userName={user?.name} onLogout={handleLogout} />
+                <ProfileDropdown userName={user?.name} />
               </div>
             </div>
           </div>
@@ -130,12 +131,12 @@ function CartPageContent() {
             <div className="bg-white/90 backdrop-blur rounded-2xl border border-slate-100 p-12 text-center">
               <Package className="h-16 w-16 text-slate-300 mx-auto mb-4" />
               <h2 className="text-xl font-semibold text-slate-700 mb-2">Cart is empty</h2>
-              <p className="text-slate-600 mb-6">Add products from the marketplace to get started.</p>
+              <p className="text-slate-600 mb-6">Add products from QwertyHub to get started.</p>
               <Link
                 href="/marketplace"
                 className="inline-flex items-center gap-2 bg-sky-600 text-white px-6 py-3 rounded-xl hover:bg-sky-700 font-medium"
               >
-                Browse marketplace
+                Browse QwertyHub
                 <ArrowRight className="h-4 w-4" />
               </Link>
             </div>
@@ -213,9 +214,7 @@ function CartPageContent() {
             </>
           )}
           </main>
-          <aside className="hidden lg:block w-56 xl:w-64 shrink-0 pr-4 lg:pr-6 pt-8">
-            <div className="sticky top-24 h-48 rounded-xl border border-dashed border-slate-200 bg-slate-50/50" aria-hidden="true" />
-          </aside>
+          <AdvertSlot />
         </div>
       </div>
     </div>

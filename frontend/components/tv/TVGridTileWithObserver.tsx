@@ -10,6 +10,9 @@ interface TVGridTileWithObserverProps {
   onRepost?: (id: string) => void;
   onEnquire?: (productId: string) => void;
   onCommentAdded?: (id: string) => void;
+  currentUserId?: string;
+  onSetProfilePicFromUrl?: (url: string) => Promise<void>;
+  onSetStripBackgroundFromUrl?: (url: string) => Promise<void>;
 }
 
 export function TVGridTileWithObserver(props: TVGridTileWithObserverProps) {

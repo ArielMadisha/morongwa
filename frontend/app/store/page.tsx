@@ -1,13 +1,16 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { useAuth } from '@/contexts/AuthContext';
-import { storesAPI } from '@/lib/api';
+import { storesAPI, resellerAPI, suppliersAPI, getImageUrl, getEffectivePrice } from '@/lib/api';
 import Link from 'next/link';
-import { Store as StoreIcon, ArrowLeft, Loader2, Pencil, Check, X } from 'lucide-react';
+import { Loader2, Package, Plus } from 'lucide-react';
 import toast from 'react-hot-toast';
-import SiteHeader from '@/components/SiteHeader';
+import { AppSidebar, AppSidebarMenuButton } from '@/components/AppSidebar';
+import { ProfileDropdown } from '@/components/ProfileDropdown';
+import { useCartAndStores } from '@/lib/useCartAndStores';
 
 interface MyStore {
   _id: string;
@@ -15,20 +18,62 @@ interface MyStore {
   slug: string;
   type: string;
   supplierId?: { storeName?: string; status?: string };
+  address?: string;
+  email?: string;
+  cellphone?: string;
+  whatsapp?: string;
+  stripBackgroundPic?: string;
+}
+
+interface WallProduct {
+  productId: string;
+  product: { _id: string; title: string; slug: string; images: string[]; price: number; currency: string; discountPrice?: number };
+  resellerCommissionPct?: number;
+  addedAt: string;
 }
 
 export default function MyStorePage() {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
+  const router = useRouter();
+  const { cartCount, hasStore } = useCartAndStores(!!user);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [stores, setStores] = useState<MyStore[]>([]);
+  const [wallProducts, setWallProducts] = useState<WallProduct[]>([]);
+  const [supplierProducts, setSupplierProducts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [editName, setEditName] = useState('');
+  const [editForm, setEditForm] = useState({ name: '', address: '', email: '', cellphone: '', whatsapp: '' });
   const [saving, setSaving] = useState(false);
-  const myWallHref = user?._id ? `/resellers/${user._id}` : '/marketplace';
+  const handleLogout = () => {
+    logout();
+    router.push('/');
+  };
 
   useEffect(() => {
     fetchStores();
+    fetchWall();
+    fetchSupplierProducts();
   }, []);
+
+  // Refetch when tab becomes visible (e.g. returning from adding a product)
+  useEffect(() => {
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        fetchWall();
+        fetchStores();
+        fetchSupplierProducts();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', onVisibilityChange);
+  }, []);
+
+  // No store = redirect to marketplace; store is only created when user resells a product
+  useEffect(() => {
+    if (!loading && stores.length === 0) {
+      router.replace('/marketplace');
+    }
+  }, [loading, stores.length, router]);
 
   const fetchStores = async () => {
     try {
@@ -43,27 +88,58 @@ export default function MyStorePage() {
     }
   };
 
+  const fetchWall = async () => {
+    try {
+      const res = await resellerAPI.getMyWall();
+      const data = res.data?.data ?? res.data;
+      const products = data?.products ?? [];
+      setWallProducts(Array.isArray(products) ? products : []);
+    } catch {
+      setWallProducts([]);
+    }
+  };
+
+  const fetchSupplierProducts = async () => {
+    try {
+      const res = await suppliersAPI.getMyProducts();
+      const list = res.data?.data ?? res.data ?? [];
+      setSupplierProducts(Array.isArray(list) ? list : []);
+    } catch {
+      setSupplierProducts([]);
+    }
+  };
+
   const startEdit = (store: MyStore) => {
     setEditingId(store._id);
-    setEditName(store.name);
+    setEditForm({
+      name: store.name,
+      address: store.address ?? '',
+      email: store.email ?? '',
+      cellphone: store.cellphone ?? '',
+      whatsapp: store.whatsapp ?? '',
+    });
   };
 
   const cancelEdit = () => {
     setEditingId(null);
-    setEditName('');
   };
 
-  const saveName = async () => {
-    if (!editingId || !editName.trim()) return;
+  const saveStore = async () => {
+    if (!editingId) return;
     setSaving(true);
     try {
-      await storesAPI.renameStore(editingId, editName.trim());
-      toast.success('Store name updated');
+      await storesAPI.updateStore(editingId, {
+        name: editForm.name.trim() || undefined,
+        address: editForm.address.trim() || undefined,
+        email: editForm.email.trim() || undefined,
+        cellphone: editForm.cellphone.trim() || undefined,
+        whatsapp: editForm.whatsapp.trim() || undefined,
+      });
+      toast.success('Store updated');
       setEditingId(null);
-      setEditName('');
       fetchStores();
     } catch (err: any) {
-      toast.error(err.response?.data?.message || 'Failed to update name');
+      toast.error(err.response?.data?.message || 'Failed to update store');
     } finally {
       setSaving(false);
     }
@@ -71,101 +147,215 @@ export default function MyStorePage() {
 
   return (
     <ProtectedRoute>
-      <div className="min-h-screen bg-gradient-to-br from-sky-50 via-white to-sky-100 text-slate-800">
-        <SiteHeader />
-        <main className="max-w-2xl mx-auto px-4 sm:px-6 py-12">
-          <div className="flex items-center justify-between mb-8">
-            <div>
-              <Link href="/marketplace" className="text-sm text-sky-600 hover:underline flex items-center gap-1 mb-2">
-                <ArrowLeft className="h-4 w-4" /> Marketplace
-              </Link>
-              <h1 className="text-2xl font-bold text-slate-900">My store</h1>
-              <p className="text-slate-600 mt-1">Rename your store or view your reseller wall.</p>
-            </div>
-          </div>
-
-          <div className="mb-8 rounded-xl border border-sky-100 bg-sky-50/50 p-4">
-            <p className="text-sm font-semibold text-slate-800 mb-3">How to get a store</p>
-            <ol className="space-y-2 text-sm text-slate-700 list-none">
-              <li className="flex gap-3">
-                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-sky-600 text-white text-xs font-bold">1</span>
-                <span>From the <Link href="/marketplace" className="text-sky-600 hover:underline">marketplace</Link>, click <strong>Add to my wall</strong> on any product that allows reselling.</span>
-              </li>
-              <li className="flex gap-3">
-                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-sky-600 text-white text-xs font-bold">2</span>
-                <span><strong>A store is created automatically</strong> for you (e.g. “My Store”).</span>
-              </li>
-              <li className="flex gap-3">
-                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-sky-600 text-white text-xs font-bold">3</span>
-                <span><strong>Rename it here</strong> — Use the pencil icon next to your store name and save. Your wall is at <strong>My wall</strong> in the header.</span>
-              </li>
-            </ol>
-          </div>
-
-          {loading ? (
-            <div className="flex justify-center py-16">
-              <Loader2 className="h-10 w-10 animate-spin text-sky-600" />
-            </div>
-          ) : stores.length === 0 ? (
-            <div className="rounded-2xl border border-white/60 bg-white/80 p-8 shadow-xl shadow-sky-50 text-center">
-              <StoreIcon className="h-14 w-14 text-slate-300 mx-auto mb-4" />
-              <h2 className="text-lg font-semibold text-slate-900">No store yet</h2>
-              <p className="text-slate-600 mt-2">Follow the steps above: add a product to your wall from the marketplace and a store will be created. Then come back here to rename it.</p>
-              <Link href="/marketplace" className="inline-flex items-center gap-2 mt-6 rounded-full bg-sky-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-sky-700">
-                Go to marketplace
-              </Link>
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {stores.map((store) => (
-                <div key={store._id} className="rounded-2xl border border-white/60 bg-white/80 p-6 shadow-xl shadow-sky-50">
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="flex-1">
-                      {editingId === store._id ? (
-                        <div className="flex flex-wrap items-center gap-2">
-                          <input
-                            type="text"
-                            value={editName}
-                            onChange={(e) => setEditName(e.target.value)}
-                            className="rounded-lg border border-slate-200 px-3 py-2 text-slate-900 w-full max-w-xs focus:border-sky-300 focus:outline-none focus:ring-2 focus:ring-sky-100"
-                            placeholder="Store name"
-                          />
-                          <button type="button" onClick={saveName} disabled={saving} className="rounded-lg bg-sky-600 px-3 py-2 text-sm font-medium text-white hover:bg-sky-700 disabled:opacity-50 flex items-center gap-1">
-                            <Check className="h-4 w-4" /> Save
-                          </button>
-                          <button type="button" onClick={cancelEdit} className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-1">
-                            <X className="h-4 w-4" /> Cancel
-                          </button>
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-amber-50/20 to-sky-50 text-slate-800 flex">
+        <AppSidebar
+          variant="wall"
+          userName={user?.name}
+          cartCount={cartCount}
+          hasStore={hasStore}
+          onLogout={handleLogout}
+          menuOpen={menuOpen}
+          setMenuOpen={setMenuOpen}
+        />
+        <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+          <header className="flex-shrink-0">
+            {!loading && stores.length > 0 ? (
+              <>
+                {stores.map((store) => (
+                  <div
+                    key={store._id}
+                    className="px-4 sm:px-6 lg:px-8 py-3 bg-gradient-to-r from-sky-600 via-sky-500 to-sky-600"
+                  >
+                    <div className="flex flex-col gap-2">
+                      <div className="flex items-center gap-x-4">
+                        <AppSidebarMenuButton onClick={() => setMenuOpen(true)} />
+                        <div className="flex-1 flex flex-col items-center text-center">
+                          <h2 className="text-xl font-bold text-white drop-shadow-sm">{store.name}</h2>
+                          <p className="text-sm text-white/90 mt-0.5">{store.address || 'Enter address'}</p>
+                          <div className="flex flex-wrap justify-center gap-x-6 gap-y-1 mt-1 text-sm text-white/95">
+                            <span>Contact No: {store.cellphone || store.whatsapp || '—'}</span>
+                            <span>Email Address: {store.email || '—'}</span>
+                          </div>
                         </div>
-                      ) : (
-                        <>
-                          <div className="flex items-center gap-2">
-                            <h2 className="text-xl font-semibold text-slate-900">{store.name}</h2>
-                            <button type="button" onClick={() => startEdit(store)} className="text-slate-400 hover:text-sky-600 p-1" title="Rename store">
-                              <Pencil className="h-4 w-4" />
+                        <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => editingId === store._id ? (cancelEdit(), undefined) : startEdit(store)}
+                          className="rounded-lg bg-white/95 border-0 px-2.5 py-1 text-sm font-medium text-sky-700 hover:bg-white shadow-sm"
+                        >
+                          {editingId === store._id ? 'Cancel' : 'Edit'}
+                        </button>
+                        <ProfileDropdown userName={user?.name} className="!bg-white/20 !text-white hover:!bg-white/30" />
+                        </div>
+                      </div>
+                    </div>
+                    {editingId === store._id && (
+                      <div className="mt-3 pt-3 border-t border-white/30">
+                        <div className="flex flex-col sm:flex-row flex-wrap gap-4 items-stretch max-w-xl mx-auto">
+                          <div className="flex-1 min-w-[200px]">
+                            <label className="block text-xs text-white/80 mb-0.5">Store name</label>
+                            <input
+                              type="text"
+                              value={editForm.name}
+                              onChange={(e) => setEditForm((f) => ({ ...f, name: e.target.value }))}
+                              className="rounded border-0 px-2 py-1.5 text-sm w-full"
+                              placeholder="Store name"
+                            />
+                          </div>
+                          <div className="flex-1 min-w-[200px]">
+                            <label className="block text-xs text-white/80 mb-0.5">Address</label>
+                            <input
+                              type="text"
+                              value={editForm.address}
+                              onChange={(e) => setEditForm((f) => ({ ...f, address: e.target.value }))}
+                              className="rounded border-0 px-2 py-1.5 text-sm w-full"
+                              placeholder="Enter address"
+                            />
+                          </div>
+                          <div className="flex gap-4 flex-wrap">
+                            <div className="flex-1 min-w-[140px]">
+                              <label className="block text-xs text-white/80 mb-0.5">Contact No</label>
+                              <input
+                                type="tel"
+                                value={editForm.cellphone}
+                                onChange={(e) => setEditForm((f) => ({ ...f, cellphone: e.target.value }))}
+                                className="rounded border-0 px-2 py-1.5 text-sm w-full"
+                                placeholder="+27..."
+                              />
+                            </div>
+                            <div className="flex-1 min-w-[180px]">
+                              <label className="block text-xs text-white/80 mb-0.5">Email Address</label>
+                              <input
+                                type="email"
+                                value={editForm.email}
+                                onChange={(e) => setEditForm((f) => ({ ...f, email: e.target.value }))}
+                                className="rounded border-0 px-2 py-1.5 text-sm w-full"
+                                placeholder="Email"
+                              />
+                            </div>
+                          </div>
+                          <div className="flex items-end">
+                            <button type="button" onClick={saveStore} disabled={saving} className="rounded-lg bg-white text-sky-700 px-3 py-1.5 text-sm font-medium hover:bg-white/90 disabled:opacity-50">
+                              {saving ? <Loader2 className="h-4 w-4 animate-spin inline" /> : null} Save
                             </button>
                           </div>
-                          <p className="text-sm text-slate-500 mt-1">/{store.slug}</p>
-                          <p className="text-xs text-slate-400 mt-1 capitalize">{store.type} store</p>
-                        </>
-                      )}
-                    </div>
-                    {store.type === 'reseller' && (
-                      <Link href={myWallHref} className="rounded-lg border border-sky-200 bg-sky-50 px-4 py-2 text-sm font-medium text-sky-700 hover:bg-sky-100">
-                        My wall
-                      </Link>
+                        </div>
+                      </div>
                     )}
                   </div>
+                ))}
+              </>
+            ) : (
+              <div className="bg-white/85 backdrop-blur-md border-b border-slate-100 px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between gap-4">
+                <AppSidebarMenuButton onClick={() => setMenuOpen(true)} />
+                <ProfileDropdown userName={user?.name} className="ml-auto" />
+              </div>
+            )}
+          </header>
+          <main className="flex-1 overflow-y-auto px-4 sm:px-6 lg:px-8 py-8">
+            <div className="max-w-6xl mx-auto">
+              {loading ? (
+                <div className="flex justify-center py-16">
+                  <Loader2 className="h-10 w-10 animate-spin text-sky-600" />
                 </div>
-              ))}
-              <p className="text-sm text-slate-500">
-                <Link href="/marketplace" className="text-sky-600 hover:underline">Browse marketplace</Link>
-                {' · '}
-                <Link href={myWallHref} className="text-sky-600 hover:underline">View my reseller wall</Link>
-              </p>
+              ) : stores.length === 0 ? (
+                <p className="text-center text-slate-600 py-8">Redirecting to products…</p>
+              ) : (() => {
+                const hasSupplierStore = stores.some((s) => s.type === 'supplier');
+                const hasResellerStore = stores.some((s) => s.type === 'reseller');
+                const showSupplierProducts = hasSupplierStore;
+                const showWallProducts = hasResellerStore && wallProducts.length > 0;
+                const products = showSupplierProducts ? supplierProducts : [];
+                const showResellerGrid = showWallProducts && !showSupplierProducts;
+
+                return (
+                  <>
+                    {showSupplierProducts && (
+                      <div className="mb-6 flex items-center justify-between">
+                        <h3 className="text-lg font-semibold text-slate-800">Your products</h3>
+                        <Link
+                          href="/supplier/products"
+                          className="inline-flex items-center gap-2 rounded-lg bg-sky-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-700 transition-colors"
+                        >
+                          <Plus className="h-4 w-4" /> Add product
+                        </Link>
+                      </div>
+                    )}
+                    {showSupplierProducts && products.length > 0 ? (
+                      <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                        {products.map((p) => {
+                          const price = getEffectivePrice(p);
+                          const isOutOfStock = p.outOfStock || (p.stock != null && p.stock < 1);
+                          return (
+                            <Link key={p._id} href={`/marketplace/product/${p._id}`} className="group flex flex-col rounded-xl border border-slate-200 overflow-hidden bg-white hover:shadow-lg hover:border-sky-200 transition-all duration-200">
+                              <div className="aspect-square bg-slate-100 overflow-hidden relative">
+                                {p.images?.[0] ? (
+                                  <img src={getImageUrl(p.images[0])} alt="" className="h-full w-full object-cover group-hover:scale-105 transition-transform duration-200" />
+                                ) : (
+                                  <div className="h-full w-full flex items-center justify-center text-slate-400"><Package className="h-12 w-12" /></div>
+                                )}
+                                {isOutOfStock && <span className="absolute top-2 right-2 z-10 px-2 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800">Out of stock</span>}
+                              </div>
+                              <div className="p-4 flex-1 flex flex-col">
+                                <p className="font-medium text-slate-900 line-clamp-2 group-hover:text-sky-700 transition-colors">{p.title}</p>
+                                <p className="text-base text-sky-600 font-semibold mt-2">
+                                  {new Intl.NumberFormat('en-ZA', { style: 'currency', currency: p.currency || 'ZAR' }).format(price)}
+                                </p>
+                              </div>
+                            </Link>
+                          );
+                        })}
+                      </div>
+                    ) : showSupplierProducts && products.length === 0 ? (
+                      <div className="rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50/50 p-12 text-center">
+                        <Package className="h-16 w-16 text-slate-300 mx-auto mb-4" />
+                        <h3 className="text-lg font-semibold text-slate-700 mb-2">No products yet</h3>
+                        <p className="text-slate-600 mb-6">Add your first product to start selling on QwertyHub.</p>
+                        <Link href="/supplier/products" className="inline-flex items-center gap-2 rounded-lg bg-sky-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-sky-700 transition-colors">
+                          <Plus className="h-4 w-4" /> Add product
+                        </Link>
+                      </div>
+                    ) : showResellerGrid ? (
+                      <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                        {wallProducts.map((wp) => {
+                          const p = wp.product;
+                          if (!p) return null;
+                          const markup = wp.resellerCommissionPct ?? 5;
+                          const basePrice = getEffectivePrice(p);
+                          const resellerPrice = Math.round(basePrice * (1 + markup / 100) * 100) / 100;
+                          return (
+                            <Link key={wp.productId} href={`/marketplace/product/${p._id}`} className="group flex flex-col rounded-xl border border-slate-200 overflow-hidden bg-white hover:shadow-lg hover:border-sky-200 transition-all duration-200">
+                              <div className="aspect-square bg-slate-100 overflow-hidden">
+                                {p.images?.[0] ? (
+                                  <img src={getImageUrl(p.images[0])} alt="" className="h-full w-full object-cover group-hover:scale-105 transition-transform duration-200" />
+                                ) : (
+                                  <div className="h-full w-full flex items-center justify-center text-slate-400 text-sm">No image</div>
+                                )}
+                              </div>
+                              <div className="p-4 flex-1 flex flex-col">
+                                <p className="font-medium text-slate-900 line-clamp-2 group-hover:text-sky-700 transition-colors">{p.title}</p>
+                                <p className="text-base text-sky-600 font-semibold mt-2">
+                                  {new Intl.NumberFormat('en-ZA', { style: 'currency', currency: p.currency || 'ZAR' }).format(resellerPrice)}
+                                </p>
+                              </div>
+                            </Link>
+                          );
+                        })}
+                      </div>
+                    ) : hasResellerStore && wallProducts.length === 0 ? (
+                      <div className="rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50/50 p-12 text-center">
+                        <Package className="h-16 w-16 text-slate-300 mx-auto mb-4" />
+                        <h3 className="text-lg font-semibold text-slate-700 mb-2">No products yet</h3>
+                        <p className="text-slate-600">Add products from QwertyHub to your store.</p>
+                        <Link href="/marketplace" className="mt-4 inline-block text-sky-600 hover:text-sky-700 font-medium">Browse QwertyHub →</Link>
+                      </div>
+                    ) : null}
+                  </>
+                );
+              })()}
             </div>
-          )}
-        </main>
+          </main>
+        </div>
       </div>
     </ProtectedRoute>
   );

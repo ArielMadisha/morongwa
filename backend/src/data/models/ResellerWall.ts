@@ -30,6 +30,4 @@ const ResellerWallSchema = new Schema<IResellerWall>(
   { timestamps: true }
 );
 
-ResellerWallSchema.index({ resellerId: 1 });
-
 export default mongoose.model<IResellerWall>("ResellerWall", ResellerWallSchema);

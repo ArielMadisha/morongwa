@@ -67,13 +67,23 @@ const defaultPolicies: PolicySeed[] = [
   },
   {
     slug: "marketplace",
-    title: "Marketplace Policy",
+    title: "Marketplace Policy (QwertyHub)",
     category: "platform",
     visibility: "public",
     countryScope: ["ZA", "BW", "LS", "NA", "ZW", "ZM"],
-    tags: ["marketplace", "platform", "listing"],
-    summary: "How the Morongwa marketplace works: tasks, products, Morongwa-TV, product enquiry, and completion.",
-    content: `# Marketplace Policy\n\n- **Overview:** Morongwa is a task and product marketplace connecting clients who need errands done with runners, and buyers with suppliers/resellers. Morongwa-TV (Qwerty TV) allows content creators to share videos and images and promote products.\n- **Tasks:** Clients post tasks with description, location, and budget; tasks must be lawful and clearly described. Runners see available tasks and may accept.\n- **Products:** Suppliers list products; resellers can add products to their wall. Products appear in the marketplace and on Morongwa-TV. Buyers can purchase or enquire via Messages.\n- **Product enquiry:** Buyers may send enquiries about products; messages are routed to the seller for response.\n- **Morongwa-TV:** Content creators can upload videos and images; products may be linked to posts; content is subject to automated moderation and user reporting.\n- **Pricing:** Task price, booking fee, and surcharges are shown before payment; product prices may include discounts; see Pricing & Fees policy.\n- **Completion:** For tasks, runner marks complete; client may review; funds released per Escrow & Payouts policy.\n- **Standards:** All participants must follow Acceptable Use and Community Guidelines.`,
+    tags: ["marketplace", "qwertyhub", "platform", "listing", "stores"],
+    summary: "How the Morongwa marketplace (QwertyHub) works: tasks, products, stores, Morongwa-TV, product enquiry.",
+    content: `# Marketplace Policy (QwertyHub)
+
+- **Overview:** Morongwa is a task and product marketplace. QwertyHub is the product marketplace where buyers browse products from suppliers and resellers. Morongwa-TV allows content creators to share videos and images and promote products.
+- **Tasks:** Clients post tasks with description, location, and budget; tasks must be lawful and clearly described. Runners see available tasks and may accept.
+- **Products:** Suppliers list products; resellers add products to MyStore from QwertyHub ("Add to MyStore"). Products appear in QwertyHub and on Morongwa-TV. Buyers can purchase or enquire via Messages.
+- **Stores:** A store is created automatically when a user resells a product (adds to MyStore). Store owners can edit store name, address, email, cellphone, WhatsApp, and strip background. To add physical products, supplier verification is required.
+- **Product enquiry:** Buyers may send enquiries about products; messages are routed to the seller for response.
+- **Morongwa-TV:** Content creators can upload videos and images; products may be linked to posts; content is subject to automated moderation and user reporting.
+- **Pricing:** Task price, booking fee, and surcharges are shown before payment; product prices may include discounts; see Pricing & Fees policy.
+- **Completion:** For tasks, runner marks complete; client may review; funds released per Escrow & Payouts policy.
+- **Standards:** All participants must follow Acceptable Use and Community Guidelines.`,
   },
   {
     slug: "morongwa-tv",
@@ -131,9 +141,26 @@ const defaultPolicies: PolicySeed[] = [
     category: "conduct",
     visibility: "public",
     countryScope: ["ZA", "BW", "LS", "NA", "ZW", "ZM"],
-    tags: ["safety", "conduct"],
-    summary: "Bans illegal/unsafe tasks, harassment, discrimination, deceptive listings, rating abuse, Morongwa-TV prohibited content, and platform misuse.",
-    content: `# Acceptable Use\n\n- No illegal, unsafe, or violent tasks.\n- No harassment, hate, or discrimination.\n- No deceptive listings or fraud.\n- No rating manipulation or spam.\n- **Morongwa-TV:** No sexual, pornographic, violent, or sensitive content (e.g. hacked victim imagery). Automated moderation may detect and block such content; users may report posts. Content showing prohibited material will be removed; repeat offenders may be suspended.\n- Comply with local laws and platform safety rules.`,
+    tags: ["safety", "conduct", "stores", "resellers"],
+    summary: "Bans illegal/unsafe tasks, harassment, discrimination, deceptive listings, rating abuse; store and reseller guidelines; Morongwa-TV prohibited content.",
+    content: `# Acceptable Use & Community Guidelines
+
+## General Conduct
+- No illegal, unsafe, or violent tasks.
+- No harassment, hate, or discrimination.
+- No deceptive listings or fraud.
+- No rating manipulation or spam.
+- Comply with local laws and platform safety rules.
+
+## Stores & Resellers (MyStore)
+- **Store creation:** A store is created automatically when you add a product to MyStore from QwertyHub (Add to MyStore). Stores are not created for every user—only when you resell.
+- **Store name:** Created automatically (e.g. "My Store"); you can edit it via the Edit button in MyStore.
+- **Store details:** Store owners may add address, email, cellphone, WhatsApp, and a strip background image via the Edit button.
+- **Physical products:** If your store was created by reselling and you want to add your own physical products, you must first get verified as a supplier. Reseller-only stores cannot list physical inventory until supplier verification is complete.
+- **MyStore:** Products you add from QwertyHub appear in MyStore and on your public storefront (Home). Use "Explore products for resale" in MyStore to browse QwertyHub and add more products.
+
+## Morongwa-TV
+- No sexual, pornographic, violent, or sensitive content (e.g. hacked victim imagery). Automated moderation may detect and block such content; users may report posts. Content showing prohibited material will be removed; repeat offenders may be suspended.`,
   },
   {
     slug: "ratings-reviews",

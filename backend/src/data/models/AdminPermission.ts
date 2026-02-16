@@ -34,6 +34,4 @@ const AdminPermissionSchema = new Schema<IAdminPermission>(
   { timestamps: true }
 );
 
-AdminPermissionSchema.index({ userId: 1 });
-
 export default mongoose.model<IAdminPermission>("AdminPermission", AdminPermissionSchema);

@@ -40,8 +40,13 @@ import resellerRoutes from "./src/routes/reseller";
 import storesRoutes from "./src/routes/stores";
 import tvRoutes from "./src/routes/tv";
 import productEnquiryRoutes from "./src/routes/productEnquiry";
+import advertsRoutes from "./src/routes/adverts";
+import landingBackgroundsRoutes from "./src/routes/landingBackgrounds";
+import followsRoutes from "./src/routes/follows";
 import { ensureDefaultPolicies } from "./src/services/policyService";
 import { seedPricingConfig } from "./src/services/pricingConfig";
+import { ensureDefaultProducts } from "./src/services/marketplaceSeed";
+import { ensureSampleAdvert } from "./src/services/advertSeed";
 
 const app: Application = express();
 const server = http.createServer(app);
@@ -126,6 +131,9 @@ app.use("/api/reseller", resellerRoutes);
 app.use("/api/stores", storesRoutes);
 app.use("/api/tv", tvRoutes);
 app.use("/api/product-enquiry", productEnquiryRoutes);
+app.use("/api/adverts", advertsRoutes);
+app.use("/api/landing-backgrounds", landingBackgroundsRoutes);
+app.use("/api/follows", followsRoutes);
 
 // Error handling
 app.use(notFoundHandler);
@@ -146,6 +154,8 @@ const startServer = async () => {
     await connectDB();
     await ensureDefaultPolicies();
     await seedPricingConfig();
+    await ensureDefaultProducts();
+    await ensureSampleAdvert();
   } catch (error) {
     logger.error("Database not available (server will start; API will return 503 until DB is up):", error);
   }

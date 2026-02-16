@@ -15,6 +15,8 @@ import {
   ChevronRight,
   Receipt,
   HelpCircle,
+  LogOut,
+  Store,
 } from 'lucide-react';
 
 export type SidebarVariant = 'wall' | 'client' | 'runner';
@@ -44,6 +46,8 @@ export function AppSidebar({
   const navItems = [
     { href: '/wall', label: 'Home', icon: LayoutGrid, showChevron: false },
     { href: '/marketplace', label: 'QwertyHub', icon: Package, showChevron: false },
+    // MyStore only shown when user has a store (created when they resell a product)
+    ...(hasStore ? [{ href: '/store', label: 'MyStore', icon: Store, showChevron: false }] : []),
     { href: '/dashboard/client', label: 'Client Dashboard', icon: LayoutDashboard, showChevron: true },
     { href: '/dashboard/runner', label: 'Runner Cockpit', icon: Box, showChevron: true },
     { href: '/cart', label: 'Cart', icon: ShoppingCart, badge: cartCount, showChevron: false },
@@ -88,7 +92,7 @@ export function AppSidebar({
         ))}
       </nav>
 
-      <div className="p-3 border-t border-slate-100">
+      <div className="p-3 border-t border-slate-100 space-y-1">
         {footerNav.map(({ href, label, icon: Icon }) => (
           <Link
             key={href}
@@ -100,6 +104,19 @@ export function AppSidebar({
             {label}
           </Link>
         ))}
+        {onLogout && (
+          <button
+            type="button"
+            onClick={() => {
+              setMenuOpen?.(false);
+              onLogout();
+            }}
+            className="flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-100 hover:text-slate-900 transition-colors text-left"
+          >
+            <LogOut className="h-4 w-4 flex-shrink-0" />
+            Logout
+          </button>
+        )}
       </div>
     </div>
   );

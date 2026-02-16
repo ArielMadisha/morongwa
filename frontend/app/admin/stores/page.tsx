@@ -12,6 +12,11 @@ interface StoreRow {
   name: string;
   slug: string;
   type: string;
+  address?: string;
+  email?: string;
+  cellphone?: string;
+  whatsapp?: string;
+  stripBackgroundPic?: string;
   userId?: { _id: string; name?: string; email?: string };
   supplierId?: { _id: string; storeName?: string; status?: string };
   createdAt?: string;
@@ -91,7 +96,7 @@ export default function AdminStoresPage() {
             <div>
               <p className="text-xs uppercase tracking-widest text-sky-600">Morongwa</p>
               <h1 className="mt-1 text-3xl font-semibold text-slate-900">Stores</h1>
-              <p className="mt-1 text-sm text-slate-600">Create and manage supplier and reseller stores.</p>
+              <p className="mt-1 text-sm text-slate-600">Create and manage supplier and reseller stores. Reseller stores are auto-created when users add products to MyStore from QwertyHub.</p>
             </div>
             <div className="flex items-center gap-2">
               <button
@@ -177,6 +182,7 @@ export default function AdminStoresPage() {
                       <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700">Store</th>
                       <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700">Owner</th>
                       <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700">Type</th>
+                      <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700">Contact</th>
                       <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700">Slug</th>
                       <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700">Created</th>
                     </tr>
@@ -187,6 +193,9 @@ export default function AdminStoresPage() {
                         <td className="py-3 px-4 font-medium text-slate-900">{s.name}</td>
                         <td className="py-3 px-4 text-sm">{(s.userId as any)?.name ?? (s.userId as any)?.email ?? '—'}</td>
                         <td className="py-3 px-4 text-sm capitalize">{s.type}</td>
+                        <td className="py-3 px-4 text-sm text-slate-600 max-w-[180px] truncate" title={[s.email, s.cellphone, s.whatsapp].filter(Boolean).join(' · ')}>
+                          {s.email || s.cellphone || s.whatsapp || '—'}
+                        </td>
                         <td className="py-3 px-4 text-sm text-slate-600">{s.slug}</td>
                         <td className="py-3 px-4 text-sm text-slate-600">{s.createdAt ? new Date(s.createdAt).toLocaleDateString() : '—'}</td>
                       </tr>

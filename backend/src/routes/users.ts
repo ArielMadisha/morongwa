@@ -28,9 +28,12 @@ router.put("/:id", authenticate, async (req: AuthRequest, res: Response, next) =
       throw new AppError("Unauthorized", 403);
     }
 
-    const { name } = req.body;
+    const { name, isPrivate, avatar, stripBackgroundPic } = req.body;
     const updates: any = {};
     if (name) updates.name = name;
+    if (typeof isPrivate === "boolean") updates.isPrivate = isPrivate;
+    if (typeof avatar === "string" && avatar.trim()) updates.avatar = avatar.trim();
+    if (typeof stripBackgroundPic === "string") updates.stripBackgroundPic = stripBackgroundPic.trim() || null;
 
     const user = await User.findByIdAndUpdate(req.params.id, updates, { new: true }).select(
       "-passwordHash"
@@ -45,6 +48,22 @@ router.put("/:id", authenticate, async (req: AuthRequest, res: Response, next) =
     });
 
     res.json({ message: "Profile updated successfully", user });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Go live / end live (toggle isLive)
+router.patch("/:id/live", authenticate, async (req: AuthRequest, res: Response, next) => {
+  try {
+    if (req.user?._id.toString() !== req.params.id) {
+      throw new AppError("Unauthorized", 403);
+    }
+    const user = await User.findById(req.params.id);
+    if (!user) throw new AppError("User not found", 404);
+    (user as any).isLive = !(user as any).isLive;
+    await user.save();
+    res.json({ message: (user as any).isLive ? "You are now live" : "Live ended", isLive: (user as any).isLive });
   } catch (err) {
     next(err);
   }
@@ -80,6 +99,41 @@ router.post(
       });
 
       res.json({ message: "Avatar uploaded successfully", avatar: avatarPath, user });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// Set avatar from existing URL (e.g. from wall post image)
+router.patch("/:id/avatar-url", authenticate, async (req: AuthRequest, res: Response, next) => {
+  try {
+    if (req.user?._id.toString() !== req.params.id) throw new AppError("Unauthorized", 403);
+    const { url } = req.body;
+    if (!url || typeof url !== "string" || !url.trim()) throw new AppError("URL required", 400);
+    const user = await User.findByIdAndUpdate(req.params.id, { avatar: url.trim() }, { new: true }).select("-passwordHash");
+    if (!user) throw new AppError("User not found", 404);
+    await AuditLog.create({ action: "AVATAR_UPDATED", user: user._id, meta: { avatar: url } });
+    res.json({ message: "Profile picture updated", avatar: url, user });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Upload strip background
+router.post(
+  "/:id/strip-background",
+  authenticate,
+  upload.single("image"),
+  async (req: AuthRequest, res: Response, next) => {
+    try {
+      if (req.user?._id.toString() !== req.params.id) throw new AppError("Unauthorized", 403);
+      if (!req.file) throw new AppError("No file uploaded", 400);
+      const url = `/uploads/${req.file.filename}`;
+      const user = await User.findByIdAndUpdate(req.params.id, { stripBackgroundPic: url }, { new: true }).select("-passwordHash");
+      if (!user) throw new AppError("User not found", 404);
+      await AuditLog.create({ action: "STRIP_BACKGROUND_UPDATED", user: user._id, meta: { stripBackgroundPic: url } });
+      res.json({ message: "Strip background updated", stripBackgroundPic: url, user });
     } catch (err) {
       next(err);
     }

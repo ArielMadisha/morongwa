@@ -13,7 +13,8 @@ export interface ISupplier extends Document {
   shippingCost?: number;
   // Company: company reg no, directors ID doc
   companyRegNo?: string;
-  directorsIdDoc?: string; // path or reference to uploaded document
+  directorsIdDoc?: string; // legacy: single path
+  directorsIdDocs?: string[]; // array of paths, one per director
   // Individual: seller ID doc
   idDocument?: string; // path or reference to uploaded document
   // Contact (both)
@@ -40,6 +41,7 @@ const SupplierSchema = new Schema<ISupplier>(
     shippingCost: { type: Number },
     companyRegNo: { type: String },
     directorsIdDoc: { type: String },
+    directorsIdDocs: { type: [String], default: undefined },
     idDocument: { type: String },
     contactEmail: { type: String },
     contactPhone: { type: String },
@@ -53,7 +55,6 @@ const SupplierSchema = new Schema<ISupplier>(
   { timestamps: true }
 );
 
-SupplierSchema.index({ userId: 1 });
 SupplierSchema.index({ status: 1 });
 SupplierSchema.index({ type: 1 });
 
