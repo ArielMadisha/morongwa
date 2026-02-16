@@ -4,9 +4,9 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { useAuth } from '@/contexts/AuthContext';
-import { storesAPI, resellerAPI, getImageUrl, getEffectivePrice } from '@/lib/api';
+import { storesAPI, resellerAPI, suppliersAPI, getImageUrl, getEffectivePrice } from '@/lib/api';
 import Link from 'next/link';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Package, Plus } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { AppSidebar, AppSidebarMenuButton } from '@/components/AppSidebar';
 import { ProfileDropdown } from '@/components/ProfileDropdown';
@@ -39,6 +39,7 @@ export default function MyStorePage() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [stores, setStores] = useState<MyStore[]>([]);
   const [wallProducts, setWallProducts] = useState<WallProduct[]>([]);
+  const [supplierProducts, setSupplierProducts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState({ name: '', address: '', email: '', cellphone: '', whatsapp: '' });
@@ -51,6 +52,7 @@ export default function MyStorePage() {
   useEffect(() => {
     fetchStores();
     fetchWall();
+    fetchSupplierProducts();
   }, []);
 
   // Refetch when tab becomes visible (e.g. returning from adding a product)
@@ -59,6 +61,7 @@ export default function MyStorePage() {
       if (document.visibilityState === 'visible') {
         fetchWall();
         fetchStores();
+        fetchSupplierProducts();
       }
     };
     document.addEventListener('visibilitychange', onVisibilityChange);
@@ -93,6 +96,16 @@ export default function MyStorePage() {
       setWallProducts(Array.isArray(products) ? products : []);
     } catch {
       setWallProducts([]);
+    }
+  };
+
+  const fetchSupplierProducts = async () => {
+    try {
+      const res = await suppliersAPI.getMyProducts();
+      const list = res.data?.data ?? res.data ?? [];
+      setSupplierProducts(Array.isArray(list) ? list : []);
+    } catch {
+      setSupplierProducts([]);
     }
   };
 
@@ -247,9 +260,64 @@ export default function MyStorePage() {
                 </div>
               ) : stores.length === 0 ? (
                 <p className="text-center text-slate-600 py-8">Redirecting to products…</p>
-              ) : wallProducts.length > 0 ? (
-                <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                  {wallProducts.map((wp) => {
+              ) : (() => {
+                const hasSupplierStore = stores.some((s) => s.type === 'supplier');
+                const hasResellerStore = stores.some((s) => s.type === 'reseller');
+                const showSupplierProducts = hasSupplierStore;
+                const showWallProducts = hasResellerStore && wallProducts.length > 0;
+                const products = showSupplierProducts ? supplierProducts : [];
+                const showResellerGrid = showWallProducts && !showSupplierProducts;
+
+                return (
+                  <>
+                    {showSupplierProducts && (
+                      <div className="mb-6 flex items-center justify-between">
+                        <h3 className="text-lg font-semibold text-slate-800">Your products</h3>
+                        <Link
+                          href="/supplier/products"
+                          className="inline-flex items-center gap-2 rounded-lg bg-sky-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-700 transition-colors"
+                        >
+                          <Plus className="h-4 w-4" /> Add product
+                        </Link>
+                      </div>
+                    )}
+                    {showSupplierProducts && products.length > 0 ? (
+                      <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                        {products.map((p) => {
+                          const price = getEffectivePrice(p);
+                          const isOutOfStock = p.outOfStock || (p.stock != null && p.stock < 1);
+                          return (
+                            <Link key={p._id} href={`/marketplace/product/${p._id}`} className="group flex flex-col rounded-xl border border-slate-200 overflow-hidden bg-white hover:shadow-lg hover:border-sky-200 transition-all duration-200">
+                              <div className="aspect-square bg-slate-100 overflow-hidden relative">
+                                {p.images?.[0] ? (
+                                  <img src={getImageUrl(p.images[0])} alt="" className="h-full w-full object-cover group-hover:scale-105 transition-transform duration-200" />
+                                ) : (
+                                  <div className="h-full w-full flex items-center justify-center text-slate-400"><Package className="h-12 w-12" /></div>
+                                )}
+                                {isOutOfStock && <span className="absolute top-2 right-2 z-10 px-2 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800">Out of stock</span>}
+                              </div>
+                              <div className="p-4 flex-1 flex flex-col">
+                                <p className="font-medium text-slate-900 line-clamp-2 group-hover:text-sky-700 transition-colors">{p.title}</p>
+                                <p className="text-base text-sky-600 font-semibold mt-2">
+                                  {new Intl.NumberFormat('en-ZA', { style: 'currency', currency: p.currency || 'ZAR' }).format(price)}
+                                </p>
+                              </div>
+                            </Link>
+                          );
+                        })}
+                      </div>
+                    ) : showSupplierProducts && products.length === 0 ? (
+                      <div className="rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50/50 p-12 text-center">
+                        <Package className="h-16 w-16 text-slate-300 mx-auto mb-4" />
+                        <h3 className="text-lg font-semibold text-slate-700 mb-2">No products yet</h3>
+                        <p className="text-slate-600 mb-6">Add your first product to start selling on QwertyHub.</p>
+                        <Link href="/supplier/products" className="inline-flex items-center gap-2 rounded-lg bg-sky-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-sky-700 transition-colors">
+                          <Plus className="h-4 w-4" /> Add product
+                        </Link>
+                      </div>
+                    ) : showResellerGrid ? (
+                      <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                        {wallProducts.map((wp) => {
                           const p = wp.product;
                           if (!p) return null;
                           const markup = wp.resellerCommissionPct ?? 5;
@@ -272,9 +340,19 @@ export default function MyStorePage() {
                               </div>
                             </Link>
                           );
-                  })}
-                </div>
-              ) : null}
+                        })}
+                      </div>
+                    ) : hasResellerStore && wallProducts.length === 0 ? (
+                      <div className="rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50/50 p-12 text-center">
+                        <Package className="h-16 w-16 text-slate-300 mx-auto mb-4" />
+                        <h3 className="text-lg font-semibold text-slate-700 mb-2">No products yet</h3>
+                        <p className="text-slate-600">Add products from QwertyHub to your store.</p>
+                        <Link href="/marketplace" className="mt-4 inline-block text-sky-600 hover:text-sky-700 font-medium">Browse QwertyHub →</Link>
+                      </div>
+                    ) : null}
+                  </>
+                );
+              })()}
             </div>
           </main>
         </div>

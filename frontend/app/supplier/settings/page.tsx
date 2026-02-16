@@ -1,14 +1,22 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { suppliersAPI } from '@/lib/api';
 import Link from 'next/link';
-import { ArrowLeft, Loader2, Truck } from 'lucide-react';
+import { Loader2, Truck, BookOpen } from 'lucide-react';
 import toast from 'react-hot-toast';
-import SiteHeader from '@/components/SiteHeader';
+import { useAuth } from '@/contexts/AuthContext';
+import { useCartAndStores } from '@/lib/useCartAndStores';
+import { AppSidebar, AppSidebarMenuButton } from '@/components/AppSidebar';
+import { ProfileDropdown } from '@/components/ProfileDropdown';
 
 export default function SupplierSettingsPage() {
+  const { user, logout } = useAuth();
+  const router = useRouter();
+  const { cartCount, hasStore } = useCartAndStores(!!user);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [shippingCost, setShippingCost] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -42,10 +50,15 @@ export default function SupplierSettingsPage() {
     }
   };
 
+  const handleLogout = () => {
+    logout();
+    router.push('/');
+  };
+
   if (loading) {
     return (
       <ProtectedRoute>
-        <div className="min-h-screen bg-gradient-to-br from-sky-50 via-white to-sky-100 flex items-center justify-center">
+        <div className="min-h-screen bg-gradient-to-br from-slate-50 via-amber-50/20 to-sky-50 flex items-center justify-center">
           <Loader2 className="h-10 w-10 animate-spin text-sky-600" />
         </div>
       </ProtectedRoute>
@@ -55,10 +68,19 @@ export default function SupplierSettingsPage() {
   if (!supplier || supplier.status !== 'approved') {
     return (
       <ProtectedRoute>
-        <div className="min-h-screen bg-gradient-to-br from-sky-50 via-white to-sky-100 flex items-center justify-center">
-          <div className="text-center">
-            <p className="text-slate-600 mb-4">Only approved suppliers can update settings.</p>
-            <Link href="/supplier/apply" className="text-sky-600 hover:underline font-medium">Apply to become a supplier</Link>
+        <div className="min-h-screen bg-gradient-to-br from-slate-50 via-amber-50/20 to-sky-50 text-slate-800 flex">
+          <AppSidebar variant="wall" userName={user?.name} cartCount={cartCount} hasStore={hasStore} onLogout={handleLogout} menuOpen={menuOpen} setMenuOpen={setMenuOpen} />
+          <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+            <header className="bg-white/85 backdrop-blur-md border-b border-slate-100 px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between gap-4">
+              <AppSidebarMenuButton onClick={() => setMenuOpen(true)} />
+              <ProfileDropdown userName={user?.name} className="ml-auto" />
+            </header>
+            <main className="flex-1 overflow-y-auto px-4 sm:px-6 lg:px-8 py-8 flex items-center justify-center">
+              <div className="text-center">
+                <p className="text-slate-600 mb-4">Only approved suppliers can update settings.</p>
+                <Link href="/supplier/apply" className="text-sky-600 hover:underline font-medium">Apply to become a supplier</Link>
+              </div>
+            </main>
           </div>
         </div>
       </ProtectedRoute>
@@ -67,16 +89,36 @@ export default function SupplierSettingsPage() {
 
   return (
     <ProtectedRoute>
-      <div className="min-h-screen bg-gradient-to-br from-sky-50 via-white to-sky-100 text-slate-800">
-        <SiteHeader />
-        <main className="max-w-xl mx-auto px-4 sm:px-6 py-12">
-          <nav className="flex items-center gap-2 text-sm text-slate-600 mb-6">
-            <Link href="/marketplace" className="text-sky-600 hover:underline">Marketplace</Link>
-            <span>/</span>
-            <span className="text-slate-800 font-medium">Supplier settings</span>
-          </nav>
-          <h1 className="text-2xl font-bold text-slate-900 mb-2">Supplier settings</h1>
-          <p className="text-slate-600 mb-6">Configure shipping and other options for your products.</p>
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-amber-50/20 to-sky-50 text-slate-800 flex">
+        <AppSidebar variant="wall" userName={user?.name} cartCount={cartCount} hasStore={hasStore} onLogout={handleLogout} menuOpen={menuOpen} setMenuOpen={setMenuOpen} />
+        <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+          <header className="bg-white/85 backdrop-blur-md border-b border-slate-100 px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between gap-4">
+            <AppSidebarMenuButton onClick={() => setMenuOpen(true)} />
+            <ProfileDropdown userName={user?.name} className="ml-auto" />
+          </header>
+          <main className="flex-1 overflow-y-auto px-4 sm:px-6 lg:px-8 py-8">
+            <div className="max-w-xl mx-auto">
+              <h1 className="text-2xl font-bold text-slate-900 mb-2">Supplier settings</h1>
+              <p className="text-slate-600 mb-6">Configure shipping, store info, and add products.</p>
+
+              <div className="mb-8 rounded-xl border border-sky-100 bg-sky-50/50 p-4">
+                <p className="text-sm font-semibold text-slate-800 mb-3">Add product flow</p>
+                <ol className="space-y-2 text-sm text-slate-700 list-none">
+                  <li className="flex gap-3">
+                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-sky-600 text-white text-xs font-bold">1</span>
+                    <span><strong>Be verified</strong> — You&apos;re approved. Add products to sell.</span>
+                  </li>
+                  <li className="flex gap-3">
+                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-sky-600 text-white text-xs font-bold">2</span>
+                    <span><strong>Fill the form</strong> — Title, price, description, sizes, and options (e.g. allow resell).</span>
+                  </li>
+                  <li className="flex gap-3">
+                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-sky-600 text-white text-xs font-bold">3</span>
+                    <span><strong>Product goes live</strong> — It appears on QwertyHub and can be bought or resold by others.</span>
+                  </li>
+                </ol>
+                <Link href="/supplier/products" className="mt-3 inline-block text-sm font-medium text-sky-600 hover:text-sky-700">Add product →</Link>
+              </div>
 
           <div className="rounded-2xl border border-white/60 bg-white/80 p-6 shadow-xl shadow-sky-50">
             <h2 className="text-lg font-semibold text-slate-900 mb-4 flex items-center gap-2">
@@ -103,10 +145,53 @@ export default function SupplierSettingsPage() {
             </form>
           </div>
 
+          <div className="mt-8 rounded-2xl border border-slate-200 bg-white/80 p-6 shadow-sm">
+            <h2 className="text-lg font-semibold text-slate-900 mb-4 flex items-center gap-2">
+              <BookOpen className="h-5 w-5 text-sky-600" /> Policies & Legal
+            </h2>
+            <p className="text-sm text-slate-600 mb-4">
+              Policies relevant to suppliers, products, and payouts.
+            </p>
+            <ul className="space-y-2 text-sm">
+              <li>
+                <Link href="/policies/refunds-cancellations" className="text-sky-600 hover:text-sky-700 hover:underline">
+                  Refunds, Cancellations & Cooling-off
+                </Link>
+              </li>
+              <li>
+                <Link href="/policies/escrow-payouts" className="text-sky-600 hover:text-sky-700 hover:underline">
+                  Escrow & Payouts
+                </Link>
+              </li>
+              <li>
+                <Link href="/policies/pricing-fees" className="text-sky-600 hover:text-sky-700 hover:underline">
+                  Pricing & Fees
+                </Link>
+              </li>
+              <li>
+                <Link href="/policies/suppliers-manufacturers" className="text-sky-600 hover:text-sky-700 hover:underline">
+                  Suppliers & Manufacturers
+                </Link>
+              </li>
+              <li>
+                <Link href="/policies/terms-of-service" className="text-sky-600 hover:text-sky-700 hover:underline">
+                  Terms of Service
+                </Link>
+              </li>
+              <li>
+                <Link href="/policies" className="text-sky-600 hover:text-sky-700 hover:underline font-medium">
+                  All policies →
+                </Link>
+              </li>
+            </ul>
+          </div>
+
           <Link href="/supplier/products" className="inline-flex items-center gap-2 mt-6 text-sky-600 hover:text-sky-700 font-medium">
-            <ArrowLeft className="h-4 w-4" /> Back to Add product
+            Add product →
           </Link>
-        </main>
+            </div>
+          </main>
+        </div>
       </div>
     </ProtectedRoute>
   );

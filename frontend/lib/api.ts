@@ -466,4 +466,5 @@ export const suppliersAPI = {
     verificationFeeWaived?: boolean;
   }) => api.post('/suppliers/apply', data),
   getMe: () => api.get('/suppliers/me'),
+  getMyProducts: () => api.get('/suppliers/me/products'),
 };

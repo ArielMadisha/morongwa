@@ -1,5 +1,6 @@
 import express, { Response } from "express";
 import Supplier from "../data/models/Supplier";
+import Product from "../data/models/Product";
 import { authenticate, AuthRequest } from "../middleware/auth";
 import { AppError } from "../middleware/errorHandler";
 import { upload } from "../middleware/upload";
@@ -141,6 +142,23 @@ router.get("/me", authenticate, async (req: AuthRequest, res: Response, next) =>
       return res.json({ data: null });
     }
     res.json({ data: supplier });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Get my products (approved suppliers only) – auth required
+router.get("/me/products", authenticate, async (req: AuthRequest, res: Response, next) => {
+  try {
+    const supplier = await Supplier.findOne({ userId: req.user!._id, status: "approved" });
+    if (!supplier) {
+      return res.json({ data: [] });
+    }
+    const products = await Product.find({ supplierId: supplier._id, active: true })
+      .populate("supplierId", "storeName")
+      .sort({ createdAt: -1 })
+      .lean();
+    res.json({ data: products });
   } catch (err) {
     next(err);
   }
