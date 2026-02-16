@@ -1,10 +1,10 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
-import { productsAPI } from '@/lib/api';
+import { productsAPI, suppliersAPI } from '@/lib/api';
 import Link from 'next/link';
-import { ArrowLeft, Loader2, Package, ImagePlus, X } from 'lucide-react';
+import { ArrowLeft, Loader2, Package, ImagePlus, X, AlertTriangle } from 'lucide-react';
 import toast from 'react-hot-toast';
 import SiteHeader from '@/components/SiteHeader';
 
@@ -12,7 +12,17 @@ const MAX_IMAGES = 5;
 const MIN_IMAGES = 1;
 
 export default function SupplierProductsPage() {
+  const [verifiedSupplier, setVerifiedSupplier] = useState<boolean | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    suppliersAPI.getMe()
+      .then((res) => {
+        const s = res.data?.data ?? res.data;
+        setVerifiedSupplier(s?.status === 'approved');
+      })
+      .catch(() => setVerifiedSupplier(false));
+  }, []);
   const [imageFiles, setImageFiles] = useState<File[]>([]);
   const [imagePreviews, setImagePreviews] = useState<string[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -81,7 +91,7 @@ export default function SupplierProductsPage() {
         categories: form.categories ? form.categories.split(',').map((s) => s.trim()).filter(Boolean) : [],
         tags: form.tags ? form.tags.split(',').map((s) => s.trim()).filter(Boolean) : [],
       });
-      toast.success('Product created and listed on the marketplace');
+      toast.success('Product created and listed on QwertyHub');
       imagePreviews.forEach((url) => URL.revokeObjectURL(url));
       setImageFiles([]);
       setImagePreviews([]);
@@ -94,13 +104,54 @@ export default function SupplierProductsPage() {
     }
   };
 
+  // Block reseller-only stores: if user has a store from reselling but is NOT a verified supplier, they cannot add physical products
+  if (verifiedSupplier === false) {
+    return (
+      <ProtectedRoute>
+        <div className="min-h-screen bg-gradient-to-br from-sky-50 via-white to-sky-100 text-slate-800">
+          <SiteHeader />
+          <main className="max-w-xl mx-auto px-4 sm:px-6 py-12">
+            <nav className="flex items-center gap-2 text-sm text-slate-600 mb-6">
+              <Link href="/marketplace" className="text-sky-600 hover:underline">QwertyHub</Link>
+              <span>/</span>
+              <span className="text-slate-800 font-medium">Add product</span>
+            </nav>
+            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-6 text-center">
+              <AlertTriangle className="h-12 w-12 text-amber-600 mx-auto mb-4" />
+              <h1 className="text-xl font-bold text-slate-900 mb-2">Supplier verification required</h1>
+              <p className="text-slate-700 mb-4">
+                Your store was created automatically when you added products from QwertyHub. To add your own physical products and sell inventory, you must first get verified as a supplier.
+              </p>
+              <Link href="/supplier/apply" className="inline-flex items-center gap-2 rounded-lg bg-sky-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-sky-700">
+                Apply to become a supplier
+              </Link>
+              <p className="text-sm text-slate-500 mt-4">
+                <Link href="/store" className="text-sky-600 hover:underline">Back to MyStore</Link>
+              </p>
+            </div>
+          </main>
+        </div>
+      </ProtectedRoute>
+    );
+  }
+
+  if (verifiedSupplier === null) {
+    return (
+      <ProtectedRoute>
+        <div className="min-h-screen bg-gradient-to-br from-sky-50 via-white to-sky-100 text-slate-800 flex items-center justify-center">
+          <Loader2 className="h-10 w-10 animate-spin text-sky-600" />
+        </div>
+      </ProtectedRoute>
+    );
+  }
+
   return (
     <ProtectedRoute>
       <div className="min-h-screen bg-gradient-to-br from-sky-50 via-white to-sky-100 text-slate-800">
         <SiteHeader />
         <main className="max-w-xl mx-auto px-4 sm:px-6 py-12">
           <nav className="flex items-center gap-2 text-sm text-slate-600 mb-6">
-            <Link href="/marketplace" className="text-sky-600 hover:underline">Marketplace</Link>
+            <Link href="/marketplace" className="text-sky-600 hover:underline">QwertyHub</Link>
             <span>/</span>
             <span className="text-slate-800 font-medium">Add product</span>
             <span className="ml-auto">
@@ -108,7 +159,7 @@ export default function SupplierProductsPage() {
             </span>
           </nav>
           <h1 className="text-2xl font-bold text-slate-900 mb-2">Add product</h1>
-          <p className="text-slate-600 mb-4">As a verified supplier, you can load products to sell on the marketplace.</p>
+          <p className="text-slate-600 mb-4">As a verified supplier, you can load products to sell on QwertyHub.</p>
 
           <div className="mb-8 rounded-xl border border-sky-100 bg-sky-50/50 p-4">
             <p className="text-sm font-semibold text-slate-800 mb-3">Add product flow</p>
@@ -123,7 +174,7 @@ export default function SupplierProductsPage() {
               </li>
               <li className="flex gap-3">
                 <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-sky-600 text-white text-xs font-bold">3</span>
-                <span><strong>Product goes live</strong> — It appears on the marketplace and can be bought or resold by others.</span>
+                <span><strong>Product goes live</strong> — It appears on QwertyHub and can be bought or resold by others.</span>
               </li>
             </ol>
           </div>

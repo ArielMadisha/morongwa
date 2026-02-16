@@ -28,6 +28,7 @@ import {
 import toast from 'react-hot-toast';
 import { AppSidebar, AppSidebarMenuButton } from '@/components/AppSidebar';
 import { ProfileDropdown } from '@/components/ProfileDropdown';
+import { AdvertSlot } from '@/components/AdvertSlot';
 
 function ClientDashboard() {
   const { user, logout } = useAuth();
@@ -623,10 +624,7 @@ function ClientDashboard() {
         )}
       </main>
 
-          {/* Area 2: Reserved space - well below profile so dropdown displays properly */}
-          <aside className="hidden lg:block w-56 xl:w-64 shrink-0 pr-4 lg:pr-6 pt-8">
-            <div className="sticky top-24 h-48 rounded-xl border border-dashed border-slate-200 bg-slate-50/50" aria-hidden="true" />
-          </aside>
+          <AdvertSlot />
         </div>
 
       {/* Create Task Modal */}

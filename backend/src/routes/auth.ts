@@ -18,7 +18,19 @@ router.post("/register", authLimiter, async (req: Request, res: Response, next) 
     const { error } = registerSchema.validate(req.body);
     if (error) throw new AppError(error.details[0].message, 400);
 
-    const { name, email, password, role } = req.body;
+    const { name, email, password, role, dateOfBirth } = req.body;
+
+    // Enforce minimum age 13
+    if (dateOfBirth) {
+      const birth = new Date(dateOfBirth);
+      const today = new Date();
+      let age = today.getFullYear() - birth.getFullYear();
+      const m = today.getMonth() - birth.getMonth();
+      if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) age--;
+      if (age < 13) {
+        throw new AppError("You must be at least 13 years old to register", 400);
+      }
+    }
 
     // Restrict admin and superadmin roles from public registration
     if (role && (role === "admin" || role === "superadmin")) {
@@ -45,12 +57,14 @@ router.post("/register", authLimiter, async (req: Request, res: Response, next) 
       validRoles.push("client");
     }
 
-    const user = await User.create({
+    const userData: any = {
       name,
       email: email.toLowerCase(),
       passwordHash,
       role: validRoles,
-    });
+    };
+    if (dateOfBirth) userData.dateOfBirth = new Date(dateOfBirth);
+    const user = await User.create(userData);
 
     // Create wallet for user
     await Wallet.create({ user: user._id });
@@ -120,6 +134,7 @@ router.post("/login", authLimiter, async (req: Request, res: Response, next) => 
         email: user.email,
         role: user.role,
         avatar: user.avatar,
+        stripBackgroundPic: (user as any).stripBackgroundPic,
       },
     });
   } catch (err) {

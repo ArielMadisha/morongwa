@@ -25,6 +25,9 @@ import {
   ShoppingBag,
   LayoutGrid,
   Tv,
+  Car,
+  Megaphone,
+  Image,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -290,6 +293,9 @@ function AdminDashboard() {
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
             {[
               { href: '/admin/users', icon: Users, title: 'Manage users', desc: 'View, suspend, activate accounts', color: 'sky' },
+              { href: '/admin/runners', icon: Car, title: 'Runner applications', desc: 'Verify PDP and vehicle documents', color: 'cyan' },
+              { href: '/admin/adverts', icon: Megaphone, title: 'Adverts', desc: 'Create and manage platform adverts', color: 'purple' },
+              { href: '/admin/landing-backgrounds', icon: Image, title: 'Landing backgrounds', desc: 'Upload login/register page background images', color: 'sky' },
               { href: '/admin/tasks', icon: Package, title: 'Manage tasks', desc: 'Monitor & cancel tasks', color: 'emerald' },
               { href: '/admin/suppliers', icon: Building2, title: 'Suppliers / Sellers', desc: 'Verify company & individual sellers', color: 'cyan' },
               { href: '/admin/orders', icon: ShoppingBag, title: 'Marketplace orders', desc: 'Checkout & wallet orders', color: 'purple' },

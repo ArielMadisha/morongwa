@@ -10,6 +10,7 @@ import ProtectedRoute from '@/components/ProtectedRoute';
 import { useCartAndStores } from '@/lib/useCartAndStores';
 import { AppSidebar, AppSidebarMenuButton } from '@/components/AppSidebar';
 import { ProfileDropdown } from '@/components/ProfileDropdown';
+import { AdvertSlot } from '@/components/AdvertSlot';
 import { messengerAPI, productEnquiryAPI } from '@/lib/api';
 
 function MessagesPageContent() {
@@ -468,9 +469,7 @@ function MessagesPageContent() {
         </div>
           )}
           </main>
-          <aside className="hidden lg:block w-56 xl:w-64 shrink-0 pr-4 lg:pr-6 pt-8">
-            <div className="sticky top-24 h-48 rounded-xl border border-dashed border-slate-200 bg-slate-50/50" aria-hidden="true" />
-          </aside>
+          <AdvertSlot />
         </div>
       </div>
 

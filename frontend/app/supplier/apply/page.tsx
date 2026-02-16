@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
-import { Building2, User, Loader2, Mail, Phone, FileText, Upload, X } from 'lucide-react';
+import { Building2, User, Loader2, Mail, Phone, FileText, Upload, X, Plus } from 'lucide-react';
 import { suppliersAPI } from '@/lib/api';
 import ProtectedRoute from '@/components/ProtectedRoute';
 import SiteHeader from '@/components/SiteHeader';
@@ -13,12 +13,12 @@ export default function SupplierApplyPage() {
   const [storeName, setStoreName] = useState('');
   const [pickupAddress, setPickupAddress] = useState('');
   const [companyRegNo, setCompanyRegNo] = useState('');
-  const [directorsIdDoc, setDirectorsIdDoc] = useState('');
+  const [directorsIdDocs, setDirectorsIdDocs] = useState<string[]>(['']);
   const [idDocument, setIdDocument] = useState('');
   const [uploadingId, setUploadingId] = useState(false);
-  const [uploadingDirectors, setUploadingDirectors] = useState(false);
+  const [uploadingDirectorsIdx, setUploadingDirectorsIdx] = useState<number | null>(null);
   const idInputRef = useRef<HTMLInputElement>(null);
-  const directorsInputRef = useRef<HTMLInputElement>(null);
+  const directorsInputRefs = useRef<(HTMLInputElement | null)[]>([]);
   const [contactEmail, setContactEmail] = useState('');
   const [contactPhone, setContactPhone] = useState('');
   const [verificationFeeWaived, setVerificationFeeWaived] = useState(true);
@@ -34,11 +34,17 @@ export default function SupplierApplyPage() {
         setStoreName((data as any).storeName ?? '');
         setContactEmail((data as any).contactEmail ?? '');
         setContactPhone((data as any).contactPhone ?? '');
+        const docs = (data as any).directorsIdDocs;
+        if (Array.isArray(docs) && docs.length > 0) {
+          setDirectorsIdDocs(docs);
+        } else if ((data as any).directorsIdDoc) {
+          setDirectorsIdDocs([(data as any).directorsIdDoc]);
+        }
       }
     }).catch(() => setExisting(null));
   }, []);
 
-  const handleFileUpload = async (file: File, field: 'idDocument' | 'directorsIdDoc') => {
+  const handleFileUpload = async (file: File, field: 'idDocument' | 'directorsIdDoc', directorIdx?: number) => {
     if (!file || file.size > 10 * 1024 * 1024) {
       toast.error('File must be under 10MB. PDF or image required.');
       return;
@@ -51,23 +57,35 @@ export default function SupplierApplyPage() {
     if (field === 'idDocument') {
       setUploadingId(true);
     } else {
-      setUploadingDirectors(true);
+      setUploadingDirectorsIdx(directorIdx ?? 0);
     }
     try {
       const { data } = await suppliersAPI.uploadDocument(file);
       if (field === 'idDocument') {
         setIdDocument(data.path);
         toast.success('ID document uploaded');
-      } else {
-        setDirectorsIdDoc(data.path);
-        toast.success('Directors ID document uploaded');
+      } else if (directorIdx !== undefined) {
+        setDirectorsIdDocs((prev) => {
+          const next = [...prev];
+          next[directorIdx] = data.path;
+          return next;
+        });
+        toast.success(`Director ${directorIdx + 1} ID document uploaded`);
       }
     } catch (e: any) {
       toast.error(e.response?.data?.message ?? 'Upload failed');
     } finally {
       if (field === 'idDocument') setUploadingId(false);
-      else setUploadingDirectors(false);
+      else setUploadingDirectorsIdx(null);
     }
+  };
+
+  const addDirectorSlot = () => setDirectorsIdDocs((prev) => [...prev, '']);
+  const removeDirectorSlot = (idx: number) => {
+    setDirectorsIdDocs((prev) => {
+      const next = prev.filter((_, i) => i !== idx);
+      return next.length > 0 ? next : [''];
+    });
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -76,8 +94,9 @@ export default function SupplierApplyPage() {
       toast.error('Contact email and phone are required');
       return;
     }
-    if (type === 'company' && (!companyRegNo.trim() || !directorsIdDoc.trim())) {
-      toast.error('Company reg no and directors ID document are required for company');
+    const validDirectorDocs = directorsIdDocs.filter((p) => p && p.trim());
+    if (type === 'company' && (!companyRegNo.trim() || validDirectorDocs.length === 0)) {
+      toast.error('Company reg no and at least one directors ID document are required for company');
       return;
     }
     if (type === 'individual' && !idDocument.trim()) {
@@ -91,7 +110,7 @@ export default function SupplierApplyPage() {
         storeName: storeName.trim() || undefined,
         pickupAddress: pickupAddress.trim() || undefined,
         companyRegNo: type === 'company' ? companyRegNo.trim() : undefined,
-        directorsIdDoc: type === 'company' ? directorsIdDoc.trim() : undefined,
+        directorsIdDocs: type === 'company' ? validDirectorDocs : undefined,
         idDocument: type === 'individual' ? idDocument.trim() : undefined,
         contactEmail: contactEmail.trim(),
         contactPhone: contactPhone.trim(),
@@ -185,22 +204,55 @@ export default function SupplierApplyPage() {
                   <input type="text" value={companyRegNo} onChange={(e) => setCompanyRegNo(e.target.value)} required={type === 'company'} className="w-full rounded-xl border border-slate-200 px-4 py-3 text-slate-900" placeholder="e.g. 2020/123456/07" />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1 flex items-center gap-2"><FileText className="h-4 w-4" /> Directors identification document *</label>
-                  <input type="hidden" name="directorsIdDoc" value={directorsIdDoc} />
-                  <input ref={directorsInputRef} type="file" accept=".pdf,.jpg,.jpeg,.png,.gif,.webp,application/pdf,image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFileUpload(f, 'directorsIdDoc'); e.target.value = ''; }} />
-                  <div className="flex gap-2 items-center">
-                    <button type="button" onClick={() => directorsInputRef.current?.click()} disabled={uploadingDirectors} className="flex items-center gap-2 px-4 py-3 rounded-xl border border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-100 disabled:opacity-50">
-                      {uploadingDirectors ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-                      {uploadingDirectors ? 'Uploading...' : 'Upload document'}
+                  <label className="block text-sm font-medium text-slate-700 mb-1 flex items-center gap-2"><FileText className="h-4 w-4" /> Directors identification documents *</label>
+                  <p className="text-xs text-slate-500 mb-2">Upload an ID document for each director. Add more if your company has multiple directors.</p>
+                  <div className="space-y-3">
+                    {directorsIdDocs.map((path, idx) => (
+                      <div key={idx} className="flex flex-col sm:flex-row sm:items-center gap-2 rounded-xl border border-slate-100 bg-slate-50/50 p-3">
+                        <span className="text-xs font-medium text-slate-600 shrink-0">Director {idx + 1}</span>
+                        <input
+                          ref={(el) => { directorsInputRefs.current[idx] = el; }}
+                          type="file"
+                          accept=".pdf,.jpg,.jpeg,.png,.gif,.webp,application/pdf,image/*"
+                          className="hidden"
+                          onChange={(e) => {
+                            const f = e.target.files?.[0];
+                            if (f) handleFileUpload(f, 'directorsIdDoc', idx);
+                            e.target.value = '';
+                          }}
+                        />
+                        <div className="flex gap-2 items-center flex-1 min-w-0">
+                          <button
+                            type="button"
+                            onClick={() => directorsInputRefs.current[idx]?.click()}
+                            disabled={uploadingDirectorsIdx === idx}
+                            className="flex items-center gap-2 px-3 py-2 rounded-lg border border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-100 disabled:opacity-50 text-sm"
+                          >
+                            {uploadingDirectorsIdx === idx ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                            {uploadingDirectorsIdx === idx ? 'Uploading...' : 'Upload document'}
+                          </button>
+                          {path ? (
+                            <span className="flex items-center gap-1 text-sm text-slate-600 truncate max-w-[160px]">
+                              {path.split('/').pop()}
+                              <button type="button" onClick={() => setDirectorsIdDocs((p) => { const n = [...p]; n[idx] = ''; return n; })} className="p-1 text-slate-400 hover:text-red-600 shrink-0" aria-label="Remove"><X className="h-3 w-3" /></button>
+                            </span>
+                          ) : null}
+                        </div>
+                        {directorsIdDocs.length > 1 && (
+                          <button type="button" onClick={() => removeDirectorSlot(idx)} className="text-xs text-slate-500 hover:text-red-600 shrink-0" aria-label="Remove director">Remove</button>
+                        )}
+                      </div>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={addDirectorSlot}
+                      className="flex items-center gap-2 text-sm text-sky-600 hover:text-sky-700 font-medium"
+                    >
+                      <Plus className="h-4 w-4" />
+                      Add another director
                     </button>
-                    {directorsIdDoc ? (
-                      <span className="flex items-center gap-1">
-                        <span className="text-sm text-slate-600 truncate max-w-[200px]">{directorsIdDoc.split('/').pop()}</span>
-                        <button type="button" onClick={() => setDirectorsIdDoc('')} className="p-1 text-slate-400 hover:text-red-600" aria-label="Remove"><X className="h-4 w-4" /></button>
-                      </span>
-                    ) : null}
                   </div>
-                  <p className="mt-1 text-xs text-slate-500">PDF or image (JPEG, PNG), max 10MB</p>
+                  <p className="mt-1 text-xs text-slate-500">PDF or image (JPEG, PNG), max 10MB per file</p>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">Verification fee (for future use)</label>

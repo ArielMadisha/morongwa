@@ -5,13 +5,14 @@ import { ChevronDown } from 'lucide-react';
 
 interface ProfileDropdownProps {
   userName?: string;
+  className?: string;
 }
 
-export function ProfileDropdown({ userName }: ProfileDropdownProps) {
+export function ProfileDropdown({ userName, className }: ProfileDropdownProps) {
   return (
     <Link
       href="/profile"
-      className="flex items-center gap-2 px-3 py-2 rounded-lg text-slate-700 hover:bg-slate-100 transition-colors"
+      className={`flex items-center gap-2 px-3 py-2 rounded-lg text-slate-700 hover:bg-slate-100 transition-colors ${className ?? ''}`}
     >
       <span className="w-8 h-8 rounded-full bg-sky-100 text-sky-700 flex items-center justify-center text-sm font-bold">
         {userName?.charAt(0)?.toUpperCase() || 'U'}

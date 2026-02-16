@@ -1,8 +1,8 @@
 'use client';
 
 import { useState, useRef } from 'react';
-import { X, Upload, ImagePlus, Video, Loader2 } from 'lucide-react';
-import { tvAPI, getImageUrl } from '@/lib/api';
+import { X, Upload, ImagePlus, Video, Loader2, Radio } from 'lucide-react';
+import { tvAPI, getImageUrl, usersAPI } from '@/lib/api';
 import type { Product } from '@/lib/types';
 import toast from 'react-hot-toast';
 
@@ -19,6 +19,7 @@ interface CreatePostModalProps {
   onClose: () => void;
   onCreated: () => void;
   featuredProducts?: (Product & { _id: string })[];
+  currentUserId?: string;
 }
 
 export function CreatePostModal({
@@ -26,6 +27,7 @@ export function CreatePostModal({
   onClose,
   onCreated,
   featuredProducts = [],
+  currentUserId,
 }: CreatePostModalProps) {
   const [step, setStep] = useState<'upload' | 'details'>('upload');
   const [mediaUrls, setMediaUrls] = useState<string[]>([]);
@@ -129,8 +131,8 @@ export function CreatePostModal({
 
         {step === 'upload' ? (
           <div className="p-6 space-y-4">
-            <p className="text-slate-600">Upload a video or image(s) to share.</p>
-            <div className="grid grid-cols-2 gap-4">
+            <p className="text-slate-600">Upload a video or image(s) to share, or go live.</p>
+            <div className="grid grid-cols-3 gap-4">
               <label className="flex flex-col items-center justify-center gap-2 p-6 rounded-xl border-2 border-dashed border-slate-200 hover:border-sky-300 hover:bg-sky-50/50 cursor-pointer transition-colors">
                 <input
                   ref={fileInputRef}
@@ -145,7 +147,7 @@ export function CreatePostModal({
                 ) : (
                   <Video className="h-10 w-10 text-sky-500" />
                 )}
-                <span className="text-sm font-medium text-slate-700">Video or image</span>
+                <span className="text-sm font-medium text-slate-700 text-center">Video or image</span>
               </label>
               <label className="flex flex-col items-center justify-center gap-2 p-6 rounded-xl border-2 border-dashed border-slate-200 hover:border-sky-300 hover:bg-sky-50/50 cursor-pointer transition-colors">
                 <input
@@ -158,8 +160,30 @@ export function CreatePostModal({
                   className="hidden"
                 />
                 <ImagePlus className="h-10 w-10 text-sky-500" />
-                <span className="text-sm font-medium text-slate-700">Carousel (up to 10)</span>
+                <span className="text-sm font-medium text-slate-700 text-center">Carousel (up to 10)</span>
               </label>
+              <button
+                type="button"
+                onClick={async () => {
+                  if (!currentUserId) {
+                    toast.error('Sign in to go live');
+                    return;
+                  }
+                  try {
+                    const res = await usersAPI.toggleLive(currentUserId);
+                    const isLive = res.data?.isLive ?? false;
+                    toast.success(isLive ? 'You are now live!' : 'Live ended');
+                    handleClose();
+                    onCreated();
+                  } catch (e: any) {
+                    toast.error(e.response?.data?.message || 'Failed to toggle live');
+                  }
+                }}
+                className="flex flex-col items-center justify-center gap-2 p-6 rounded-xl border-2 border-dashed border-slate-200 hover:border-red-300 hover:bg-red-50/50 cursor-pointer transition-colors"
+              >
+                <Radio className="h-10 w-10 text-red-500" />
+                <span className="text-sm font-medium text-slate-700 text-center">Go live</span>
+              </button>
             </div>
           </div>
         ) : (

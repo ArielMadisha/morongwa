@@ -3,13 +3,14 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Package, ArrowRight, ShoppingBag, Store, Building2 } from 'lucide-react';
+import { Package, ArrowRight, ShoppingBag, Store, Building2, ShoppingCart } from 'lucide-react';
 import { productsAPI, getImageUrl } from '@/lib/api';
 import type { Product } from '@/lib/types';
 import { useAuth } from '@/contexts/AuthContext';
 import { useCartAndStores } from '@/lib/useCartAndStores';
 import { AppSidebar, AppSidebarMenuButton } from '@/components/AppSidebar';
 import { ProfileDropdown } from '@/components/ProfileDropdown';
+import { AdvertSlot } from '@/components/AdvertSlot';
 
 function formatPrice(price: number, currency: string) {
   return new Intl.NumberFormat('en-ZA', {
@@ -102,7 +103,8 @@ function MarketplacePageContent() {
             </div>
           </div>
         </header>
-        <main className="flex-1 overflow-y-auto px-4 sm:px-6 lg:px-8 py-6">
+        <div className="flex-1 flex gap-6 min-h-0 overflow-hidden">
+        <main className="flex-1 min-w-0 overflow-y-auto px-4 sm:px-6 lg:px-8 py-6">
         {isGuest && (
           <div className="mb-6 rounded-xl border border-blue-100 bg-blue-50/80 px-4 py-3 text-sm text-slate-700">
             Browse our gallery. <Link href="/register" className="font-medium text-blue-600 hover:text-blue-700">Sign up</Link> or <Link href="/login" className="font-medium text-blue-600 hover:text-blue-700">sign in</Link> to add to cart, checkout, or sell.
@@ -135,49 +137,74 @@ function MarketplacePageContent() {
           </div>
         ) : (
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-            {products.map((p) => (
-              <Link
-                key={p._id}
-                href={`/marketplace/product/${p._id}`}
-                className="group relative bg-white/90 backdrop-blur rounded-2xl border border-slate-100 overflow-hidden shadow-sm hover:shadow-lg hover:border-sky-200 transition-all"
-              >
-                {((p as any).outOfStock || (p.stock != null && p.stock < 1)) && (
-                  <span className="absolute top-2 right-2 z-10 px-2 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800">Out of stock</span>
-                )}
-                <div className="aspect-square bg-slate-100 flex items-center justify-center">
-                  {p.images?.[0] ? (
-                    <img
-                      src={getImageUrl(p.images[0])}
-                      alt={p.title}
-                      className="w-full h-full object-cover"
-                    />
-                  ) : (
-                    <Package className="h-16 w-16 text-slate-300" />
+            {products.map((p) => {
+              const outOfStock = (p as any).outOfStock || (p.stock != null && p.stock < 1);
+              const allowResell = (p as any).allowResell ?? false;
+              const cartHref = `/marketplace/product/${p._id}`;
+              const resellHref = `/marketplace/product/${p._id}?view=resell`;
+              return (
+                <div
+                  key={p._id}
+                  className="group relative bg-white/90 backdrop-blur rounded-2xl border border-slate-100 overflow-hidden shadow-sm hover:shadow-lg hover:border-sky-200 transition-all"
+                >
+                  {outOfStock && (
+                    <span className="absolute top-2 right-2 z-10 px-2 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800">Out of stock</span>
                   )}
-                </div>
-                <div className="p-4">
-                  <h3 className="font-semibold text-slate-900 group-hover:text-sky-700 truncate">
-                    {p.title}
-                  </h3>
-                  <div className="mt-1">
-                    {p.discountPrice != null && p.discountPrice < p.price ? (
-                      <>
-                        <span className="text-lg font-bold text-sky-600">{formatPrice(p.discountPrice, p.currency)}</span>
-                        <span className="ml-2 text-sm text-slate-400 line-through">{formatPrice(p.price, p.currency)}</span>
-                      </>
-                    ) : (
-                      <p className="text-lg font-bold text-sky-600">{formatPrice(p.price, p.currency)}</p>
-                    )}
+                  <Link href={cartHref} className="block">
+                    <div className="aspect-square bg-slate-100 flex items-center justify-center">
+                      {p.images?.[0] ? (
+                        <img
+                          src={getImageUrl(p.images[0])}
+                          alt={p.title}
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <Package className="h-16 w-16 text-slate-300" />
+                      )}
+                    </div>
+                    <h3 className="px-4 pt-4 font-semibold text-slate-900 group-hover:text-sky-700 truncate">
+                      {p.title}
+                    </h3>
+                  </Link>
+                  <div className="px-4 pb-4 flex items-center justify-between gap-2">
+                    <div>
+                      {p.discountPrice != null && p.discountPrice < p.price ? (
+                        <>
+                          <span className="text-lg font-bold text-sky-600">{formatPrice(p.discountPrice, p.currency)}</span>
+                          <span className="ml-2 text-sm text-slate-400 line-through">{formatPrice(p.price, p.currency)}</span>
+                        </>
+                      ) : (
+                        <span className="text-lg font-bold text-sky-600">{formatPrice(p.price, p.currency)}</span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-3 shrink-0">
+                      {allowResell && (
+                        <Link
+                          href={resellHref}
+                          className="inline-flex items-center justify-center px-2.5 py-1 rounded-lg text-sm font-medium whitespace-nowrap transition-colors bg-sky-100 text-sky-700 hover:bg-sky-600 hover:text-white"
+                          title="Resell – add markup"
+                        >
+                          Resell
+                        </Link>
+                      )}
+                      <Link
+                        href={cartHref}
+                        className="p-1.5 rounded-lg text-slate-600 hover:bg-sky-100 hover:text-sky-700 transition-colors"
+                        title="Add to cart"
+                      >
+                        <ShoppingCart className="h-5 w-5" />
+                      </Link>
+                    </div>
                   </div>
                   {p.ratingAvg != null && (
-                    <p className="text-sm text-slate-500 mt-1">
+                    <p className="text-sm text-slate-500 px-4 pb-2">
                       {p.ratingAvg.toFixed(1)}★
                       {p.ratingCount != null && p.ratingCount > 0 && ` (${p.ratingCount})`}
                     </p>
                   )}
                 </div>
-              </Link>
-            ))}
+              );
+            })}
           </div>
         )}
 
@@ -189,9 +216,9 @@ function MarketplacePageContent() {
                 <Store className="h-5 w-5 text-sky-600" />
                 <span className="font-semibold text-slate-800">Reseller (no verification)</span>
               </div>
-              <p className="text-sm text-slate-600 mb-3">Add products to your wall and get a store automatically. Rename your store anytime.</p>
+              <p className="text-sm text-slate-600 mb-3">Add products to MyStore and get a store automatically. Rename your store anytime.</p>
               <ol className="text-sm text-slate-700 space-y-1 list-decimal list-inside mb-4">
-                <li>Click <strong>Add to my wall</strong> on a product</li>
+                <li>Click <strong>Add to MyStore</strong> on a product</li>
                 <li>Your store is created; go to <Link href={storeLink} className="text-sky-600 hover:underline">My store</Link> to rename it</li>
                 <li>Share your wall link so others can buy from you</li>
               </ol>
@@ -213,6 +240,8 @@ function MarketplacePageContent() {
           </div>
         </div>
       </main>
+        <AdvertSlot />
+        </div>
       </div>
     </div>
   );

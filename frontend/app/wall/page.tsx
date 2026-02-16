@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { LayoutGrid, Plus, Loader2 } from 'lucide-react';
+import { LayoutGrid, Loader2, Plus } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import ProtectedRoute from '@/components/ProtectedRoute';
 import { useCartAndStores } from '@/lib/useCartAndStores';
@@ -11,12 +11,15 @@ import { ProfileDropdown } from '@/components/ProfileDropdown';
 import { TVGridTileWithObserver } from '@/components/tv/TVGridTileWithObserver';
 import type { TVGridItem } from '@/components/tv/TVGridTile';
 import { CreatePostModal } from '@/components/tv/CreatePostModal';
-import { tvAPI, productEnquiryAPI } from '@/lib/api';
+import { StatusesStrip } from '@/components/tv/StatusesStrip';
+import { AdvertSlot } from '@/components/AdvertSlot';
+import { AdvertTile } from '@/components/AdvertTile';
+import { tvAPI, productEnquiryAPI, advertsAPI, usersAPI } from '@/lib/api';
 import type { Product } from '@/lib/types';
 import toast from 'react-hot-toast';
 
 function WallPageContent() {
-  const { user, logout } = useAuth();
+  const { user, logout, refreshUser } = useAuth();
   const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
   const [gridItems, setGridItems] = useState<TVGridItem[]>([]);
@@ -53,6 +56,7 @@ function WallPageContent() {
 
   const [productTiles, setProductTiles] = useState<TVGridItem[]>([]);
   const [featuredProducts, setFeaturedProducts] = useState<(Product & { _id: string })[]>([]);
+  const [adverts, setAdverts] = useState<Array<{ _id: string; title: string; imageUrl: string; linkUrl?: string }>>([]);
 
   const loadFeaturedProducts = useCallback(() => {
     tvAPI
@@ -71,6 +75,7 @@ function WallPageContent() {
             discountPrice: p.discountPrice,
             currency: p.currency,
             supplierId: p.supplierId,
+            allowResell: p.allowResell ?? false,
             likeCount: 0,
             commentCount: 0,
             shareCount: 0,
@@ -86,6 +91,11 @@ function WallPageContent() {
   useEffect(() => {
     loadFeed(1);
     loadFeaturedProducts();
+    advertsAPI.getAdverts().then((res) => {
+      const data = res.data?.data ?? res.data ?? [];
+      const list = Array.isArray(data) ? data : [];
+      setAdverts(list);
+    }).catch(() => setAdverts([]));
   }, [loadFeed, loadFeaturedProducts]);
 
   const loadMore = () => {
@@ -93,6 +103,28 @@ function WallPageContent() {
     const nextPage = page + 1;
     setPage(nextPage);
     loadFeed(nextPage, true);
+  };
+
+  const handleSetProfilePicFromUrl = async (url: string) => {
+    if (!user?._id && !user?.id) return;
+    try {
+      await usersAPI.setAvatarFromUrl(user._id || user.id!, url);
+      toast.success('Profile picture updated');
+      refreshUser?.();
+    } catch (e: any) {
+      toast.error(e.response?.data?.message || 'Failed to update profile picture');
+    }
+  };
+
+  const handleSetStripBackgroundFromUrl = async (url: string) => {
+    if (!user?._id && !user?.id) return;
+    try {
+      await usersAPI.updateProfile(user._id || user.id!, { stripBackgroundPic: url });
+      toast.success('Strip background updated');
+      refreshUser?.();
+    } catch (e: any) {
+      toast.error(e.response?.data?.message || 'Failed to update strip background');
+    }
   };
 
   const handleLike = (id: string, liked: boolean) => {
@@ -164,7 +196,17 @@ function WallPageContent() {
     router.push('/');
   };
 
-  const allItems: TVGridItem[] = [...productTiles, ...gridItems];
+  // Intersperse adverts every 6 items for mobile (lg:hidden) - web uses AdvertSlot in right column
+  const insertAdvertsEvery = 6;
+  const baseItems: TVGridItem[] = [...productTiles, ...gridItems];
+  const allItemsWithAds: (TVGridItem | { _id: string; type: 'advert'; title: string; imageUrl: string; linkUrl?: string })[] = [];
+  baseItems.forEach((item, i) => {
+    if (i > 0 && i % insertAdvertsEvery === 0 && adverts.length > 0) {
+      const ad = adverts[Math.floor(Math.random() * adverts.length)];
+      if (ad) allItemsWithAds.push({ _id: `ad-${ad._id}`, type: 'advert', ...ad });
+    }
+    allItemsWithAds.push(item);
+  });
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-sky-50 via-blue-50 to-white text-slate-900 flex">
@@ -179,44 +221,38 @@ function WallPageContent() {
       />
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         <header className="bg-white/85 backdrop-blur-md border-b border-slate-100 shadow-sm flex-shrink-0">
-          <div className="px-4 sm:px-6 lg:px-8 py-4">
-            <div className="flex items-center justify-between gap-4">
-              <div className="flex items-center gap-3 min-w-0">
-                <AppSidebarMenuButton onClick={() => setMenuOpen(true)} />
-                <div className="flex items-center gap-2">
-                  <LayoutGrid className="h-5 w-5 text-sky-500" />
-                  <p className="text-sm font-medium text-slate-700 truncate">
-                    Welcome back, {user?.name}
-                  </p>
-                </div>
+          <div className="px-4 sm:px-6 lg:px-8 py-2 flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3 min-w-0 flex-1 overflow-hidden">
+              <AppSidebarMenuButton onClick={() => setMenuOpen(true)} />
+              <div className="flex-1 min-w-0 overflow-hidden">
+                <StatusesStrip
+                  currentUserId={user?._id || user?.id}
+                  userAvatar={(user as any)?.avatar}
+                  stripBackgroundPic={(user as any)?.stripBackgroundPic}
+                  onAddStatus={() => setCreateOpen(true)}
+                />
               </div>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => setCreateOpen(true)}
-                  className="flex items-center gap-2 px-4 py-2 rounded-xl bg-sky-500 text-white font-medium hover:bg-sky-600 transition-colors"
-                >
-                  <Plus className="h-5 w-5" />
-                  Create
-                </button>
-                <ProfileDropdown userName={user?.name} />
-              </div>
+            </div>
+            <div className="flex gap-2 shrink-0">
+              <ProfileDropdown userName={user?.name} />
             </div>
           </div>
         </header>
 
+        <div className="flex-1 flex gap-6 min-h-0 overflow-hidden">
         <main
           ref={containerRef}
-          className="flex-1 overflow-y-auto px-4 sm:px-6 lg:px-8 py-6"
+          className="flex-1 min-w-0 overflow-y-auto px-4 sm:px-6 lg:px-8 py-6"
         >
-          {loading && allItems.length === 0 ? (
+          {loading && allItemsWithAds.length === 0 ? (
             <div className="flex justify-center py-24">
               <Loader2 className="h-12 w-12 text-sky-500 animate-spin" />
             </div>
-          ) : allItems.length === 0 ? (
+          ) : allItemsWithAds.length === 0 ? (
             <div className="rounded-2xl border border-slate-100 bg-white/90 backdrop-blur p-12 text-center">
               <LayoutGrid className="h-16 w-16 text-slate-300 mx-auto mb-4" />
               <h2 className="text-xl font-semibold text-slate-700 mb-2">No content yet</h2>
-              <p className="text-slate-600 mb-6">Share something new or browse the marketplace.</p>
+              <p className="text-slate-600 mb-6">Share something new or browse QwertyHub.</p>
               <button
                 onClick={() => setCreateOpen(true)}
                 className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-sky-500 text-white font-medium hover:bg-sky-600"
@@ -227,17 +263,30 @@ function WallPageContent() {
             </div>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 lg:gap-6">
-              {allItems.map((item) => (
-                <TVGridTileWithObserver
-                  key={item._id}
-                  item={item}
-                  liked={likedMap[item._id]}
-                  onLike={handleLike}
-                  onRepost={item.type !== 'product_tile' ? handleRepost : undefined}
-                  onEnquire={handleEnquire}
-                  onCommentAdded={item.type !== 'product_tile' ? handleCommentAdded : undefined}
-                />
-              ))}
+              {allItemsWithAds.map((item) =>
+                (item as any).type === 'advert' ? (
+                  <AdvertTile
+                    key={item._id}
+                    _id={item._id}
+                    title={(item as any).title}
+                    imageUrl={(item as any).imageUrl}
+                    linkUrl={(item as any).linkUrl}
+                  />
+                ) : (
+                  <TVGridTileWithObserver
+                    key={item._id}
+                    item={item as TVGridItem}
+                    liked={likedMap[item._id]}
+                    onLike={handleLike}
+                    onRepost={(item as TVGridItem).type !== 'product_tile' ? handleRepost : undefined}
+                    onEnquire={(item as TVGridItem).type === 'product_tile' ? undefined : handleEnquire}
+                    onCommentAdded={(item as TVGridItem).type !== 'product_tile' ? handleCommentAdded : undefined}
+                    currentUserId={user?._id || user?.id}
+                    onSetProfilePicFromUrl={handleSetProfilePicFromUrl}
+                    onSetStripBackgroundFromUrl={handleSetStripBackgroundFromUrl}
+                  />
+                )
+              )}
             </div>
           )}
 
@@ -253,6 +302,8 @@ function WallPageContent() {
             </div>
           )}
         </main>
+        <AdvertSlot />
+        </div>
       </div>
 
       <CreatePostModal
@@ -263,6 +314,7 @@ function WallPageContent() {
           loadFeed(1);
         }}
         featuredProducts={featuredProducts}
+        currentUserId={user?._id || user?.id}
       />
 
       {enquireOpen && (

@@ -33,6 +33,7 @@ router.post("/apply", authenticate, async (req: AuthRequest, res: Response, next
       pickupAddress,
       companyRegNo,
       directorsIdDoc,
+      directorsIdDocs,
       idDocument,
       contactEmail,
       contactPhone,
@@ -46,9 +47,13 @@ router.post("/apply", authenticate, async (req: AuthRequest, res: Response, next
       throw new AppError("contactEmail and contactPhone are required", 400);
     }
 
+    const directorDocs = Array.isArray(directorsIdDocs) && directorsIdDocs.length > 0
+      ? directorsIdDocs.filter((p: any) => typeof p === "string" && p.trim())
+      : directorsIdDoc ? [directorsIdDoc] : [];
+
     if (type === "company") {
       if (!companyRegNo) throw new AppError("companyRegNo is required for company", 400);
-      if (!directorsIdDoc) throw new AppError("directorsIdDoc (directors ID document reference) is required for company", 400);
+      if (directorDocs.length === 0) throw new AppError("At least one directors ID document is required for company", 400);
     } else {
       if (!idDocument) throw new AppError("idDocument (seller ID document reference) is required for individual", 400);
     }
@@ -66,7 +71,8 @@ router.post("/apply", authenticate, async (req: AuthRequest, res: Response, next
       supplier.storeName = storeName;
       supplier.pickupAddress = pickupAddress;
       supplier.companyRegNo = type === "company" ? companyRegNo : undefined;
-      supplier.directorsIdDoc = type === "company" ? directorsIdDoc : undefined;
+      (supplier as any).directorsIdDocs = type === "company" ? directorDocs : undefined;
+      (supplier as any).directorsIdDoc = type === "company" ? directorDocs[0] : undefined;
       supplier.idDocument = type === "individual" ? idDocument : undefined;
       supplier.contactEmail = contactEmail;
       supplier.contactPhone = contactPhone;
@@ -85,7 +91,8 @@ router.post("/apply", authenticate, async (req: AuthRequest, res: Response, next
         storeName,
         pickupAddress,
         companyRegNo: type === "company" ? companyRegNo : undefined,
-        directorsIdDoc: type === "company" ? directorsIdDoc : undefined,
+        directorsIdDocs: type === "company" ? directorDocs : undefined,
+        directorsIdDoc: type === "company" ? directorDocs[0] : undefined,
         idDocument: type === "individual" ? idDocument : undefined,
         contactEmail,
         contactPhone,

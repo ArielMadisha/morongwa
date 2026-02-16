@@ -5,6 +5,12 @@ export const registerSchema = Joi.object({
   name: Joi.string().min(2).max(100).required(),
   email: Joi.string().email().required(),
   password: Joi.string().min(8).required(),
+  dateOfBirth: Joi.string()
+    .pattern(/^\d{4}-\d{2}-\d{2}$/)
+    .required()
+    .messages({
+      "string.pattern.base": "Date of birth must be in YYYY-MM-DD format",
+    }),
   role: Joi.alternatives().try(
     Joi.string().valid("client", "runner"),
     Joi.array().items(Joi.string().valid("client", "runner"))

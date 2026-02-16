@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useCartAndStores } from '@/lib/useCartAndStores';
-import { Package, Home, ArrowRight, LayoutDashboard, ShoppingBag, ShoppingCart, LayoutGrid, Store } from 'lucide-react';
+import { Package, Home, ArrowRight, LayoutDashboard, ShoppingBag, ShoppingCart, Store } from 'lucide-react';
 
 type SiteHeaderProps = {
   minimal?: boolean;
@@ -26,9 +26,9 @@ export default function SiteHeader({ minimal }: SiteHeaderProps) {
           {!minimal && (
           <nav className="flex items-center gap-1 sm:gap-2">
             <Link
-              href="/"
+              href={isAuthenticated ? '/wall' : '/'}
               className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                pathname === '/' ? 'bg-sky-100 text-sky-700' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                (pathname === '/' || pathname === '/wall') ? 'bg-sky-100 text-sky-700' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
               }`}
             >
               <Home className="h-4 w-4 hidden sm:block" />
@@ -63,16 +63,7 @@ export default function SiteHeader({ minimal }: SiteHeaderProps) {
                   <LayoutDashboard className="h-4 w-4" />
                   <span className="whitespace-nowrap hidden sm:inline">Dashboard</span>
                 </Link>
-                <Link
-                  href={`/resellers/${user._id ?? (user as { id?: string }).id ?? ''}`}
-                  className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    pathname?.startsWith('/resellers') ? 'bg-sky-100 text-sky-700' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
-                  }`}
-                >
-                  <LayoutGrid className="h-4 w-4 hidden sm:block" />
-                  <span className="whitespace-nowrap hidden sm:inline">My wall</span>
-                </Link>
-                {hasStore && (
+{hasStore && (
                   <Link
                     href="/store"
                     className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${

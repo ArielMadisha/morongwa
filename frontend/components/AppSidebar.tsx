@@ -16,6 +16,7 @@ import {
   Receipt,
   HelpCircle,
   LogOut,
+  Store,
 } from 'lucide-react';
 
 export type SidebarVariant = 'wall' | 'client' | 'runner';
@@ -45,6 +46,8 @@ export function AppSidebar({
   const navItems = [
     { href: '/wall', label: 'Home', icon: LayoutGrid, showChevron: false },
     { href: '/marketplace', label: 'QwertyHub', icon: Package, showChevron: false },
+    // MyStore only shown when user has a store (created when they resell a product)
+    ...(hasStore ? [{ href: '/store', label: 'MyStore', icon: Store, showChevron: false }] : []),
     { href: '/dashboard/client', label: 'Client Dashboard', icon: LayoutDashboard, showChevron: true },
     { href: '/dashboard/runner', label: 'Runner Cockpit', icon: Box, showChevron: true },
     { href: '/cart', label: 'Cart', icon: ShoppingCart, badge: cartCount, showChevron: false },

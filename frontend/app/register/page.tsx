@@ -86,7 +86,7 @@ export default function RegisterPage() {
     setLoading(true);
 
     try {
-      await register(name.trim(), email.trim().toLowerCase(), password, ['client'], ['terms-of-service', 'privacy-policy']);
+      await register(name.trim(), email.trim().toLowerCase(), password, ['client'], ['terms-of-service', 'privacy-policy'], dateOfBirth);
       toast.success('🎉 Welcome to Morongwa!');
       const returnTo = searchParams.get('returnTo');
       const target = returnTo && returnTo.startsWith('/') && !returnTo.startsWith('//') ? returnTo : '/wall';

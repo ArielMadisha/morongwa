@@ -9,6 +9,13 @@ export interface IStore extends Document {
   type: StoreType;
   supplierId?: mongoose.Types.ObjectId; // set when type === "supplier" (linked to Supplier)
   createdBy?: mongoose.Types.ObjectId; // admin who created the store (optional)
+  /** Store contact & address (owner editable) */
+  address?: string;
+  email?: string;
+  cellphone?: string;
+  whatsapp?: string;
+  /** Custom background for store strip/banner */
+  stripBackgroundPic?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -21,6 +28,11 @@ const StoreSchema = new Schema<IStore>(
     type: { type: String, enum: ["supplier", "reseller"], required: true },
     supplierId: { type: Schema.Types.ObjectId, ref: "Supplier" },
     createdBy: { type: Schema.Types.ObjectId, ref: "User" },
+    address: { type: String, trim: true },
+    email: { type: String, trim: true },
+    cellphone: { type: String, trim: true },
+    whatsapp: { type: String, trim: true },
+    stripBackgroundPic: { type: String, trim: true },
   },
   { timestamps: true }
 );

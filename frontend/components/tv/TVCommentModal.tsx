@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { X, Send, Loader2 } from 'lucide-react';
 import { tvAPI, getImageUrl } from '@/lib/api';
 import type { TVGridItem } from './TVGridTile';
+import { FollowButton } from '@/components/FollowButton';
 
 interface TVComment {
   _id: string;
@@ -17,9 +18,10 @@ interface TVCommentModalProps {
   onClose: () => void;
   item: TVGridItem | null;
   onCommentAdded?: () => void;
+  currentUserId?: string;
 }
 
-export function TVCommentModal({ open, onClose, item, onCommentAdded }: TVCommentModalProps) {
+export function TVCommentModal({ open, onClose, item, onCommentAdded, currentUserId }: TVCommentModalProps) {
   const [comments, setComments] = useState<TVComment[]>([]);
   const [commentText, setCommentText] = useState('');
   const [loadingComments, setLoadingComments] = useState(false);
@@ -77,9 +79,14 @@ export function TVCommentModal({ open, onClose, item, onCommentAdded }: TVCommen
                   )}
                 </div>
                 <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium text-slate-900 truncate">
-                    {item.creatorId?.name || 'Creator'}
-                  </p>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="text-sm font-medium text-slate-900 truncate">
+                      {item.creatorId?.name || 'Creator'}
+                    </p>
+                    {item.creatorId?._id && (
+                      <FollowButton targetUserId={item.creatorId._id} currentUserId={currentUserId} className="!px-2 !py-1 !text-xs" />
+                    )}
+                  </div>
                   {item.caption && (
                     <p className="text-sm text-slate-600 line-clamp-2 mt-0.5">{item.caption}</p>
                   )}
@@ -110,7 +117,12 @@ export function TVCommentModal({ open, onClose, item, onCommentAdded }: TVCommen
                       )}
                     </div>
                     <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium text-slate-900">{c.userId?.name || 'User'}</p>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="text-sm font-medium text-slate-900">{c.userId?.name || 'User'}</p>
+                        {c.userId?._id && (
+                          <FollowButton targetUserId={c.userId._id} currentUserId={currentUserId} className="!px-2 !py-1 !text-xs" />
+                        )}
+                      </div>
                       <p className="text-sm text-slate-600">{c.text}</p>
                       <p className="text-xs text-slate-400 mt-0.5">
                         {new Date(c.createdAt).toLocaleDateString()}

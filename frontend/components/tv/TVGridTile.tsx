@@ -18,6 +18,8 @@ import {
 import { tvAPI, getImageUrl, getEffectivePrice } from '@/lib/api';
 import type { Product } from '@/lib/types';
 import { TVCommentModal } from './TVCommentModal';
+import { FollowButton } from '@/components/FollowButton';
+import { SetPictureOptionsModal } from '@/components/SetPictureOptionsModal';
 
 const TV_WATERMARK = 'Qwertymates.com';
 const WATERMARK_DURATION = 3; // seconds at start and end
@@ -52,6 +54,7 @@ export interface TVGridItem {
   currency?: string;
   slug?: string;
   supplierId?: { userId?: string } | string;
+  allowResell?: boolean;
 }
 
 interface TVGridTileProps {
@@ -62,9 +65,12 @@ interface TVGridTileProps {
   onEnquire?: (productId: string) => void;
   onCommentAdded?: (id: string) => void;
   isVisible?: boolean;
+  currentUserId?: string;
+  onSetProfilePicFromUrl?: (url: string) => Promise<void>;
+  onSetStripBackgroundFromUrl?: (url: string) => Promise<void>;
 }
 
-export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, onCommentAdded, isVisible = true }: TVGridTileProps) {
+export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, onCommentAdded, isVisible = true, currentUserId, onSetProfilePicFromUrl, onSetStripBackgroundFromUrl }: TVGridTileProps) {
   const [showOverlay, setShowOverlay] = useState(false);
   const [watermarkPhase, setWatermarkPhase] = useState<'start' | 'middle' | 'end'>('start');
   const [reportOpen, setReportOpen] = useState(false);
@@ -72,6 +78,7 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
   const [commentModalOpen, setCommentModalOpen] = useState(false);
   const [carouselIndex, setCarouselIndex] = useState(0);
   const [lightboxOpen, setLightboxOpen] = useState(false);
+  const [pictureOptionsOpen, setPictureOptionsOpen] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
 
   const isProductTile = item.type === 'product_tile';
@@ -215,10 +222,19 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
       {/* Overlay on hover */}
       {showOverlay && (
         <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/40 flex flex-col justify-between p-3">
-          <div className="flex justify-between items-start">
-            <span className="text-white text-sm font-medium truncate">
-              {isProductTile ? item.title : item.creatorId?.name || 'Creator'}
+          <div className="flex justify-between items-start gap-2 min-w-0">
+            <span className="text-white text-sm font-medium truncate flex-shrink min-w-0">
+              {isProductTile ? item.title : (
+                <Link href={item.creatorId?._id === currentUserId ? '/store' : '/morongwa-tv'} className="hover:underline">
+                  {item.creatorId?.name || 'Creator'}
+                </Link>
+              )}
             </span>
+            {!isProductTile && item.creatorId?._id && (
+              <div className="flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+                <FollowButton targetUserId={item.creatorId._id} currentUserId={currentUserId} className="!px-2 !py-1 !text-xs" />
+              </div>
+            )}
             <div className="relative">
               <button
                 onClick={(e) => {
@@ -231,6 +247,17 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
               </button>
               {reportOpen && item.type !== 'product_tile' && (
                 <div className="absolute right-0 top-full mt-1 py-2 bg-white rounded-xl border border-slate-200 shadow-lg z-20 min-w-[180px]">
+                  {mediaUrl && currentUserId && (onSetProfilePicFromUrl || onSetStripBackgroundFromUrl) && (
+                    <>
+                      <button
+                        onClick={() => { setReportOpen(false); setPictureOptionsOpen(true); }}
+                        className="w-full px-4 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                      >
+                        Use this image
+                      </button>
+                      <div className="border-t border-slate-100 my-2" />
+                    </>
+                  )}
                   <input
                     type="text"
                     placeholder="Report reason..."
@@ -285,10 +312,18 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
                 <Share2 className="h-5 w-5" />
               </button>
               {(isProductTile || productId) && (
-                <div className="flex gap-1">
+                <div className="flex gap-1 flex-wrap">
+                  {((item as any).allowResell || (item.productId as any)?.allowResell) && (
+                    <Link
+                      href={`/marketplace/product/${productId || item._id}?view=resell`}
+                      className="inline-flex items-center justify-center px-2 py-1 rounded-lg bg-sky-100 text-sky-700 text-sm font-medium hover:bg-sky-600 hover:text-white transition-colors"
+                    >
+                      Resell
+                    </Link>
+                  )}
                   <Link
                     href={`/marketplace/product/${productId || item._id}`}
-                    className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-sky-500 text-white text-sm font-medium"
+                    className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-sky-500 text-white text-sm font-medium hover:bg-sky-600"
                   >
                     <ShoppingCart className="h-4 w-4" />
                     Buy
@@ -379,7 +414,18 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
         onClose={() => setCommentModalOpen(false)}
         item={item}
         onCommentAdded={() => onCommentAdded?.(item._id)}
+        currentUserId={currentUserId}
       />
+
+      {mediaUrl && (
+        <SetPictureOptionsModal
+          open={pictureOptionsOpen}
+          onClose={() => setPictureOptionsOpen(false)}
+          imagePreview={mediaUrl}
+          onSetProfilePic={() => onSetProfilePicFromUrl?.(mediaUrl)}
+          onSetStripBackground={() => onSetStripBackgroundFromUrl?.(mediaUrl)}
+        />
+      )}
     </div>
   );
 }

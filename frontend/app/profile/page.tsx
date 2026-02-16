@@ -1,12 +1,16 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
-import { ArrowLeft, LayoutDashboard, Wallet, ClipboardList, HelpCircle, ShieldCheck } from "lucide-react";
+import { ArrowLeft, LayoutDashboard, Wallet, ClipboardList, HelpCircle, ShieldCheck, Lock, Radio, UserCheck, Camera } from "lucide-react";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import { useAuth } from "@/contexts/AuthContext";
+import { usersAPI, followsAPI } from "@/lib/api";
 import { AppSidebar, AppSidebarMenuButton } from "@/components/AppSidebar";
+import { SetPictureOptionsModal } from "@/components/SetPictureOptionsModal";
 import { useCartAndStores } from "@/lib/useCartAndStores";
+import { getImageUrl } from "@/lib/api";
+import toast from "react-hot-toast";
 
 function initials(name: string) {
   if (!name) return "M";
@@ -16,9 +20,99 @@ function initials(name: string) {
 }
 
 export default function ProfilePage() {
-  const { user, logout } = useAuth();
+  const { user, logout, refreshUser } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [isPrivate, setIsPrivate] = useState(false);
+  const [isLive, setIsLive] = useState(false);
+  const [pendingRequests, setPendingRequests] = useState<any[]>([]);
+  const [pictureOptionsOpen, setPictureOptionsOpen] = useState(false);
+  const [selectedPictureFile, setSelectedPictureFile] = useState<File | null>(null);
   const { cartCount, hasStore } = useCartAndStores(!!user);
+
+  useEffect(() => {
+    if (user) {
+      setIsPrivate(!!(user as any).isPrivate);
+      setIsLive(!!(user as any).isLive);
+      followsAPI.getPendingRequests().then((res) => {
+        const data = res.data?.data ?? res.data ?? [];
+        setPendingRequests(Array.isArray(data) ? data : []);
+      }).catch(() => setPendingRequests([]));
+    }
+  }, [user]);
+
+  const handleTogglePrivate = async () => {
+    if (!user?._id && !user?.id) return;
+    try {
+      await usersAPI.updateProfile(user._id || user.id!, { isPrivate: !isPrivate });
+      setIsPrivate(!isPrivate);
+      refreshUser?.();
+    } catch {
+      // error handled by toast in API
+    }
+  };
+
+  const handleToggleLive = async () => {
+    if (!user?._id && !user?.id) return;
+    try {
+      const res = await usersAPI.toggleLive(user._id || user.id!);
+      setIsLive(res.data?.isLive ?? false);
+      refreshUser?.();
+    } catch {
+      // error handled
+    }
+  };
+
+  const getFollowerId = (r: any) => (r.followerId && typeof r.followerId === 'object' ? r.followerId._id : r.followerId)?.toString?.() ?? '';
+  const handleAcceptRequest = async (followerId: string) => {
+    try {
+      await followsAPI.acceptRequest(followerId);
+      setPendingRequests((p) => p.filter((r: any) => getFollowerId(r) !== followerId));
+    } catch {
+      // error
+    }
+  };
+
+  const handleRejectRequest = async (followerId: string) => {
+    try {
+      await followsAPI.rejectRequest(followerId);
+      setPendingRequests((p) => p.filter((r: any) => getFollowerId(r) !== followerId));
+    } catch {
+      // error
+    }
+  };
+
+  const handlePictureFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file && file.type.startsWith('image/')) {
+      setSelectedPictureFile(file);
+      setPictureOptionsOpen(true);
+    }
+    e.target.value = '';
+  };
+
+  const handleSetProfilePic = async () => {
+    if (!selectedPictureFile || !user?._id && !user?.id) return;
+    try {
+      await usersAPI.uploadAvatar(user._id || user.id!, selectedPictureFile);
+      toast.success('Profile picture updated');
+      setSelectedPictureFile(null);
+      refreshUser?.();
+    } catch (e: any) {
+      toast.error(e.response?.data?.message || 'Failed to update profile picture');
+    }
+  };
+
+  const handleSetStripBackground = async () => {
+    if (!selectedPictureFile || !user?._id && !user?.id) return;
+    try {
+      await usersAPI.uploadStripBackground(user._id || user.id!, selectedPictureFile);
+      toast.success('Strip background updated');
+      setSelectedPictureFile(null);
+      refreshUser?.();
+    } catch (e: any) {
+      toast.error(e.response?.data?.message || 'Failed to update strip background');
+    }
+  };
 
   if (!user) return null;
 
@@ -72,9 +166,17 @@ export default function ProfilePage() {
           <div className="rounded-2xl bg-white border border-slate-100 shadow-lg shadow-blue-900/5 overflow-hidden">
             <div className="p-6 sm:p-8">
               <div className="flex flex-col sm:flex-row sm:items-center gap-6">
-                <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-r from-blue-600 to-indigo-600 text-2xl font-semibold text-white">
-                  {initials(user.name)}
-                </div>
+                <label className="relative flex h-20 w-20 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-r from-blue-600 to-indigo-600 text-2xl font-semibold text-white overflow-hidden cursor-pointer group">
+                  <input type="file" accept="image/*" className="hidden" onChange={handlePictureFileSelect} />
+                  {(user as any).avatar ? (
+                    <img src={getImageUrl((user as any).avatar)} alt="" className="w-full h-full object-cover" />
+                  ) : (
+                    initials(user.name)
+                  )}
+                  <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                    <Camera className="h-8 w-8 text-white" />
+                  </div>
+                </label>
                 <div className="flex-1 min-w-0">
                   <h2 className="text-xl font-semibold text-slate-900">{user.name}</h2>
                   <p className="text-slate-600">{user.email}</p>
@@ -100,10 +202,72 @@ export default function ProfilePage() {
                 <div>
                   <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Joined</p>
                   <p className="mt-1 text-sm font-semibold text-slate-900">
-                    {new Date(user.createdAt).toLocaleDateString()}
+                    {new Date(user.createdAt || '').toLocaleDateString()}
                   </p>
                 </div>
               </div>
+
+              {/* Privacy & Go Live */}
+              <div className="mt-6 pt-6 border-t border-slate-100 space-y-4">
+                <h3 className="text-sm font-semibold text-slate-700">Privacy & live</h3>
+                <label className="flex items-center justify-between gap-4 cursor-pointer">
+                  <span className="flex items-center gap-2 text-sm text-slate-700">
+                    <Lock className="h-4 w-4 text-slate-500" />
+                    Private account
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={isPrivate}
+                    onChange={handleTogglePrivate}
+                    className="rounded text-sky-600"
+                  />
+                </label>
+                <p className="text-xs text-slate-500">When private, others must request to follow. You approve each request.</p>
+                <label className="flex items-center justify-between gap-4 cursor-pointer">
+                  <span className="flex items-center gap-2 text-sm text-slate-700">
+                    <Radio className="h-4 w-4 text-red-500" />
+                    Go live
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={isLive}
+                    onChange={handleToggleLive}
+                    className="rounded text-sky-600"
+                  />
+                </label>
+                <p className="text-xs text-slate-500">When live, you appear in statuses and on MorongwaTV.</p>
+              </div>
+
+              {/* Upload profile picture / strip background */}
+              <div className="mt-6 pt-6 border-t border-slate-100">
+                <h3 className="text-sm font-semibold text-slate-700 mb-2">Profile picture</h3>
+                <p className="text-xs text-slate-500 mb-2">Click your avatar above to upload a new picture. You can set it as profile picture or strip background.</p>
+              </div>
+
+              {isPrivate && pendingRequests.length > 0 && (
+                <div className="mt-6 pt-6 border-t border-slate-100">
+                  <h3 className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2">
+                    <UserCheck className="h-4 w-4" /> Follow requests ({pendingRequests.length})
+                  </h3>
+                  <ul className="space-y-2">
+                    {pendingRequests.map((req: any) => {
+                      const follower = req.followerId || req;
+                      const fid = String(typeof follower === 'object' ? follower._id : follower);
+                      return (
+                        <li key={req._id || fid} className="flex items-center justify-between gap-2 py-2 border-b border-slate-100 last:border-0">
+                          <span className="text-sm font-medium text-slate-900">
+                            {typeof follower === 'object' ? follower.name : 'User'}
+                          </span>
+                          <div className="flex gap-2">
+                            <button onClick={() => handleAcceptRequest(fid)} className="px-3 py-1 rounded-lg bg-sky-500 text-white text-xs font-medium hover:bg-sky-600">Accept</button>
+                            <button onClick={() => handleRejectRequest(fid)} className="px-3 py-1 rounded-lg border border-slate-200 text-slate-600 text-xs font-medium hover:bg-slate-50">Reject</button>
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              )}
             </div>
           </div>
 
@@ -176,6 +340,14 @@ export default function ProfilePage() {
           </div>
         </div>
       </div>
+
+      <SetPictureOptionsModal
+        open={pictureOptionsOpen}
+        onClose={() => { setPictureOptionsOpen(false); setSelectedPictureFile(null); }}
+        imagePreview={selectedPictureFile ?? undefined}
+        onSetProfilePic={handleSetProfilePic}
+        onSetStripBackground={handleSetStripBackground}
+      />
     </ProtectedRoute>
   );
 }
