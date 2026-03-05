@@ -1,16 +1,19 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
-import { Send, Loader2, MessageCircle, Search, Plus, X } from 'lucide-react';
+import { Send, Loader2, MessageCircle, Plus, X, Video, Search } from 'lucide-react';
+import { SearchButton } from '@/components/SearchButton';
 import { useAuth } from '@/contexts/AuthContext';
 import ProtectedRoute from '@/components/ProtectedRoute';
 import { useCartAndStores } from '@/lib/useCartAndStores';
 import { AppSidebar, AppSidebarMenuButton } from '@/components/AppSidebar';
-import { ProfileDropdown } from '@/components/ProfileDropdown';
 import { AdvertSlot } from '@/components/AdvertSlot';
+import { MobileBottomNav } from '@/components/MobileBottomNav';
+import { VideoCallView } from '@/components/VideoCallView';
+import { useWebRTC } from '@/hooks/useWebRTC';
 import { messengerAPI, productEnquiryAPI } from '@/lib/api';
 
 function MessagesPageContent() {
@@ -40,6 +43,26 @@ function MessagesPageContent() {
   const [enquiryMessagesLoading, setEnquiryMessagesLoading] = useState(false);
   const [enquirySending, setEnquirySending] = useState(false);
   const [enquiryNewMessage, setEnquiryNewMessage] = useState('');
+
+  const roomId = activeTab === 'tasks' && selectedChat?.taskId ? selectedChat.taskId : '';
+  const peerUserId = activeTab === 'tasks' && selectedChat?.user?._id ? String(selectedChat.user._id) : '';
+  const peerUserName = activeTab === 'tasks' && selectedChat?.user?.name ? selectedChat.user.name : undefined;
+
+  const webrtc = useWebRTC({
+    roomId,
+    userId: user?._id || user?.id || '',
+    userName: user?.name,
+    peerUserId,
+    peerUserName,
+    onCallEnded: () => {},
+  });
+
+  useEffect(() => {
+    if (roomId && user?._id && webrtc.callStatus === 'idle') {
+      webrtc.joinRoomForIncoming();
+      return () => webrtc.leaveRoomForIncoming();
+    }
+  }, [roomId, user?._id, webrtc.callStatus, webrtc.joinRoomForIncoming, webrtc.leaveRoomForIncoming]);
 
   const fetchConversations = async () => {
     try {
@@ -198,32 +221,39 @@ function MessagesPageContent() {
   );
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-sky-50 via-blue-50 to-white text-slate-900 flex">
-      <AppSidebar
-        variant="wall"
-        userName={user?.name}
-        cartCount={cartCount}
-        hasStore={hasStore}
-        onLogout={handleLogout}
-        menuOpen={menuOpen}
-        setMenuOpen={setMenuOpen}
-      />
-      <div className="flex-1 flex flex-col min-w-0 overflow-visible">
-        <header className="bg-white/85 backdrop-blur-md border-b border-slate-100 shadow-sm flex-shrink-0 overflow-visible">
-          <div className="px-4 sm:px-6 lg:px-8 py-4">
-            <div className="flex items-center justify-between gap-4">
-              <div className="flex items-center gap-3 min-w-0">
-                <AppSidebarMenuButton onClick={() => setMenuOpen(true)} />
-                <p className="text-sm text-slate-600 truncate">Welcome back, {user?.name}</p>
-              </div>
-              <div className="shrink-0">
-                <ProfileDropdown userName={user?.name} />
-              </div>
+    <div className="min-h-screen flex flex-col bg-gradient-to-br from-sky-50 via-blue-50 to-white text-slate-900">
+      <header className="sticky top-0 z-40 w-full bg-white/95 backdrop-blur-md border-b border-slate-100 shadow-sm flex-shrink-0">
+        <div className="px-4 sm:px-6 lg:px-8 py-3 sm:py-4">
+          <div className="flex items-center justify-between gap-3 sm:gap-4 min-w-0">
+            <Link href="/wall" className="shrink-0 flex items-center" aria-label="Home">
+              <img src="/qwertymates-logo-icon.png" alt="Qwertymates" className="h-9 w-9 object-contain lg:hidden" />
+              <img src="/qwertymates-logo.png" alt="Qwertymates" className="h-9 w-auto object-contain hidden lg:block" />
+            </Link>
+            <AppSidebarMenuButton onClick={() => setMenuOpen(true)} />
+            <div className="flex items-center gap-2 min-w-0 shrink-0">
+              <MessageCircle className="h-5 w-5 text-brand-600" />
+              <h1 className="text-base sm:text-lg font-semibold text-slate-900 truncate">Morongwa</h1>
             </div>
+            <div className="flex-1 min-w-0" />
+            <SearchButton />
           </div>
-        </header>
-        <div className="flex-1 flex gap-6 pt-6 min-h-0">
-          <main className="flex-1 min-w-0 overflow-auto">
+        </div>
+      </header>
+      <div className="flex flex-1 min-h-0">
+        <AppSidebar
+          variant="wall"
+          userName={user?.name}
+          cartCount={cartCount}
+          hasStore={hasStore}
+          onLogout={handleLogout}
+          menuOpen={menuOpen}
+          setMenuOpen={setMenuOpen}
+          hideLogo
+          belowHeader
+        />
+        <div className="flex-1 flex flex-col min-w-0 overflow-visible">
+        <div className="flex-1 flex gap-6 pt-6 min-h-0 overflow-hidden">
+          <main className="flex-1 min-w-0 overflow-auto pb-24 lg:pb-0">
           {loading ? (
             <div className="flex min-h-[400px] items-center justify-center">
               <Loader2 className="h-8 w-8 animate-spin text-sky-600" />
@@ -314,7 +344,7 @@ function MessagesPageContent() {
                   <div className="py-8 text-center text-slate-600">
                     <MessageCircle className="mx-auto mb-2 h-8 w-8 text-slate-300" />
                     <p className="text-sm">No product enquiries yet</p>
-                    <p className="text-xs mt-1">Enquire about products on Morongwa-TV or the marketplace</p>
+                    <p className="text-xs mt-1">Enquire about products on QwertyTV or the marketplace</p>
                   </div>
                 ) : (
                   enquiries
@@ -403,9 +433,19 @@ function MessagesPageContent() {
                 </>
               ) : activeTab === 'tasks' && selectedChat ? (
                 <>
-                  <div className="border-b border-slate-100 p-4">
-                    <h2 className="text-lg font-semibold text-slate-900">{selectedChat.user?.name ?? 'Unknown'}</h2>
-                    <p className="text-xs text-slate-600 capitalize">{selectedChat.user?.role ?? '—'}</p>
+                  <div className="border-b border-slate-100 p-4 flex items-center justify-between gap-2">
+                    <div>
+                      <h2 className="text-lg font-semibold text-slate-900">{selectedChat.user?.name ?? 'Unknown'}</h2>
+                      <p className="text-xs text-slate-600 capitalize">{selectedChat.user?.role ?? '—'}</p>
+                    </div>
+                    <button
+                      onClick={() => webrtc.startCall()}
+                      disabled={!roomId || !peerUserId}
+                      className="p-2.5 rounded-xl bg-sky-100 text-sky-600 hover:bg-sky-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      title="Start video call"
+                    >
+                      <Video className="h-5 w-5" />
+                    </button>
                   </div>
 
                   <div className="flex-1 overflow-y-auto p-4 space-y-4">
@@ -469,9 +509,33 @@ function MessagesPageContent() {
         </div>
           )}
           </main>
-          <AdvertSlot />
+          <AdvertSlot belowHeader />
+        </div>
         </div>
       </div>
+      <MobileBottomNav cartCount={cartCount} hasStore={hasStore} />
+
+      {/* Video call overlay */}
+      {webrtc.callStatus !== 'idle' && (
+        <VideoCallView
+          callStatus={webrtc.callStatus}
+          localVideoRef={webrtc.localVideoRef}
+          remoteVideoRef={webrtc.remoteVideoRef}
+          localStream={webrtc.localStream}
+          remoteStream={webrtc.remoteStream}
+          peerName={peerUserName}
+          incomingCaller={webrtc.incomingCaller}
+          isMuted={webrtc.isMuted}
+          isVideoOff={webrtc.isVideoOff}
+          onStartCall={webrtc.startCall}
+          onAcceptCall={webrtc.acceptCall}
+          onRejectCall={webrtc.rejectCall}
+          onCancelCall={webrtc.cancelCall}
+          onEndCall={webrtc.endCall}
+          onToggleMute={webrtc.toggleMute}
+          onToggleVideo={webrtc.toggleVideo}
+        />
+      )}
 
       {/* New Chat modal */}
       {newChatOpen && (

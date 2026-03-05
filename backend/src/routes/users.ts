@@ -28,9 +28,17 @@ router.put("/:id", authenticate, async (req: AuthRequest, res: Response, next) =
       throw new AppError("Unauthorized", 403);
     }
 
-    const { name, isPrivate, avatar, stripBackgroundPic } = req.body;
+    const { name, username, isPrivate, avatar, stripBackgroundPic } = req.body;
     const updates: any = {};
     if (name) updates.name = name;
+    if (typeof username === "string" && username.trim()) {
+      const uname = username.toLowerCase().trim().replace(/[^a-z0-9_]/g, "").slice(0, 30);
+      if (uname.length >= 2) {
+        const existing = await User.findOne({ username: uname, _id: { $ne: req.params.id } });
+        if (existing) throw new AppError("Username already taken", 400);
+        updates.username = uname;
+      }
+    }
     if (typeof isPrivate === "boolean") updates.isPrivate = isPrivate;
     if (typeof avatar === "string" && avatar.trim()) updates.avatar = avatar.trim();
     if (typeof stripBackgroundPic === "string") updates.stripBackgroundPic = stripBackgroundPic.trim() || null;
@@ -269,10 +277,10 @@ router.delete("/:id", authenticate, async (req: AuthRequest, res: Response, next
   }
 });
 
-// List users (with pagination)
+// List users (with pagination and search)
 router.get("/", authenticate, async (req: AuthRequest, res: Response, next) => {
   try {
-    const { page, limit } = req.query;
+    const { page, limit, q } = req.query;
     const { skip, limit: limitNum } = getPaginationParams(
       page ? parseInt(page as string) : undefined,
       limit ? parseInt(limit as string) : undefined
@@ -280,6 +288,14 @@ router.get("/", authenticate, async (req: AuthRequest, res: Response, next) => {
 
     const query: any = { active: true };
     if (req.query.role) query.role = { $in: [req.query.role] };
+    const search = (q as string)?.trim();
+    if (search && search.length >= 2) {
+      query.$or = [
+        { name: { $regex: search, $options: "i" } },
+        { username: { $regex: search, $options: "i" } },
+        { email: { $regex: search, $options: "i" } },
+      ];
+    }
 
     const [users, total] = await Promise.all([
       User.find(query).select("-passwordHash").skip(skip).limit(limitNum),

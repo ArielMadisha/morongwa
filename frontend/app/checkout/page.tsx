@@ -17,13 +17,10 @@ export default function CheckoutPage() {
     subtotal: number;
     shipping: number;
     shippingBreakdown?: Array<{ supplierId: string; storeName?: string; shippingCost: number }>;
-    platformFee: number;
-    commissionTotal?: number;
-    adminCommissionTotal?: number;
     total: number;
     currency: string;
     itemCount: number;
-    paymentBreakdown?: Array<{ productId: string; originalPrice: number; sellingPrice: number; adminCommission: number; resellerCommission?: number }>;
+    paymentBreakdown?: Array<{ productId: string; title: string; price: number; qty: number }>;
   } | null>(null);
   const [walletBalance, setWalletBalance] = useState<number | null>(null);
   const [deliveryAddress, setDeliveryAddress] = useState('');
@@ -85,34 +82,34 @@ export default function CheckoutPage() {
             <div className="bg-white/90 rounded-2xl border border-slate-100 p-6 space-y-2">
               <h3 className="font-semibold text-slate-900 mb-3">Payment breakdown</h3>
               {quote.paymentBreakdown && quote.paymentBreakdown.length > 0 && (
-                <div className="mb-4 p-3 rounded-lg bg-slate-50 space-y-2 text-sm">
+                <div className="mb-4 space-y-1 text-sm">
                   {quote.paymentBreakdown.map((b, i) => (
-                    <div key={b.productId || i} className="space-y-1 text-slate-600">
-                      <div className="flex justify-between"><span>Original price</span><span>{formatPrice(b.originalPrice)}</span></div>
-                      <div className="flex justify-between text-slate-500"><span>Commission for Morongwa (7.5%)</span><span>-{formatPrice(b.adminCommission)}</span></div>
-                      {b.resellerCommission != null && (
-                        <div className="flex justify-between text-slate-500"><span>Reseller commission</span><span>{formatPrice(b.resellerCommission)}</span></div>
-                      )}
-                      <div className="flex justify-between font-medium text-slate-700"><span>Selling price</span><span>{formatPrice(b.sellingPrice)}</span></div>
+                    <div key={b.productId || i} className="flex justify-between text-slate-700">
+                      <span>{b.title}{b.qty > 1 ? ` ×${b.qty}` : ''}</span>
+                      <span>{formatPrice(b.price * b.qty)}</span>
                     </div>
                   ))}
                 </div>
               )}
-              <div className="flex justify-between text-slate-600"><span>Subtotal ({quote.itemCount} items)</span><span>{formatPrice(quote.subtotal)}</span></div>
               {quote.shippingBreakdown && quote.shippingBreakdown.length > 1 ? (
                 <div className="space-y-1">
-                  <div className="flex justify-between text-slate-600"><span>Shipping</span><span>{formatPrice(quote.shipping)}</span></div>
-                  <div className="pl-4 text-sm text-slate-500 space-y-0.5">
-                    {quote.shippingBreakdown.map((s) => (
-                      <div key={s.supplierId} className="flex justify-between"><span>{s.storeName ?? 'Supplier'}</span><span>{formatPrice(s.shippingCost)}</span></div>
-                    ))}
-                  </div>
+                  {quote.shippingBreakdown.map((s) => (
+                    <div key={s.supplierId} className="flex justify-between text-slate-600">
+                      <span>Shipping ({s.storeName ?? 'Supplier'})</span>
+                      <span>{formatPrice(s.shippingCost)}</span>
+                    </div>
+                  ))}
                 </div>
               ) : (
-                <div className="flex justify-between text-slate-600"><span>Shipping</span><span>{formatPrice(quote.shipping)}</span></div>
+                <div className="flex justify-between text-slate-600">
+                  <span>Shipping Fee</span>
+                  <span>{formatPrice(quote.shipping)}</span>
+                </div>
               )}
-              <div className="flex justify-between text-slate-600"><span>Platform fee</span><span>{formatPrice(quote.platformFee)}</span></div>
-              <div className="border-t border-slate-200 pt-3 flex justify-between font-bold text-slate-900 text-lg"><span>Total</span><span>{formatPrice(quote.total)}</span></div>
+              <div className="border-t border-slate-200 pt-3 flex justify-between font-bold text-slate-900 text-lg">
+                <span>Total</span>
+                <span>{formatPrice(quote.total)}</span>
+              </div>
             </div>
           </div>
           <button type="button" onClick={handlePay} disabled={paying || (paymentMethod === 'wallet' && !canPayWallet)} className="w-full flex items-center justify-center gap-2 bg-sky-600 text-white py-4 rounded-xl hover:bg-sky-700 disabled:opacity-50 font-semibold text-lg">

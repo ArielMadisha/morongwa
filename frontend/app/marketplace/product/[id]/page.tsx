@@ -4,13 +4,14 @@ import { useState, useEffect } from 'react';
 import { useParams, usePathname, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Package, ArrowLeft, ShoppingCart, X } from 'lucide-react';
+import { Package, ArrowLeft, ShoppingCart, X, MapPin } from 'lucide-react';
 import { productsAPI, cartAPI, resellerAPI, getImageUrl, getEffectivePrice } from '@/lib/api';
 import { invalidateCartStoresCache, useCartAndStores } from '@/lib/useCartAndStores';
 import { useAuth } from '@/contexts/AuthContext';
 import type { Product } from '@/lib/types';
 import { AppSidebar, AppSidebarMenuButton } from '@/components/AppSidebar';
-import { ProfileDropdown } from '@/components/ProfileDropdown';
+import { SearchButton } from '@/components/SearchButton';
+import { MobileBottomNav } from '@/components/MobileBottomNav';
 import toast from 'react-hot-toast';
 
 function formatPrice(price: number, currency: string) {
@@ -129,14 +130,14 @@ export default function ProductPage() {
       )}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         <header className="bg-white/85 backdrop-blur-md border-b border-slate-100 shadow-sm flex-shrink-0">
-          <div className="px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
+          <div className="px-4 sm:px-6 lg:px-8 py-3 sm:py-4 flex items-center justify-between gap-3 sm:gap-4">
+            <div className="flex items-center gap-2 sm:gap-3 min-w-0">
               {user && <AppSidebarMenuButton onClick={() => setMenuOpen(true)} />}
               <Link href="/marketplace" className="text-slate-700 hover:text-sky-600 font-medium">← QwertyHub</Link>
             </div>
-            {user ? (
-              <ProfileDropdown userName={user?.name} />
-            ) : (
+            <div className="flex-1 min-w-0" />
+            <SearchButton />
+            {!user && (
               <div className="flex gap-2">
                 <Link href="/login" className="rounded-lg border border-sky-200 px-4 py-2 text-sm font-medium text-sky-700 hover:bg-sky-50">Sign in</Link>
                 <Link href={`/register?returnTo=${encodeURIComponent(pathname || '/marketplace')}`} className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-700">Register</Link>
@@ -144,7 +145,7 @@ export default function ProductPage() {
             )}
           </div>
         </header>
-        <main className="flex-1 overflow-y-auto px-4 sm:px-6 lg:px-8 py-8">
+        <main className="flex-1 overflow-y-auto px-4 sm:px-6 lg:px-8 py-8 pb-24 lg:pb-8">
           <div className="max-w-4xl mx-auto">
         <Link
           href="/marketplace"
@@ -182,8 +183,28 @@ export default function ProductPage() {
                   <p className="text-2xl font-bold text-sky-600">{formatPrice(product.price, product.currency)}</p>
                 )}
               </div>
+              {(product as any).bulkTiers?.length > 0 && (
+                <div className="mt-2 rounded-lg bg-sky-50 border border-sky-100 px-3 py-2">
+                  <p className="text-xs font-medium text-sky-800 mb-1">Bulk pricing</p>
+                  <ul className="text-sm text-sky-700 space-y-0.5">
+                    {((product as any).bulkTiers as Array<{ minQty: number; maxQty: number; price: number }>).map((t, i) => (
+                      <li key={i}>
+                        {t.minQty}–{t.maxQty} units: {formatPrice(t.price, product.currency)} each
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
               {storeName && (
                 <p className="text-sm text-slate-500 mt-1">Sold by {storeName}</p>
+              )}
+              {(product as any).availableCountries?.length > 0 && (
+                <p className="text-sm text-slate-600 mt-2 flex items-center gap-1.5">
+                  <MapPin className="h-4 w-4 text-slate-500 shrink-0" />
+                  Available in {(product as any).availableCountries.length === 1
+                    ? (product as any).availableCountries[0]
+                    : (product as any).availableCountries.join(', ')}
+                </p>
               )}
               {(product as any).sizes?.length > 0 && (
                 <p className="text-sm text-slate-600 mt-2">Sizes: {(product as any).sizes.join(', ')}</p>
@@ -219,6 +240,7 @@ export default function ProductPage() {
           </div>
         </main>
       </div>
+      {user && <MobileBottomNav cartCount={cartCount} hasStore={hasStore} />}
 
         {/* Add to wall modal - set reseller commission 3-7% */}
         {addToWallModal && (

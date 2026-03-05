@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { Package, Receipt, BookOpen, HelpCircle } from 'lucide-react';
+import { Receipt, BookOpen, HelpCircle } from 'lucide-react';
 
 const footerLinks = [
   { href: '/pricing', label: 'Pricing', icon: Receipt },
@@ -9,19 +9,16 @@ const footerLinks = [
 
 export default function SiteFooter() {
   return (
-    <footer className="bg-slate-900 text-slate-300 border-t border-slate-800">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-6">
-          <Link href="/" className="flex items-center gap-2 text-white hover:text-sky-300 transition-colors">
-            <Package className="h-6 w-6 text-sky-400" />
-            <span className="font-bold">Morongwa</span>
-          </Link>
-          <nav className="flex flex-wrap items-center justify-center gap-6" aria-label="Footer navigation">
+    <footer className="w-full border-t border-slate-200 bg-white mt-10">
+      <div className="max-w-7xl mx-auto px-6 py-10 space-y-6">
+        <div className="flex flex-wrap items-center justify-between gap-6">
+          <div className="text-xl font-bold text-slate-900">Qwertymates</div>
+          <nav className="flex flex-wrap items-center gap-6 text-sm">
             {footerLinks.map(({ href, label, icon: Icon }) => (
               <Link
                 key={href}
                 href={href}
-                className="flex items-center gap-2 text-slate-400 hover:text-white transition-colors text-sm font-medium"
+                className="flex items-center gap-2 text-slate-600 hover:text-slate-900 transition"
               >
                 <Icon className="h-4 w-4" />
                 {label}
@@ -29,8 +26,8 @@ export default function SiteFooter() {
             ))}
           </nav>
         </div>
-        <div className="mt-6 pt-6 border-t border-slate-800 text-center text-xs text-slate-500">
-          © {new Date().getFullYear()} Morongwa. All rights reserved.
+        <div className="text-xs text-slate-500 border-t border-slate-200 pt-4">
+          © {new Date().getFullYear()} Qwertymates. All rights reserved.
         </div>
       </div>
     </footer>

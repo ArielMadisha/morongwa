@@ -41,15 +41,16 @@ export default function AuthBackground() {
       {list.map((src, i) => (
         <div
           key={src}
-          className="absolute inset-0 bg-cover bg-center bg-no-repeat transition-opacity duration-1000"
+          className="fixed inset-0 min-h-screen bg-cover bg-center bg-no-repeat transition-opacity duration-1000 pointer-events-none"
           style={{
             backgroundImage: `url(${src})`,
+            backgroundSize: 'cover',
             opacity: i === index ? 1 : 0,
             zIndex: i === index ? 0 : -1,
           }}
         />
       ))}
-      <div className="absolute inset-0 bg-slate-900/50" style={{ zIndex: 1 }} />
+      <div className="fixed inset-0 min-h-screen bg-black/20 pointer-events-none" style={{ zIndex: 1 }} />
     </>
   );
 }

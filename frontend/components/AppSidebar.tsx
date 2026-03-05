@@ -8,6 +8,8 @@ import {
   LayoutGrid,
   ShoppingCart,
   Tv,
+  Music2,
+  Wallet,
   MessageSquare,
   Menu,
   X,
@@ -17,6 +19,8 @@ import {
   HelpCircle,
   LogOut,
   Store,
+  User,
+  BookOpen,
 } from 'lucide-react';
 
 export type SidebarVariant = 'wall' | 'client' | 'runner';
@@ -29,6 +33,10 @@ interface AppSidebarProps {
   onLogout?: () => void;
   menuOpen?: boolean;
   setMenuOpen?: (v: boolean) => void;
+  /** Hide logo when header already shows it (e.g. wall page) */
+  hideLogo?: boolean;
+  /** Sidebar is below a fixed header - stick below it */
+  belowHeader?: boolean;
 }
 
 export function AppSidebar({
@@ -39,52 +47,57 @@ export function AppSidebar({
   onLogout,
   menuOpen = false,
   setMenuOpen,
+  hideLogo = false,
+  belowHeader = false,
 }: AppSidebarProps) {
   const pathname = usePathname();
   const isActive = (href: string) => pathname === href || (href !== '/' && pathname.startsWith(href));
 
   const navItems = [
-    { href: '/wall', label: 'Home', icon: LayoutGrid, showChevron: false },
     { href: '/marketplace', label: 'QwertyHub', icon: Package, showChevron: false },
     // MyStore only shown when user has a store (created when they resell a product)
     ...(hasStore ? [{ href: '/store', label: 'MyStore', icon: Store, showChevron: false }] : []),
     { href: '/dashboard/client', label: 'Client Dashboard', icon: LayoutDashboard, showChevron: true },
     { href: '/dashboard/runner', label: 'Runner Cockpit', icon: Box, showChevron: true },
     { href: '/cart', label: 'Cart', icon: ShoppingCart, badge: cartCount, showChevron: false },
-    { href: '/morongwa-tv', label: 'MorongwaTV', icon: Tv, showChevron: false },
-    { href: '/messages', label: 'Messages', icon: MessageSquare, showChevron: false },
+    { href: '/wallet', label: 'ACBPayWallet', icon: Wallet, showChevron: false },
+    { href: '/morongwa-tv', label: 'QwertyTV', icon: Tv, showChevron: false },
+    { href: '/qwerty-music', label: 'QwertyMusic', icon: Music2, showChevron: false },
+    { href: '/messages', label: 'Morongwa', icon: MessageSquare, showChevron: false },
   ];
 
   const footerNav = [
+    { href: '/profile', label: 'Profile', icon: User },
     { href: '/pricing', label: 'Pricing', icon: Receipt },
     { href: '/support', label: 'Support', icon: HelpCircle },
   ];
 
   const sidebar = (
-    <div className="flex flex-col h-full bg-white/95 backdrop-blur-md border-r border-slate-100 w-64 shrink-0">
-      <div className="p-4 border-b border-slate-100">
-        <Link href="/wall" className="flex items-center gap-2">
-          <Package className="h-8 w-8 text-blue-600" />
-          <span className="text-xl font-bold text-slate-900">Morongwa</span>
-        </Link>
-        {userName && <p className="text-xs text-slate-500 mt-1 truncate">{userName}</p>}
-      </div>
+    <div className={`sticky self-start flex flex-col bg-white border-r border-slate-100 w-64 shrink-0 shadow-xs ${belowHeader ? 'top-14 h-[calc(100vh-3.5rem)]' : 'top-0 h-screen'}`}>
+      {!hideLogo && (
+        <div className="p-4 border-b border-slate-100">
+          <Link href="/wall" className="block">
+            <img src="/qwertymates-logo.png" alt="Qwertymates" className="h-9 w-auto max-w-full object-contain" />
+          </Link>
+          {userName && <p className="text-xs text-slate-500 mt-1 truncate">{userName}</p>}
+        </div>
+      )}
 
-      <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
+      <nav className={`flex-1 p-3 space-y-1 min-h-0 overflow-y-auto ${hideLogo ? 'pt-4' : ''}`}>
         {navItems.map(({ href, label, icon: Icon, badge, showChevron }) => (
           <Link
             key={href}
             href={href}
             onClick={() => setMenuOpen?.(false)}
-            className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-              isActive(href) ? 'bg-blue-100 text-blue-700' : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
+            className={`flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-colors ${
+              isActive(href) ? 'bg-brand-50 text-brand-700' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-800'
             }`}
           >
             <Icon className="h-5 w-5 flex-shrink-0" />
             <span className="flex-1">{label}</span>
             {showChevron && <ChevronRight className="h-4 w-4 text-slate-400" />}
             {badge != null && badge > 0 && (
-              <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-700">
+              <span className="rounded-full bg-brand-100 px-2 py-0.5 text-xs font-semibold text-brand-700">
                 {badge}
               </span>
             )}
@@ -104,6 +117,7 @@ export function AppSidebar({
             {label}
           </Link>
         ))}
+        <p className="px-3 py-2 text-xs text-slate-500">© 2026 Qwertymates.com All rights reserved</p>
         {onLogout && (
           <button
             type="button"

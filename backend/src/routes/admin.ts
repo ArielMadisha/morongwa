@@ -17,7 +17,10 @@ import TVComment from "../data/models/TVComment";
 import TVReport from "../data/models/TVReport";
 import Advert from "../data/models/Advert";
 import LandingBackground from "../data/models/LandingBackground";
+import ArtistVerification from "../data/models/ArtistVerification";
+import Song from "../data/models/Song";
 import AdminPermission, { AdminSection } from "../data/models/AdminPermission";
+import { musicUploadSong } from "../middleware/musicUpload";
 import { authenticate, AuthRequest, authorize } from "../middleware/auth";
 import { AppError } from "../middleware/errorHandler";
 import { getPaginationParams, slugify } from "../utils/helpers";
@@ -673,6 +676,156 @@ router.post("/suppliers/:id/reject", async (req: AuthRequest, res: Response, nex
   }
 });
 
+// ——— Artist verification (manual approval) ———
+router.get("/artist-verifications", async (req: AuthRequest, res: Response, next) => {
+  try {
+    const { status } = req.query;
+    const query: any = {};
+    if (status) query.status = status as string;
+    const list = await ArtistVerification.find(query)
+      .populate("userId", "name email avatar")
+      .sort({ createdAt: -1 })
+      .lean();
+    res.json({ data: list });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post("/artist-verifications/:id/approve", async (req: AuthRequest, res: Response, next) => {
+  try {
+    const av = await ArtistVerification.findById(req.params.id);
+    if (!av) throw new AppError("Not found", 404);
+    if (av.status !== "pending") throw new AppError("Not pending", 400);
+    av.status = "approved";
+    av.manualVerified = true;
+    av.verifiedAt = new Date();
+    av.verifiedBy = req.user!._id;
+    await av.save();
+    res.json({ message: "Artist approved", data: av });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post("/artist-verifications/:id/reject", async (req: AuthRequest, res: Response, next) => {
+  try {
+    const { reason } = req.body;
+    const av = await ArtistVerification.findById(req.params.id);
+    if (!av) throw new AppError("Not found", 404);
+    if (av.status !== "pending") throw new AppError("Not pending", 400);
+    av.status = "rejected";
+    av.rejectionReason = reason || "";
+    await av.save();
+    res.json({ message: "Artist rejected", data: av });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** Admin: Create artist/publisher account for a user (bypass application) */
+router.post("/artists", async (req: AuthRequest, res: Response, next) => {
+  try {
+    const { userId, type = "artist", stageName, labelName } = req.body;
+    if (!userId) throw new AppError("userId required", 400);
+    const targetUser = await User.findById(userId);
+    if (!targetUser) throw new AppError("User not found", 404);
+    const validType = ["artist", "company", "producer"].includes(type) ? type : "artist";
+    const existing = await ArtistVerification.findOne({ userId });
+    if (existing) {
+      if (existing.status === "approved") throw new AppError("User is already a verified artist", 400);
+      if (existing.status === "pending") throw new AppError("Application already pending", 400);
+    }
+    await ArtistVerification.findOneAndUpdate(
+      { userId },
+      {
+        userId,
+        type: validType,
+        stageName: stageName?.trim(),
+        labelName: labelName?.trim(),
+        status: "approved",
+        manualVerified: true,
+        verifiedAt: new Date(),
+        verifiedBy: req.user!._id,
+        $unset: { rejectionReason: 1 },
+      },
+      { upsert: true, new: true }
+    );
+    const av = await ArtistVerification.findOne({ userId }).populate("userId", "name email").lean();
+    res.status(201).json({ message: "Artist account created", data: av });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ——— Admin: Music (songs/albums) ———
+router.get("/music/songs", async (req: AuthRequest, res: Response, next) => {
+  try {
+    const songs = await Song.find()
+      .populate("userId", "name email")
+      .sort({ createdAt: -1 })
+      .lean();
+    res.json({ data: songs });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** Admin: Upload song (bypass artist verification) */
+router.post(
+  "/music/upload-song",
+  (req: AuthRequest, res: Response, next) => {
+    musicUploadSong(req, res, (err) => (err ? next(err) : next()));
+  },
+  async (req: AuthRequest, res: Response, next) => {
+    try {
+      const { userId, title, artist, songwriters, producer, genre, lyrics } = req.body;
+      if (!title?.trim()) throw new AppError("Song title is required", 400);
+      if (!artist?.trim()) throw new AppError("Artist name is required", 400);
+      if (!genre?.trim()) throw new AppError("Genre is required", 400);
+      const creatorId = userId ? (await User.findById(userId))?._id : req.user!._id;
+      if (!creatorId) throw new AppError("User not found", 404);
+
+      const files = (req as any).files as { audio?: Express.Multer.File[]; artwork?: Express.Multer.File[] };
+      const audioFile = files?.audio?.[0];
+      const artworkFile = files?.artwork?.[0];
+      if (!audioFile) throw new AppError("No audio file uploaded. Use WAV (16-bit, 44.1 kHz or higher).", 400);
+      if (!artworkFile) throw new AppError("No artwork uploaded. Use 3000x3000 JPEG or PNG.", 400);
+
+      const audioUrl = `/uploads/music/${audioFile.filename}`;
+      const artworkUrl = `/uploads/music/${artworkFile.filename}`;
+
+      const song = await Song.create({
+        type: "song",
+        title: title.trim(),
+        artist: artist.trim(),
+        songwriters: songwriters?.trim(),
+        producer: producer?.trim(),
+        genre: genre.trim(),
+        lyrics: lyrics?.trim(),
+        audioUrl,
+        artworkUrl,
+        userId: creatorId,
+      });
+
+      const tvPost = await TVPost.create({
+        creatorId,
+        type: "audio",
+        mediaUrls: [audioUrl],
+        caption: `${title.trim()} – ${artist.trim()}`,
+        genre: genre.trim(),
+        hasWatermark: true,
+        status: "approved",
+      });
+
+      const populated = await Song.findById(song._id).populate("userId", "name email").lean();
+      res.status(201).json({ data: populated, post: await TVPost.findById(tvPost._id).populate("creatorId", "name avatar").lean() });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
 // List marketplace orders (checkout orders)
 router.get("/orders", async (req: AuthRequest, res: Response, next) => {
   try {
@@ -867,6 +1020,7 @@ router.post("/products", async (req: AuthRequest, res: Response, next) => {
       images?: string[];
       price: number;
       discountPrice?: number;
+      bulkTiers?: Array<{ minQty: number; maxQty: number; price: number }>;
       currency?: string;
       stock?: number;
       outOfStock?: boolean;
@@ -875,6 +1029,7 @@ router.post("/products", async (req: AuthRequest, res: Response, next) => {
       allowResell?: boolean;
       categories?: string[];
       tags?: string[];
+      availableCountries?: string[];
     };
     const { supplierId, title, price } = body;
     if (!supplierId || !title || price == null) throw new AppError("supplierId, title, and price are required", 400);
@@ -887,6 +1042,11 @@ router.post("/products", async (req: AuthRequest, res: Response, next) => {
     let n = 1;
     while (await Product.findOne({ slug })) slug = `${slugify(title)}-${++n}`;
     const discountPrice = body.discountPrice != null ? Number(body.discountPrice) : undefined;
+    const bulkTiers = Array.isArray(body.bulkTiers)
+      ? body.bulkTiers
+          .filter((t) => t != null && Number(t.minQty) >= 0 && Number(t.maxQty) >= Number(t.minQty) && Number(t.price) >= 0)
+          .map((t) => ({ minQty: Number(t.minQty), maxQty: Number(t.maxQty), price: Number(t.price) }))
+      : undefined;
     const product = await Product.create({
       supplierId,
       title: title.trim(),
@@ -895,6 +1055,7 @@ router.post("/products", async (req: AuthRequest, res: Response, next) => {
       images,
       price: Number(price),
       ...(discountPrice != null && discountPrice >= 0 && discountPrice < Number(price) && { discountPrice }),
+      ...(bulkTiers && bulkTiers.length > 0 && { bulkTiers }),
       currency: body.currency || "ZAR",
       stock: body.stock != null ? Number(body.stock) : 0,
       outOfStock: body.outOfStock != null ? !!body.outOfStock : false,
@@ -903,6 +1064,7 @@ router.post("/products", async (req: AuthRequest, res: Response, next) => {
       allowResell: body.allowResell != null ? !!body.allowResell : true,
       categories: Array.isArray(body.categories) ? body.categories : [],
       tags: Array.isArray(body.tags) ? body.tags : [],
+      availableCountries: Array.isArray(body.availableCountries) ? body.availableCountries.filter(Boolean) : [],
       active: true,
     });
     await AuditLog.create({ action: "PRODUCT_CREATED_BY_ADMIN", user: req.user!._id, target: product._id, meta: { supplierId } });
@@ -927,7 +1089,7 @@ router.put("/products/:id", async (req: AuthRequest, res: Response, next) => {
     const product = await Product.findById(req.params.id);
     if (!product) throw new AppError("Product not found", 404);
     const body = req.body as Record<string, unknown>;
-    const allowed = ["title", "description", "images", "price", "discountPrice", "currency", "stock", "outOfStock", "sku", "sizes", "allowResell", "categories", "tags", "active"];
+    const allowed = ["title", "description", "images", "price", "discountPrice", "bulkTiers", "currency", "stock", "outOfStock", "sku", "sizes", "allowResell", "categories", "tags", "active"];
     for (const key of allowed) {
       if (body[key] !== undefined) {
         if (key === "discountPrice") {
@@ -938,6 +1100,16 @@ router.put("/products/:id", async (req: AuthRequest, res: Response, next) => {
             const num = Number(val);
             const price = product.price ?? 0;
             if (num >= 0 && num < price) (product as any).discountPrice = num;
+          }
+        } else if (key === "bulkTiers") {
+          const val = body[key];
+          if (!Array.isArray(val)) {
+            (product as any).bulkTiers = undefined;
+          } else {
+            const tiers = val
+              .filter((t: any) => t != null && Number(t.minQty) >= 0 && Number(t.maxQty) >= Number(t.minQty) && Number(t.price) >= 0)
+              .map((t: any) => ({ minQty: Number(t.minQty), maxQty: Number(t.maxQty), price: Number(t.price) }));
+            (product as any).bulkTiers = tiers.length > 0 ? tiers : undefined;
           }
         } else {
           (product as any)[key] = key === "active" ? !!body[key] : key === "images" && Array.isArray(body[key]) ? body[key] : body[key];

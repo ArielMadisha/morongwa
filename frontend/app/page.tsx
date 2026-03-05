@@ -6,46 +6,45 @@ import { AuthRedirectToWall } from '@/components/AuthRedirectToWall';
 
 export default function Home() {
   return (
-    <div className="relative min-h-screen overflow-hidden bg-gradient-to-br from-sky-50 via-blue-50 to-white text-slate-900">
+    <div className="relative min-h-screen overflow-hidden text-slate-900">
       <AuthRedirectToWall />
-      <div className="pointer-events-none absolute inset-0">
-        <div className="absolute -left-20 -top-24 h-96 w-96 rounded-full bg-gradient-to-br from-sky-200/60 to-blue-300/35 blur-3xl" />
-        <div className="absolute right-[-10rem] top-12 h-[28rem] w-[28rem] rounded-full bg-gradient-to-tr from-cyan-200/60 via-blue-200/45 to-indigo-200/50 blur-3xl" />
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_15%_20%,rgba(59,130,246,0.12),transparent_42%),radial-gradient(circle_at_80%_0%,rgba(14,165,233,0.12),transparent_38%),radial-gradient(circle_at_55%_78%,rgba(79,70,229,0.12),transparent_45%)]" />
+      <div className="pointer-events-none absolute inset-0 z-0">
+        <div className="absolute -left-20 -top-24 h-96 w-96 rounded-full bg-brand-200/50 blur-3xl" />
+        <div className="absolute right-[-10rem] top-12 h-[28rem] w-[28rem] rounded-full bg-brand-300/40 blur-3xl" />
       </div>
 
-      <SiteHeader minimal />
+      <div className="relative z-10">
+        <SiteHeader minimal />
+      </div>
 
       {/* Hero Section */}
-      <main className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20">
+      <main className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 sm:py-20">
         <div className="grid lg:grid-cols-[1.1fr_0.9fr] gap-12 items-center">
           <div className="space-y-6">
-            <div className="inline-flex items-center gap-2 text-sm font-semibold text-sky-700 bg-white/80 backdrop-blur-md px-4 py-2 rounded-full shadow-sm border border-sky-100">
+            <div className="inline-flex items-center gap-2 text-sm font-semibold text-brand-700 bg-brand-50 backdrop-blur-md px-4 py-2 rounded-full shadow-xs border border-brand-100">
               <Sparkles className="h-4 w-4" />
               Join the Qwerty Revolution
             </div>
-            <h1 className="text-5xl md:text-6xl font-extrabold text-slate-900 leading-tight">
-              <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-indigo-600">
-                The Digital Home for Doers, Sellers & Creators.
-              </span>
+            <h1 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-extrabold text-slate-900 leading-tight">
+              The Digital Home for <span className="text-brand-600">Doers</span>, Sellers & Creators.
             </h1>
-            <div className="flex flex-col sm:flex-row gap-4">
+            <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
               <Link
                 href="/register"
-                className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white px-8 py-4 rounded-xl hover:from-blue-700 hover:to-indigo-700 font-semibold text-lg transition-all inline-flex items-center justify-center shadow-lg shadow-blue-600/20"
+                className="min-h-[44px] bg-brand-500 text-white px-6 py-3 sm:px-8 sm:py-4 rounded-lg hover:bg-brand-600 font-semibold text-base sm:text-lg transition-all inline-flex items-center justify-center shadow-sm"
               >
                 Get Started
                 <ArrowRight className="ml-2 h-5 w-5" />
               </Link>
               <Link
                 href="/register"
-                className="bg-white/80 text-blue-700 px-8 py-4 rounded-xl hover:bg-white font-semibold text-lg border-2 border-blue-100 transition-all inline-flex items-center justify-center shadow-sm"
+                className="min-h-[44px] bg-white text-slate-800 px-6 py-3 sm:px-8 sm:py-4 rounded-lg hover:bg-slate-50 font-semibold text-base sm:text-lg border border-slate-200 transition-all inline-flex items-center justify-center shadow-xs"
               >
                 Register
               </Link>
               <Link
                 href="/login"
-                className="bg-white/80 text-blue-700 px-8 py-4 rounded-xl hover:bg-white font-semibold text-lg border-2 border-blue-100 transition-all inline-flex items-center justify-center shadow-sm"
+                className="min-h-[44px] text-slate-600 hover:text-slate-900 font-semibold text-base sm:text-lg inline-flex items-center justify-center"
               >
                 Sign in
               </Link>
@@ -56,7 +55,7 @@ export default function Home() {
                 Live platform uptime
               </div>
               <div className="flex items-center gap-2">
-                <span className="h-2 w-2 rounded-full bg-blue-500" />
+                <span className="h-2 w-2 rounded-full bg-brand-500" />
                 Escrow-secured payouts
               </div>
             </div>
@@ -66,10 +65,10 @@ export default function Home() {
         </div>
 
         {/* Features */}
-        <div className="mt-24 grid md:grid-cols-2 lg:grid-cols-4 gap-8">
-          <div className="bg-white/85 backdrop-blur-md p-8 rounded-2xl shadow-lg hover:shadow-xl transition-shadow border border-slate-100">
-            <div className="bg-blue-100 w-16 h-16 rounded-full flex items-center justify-center mb-6">
-              <UserCircle className="h-8 w-8 text-blue-600" />
+        <div className="mt-12 sm:mt-24 grid sm:grid-cols-2 lg:grid-cols-4 gap-6 sm:gap-8">
+          <div className="bg-white/85 backdrop-blur-md p-6 sm:p-8 rounded-lg shadow-sm hover:shadow-md transition-shadow border border-slate-100">
+            <div className="bg-brand-50 w-16 h-16 rounded-full flex items-center justify-center mb-6">
+              <UserCircle className="h-8 w-8 text-brand-600" />
             </div>
             <h3 className="text-xl font-bold text-slate-900 mb-3">Trusted Runners</h3>
             <p className="text-slate-600">
@@ -77,8 +76,8 @@ export default function Home() {
             </p>
           </div>
 
-          <div className="bg-white/85 backdrop-blur-md p-8 rounded-2xl shadow-lg hover:shadow-xl transition-shadow border border-slate-100">
-            <div className="bg-green-100 w-16 h-16 rounded-full flex items-center justify-center mb-6">
+          <div className="bg-white/85 backdrop-blur-md p-6 sm:p-8 rounded-lg shadow-sm hover:shadow-md transition-shadow border border-slate-100">
+            <div className="bg-emerald-100 w-16 h-16 rounded-full flex items-center justify-center mb-6">
               <Shield className="h-8 w-8 text-green-600" />
             </div>
             <h3 className="text-xl font-bold text-slate-900 mb-3">Secure Payments</h3>
@@ -87,9 +86,9 @@ export default function Home() {
             </p>
           </div>
 
-          <div className="bg-white/85 backdrop-blur-md p-8 rounded-2xl shadow-lg hover:shadow-xl transition-shadow border border-slate-100">
-            <div className="bg-purple-100 w-16 h-16 rounded-full flex items-center justify-center mb-6">
-              <MessageSquare className="h-8 w-8 text-purple-600" />
+          <div className="bg-white/85 backdrop-blur-md p-6 sm:p-8 rounded-lg shadow-sm hover:shadow-md transition-shadow border border-slate-100">
+            <div className="bg-violet-100 w-16 h-16 rounded-full flex items-center justify-center mb-6">
+              <MessageSquare className="h-8 w-8 text-violet-600" />
             </div>
             <h3 className="text-xl font-bold text-slate-900 mb-3">Real-time Chat</h3>
             <p className="text-slate-600">
@@ -97,7 +96,7 @@ export default function Home() {
             </p>
           </div>
 
-          <div className="bg-white/85 backdrop-blur-md p-8 rounded-2xl shadow-lg hover:shadow-xl transition-shadow border border-slate-100">
+          <div className="bg-white/85 backdrop-blur-md p-6 sm:p-8 rounded-2xl shadow-lg hover:shadow-xl transition-shadow border border-slate-100">
             <div className="bg-amber-100 w-16 h-16 rounded-full flex items-center justify-center mb-6">
               <Store className="h-8 w-8 text-amber-600" />
             </div>
@@ -119,21 +118,21 @@ export default function Home() {
           <h2 className="text-3xl font-bold text-center text-slate-900 mb-12">How It Works</h2>
           <div className="grid md:grid-cols-3 gap-8">
             <div className="text-center">
-              <div className="bg-gradient-to-br from-blue-600 to-indigo-600 text-white w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-4 text-xl font-bold shadow-lg shadow-blue-600/30">
+              <div className="bg-brand-500 text-white w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-4 text-xl font-bold shadow-sm">
                 1
               </div>
               <h3 className="text-lg font-semibold text-slate-900 mb-2">Post Your Task</h3>
               <p className="text-slate-600">Describe what you need done and set your budget</p>
             </div>
             <div className="text-center">
-              <div className="bg-gradient-to-br from-blue-600 to-indigo-600 text-white w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-4 text-xl font-bold shadow-lg shadow-blue-600/30">
+              <div className="bg-brand-500 text-white w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-4 text-xl font-bold shadow-sm">
                 2
               </div>
               <h3 className="text-lg font-semibold text-slate-900 mb-2">Get Matched</h3>
               <p className="text-slate-600">Nearby runners accept your task and get to work</p>
             </div>
             <div className="text-center">
-              <div className="bg-gradient-to-br from-blue-600 to-indigo-600 text-white w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-4 text-xl font-bold shadow-lg shadow-blue-600/30">
+              <div className="bg-brand-500 text-white w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-4 text-xl font-bold shadow-sm">
                 3
               </div>
               <h3 className="text-lg font-semibold text-slate-900 mb-2">Task Complete</h3>
@@ -149,8 +148,8 @@ export default function Home() {
           <div className="grid md:grid-cols-4 gap-8 mb-8">
             <div>
               <div className="flex items-center space-x-2 mb-4">
-                <Package className="h-6 w-6 text-blue-600" />
-                <span className="text-lg font-bold text-slate-900">Morongwa</span>
+                <Package className="h-6 w-6 text-brand-600" />
+                <span className="text-lg font-bold text-slate-900">Qwertymates</span>
               </div>
               <p className="text-sm text-slate-600">Your errand marketplace, built for trust and speed.</p>
             </div>
@@ -158,36 +157,36 @@ export default function Home() {
             <div>
               <h4 className="font-semibold text-slate-900 mb-4 text-sm">Legal</h4>
               <ul className="space-y-2 text-sm">
-                <li><Link href="/policies/terms-of-service" className="text-slate-600 hover:text-sky-600">Terms of Service</Link></li>
-                <li><Link href="/policies/privacy-policy" className="text-slate-600 hover:text-sky-600">Privacy Policy</Link></li>
-                <li><Link href="/policies/cookies-tracking" className="text-slate-600 hover:text-sky-600">Cookies</Link></li>
+                <li><Link href="/policies/terms-of-service" className="text-slate-600 hover:text-brand-600">Terms of Service</Link></li>
+                <li><Link href="/policies/privacy-policy" className="text-slate-600 hover:text-brand-600">Privacy Policy</Link></li>
+                <li><Link href="/policies/cookies-tracking" className="text-slate-600 hover:text-brand-600">Cookies</Link></li>
               </ul>
             </div>
 
             <div>
               <h4 className="font-semibold text-slate-900 mb-4 text-sm">Platform</h4>
               <ul className="space-y-2 text-sm">
-                <li><Link href="/policies/pricing-fees" className="text-slate-600 hover:text-sky-600">Pricing & Fees</Link></li>
-                <li><Link href="/policies/escrow-payouts" className="text-slate-600 hover:text-sky-600">Escrow & Payouts</Link></li>
-                <li><Link href="/marketplace" className="text-slate-600 hover:text-sky-600">Marketplace</Link></li>
-                <li><Link href="/policies/suppliers-manufacturers" className="text-slate-600 hover:text-sky-600">Suppliers & Manufacturers</Link></li>
-                <li><Link href="/policies/acceptable-use" className="text-slate-600 hover:text-sky-600">Community Guidelines</Link></li>
+                <li><Link href="/policies/pricing-fees" className="text-slate-600 hover:text-brand-600">Pricing & Fees</Link></li>
+                <li><Link href="/policies/escrow-payouts" className="text-slate-600 hover:text-brand-600">Escrow & Payouts</Link></li>
+                <li><Link href="/marketplace" className="text-slate-600 hover:text-brand-600">Marketplace</Link></li>
+                <li><Link href="/policies/suppliers-manufacturers" className="text-slate-600 hover:text-brand-600">Suppliers & Manufacturers</Link></li>
+                <li><Link href="/policies/acceptable-use" className="text-slate-600 hover:text-brand-600">Community Guidelines</Link></li>
               </ul>
             </div>
 
             <div>
               <h4 className="font-semibold text-slate-900 mb-4 text-sm">Resources</h4>
               <ul className="space-y-2 text-sm">
-                <li><Link href="/policies" className="text-slate-600 hover:text-sky-600">All Policies</Link></li>
-                <li><Link href="/policies/security-vulnerability" className="text-slate-600 hover:text-sky-600">Security</Link></li>
-                <li><Link href="/policies/consumer-complaints" className="text-slate-600 hover:text-sky-600">Support</Link></li>
+                <li><Link href="/policies" className="text-slate-600 hover:text-brand-600">All Policies</Link></li>
+                <li><Link href="/policies/security-vulnerability" className="text-slate-600 hover:text-brand-600">Security</Link></li>
+                <li><Link href="/policies/consumer-complaints" className="text-slate-600 hover:text-brand-600">Support</Link></li>
               </ul>
             </div>
           </div>
 
           <div className="border-t border-slate-100 pt-8 flex justify-between items-center">
             <p className="text-slate-500 text-sm">
-              © {new Date().getFullYear()} Morongwa. All rights reserved.
+              © {new Date().getFullYear()} Qwertymates. All rights reserved.
             </p>
             <p className="text-slate-500 text-xs">Serving Botswana · Lesotho · Namibia · South Africa · Zimbabwe · Zambia</p>
           </div>

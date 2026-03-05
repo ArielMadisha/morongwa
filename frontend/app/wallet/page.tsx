@@ -12,14 +12,17 @@ import {
   TrendingUp,
   Loader2,
   Send,
+  Wallet,
+  ArrowDownToLine,
 } from 'lucide-react';
+import { SearchButton } from '@/components/SearchButton';
 import { useAuth } from '@/contexts/AuthContext';
 import ProtectedRoute from '@/components/ProtectedRoute';
 import { walletAPI } from '@/lib/api';
 import { useCartAndStores } from '@/lib/useCartAndStores';
 import { AppSidebar, AppSidebarMenuButton } from '@/components/AppSidebar';
-import { ProfileDropdown } from '@/components/ProfileDropdown';
 import { AdvertSlot } from '@/components/AdvertSlot';
+import { MobileBottomNav } from '@/components/MobileBottomNav';
 
 function WalletDashboard() {
   const { user, logout } = useAuth();
@@ -35,7 +38,9 @@ function WalletDashboard() {
   const [transactions, setTransactions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [topUpAmount, setTopUpAmount] = useState('');
+  const [withdrawAmount, setWithdrawAmount] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isWithdrawing, setIsWithdrawing] = useState(false);
 
   useEffect(() => {
     fetchWalletData();
@@ -76,6 +81,30 @@ function WalletDashboard() {
     }
   };
 
+  const handleWithdraw = async () => {
+    const amount = parseFloat(withdrawAmount);
+    if (!amount || amount < 10) {
+      toast.error('Minimum withdrawal is R10');
+      return;
+    }
+    if (amount > balance) {
+      toast.error('Insufficient balance');
+      return;
+    }
+
+    setIsWithdrawing(true);
+    try {
+      await walletAPI.withdraw(amount);
+      toast.success(`R${amount.toFixed(2)} withdrawal requested. Processed within 24 hours.`);
+      setWithdrawAmount('');
+      fetchWalletData();
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || 'Withdrawal failed');
+    } finally {
+      setIsWithdrawing(false);
+    }
+  };
+
   const getTransactionIcon = (type: string) => {
     switch (type) {
       case 'topup':
@@ -106,32 +135,40 @@ function WalletDashboard() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-sky-50 via-blue-50 to-white text-slate-900 flex">
-      <AppSidebar
-        variant="wall"
-        userName={user?.name}
-        cartCount={cartCount}
-        hasStore={hasStore}
-        onLogout={handleLogout}
-        menuOpen={menuOpen}
-        setMenuOpen={setMenuOpen}
-      />
-      <div className="flex-1 flex flex-col min-w-0 overflow-visible">
-        <header className="bg-white/85 backdrop-blur-md border-b border-slate-100 shadow-sm flex-shrink-0 overflow-visible">
-          <div className="px-4 sm:px-6 lg:px-8 py-4">
-            <div className="flex items-center justify-between gap-4">
-              <div className="flex items-center gap-3 min-w-0">
-                <AppSidebarMenuButton onClick={() => setMenuOpen(true)} />
-                <p className="text-sm text-slate-600 truncate">Welcome back, {user?.name}</p>
-              </div>
-              <div className="shrink-0">
-                <ProfileDropdown userName={user?.name} />
-              </div>
+    <div className="min-h-screen flex flex-col bg-gradient-to-br from-sky-50 via-blue-50 to-white text-slate-900">
+      <header className="sticky top-0 z-40 w-full bg-white/95 backdrop-blur-md border-b border-slate-100 shadow-sm flex-shrink-0">
+        <div className="px-4 sm:px-6 lg:px-8 py-2 sm:py-3">
+          <div className="flex items-center gap-2 sm:gap-4 min-w-0">
+            <Link href="/wall" className="shrink-0 flex items-center" aria-label="Home">
+              <img src="/qwertymates-logo-icon.png" alt="Qwertymates" className="h-8 w-8 object-contain lg:hidden" />
+              <img src="/qwertymates-logo.png" alt="Qwertymates" className="h-8 w-auto object-contain hidden lg:block" />
+            </Link>
+            <AppSidebarMenuButton onClick={() => setMenuOpen(true)} />
+            <div className="flex items-center gap-2 min-w-0 shrink-0">
+              <Wallet className="h-5 w-5 text-sky-600" />
+              <h1 className="text-base sm:text-lg font-semibold text-slate-900 truncate">ACBPayWallet</h1>
             </div>
+            <div className="flex-1 min-w-0" />
+            <SearchButton />
           </div>
-        </header>
-        <div className="flex-1 flex gap-6 pt-6 min-h-0 overflow-auto">
-          <main className="flex-1 min-w-0 max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+        </div>
+      </header>
+
+      <div className="flex flex-1 min-h-0">
+        <AppSidebar
+          variant="wall"
+          userName={user?.name}
+          cartCount={cartCount}
+          hasStore={hasStore}
+          onLogout={handleLogout}
+          menuOpen={menuOpen}
+          setMenuOpen={setMenuOpen}
+          hideLogo
+          belowHeader
+        />
+        <div className="flex-1 flex gap-2 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain">
+          <main className="flex-1 min-w-0 px-4 sm:px-6 lg:px-8 py-4 pb-24 lg:pb-6">
+          <div className="max-w-6xl mx-auto">
           {loading ? (
             <div className="flex min-h-[400px] items-center justify-center">
               <Loader2 className="h-8 w-8 animate-spin text-sky-600" />
@@ -178,7 +215,47 @@ function WalletDashboard() {
                     className="w-full rounded-full bg-gradient-to-r from-sky-500 via-cyan-500 to-teal-500 px-6 py-3 font-semibold text-white shadow-lg shadow-sky-200 transition hover:scale-[1.01] disabled:opacity-50"
                   >
                     {isSubmitting ? <Loader2 className="inline h-4 w-4 animate-spin mr-2" /> : null}
-                    Top up wallet
+                    Top up ACBPayWallet
+                  </button>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-white/60 bg-white/80 p-6 shadow-xl shadow-sky-50 backdrop-blur">
+                <div className="mb-6">
+                  <p className="text-xs uppercase tracking-[0.2em] text-sky-600">Withdraw</p>
+                  <h3 className="mt-1 text-2xl font-semibold text-slate-900">Withdraw to bank</h3>
+                </div>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-700 mb-2">Amount (ZAR)</label>
+                    <input
+                      type="number"
+                      placeholder="Enter amount..."
+                      value={withdrawAmount}
+                      onChange={(e) => setWithdrawAmount(e.target.value)}
+                      className="w-full rounded-lg border border-slate-200 bg-white/80 px-4 py-3 text-lg font-semibold text-slate-900 transition focus:border-sky-300 focus:outline-none focus:ring-2 focus:ring-sky-100"
+                    />
+                  </div>
+                  <p className="text-xs text-slate-600">Min R10. Withdrawals processed within 24 hours.</p>
+                  <div className="grid grid-cols-4 gap-3">
+                    {[50, 100, 250, 500].map((amt) => (
+                      <button
+                        key={amt}
+                        onClick={() => setWithdrawAmount(amt.toString())}
+                        disabled={amt > balance}
+                        className="rounded-lg border border-slate-200 bg-white/80 px-3 py-2 text-sm font-semibold text-slate-700 transition hover:border-sky-300 hover:bg-sky-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        R{amt}
+                      </button>
+                    ))}
+                  </div>
+                  <button
+                    onClick={handleWithdraw}
+                    disabled={isWithdrawing || !withdrawAmount || parseFloat(withdrawAmount) < 10 || parseFloat(withdrawAmount) > balance}
+                    className="w-full rounded-full border-2 border-sky-500 bg-white px-6 py-3 font-semibold text-sky-600 shadow-lg shadow-sky-100 transition hover:bg-sky-50 disabled:opacity-50"
+                  >
+                    {isWithdrawing ? <Loader2 className="inline h-4 w-4 animate-spin mr-2" /> : <ArrowDownToLine className="inline h-4 w-4 mr-2" />}
+                    Withdraw funds
                   </button>
                 </div>
               </div>
@@ -203,19 +280,56 @@ function WalletDashboard() {
                 ) : (
                   <div className="space-y-3">
                     {transactions.map((tx, idx) => (
-                      <div key={idx} className="flex items-center justify-between rounded-lg border border-slate-100 bg-white/80 p-4 transition hover:shadow-md">
-                        <div className="flex items-center gap-3">
-                          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-100">
-                            {getTransactionIcon(tx.type)}
+                      <div key={idx} className="rounded-lg border border-slate-100 bg-white/80 p-4 transition hover:shadow-md">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-100">
+                              {getTransactionIcon(tx.type)}
+                            </div>
+                            <div>
+                              <p className="font-semibold text-slate-900 capitalize">
+                                {tx.type === 'debit' && tx.reference?.startsWith('ORDER-') ? (
+                                  <Link href={`/checkout/order/${tx.reference.replace('ORDER-', '')}`} className="hover:text-sky-600">
+                                    Order
+                                  </Link>
+                                ) : (
+                                  tx.type
+                                )}
+                              </p>
+                              <p className="text-xs text-slate-600">{new Date(tx.createdAt).toLocaleDateString()}</p>
+                            </div>
                           </div>
-                          <div>
-                            <p className="font-semibold text-slate-900 capitalize">{tx.type}</p>
-                            <p className="text-xs text-slate-600">{new Date(tx.createdAt).toLocaleDateString()}</p>
-                          </div>
+                          <p className={`font-bold ${getTransactionColor(tx.type)}`}>
+                            {['topup', 'refund'].includes(tx.type) ? '+' : '-'}R{Math.abs(tx.amount).toFixed(2)}
+                          </p>
                         </div>
-                        <p className={`font-bold ${getTransactionColor(tx.type)}`}>
-                          {['topup', 'refund'].includes(tx.type) ? '+' : '-'}R{Math.abs(tx.amount).toFixed(2)}
-                        </p>
+                        {tx.orderBreakdown && (
+                          <div className="mt-3 pt-3 border-t border-slate-100 text-sm space-y-1 text-slate-600">
+                            {tx.orderBreakdown.items?.map((item: any, i: number) => (
+                              <div key={i} className="flex justify-between">
+                                <span>{item.title}{item.qty > 1 ? ` ×${item.qty}` : ''}</span>
+                                <span>R{((item.price ?? 0) * (item.qty ?? 1)).toFixed(0)}</span>
+                              </div>
+                            ))}
+                            {tx.orderBreakdown.shippingBreakdown?.length > 1 ? (
+                              tx.orderBreakdown.shippingBreakdown.map((s: any, i: number) => (
+                                <div key={i} className="flex justify-between">
+                                  <span>Shipping ({s.storeName})</span>
+                                  <span>R{(s.shippingCost ?? 0).toFixed(0)}</span>
+                                </div>
+                              ))
+                            ) : tx.orderBreakdown.shippingBreakdown?.[0] ? (
+                              <div className="flex justify-between">
+                                <span>Shipping Fee</span>
+                                <span>R{(tx.orderBreakdown.shippingBreakdown[0].shippingCost ?? 0).toFixed(0)}</span>
+                              </div>
+                            ) : null}
+                            <div className="flex justify-between font-medium text-slate-800 pt-1">
+                              <span>Total</span>
+                              <span>R{Math.abs(tx.amount).toFixed(0)}</span>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -264,10 +378,12 @@ function WalletDashboard() {
             </div>
           </div>
           )}
+          </div>
           </main>
-          <AdvertSlot />
+          <AdvertSlot belowHeader />
         </div>
       </div>
+      <MobileBottomNav cartCount={cartCount} hasStore={hasStore} />
     </div>
   );
 }

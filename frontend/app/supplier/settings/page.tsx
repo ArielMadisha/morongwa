@@ -10,7 +10,8 @@ import toast from 'react-hot-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import { useCartAndStores } from '@/lib/useCartAndStores';
 import { AppSidebar, AppSidebarMenuButton } from '@/components/AppSidebar';
-import { ProfileDropdown } from '@/components/ProfileDropdown';
+import { SearchButton } from '@/components/SearchButton';
+import { MobileBottomNav } from '@/components/MobileBottomNav';
 
 export default function SupplierSettingsPage() {
   const { user, logout } = useAuth();
@@ -71,9 +72,10 @@ export default function SupplierSettingsPage() {
         <div className="min-h-screen bg-gradient-to-br from-slate-50 via-amber-50/20 to-sky-50 text-slate-800 flex">
           <AppSidebar variant="wall" userName={user?.name} cartCount={cartCount} hasStore={hasStore} onLogout={handleLogout} menuOpen={menuOpen} setMenuOpen={setMenuOpen} />
           <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-            <header className="bg-white/85 backdrop-blur-md border-b border-slate-100 px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between gap-4">
+            <header className="bg-white/85 backdrop-blur-md border-b border-slate-100 px-4 sm:px-6 lg:px-8 py-3 sm:py-4 flex items-center justify-between gap-3 sm:gap-4">
               <AppSidebarMenuButton onClick={() => setMenuOpen(true)} />
-              <ProfileDropdown userName={user?.name} className="ml-auto" />
+              <div className="flex-1 min-w-0" />
+              <SearchButton />
             </header>
             <main className="flex-1 overflow-y-auto px-4 sm:px-6 lg:px-8 py-8 flex items-center justify-center">
               <div className="text-center">
@@ -92,11 +94,10 @@ export default function SupplierSettingsPage() {
       <div className="min-h-screen bg-gradient-to-br from-slate-50 via-amber-50/20 to-sky-50 text-slate-800 flex">
         <AppSidebar variant="wall" userName={user?.name} cartCount={cartCount} hasStore={hasStore} onLogout={handleLogout} menuOpen={menuOpen} setMenuOpen={setMenuOpen} />
         <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-          <header className="bg-white/85 backdrop-blur-md border-b border-slate-100 px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between gap-4">
+          <header className="bg-white/85 backdrop-blur-md border-b border-slate-100 px-4 sm:px-6 lg:px-8 py-3 sm:py-4 flex items-center justify-between gap-3 sm:gap-4">
             <AppSidebarMenuButton onClick={() => setMenuOpen(true)} />
-            <ProfileDropdown userName={user?.name} className="ml-auto" />
           </header>
-          <main className="flex-1 overflow-y-auto px-4 sm:px-6 lg:px-8 py-8">
+          <main className="flex-1 overflow-y-auto px-4 sm:px-6 lg:px-8 py-8 pb-24 lg:pb-8">
             <div className="max-w-xl mx-auto">
               <h1 className="text-2xl font-bold text-slate-900 mb-2">Supplier settings</h1>
               <p className="text-slate-600 mb-6">Configure shipping, store info, and add products.</p>
@@ -192,6 +193,7 @@ export default function SupplierSettingsPage() {
             </div>
           </main>
         </div>
+        <MobileBottomNav cartCount={cartCount} hasStore={hasStore} />
       </div>
     </ProtectedRoute>
   );

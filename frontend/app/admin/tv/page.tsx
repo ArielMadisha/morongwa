@@ -93,7 +93,7 @@ export default function AdminTVPage() {
             <div className="flex items-center gap-3">
               <Tv className="h-8 w-8 text-sky-600" />
               <div>
-                <h1 className="text-xl font-semibold text-slate-900">Morongwa-TV</h1>
+                <h1 className="text-xl font-semibold text-slate-900">QwertyTV</h1>
                 <p className="text-sm text-slate-500">Moderate posts and reports</p>
               </div>
             </div>

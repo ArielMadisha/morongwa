@@ -38,48 +38,34 @@ export function SetPictureOptionsModal({
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
-      <div className="bg-white rounded-2xl shadow-xl max-w-sm w-full overflow-hidden">
-        <div className="p-4 border-b border-slate-100">
-          <h2 className="text-lg font-semibold text-slate-900">Use this picture for</h2>
-        </div>
+    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center px-4">
+      <div className="w-full max-w-md rounded-2xl bg-white shadow-xl border border-slate-200 p-6">
+        <h3 className="text-lg font-semibold text-slate-900 mb-4">Use this picture for</h3>
+
         {previewUrl && (
-          <div className="p-4 flex justify-center">
-            <div className="w-32 h-32 rounded-xl overflow-hidden bg-slate-100">
-              <img src={previewUrl} alt="Preview" className="w-full h-full object-cover" />
-            </div>
+          <div className="rounded-xl overflow-hidden border border-slate-200 mb-6">
+            <img src={previewUrl} alt="Preview" className="w-full h-64 object-cover" />
           </div>
         )}
-        <div className="p-4 space-y-2">
+
+        <div className="space-y-3">
           <button
-            onClick={async () => {
-              onSetProfilePic();
-              onClose();
-            }}
-            className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border border-slate-200 hover:bg-sky-50 hover:border-sky-200 transition-colors text-left"
+            onClick={() => { onSetProfilePic(); onClose(); }}
+            className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border border-slate-200 hover:bg-brand-50 hover:border-brand-200 transition text-left"
           >
-            <div className="w-10 h-10 rounded-full bg-sky-100 flex items-center justify-center">
-              <User className="h-5 w-5 text-sky-600" />
-            </div>
+            <User className="h-5 w-5 text-brand-600" />
             <span className="font-medium text-slate-800">Set as profile picture</span>
           </button>
           <button
-            onClick={() => {
-              onSetStripBackground();
-              onClose();
-            }}
-            className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border border-slate-200 hover:bg-sky-50 hover:border-sky-200 transition-colors text-left"
+            onClick={() => { onSetStripBackground(); onClose(); }}
+            className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border border-slate-200 hover:bg-brand-50 hover:border-brand-200 transition text-left"
           >
-            <div className="w-10 h-10 rounded-full bg-sky-100 flex items-center justify-center">
-              <Image className="h-5 w-5 text-sky-600" />
-            </div>
+            <Image className="h-5 w-5 text-brand-600" />
             <span className="font-medium text-slate-800">Set as strip background</span>
           </button>
-        </div>
-        <div className="p-4 pt-0">
           <button
             onClick={onClose}
-            className="w-full px-4 py-2 rounded-xl border border-slate-200 text-slate-600 font-medium hover:bg-slate-50"
+            className="w-full px-4 py-3 text-center rounded-xl bg-slate-100 text-slate-700 hover:bg-slate-200 transition"
           >
             Cancel
           </button>

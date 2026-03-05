@@ -18,15 +18,20 @@ export function AdvertTile({ _id, title, imageUrl, linkUrl }: AdvertTileProps) {
   const isExternal = href.startsWith('http');
 
   const content = (
-    <div className="relative overflow-hidden rounded-xl border border-slate-100 bg-white shadow-sm aspect-square">
-      <img
-        src={imageUrl}
-        alt={title}
-        className="w-full h-full object-cover"
-      />
-      <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-2">
-        <span className="text-[10px] uppercase text-sky-200">Sponsored</span>
-        <p className="text-white text-sm font-medium line-clamp-2">{title}</p>
+    <div className="rounded-lg overflow-hidden bg-white shadow-xs hover:shadow-md transition cursor-pointer">
+      <div className="relative">
+        <img
+          src={imageUrl}
+          alt={title}
+          className="h-56 w-full object-cover rounded-t-lg"
+        />
+        <span className="absolute top-2 right-2 px-2 py-0.5 text-xs rounded-full bg-brand-50 text-brand-700 border border-brand-100">
+          Sponsored
+        </span>
+      </div>
+      <div className="p-2">
+        <h3 className="font-semibold text-slate-800 line-clamp-1 text-sm">{title}</h3>
+        <p className="text-xs text-slate-500 mt-0.5">Tap to view more</p>
       </div>
     </div>
   );

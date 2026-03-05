@@ -158,16 +158,19 @@ router.get("/wall/me", authenticate, async (req: AuthRequest, res: Response, nex
       .map((p) => p.productId)
       .filter(Boolean)
       .map((p) => (p as any)._id);
-    const products = await Product.find({ _id: { $in: productIds }, active: true })
+    // Include inactive products so reseller sees items they added (supplier may have deactivated)
+    const products = await Product.find({ _id: { $in: productIds } })
       .populate("supplierId", "storeName")
       .lean();
     const productMap = new Map(products.map((p: any) => [p._id.toString(), p]));
-    const wallProducts = (wall.products as any[]).map((wp) => ({
-      productId: (wp.productId as any)?._id ?? wp.productId,
-      product: productMap.get((wp.productId as any)?._id?.toString?.() ?? wp.productId?.toString?.()),
-      resellerCommissionPct: wp.resellerCommissionPct ?? 5,
-      addedAt: wp.addedAt,
-    }));
+    const wallProducts = (wall.products as any[])
+      .map((wp) => ({
+        productId: (wp.productId as any)?._id ?? wp.productId,
+        product: productMap.get((wp.productId as any)?._id?.toString?.() ?? wp.productId?.toString?.()),
+        resellerCommissionPct: wp.resellerCommissionPct ?? 5,
+        addedAt: wp.addedAt,
+      }))
+      .filter((wp) => wp.product != null);
 
     res.json({
       data: {

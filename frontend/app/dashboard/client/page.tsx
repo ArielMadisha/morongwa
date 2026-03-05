@@ -24,11 +24,13 @@ import {
   X,
   ShoppingCart,
   Store,
+  LayoutDashboard,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { AppSidebar, AppSidebarMenuButton } from '@/components/AppSidebar';
-import { ProfileDropdown } from '@/components/ProfileDropdown';
+import { SearchButton } from '@/components/SearchButton';
 import { AdvertSlot } from '@/components/AdvertSlot';
+import { MobileBottomNav } from '@/components/MobileBottomNav';
 
 function ClientDashboard() {
   const { user, logout } = useAuth();
@@ -281,7 +283,7 @@ function ClientDashboard() {
     const raw = address.trim();
     if (raw.length < 2) return null;
     const queries = buildGeocodeFallbacks(raw);
-    const opts = { headers: { 'User-Agent': 'MorongwaApp/1.0', Accept: 'application/json' } };
+    const opts = { headers: { 'User-Agent': 'QwertymatesApp/1.0', Accept: 'application/json' } };
     try {
       for (const q of queries) {
         const res = await fetch(
@@ -447,37 +449,43 @@ function ClientDashboard() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-sky-50 via-blue-50 to-white text-slate-900 flex">
-      <AppSidebar
-        variant="client"
-        userName={user?.name}
-        cartCount={cartCount}
-        hasStore={hasStore}
-        onLogout={handleLogout}
-        menuOpen={menuOpen}
-        setMenuOpen={setMenuOpen}
-      />
-
-      {/* Main content area */}
-      <div className="flex-1 flex flex-col min-w-0 overflow-visible">
-        <header className="bg-white/85 backdrop-blur-md border-b border-slate-100 shadow-sm flex-shrink-0 overflow-visible">
-          <div className="px-4 sm:px-6 lg:px-8 py-4">
-            <div className="flex items-center justify-between gap-4">
-              <div className="flex items-center gap-3 min-w-0">
-                <AppSidebarMenuButton onClick={() => setMenuOpen(true)} />
-                <div className="min-w-0">
-                  <p className="text-sm text-slate-600 truncate">Welcome back, {user?.name}</p>
-                </div>
+    <div className="min-h-screen flex flex-col bg-gradient-to-br from-sky-50 via-blue-50 to-white text-slate-900">
+      {/* Full-width frozen header - same as QwertyHub */}
+      <header className="sticky top-0 z-40 w-full bg-white/95 backdrop-blur-md border-b border-slate-100 shadow-sm flex-shrink-0">
+        <div className="px-4 sm:px-6 lg:px-8 py-3 sm:py-4">
+          <div className="flex items-center justify-between gap-3 sm:gap-4 min-w-0">
+            <Link href="/wall" className="shrink-0 flex items-center" aria-label="Home">
+              <img src="/qwertymates-logo-icon.png" alt="Qwertymates" className="h-9 w-9 object-contain lg:hidden" />
+              <img src="/qwertymates-logo.png" alt="Qwertymates" className="h-9 w-auto object-contain hidden lg:block" />
+            </Link>
+            <AppSidebarMenuButton onClick={() => setMenuOpen(true)} />
+            <div className="flex items-center gap-2 min-w-0 shrink-0">
+              <div className="h-8 w-8 rounded-lg bg-brand-50 flex items-center justify-center shrink-0">
+                <LayoutDashboard className="h-4 w-4 text-brand-600" />
               </div>
-              <div className="shrink-0">
-                <ProfileDropdown userName={user?.name} />
-              </div>
+              <h1 className="text-base sm:text-lg font-semibold text-slate-900 truncate">Client Dashboard</h1>
             </div>
+            <div className="flex-1 min-w-0" />
+            <SearchButton />
           </div>
-        </header>
+        </div>
+      </header>
 
+      <div className="flex flex-1 min-h-0">
+        <AppSidebar
+          variant="client"
+          userName={user?.name}
+          cartCount={cartCount}
+          hasStore={hasStore}
+          onLogout={handleLogout}
+          menuOpen={menuOpen}
+          setMenuOpen={setMenuOpen}
+          hideLogo
+          belowHeader
+        />
+        <div className="flex-1 flex flex-col min-w-0 overflow-visible">
         <div className="flex-1 flex gap-6 pt-6 min-h-0">
-      <main className="flex-1 min-w-0 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <main className="flex-1 min-w-0 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-24 lg:pb-0">
         {/* Stats */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
           <div className="bg-white/90 backdrop-blur-md p-6 rounded-xl shadow border border-slate-100">
@@ -624,8 +632,10 @@ function ClientDashboard() {
         )}
       </main>
 
-          <AdvertSlot />
+          <AdvertSlot belowHeader />
         </div>
+        </div>
+      </div>
 
       {/* Create Task Modal */}
       {showCreateModal && (
@@ -935,7 +945,7 @@ function ClientDashboard() {
           </div>
         </div>
       )}
-      </div>
+      <MobileBottomNav cartCount={cartCount} hasStore={hasStore} />
     </div>
   );
 }

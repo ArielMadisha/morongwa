@@ -47,6 +47,7 @@ export function TVCommentModal({ open, onClose, item, onCommentAdded, currentUse
         if (newComment) setComments((c) => [...c, newComment]);
         setCommentText('');
         onCommentAdded?.();
+        onClose(); // Close modal automatically so user returns to posts
       })
       .finally(() => setPostingComment(false));
   };

@@ -57,6 +57,49 @@ export default function OrderPage() {
 
   const items = order.items ?? [];
   const amounts = order.amounts ?? {};
+  const breakdown = order.paymentBreakdown;
+
+  const renderBreakdown = () => {
+    if (breakdown?.items?.length) {
+      return (
+        <>
+          {breakdown.items.map((item: any, i: number) => (
+            <div key={i} className="flex justify-between text-slate-700">
+              <span>{item.title}{item.qty > 1 ? ` ×${item.qty}` : ''}</span>
+              <span>{formatPrice((item.price ?? 0) * (item.qty ?? 1))}</span>
+            </div>
+          ))}
+          {breakdown.shippingBreakdown && breakdown.shippingBreakdown.length > 1 ? (
+            breakdown.shippingBreakdown.map((s: any, i: number) => (
+              <div key={i} className="flex justify-between text-slate-600">
+                <span>Shipping ({s.storeName ?? 'Supplier'})</span>
+                <span>{formatPrice(s.shippingCost ?? 0)}</span>
+              </div>
+            ))
+          ) : (
+            <div className="flex justify-between text-slate-600">
+              <span>Shipping Fee</span>
+              <span>{formatPrice(breakdown?.shippingBreakdown?.[0]?.shippingCost ?? amounts.shipping ?? 0)}</span>
+            </div>
+          )}
+        </>
+      );
+    }
+    return (
+      <>
+        {items.map((item: any, i: number) => (
+          <div key={i} className="flex justify-between text-slate-700">
+            <span>{item.productId?.title ?? 'Product'}{item.qty > 1 ? ` ×${item.qty}` : ''}</span>
+            <span>{formatPrice((item.price ?? 0) * (item.qty ?? 1))}</span>
+          </div>
+        ))}
+        <div className="flex justify-between text-slate-600">
+          <span>Shipping Fee</span>
+          <span>{formatPrice(amounts.shipping ?? 0)}</span>
+        </div>
+      </>
+    );
+  };
 
   return (
     <ProtectedRoute>
@@ -98,14 +141,8 @@ export default function OrderPage() {
           </div>
 
           <div className="bg-white/90 rounded-2xl border border-slate-100 p-6 space-y-2">
-            <div className="flex justify-between text-slate-600">
-              <span>Subtotal</span>
-              <span>{formatPrice(amounts.subtotal ?? 0)}</span>
-            </div>
-            <div className="flex justify-between text-slate-600">
-              <span>Shipping</span>
-              <span>{formatPrice(amounts.shipping ?? 0)}</span>
-            </div>
+            <h3 className="font-semibold text-slate-900 mb-3">Payment breakdown</h3>
+            {renderBreakdown()}
             <div className="flex justify-between font-bold text-slate-900 text-lg pt-2 border-t border-slate-200">
               <span>Total</span>
               <span>{formatPrice(amounts.total ?? 0)}</span>

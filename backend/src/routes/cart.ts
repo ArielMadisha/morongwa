@@ -13,6 +13,18 @@ function getEffectivePrice(product: { price: number; discountPrice?: number }): 
   return p.price;
 }
 
+/** Get price per unit for given quantity, considering bulk tiers. */
+function getProductPriceForQty(product: any, qty: number): number {
+  const tiers = product?.bulkTiers;
+  if (Array.isArray(tiers) && tiers.length > 0) {
+    const tier = tiers
+      .filter((t: any) => qty >= t.minQty && qty <= t.maxQty)
+      .sort((a: any, b: any) => b.minQty - a.minQty)[0];
+    if (tier && tier.price >= 0) return Number(tier.price);
+  }
+  return getEffectivePrice(product);
+}
+
 async function getResellerPrice(resellerId: string, productId: string, basePrice: number): Promise<number> {
   const wall = await ResellerWall.findOne({ resellerId });
   if (!wall) return basePrice;
@@ -32,7 +44,7 @@ router.get("/", authenticate, async (req: AuthRequest, res: Response, next) => {
 
     const productIds = cart.items.map((i) => i.productId);
     const products = await Product.find({ _id: { $in: productIds }, active: true })
-      .select("title slug images price discountPrice currency stock outOfStock allowResell")
+      .select("title slug images price discountPrice bulkTiers currency stock outOfStock allowResell")
       .lean();
 
     const productMap = new Map(products.map((p) => [p._id.toString(), p]));
@@ -40,7 +52,7 @@ router.get("/", authenticate, async (req: AuthRequest, res: Response, next) => {
     for (const item of cart.items) {
       const product = productMap.get((item.productId as any).toString?.() ?? item.productId);
       if (!product) continue;
-      let price = getEffectivePrice(product as any);
+      let price = getProductPriceForQty(product, item.qty);
       if (item.resellerId) {
         price = await getResellerPrice((item.resellerId as any).toString(), (item.productId as any).toString(), price);
       }
@@ -56,6 +68,7 @@ router.get("/", authenticate, async (req: AuthRequest, res: Response, next) => {
           price,
           originalPrice: (product as any).price,
           discountPrice: (product as any).discountPrice,
+          bulkTiers: (product as any).bulkTiers,
           currency: product.currency,
           stock: product.stock,
           outOfStock: (product as any).outOfStock,
@@ -107,13 +120,13 @@ router.post("/", authenticate, async (req: AuthRequest, res: Response, next) => 
 
     const productIds = cart.items.map((i) => i.productId);
     const products = await Product.find({ _id: { $in: productIds }, active: true })
-      .select("title slug images price discountPrice currency stock outOfStock")
+      .select("title slug images price discountPrice bulkTiers currency stock outOfStock")
       .lean();
     const productMap = new Map(products.map((p) => [p._id.toString(), p]));
     const items: any[] = [];
     for (const item of cart.items) {
       const product = productMap.get((item.productId as any).toString());
-      let price = product ? getEffectivePrice(product as any) : 0;
+      let price = product ? getProductPriceForQty(product, item.qty) : 0;
       if (product && item.resellerId) {
         price = await getResellerPrice((item.resellerId as any).toString(), (item.productId as any).toString(), price);
       }

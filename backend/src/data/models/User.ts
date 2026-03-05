@@ -3,7 +3,9 @@ import mongoose, { Schema, Document } from "mongoose";
 
 export interface IUser extends Document {
   name: string;
+  username?: string;
   email: string;
+  phone?: string;
   passwordHash: string;
   dateOfBirth?: Date;
   role: ("client" | "runner" | "admin" | "superadmin")[];
@@ -35,6 +37,8 @@ export interface IUser extends Document {
   isPrivate?: boolean;
   /** Currently broadcasting live - shows in statuses and LiveTV */
   isLive?: boolean;
+  /** Verified music artist/company/producer - can upload music to QwertyMusic */
+  artistVerified?: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -42,7 +46,9 @@ export interface IUser extends Document {
 const UserSchema = new Schema<IUser>(
   {
     name: { type: String, required: true },
+    username: { type: String, unique: true, sparse: true, lowercase: true, trim: true },
     email: { type: String, required: true, unique: true, lowercase: true, trim: true },
+    phone: { type: String, trim: true },
     passwordHash: { type: String, required: true },
     dateOfBirth: { type: Date },
     role: { 
@@ -87,6 +93,7 @@ const UserSchema = new Schema<IUser>(
     runnerVerified: { type: Boolean, default: false },
     isPrivate: { type: Boolean, default: false },
     isLive: { type: Boolean, default: false },
+    artistVerified: { type: Boolean, default: false },
     isVerified: { type: Boolean, default: false },
     active: { type: Boolean, default: true },
     suspended: { type: Boolean, default: false },

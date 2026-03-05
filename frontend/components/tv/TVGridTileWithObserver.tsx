@@ -13,6 +13,7 @@ interface TVGridTileWithObserverProps {
   currentUserId?: string;
   onSetProfilePicFromUrl?: (url: string) => Promise<void>;
   onSetStripBackgroundFromUrl?: (url: string) => Promise<void>;
+  variant?: 'feed' | 'grid';
 }
 
 export function TVGridTileWithObserver(props: TVGridTileWithObserverProps) {
