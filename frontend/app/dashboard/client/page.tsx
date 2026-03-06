@@ -475,6 +475,8 @@ function ClientDashboard() {
         <AppSidebar
           variant="client"
           userName={user?.name}
+          userAvatar={(user as any)?.avatar}
+          userId={user?._id || user?.id}
           cartCount={cartCount}
           hasStore={hasStore}
           onLogout={handleLogout}
@@ -484,7 +486,7 @@ function ClientDashboard() {
           belowHeader
         />
         <div className="flex-1 flex flex-col min-w-0 overflow-visible">
-        <div className="flex-1 flex gap-6 pt-6 min-h-0">
+        <div className="flex-1 flex gap-0 pt-6 min-h-0">
       <main className="flex-1 min-w-0 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-24 lg:pb-0">
         {/* Stats */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">

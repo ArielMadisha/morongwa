@@ -243,6 +243,8 @@ function MessagesPageContent() {
         <AppSidebar
           variant="wall"
           userName={user?.name}
+          userAvatar={(user as any)?.avatar}
+          userId={user?._id || user?.id}
           cartCount={cartCount}
           hasStore={hasStore}
           onLogout={handleLogout}
@@ -252,7 +254,7 @@ function MessagesPageContent() {
           belowHeader
         />
         <div className="flex-1 flex flex-col min-w-0 overflow-visible">
-        <div className="flex-1 flex gap-6 pt-6 min-h-0 overflow-hidden">
+        <div className="flex-1 flex gap-0 pt-6 min-h-0 overflow-hidden">
           <main className="flex-1 min-w-0 overflow-auto pb-24 lg:pb-0">
           {loading ? (
             <div className="flex min-h-[400px] items-center justify-center">

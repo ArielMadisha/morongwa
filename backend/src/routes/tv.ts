@@ -107,8 +107,12 @@ router.get("/", async (req: express.Request, res: Response, next) => {
     const type = req.query.type as string; // optional: video, image, carousel, product
 
     const match: Record<string, unknown> = { status: "approved" };
-    if (type && ["video", "image", "carousel", "product"].includes(type)) {
-      match.type = type;
+    if (type) {
+      if (type === "images") {
+        (match as any).type = { $in: ["image", "carousel"] };
+      } else if (["video", "image", "carousel", "product", "audio", "text"].includes(type)) {
+        match.type = type;
+      }
     }
     const genreParam = (req.query.genre as string)?.trim();
     if (genreParam && genreParam !== "qwertz") {

@@ -129,6 +129,7 @@ export default function PostPage() {
           <AppSidebar
             variant="wall"
             userName={user?.name}
+            userAvatar={(user as any)?.avatar}
             cartCount={cartCount}
             hasStore={hasStore}
             onLogout={handleLogout}
@@ -137,7 +138,7 @@ export default function PostPage() {
             hideLogo
             belowHeader
           />
-          <div className="flex-1 flex gap-2 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain">
+          <div className="flex-1 flex gap-0 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain">
             <main className="flex-1 min-w-0 px-4 sm:px-6 lg:px-8 py-4 pb-24 lg:pb-6">
               <div className="max-w-[600px] mx-auto">
                 {loading ? (

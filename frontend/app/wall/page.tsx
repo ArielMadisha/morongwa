@@ -9,6 +9,7 @@ import ProtectedRoute from '@/components/ProtectedRoute';
 import { useCartAndStores } from '@/lib/useCartAndStores';
 import { AppSidebar, AppSidebarMenuButton } from '@/components/AppSidebar';
 import { SearchButton } from '@/components/SearchButton';
+import { ProfileHeaderButton } from '@/components/ProfileHeaderButton';
 import { TVGridTileWithObserver } from '@/components/tv/TVGridTileWithObserver';
 import type { TVGridItem } from '@/components/tv/TVGridTile';
 import { CreatePostModal } from '@/components/tv/CreatePostModal';
@@ -234,7 +235,7 @@ function WallPageContent() {
     router.push('/');
   };
 
-  // Intersperse adverts every 6 items for mobile (lg:hidden) - web uses AdvertSlot in right column
+  // Intersperse sponsored adverts every 6 items between posts (same dimensions as posts)
   const insertAdvertsEvery = 6;
   // Feed first (all posts including videos in sequence), then product tiles
   const feedWithoutLatest =
@@ -276,6 +277,7 @@ function WallPageContent() {
               />
             </div>
             <SearchButton />
+            <ProfileHeaderButton />
           </div>
         </div>
       </header>
@@ -285,6 +287,8 @@ function WallPageContent() {
         <AppSidebar
           variant="wall"
           userName={user?.name}
+          userAvatar={(user as any)?.avatar}
+          userId={user?._id || user?.id}
           cartCount={cartCount}
           hasStore={hasStore}
           onLogout={handleLogout}
@@ -293,8 +297,8 @@ function WallPageContent() {
           hideLogo
           belowHeader
         />
-        <div ref={containerRef} className="flex-1 flex flex-col lg:flex-row gap-2 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden">
-        <main className="flex-1 min-w-0 pb-24 lg:pb-6 order-2 lg:order-none">
+        <div ref={containerRef} className="flex-1 flex flex-col lg:flex-row lg:justify-center gap-0 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden lg:items-start">
+        <main className="min-w-0 w-full max-w-[calc(720px+4rem)] lg:w-[calc(720px+4rem)] pl-6 lg:pl-8 pb-24 lg:pb-6 order-2 lg:order-none">
           {loading && allItemsWithAds.length === 0 ? (
             <div className="flex justify-center py-24 min-h-[60vh]">
               <Loader2 className="h-12 w-12 text-sky-500 animate-spin" />
@@ -361,10 +365,11 @@ function WallPageContent() {
 
       <Link
         href="/messages"
-        className="fixed right-4 bottom-20 lg:bottom-6 z-40 flex items-center justify-center w-14 h-14 rounded-full bg-sky-500 text-white shadow-lg hover:bg-sky-600 hover:shadow-xl transition-all"
+        className="fixed right-4 bottom-20 lg:bottom-6 z-40 flex items-center gap-2 px-4 py-3 rounded-full bg-sky-500 text-white shadow-lg hover:bg-sky-600 hover:shadow-xl transition-all font-semibold"
         aria-label="Morongwa"
       >
-        <MessageSquare className="h-6 w-6" />
+        <MessageSquare className="h-6 w-6 shrink-0" />
+        <span>Morongwa</span>
       </Link>
 
       <CreatePostModal

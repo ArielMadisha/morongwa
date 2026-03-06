@@ -1,13 +1,47 @@
 // User management routes
 import express, { Response } from "express";
+import mongoose from "mongoose";
 import User from "../data/models/User";
 import AuditLog from "../data/models/AuditLog";
+import TVPost from "../data/models/TVPost";
+import Follow from "../data/models/Follow";
 import { authenticate, AuthRequest } from "../middleware/auth";
 import { upload } from "../middleware/upload";
 import { AppError } from "../middleware/errorHandler";
 import { getPaginationParams } from "../utils/helpers";
 
 const router = express.Router();
+
+// Get user profile with stats (postCount, followerCount, followingCount) - public for profile page
+router.get("/:id/profile-stats", async (req: express.Request, res: Response, next) => {
+  try {
+    const id = req.params.id;
+    if (!mongoose.Types.ObjectId.isValid(id)) throw new AppError("Invalid user id", 400);
+    const user = await User.findById(id).select("-passwordHash").lean();
+    if (!user) throw new AppError("User not found", 404);
+
+    const [postCount, imageCount, videoCount, musicCount, followerCount, followingCount] = await Promise.all([
+      TVPost.countDocuments({ creatorId: id, status: "approved" }),
+      TVPost.countDocuments({ creatorId: id, status: "approved", type: { $in: ["image", "carousel"] } }),
+      TVPost.countDocuments({ creatorId: id, status: "approved", type: "video" }),
+      TVPost.countDocuments({ creatorId: id, status: "approved", type: "audio" }),
+      Follow.countDocuments({ followingId: id, status: "accepted" }),
+      Follow.countDocuments({ followerId: id, status: "accepted" }),
+    ]);
+
+    res.json({
+      user,
+      postCount,
+      imageCount,
+      videoCount,
+      musicCount,
+      followerCount,
+      followingCount,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
 
 // Get user profile
 router.get("/:id", authenticate, async (req: AuthRequest, res: Response, next) => {

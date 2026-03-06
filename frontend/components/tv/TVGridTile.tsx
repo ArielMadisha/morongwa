@@ -24,7 +24,7 @@ import {
   Music2,
   Maximize2,
 } from 'lucide-react';
-import { tvAPI, followsAPI, walletAPI, getImageUrl, getImageUrlFull, getEffectivePrice } from '@/lib/api';
+import { tvAPI, followsAPI, walletAPI, getImageUrl, getEffectivePrice } from '@/lib/api';
 import type { Product } from '@/lib/types';
 import toast from 'react-hot-toast';
 import { TVCommentModal } from './TVCommentModal';
@@ -342,18 +342,11 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
               setLightboxOpen(true);
             }}
           >
-            {(getImageUrl(mediaUrl) || getImageUrlFull(mediaUrl)) ? (
+            {getImageUrl(mediaUrl) ? (
               <img
-                src={getImageUrl(mediaUrl) || getImageUrlFull(mediaUrl)!}
+                src={getImageUrl(mediaUrl)}
                 alt={item.caption || 'Post'}
                 className={`w-full h-full object-cover ${filterClass}`}
-                onError={(e) => {
-                  const img = e.currentTarget;
-                  const fullUrl = getImageUrlFull(mediaUrl);
-                  if (fullUrl && img.src !== fullUrl) {
-                    img.src = fullUrl;
-                  }
-                }}
               />
             ) : (
               <div className="w-full h-full flex items-center justify-center bg-slate-800">

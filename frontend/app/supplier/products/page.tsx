@@ -149,7 +149,7 @@ export default function SupplierProductsPage() {
     return (
       <ProtectedRoute>
         <div className="min-h-screen bg-gradient-to-br from-slate-50 via-amber-50/20 to-sky-50 text-slate-800 flex">
-          <AppSidebar variant="wall" userName={user?.name} cartCount={cartCount} hasStore={hasStore} onLogout={handleLogout} menuOpen={menuOpen} setMenuOpen={setMenuOpen} />
+          <AppSidebar variant="wall" userName={user?.name} userAvatar={(user as any)?.avatar} cartCount={cartCount} hasStore={hasStore} onLogout={handleLogout} menuOpen={menuOpen} setMenuOpen={setMenuOpen} />
           <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
             <header className="bg-white/85 backdrop-blur-md border-b border-slate-100 px-4 sm:px-6 lg:px-8 py-3 sm:py-4 flex items-center justify-between gap-3 sm:gap-4">
               <AppSidebarMenuButton onClick={() => setMenuOpen(true)} />
@@ -192,7 +192,7 @@ export default function SupplierProductsPage() {
   return (
     <ProtectedRoute>
       <div className="min-h-screen bg-gradient-to-br from-slate-50 via-amber-50/20 to-sky-50 text-slate-800 flex">
-        <AppSidebar variant="wall" userName={user?.name} cartCount={cartCount} hasStore={hasStore} onLogout={handleLogout} menuOpen={menuOpen} setMenuOpen={setMenuOpen} />
+        <AppSidebar variant="wall" userName={user?.name} userAvatar={(user as any)?.avatar} cartCount={cartCount} hasStore={hasStore} onLogout={handleLogout} menuOpen={menuOpen} setMenuOpen={setMenuOpen} />
         <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
           <header className="bg-white/85 backdrop-blur-md border-b border-slate-100 px-4 sm:px-6 lg:px-8 py-3 sm:py-4 flex items-center justify-between gap-3 sm:gap-4">
             <AppSidebarMenuButton onClick={() => setMenuOpen(true)} />

@@ -99,6 +99,51 @@ router.get("/requests/pending", authenticate, async (req: AuthRequest, res: Resp
   }
 });
 
+// Get suggested users (random users not yet followed by current user)
+router.get("/suggested", authenticate, async (req: AuthRequest, res: Response, next) => {
+  try {
+    const currentId = req.user!._id;
+    const limit = Math.min(parseInt((req.query.limit as string) || "5") || 5, 10);
+
+    const followingIds = await Follow.find({ followerId: currentId }).distinct("followingId");
+
+    const excludeIds = [currentId, ...followingIds];
+
+    const suggested = await User.aggregate([
+      {
+        $match: {
+          _id: { $nin: excludeIds },
+          active: { $ne: false },
+          suspended: { $ne: true },
+          role: { $nin: ["admin", "superadmin"] },
+        },
+      },
+      { $sample: { size: limit } },
+      {
+        $lookup: {
+          from: "follows",
+          let: { uid: "$_id" },
+          pipeline: [
+            { $match: { $expr: { $and: [{ $eq: ["$followingId", "$$uid"] }, { $eq: ["$status", "accepted"] }] } } },
+            { $count: "count" },
+          ],
+          as: "followerCountArr",
+        },
+      },
+      {
+        $addFields: {
+          followerCount: { $ifNull: [{ $arrayElemAt: ["$followerCountArr.count", 0] }, 0] },
+        },
+      },
+      { $project: { passwordHash: 0, followerCountArr: 0 } },
+    ]);
+
+    res.json({ data: suggested });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // Check if current user follows target
 router.get("/:userId/status", authenticate, async (req: AuthRequest, res: Response, next) => {
   try {

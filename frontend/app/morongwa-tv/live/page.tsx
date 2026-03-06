@@ -56,6 +56,8 @@ function LiveTVPageContent() {
       <AppSidebar
         variant="wall"
         userName={user?.name}
+        userAvatar={(user as any)?.avatar}
+        userId={user?._id || user?.id}
         cartCount={cartCount}
         hasStore={hasStore}
         onLogout={handleLogout}
@@ -82,7 +84,7 @@ function LiveTVPageContent() {
           </div>
         </header>
 
-        <div className="flex-1 flex gap-6 min-h-0 overflow-hidden">
+        <div className="flex-1 flex gap-0 min-h-0 overflow-hidden">
           <main className="flex-1 min-w-0 overflow-y-auto px-4 sm:px-6 lg:px-8 py-8 pb-24 lg:pb-8">
             {loading ? (
               <div className="flex flex-col items-center justify-center py-24">

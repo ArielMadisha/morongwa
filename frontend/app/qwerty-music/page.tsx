@@ -158,6 +158,8 @@ export default function QwertyMusicPage() {
           <AppSidebar
             variant="wall"
             userName={user?.name}
+            userAvatar={(user as any)?.avatar}
+            userId={user?._id || user?.id}
             cartCount={cartCount}
             hasStore={hasStore}
             onLogout={handleLogout}
@@ -166,7 +168,7 @@ export default function QwertyMusicPage() {
             hideLogo
             belowHeader
           />
-          <div className="flex-1 flex gap-2 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain">
+          <div className="flex-1 flex gap-0 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain">
             <main className="flex-1 min-w-0 px-4 sm:px-6 lg:px-8 py-4 pb-24 lg:pb-6">
               <div className="max-w-6xl mx-auto space-y-6">
                 <div className="rounded-2xl border border-white/60 bg-white/80 shadow-xl shadow-sky-50 backdrop-blur p-8 text-center">

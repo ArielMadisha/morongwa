@@ -10,9 +10,13 @@ interface FollowButtonProps {
   currentUserId?: string;
   targetIsPrivate?: boolean;
   className?: string;
+  /** When true, show "Following" even when already following (for profile pages) */
+  showWhenFollowing?: boolean;
+  /** Called when follow state changes (e.g. to refresh follower count) */
+  onFollowChange?: (following: boolean) => void;
 }
 
-export function FollowButton({ targetUserId, currentUserId, targetIsPrivate, className = '' }: FollowButtonProps) {
+export function FollowButton({ targetUserId, currentUserId, targetIsPrivate, className = '', showWhenFollowing, onFollowChange }: FollowButtonProps) {
   const [following, setFollowing] = useState<boolean | null>(null);
   const [status, setStatus] = useState<'accepted' | 'pending' | null>(null);
   const [loading, setLoading] = useState(false);
@@ -43,11 +47,13 @@ export function FollowButton({ targetUserId, currentUserId, targetIsPrivate, cla
         await followsAPI.unfollow(targetUserId);
         setFollowing(false);
         setStatus(null);
+        onFollowChange?.(false);
         toast.success('Unfollowed');
       } else {
         const res = await followsAPI.follow(targetUserId);
         setFollowing(true);
         setStatus(res.data?.data?.status || (targetIsPrivate ? 'pending' : 'accepted'));
+        onFollowChange?.(true);
         toast.success(res.data?.message || 'Following');
       }
     } catch (e: any) {
@@ -60,8 +66,8 @@ export function FollowButton({ targetUserId, currentUserId, targetIsPrivate, cla
   const isPending = status === 'pending';
 
   if (!currentUserId || currentUserId === targetUserId) return null;
-  // Hide button when already following (no need to show "Following" reminder)
-  if (following && !isPending) return null;
+  // Hide button when already following (no need to show "Following" reminder) unless showWhenFollowing
+  if (following && !isPending && !showWhenFollowing) return null;
 
   return (
     <button

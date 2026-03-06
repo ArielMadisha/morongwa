@@ -121,6 +121,8 @@ export default function ProductPage() {
         <AppSidebar
           variant="wall"
           userName={user?.name}
+          userAvatar={(user as any)?.avatar}
+          userId={user?._id || user?.id}
           cartCount={cartCount}
           hasStore={hasStore}
           onLogout={handleLogout}

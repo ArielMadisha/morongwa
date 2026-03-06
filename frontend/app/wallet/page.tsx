@@ -158,6 +158,8 @@ function WalletDashboard() {
         <AppSidebar
           variant="wall"
           userName={user?.name}
+          userAvatar={(user as any)?.avatar}
+          userId={user?._id || user?.id}
           cartCount={cartCount}
           hasStore={hasStore}
           onLogout={handleLogout}
@@ -166,8 +168,8 @@ function WalletDashboard() {
           hideLogo
           belowHeader
         />
-        <div className="flex-1 flex gap-2 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain">
-          <main className="flex-1 min-w-0 px-4 sm:px-6 lg:px-8 py-4 pb-24 lg:pb-6">
+        <div className="flex-1 flex gap-0 min-h-0 overflow-hidden">
+          <main className="flex-1 min-w-0 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain px-4 sm:px-6 lg:px-8 py-4 pb-24 lg:pb-6">
           <div className="max-w-6xl mx-auto">
           {loading ? (
             <div className="flex min-h-[400px] items-center justify-center">

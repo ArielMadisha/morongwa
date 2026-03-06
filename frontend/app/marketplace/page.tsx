@@ -102,6 +102,8 @@ function MarketplacePageContent() {
           <AppSidebar
             variant="wall"
             userName={user?.name}
+            userAvatar={(user as any)?.avatar}
+            userId={user?._id || user?.id}
             cartCount={cartCount}
             hasStore={hasStore}
             onLogout={handleLogout}
@@ -111,7 +113,7 @@ function MarketplacePageContent() {
             belowHeader
           />
         )}
-        <div className="flex-1 flex gap-2 min-h-0 overflow-y-auto overflow-x-hidden">
+        <div className="flex-1 flex gap-0 min-h-0 overflow-y-auto overflow-x-hidden">
         <main className="flex-1 min-w-0 px-4 sm:px-6 lg:px-8 py-6 pb-24 lg:pb-6">
         {isGuest && (
           <div className="mb-6 rounded-xl border border-blue-100 bg-blue-50/80 px-4 py-3 text-sm text-slate-700">

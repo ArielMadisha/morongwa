@@ -23,7 +23,7 @@ export function getImageUrl(url: string | undefined): string {
   if (normalized.startsWith('uploads/') && !normalized.startsWith('/')) {
     normalized = '/' + normalized;
   }
-  // If backend returned full URL (e.g. http://localhost:4000/uploads/...), use path only for same-origin proxy
+  // Strip protocol/host so we always use same-origin proxy (e.g. http://localhost:4000/uploads/... -> /uploads/...)
   const uploadsMatch = normalized.match(/\/uploads\/.+$/);
   if (uploadsMatch) return uploadsMatch[0];
   if (normalized.startsWith('/uploads/')) return normalized;
@@ -337,6 +337,8 @@ export const usersAPI = {
   list: (params?: { page?: number; limit?: number; q?: string }) =>
     api.get('/users', { params }),
   getProfile: (id: string) => api.get(`/users/${id}`),
+  getProfileStats: (id: string) =>
+    api.get<{ user: any; postCount: number; imageCount: number; videoCount: number; musicCount: number; followerCount: number; followingCount: number }>(`/users/${id}/profile-stats`),
   updateProfile: (id: string, data: { name?: string; username?: string; isPrivate?: boolean; avatar?: string; stripBackgroundPic?: string }) =>
     api.put(`/users/${id}`, data),
   toggleLive: (id: string) => api.patch(`/users/${id}/live`),
@@ -456,6 +458,7 @@ export const storesAPI = {
 export const followsAPI = {
   follow: (userId: string) => api.post(`/follows/${userId}`),
   unfollow: (userId: string) => api.delete(`/follows/${userId}`),
+  getSuggested: (limit?: number) => api.get<{ data: Array<{ _id: string; name: string; avatar?: string; username?: string; followerCount?: number }> }>('/follows/suggested', { params: { limit } }),
   getStatus: (userId: string) => api.get(`/follows/${userId}/status`),
   getPendingRequests: () => api.get('/follows/requests/pending'),
   acceptRequest: (followerId: string) => api.post(`/follows/${followerId}/accept`),
@@ -473,7 +476,7 @@ export const productEnquiryAPI = {
 
 export const tvAPI = {
   getPost: (id: string) => api.get(`/tv/${id}`),
-  getFeed: (params?: { page?: number; limit?: number; sort?: 'newest' | 'trending' | 'random'; type?: 'video' | 'image' | 'carousel' | 'product'; creatorId?: string; q?: string; genre?: string }) =>
+  getFeed: (params?: { page?: number; limit?: number; sort?: 'newest' | 'trending' | 'random'; type?: 'video' | 'image' | 'carousel' | 'product' | 'images' | 'audio' | 'text'; creatorId?: string; q?: string; genre?: string }) =>
     api.get('/tv', { params }),
   getStatuses: () => api.get('/tv/statuses'),
   getTrendingHashtags: (limit?: number) => api.get<{ data: { tag: string; count: number }[] }>('/tv/hashtags/trending', { params: { limit } }),

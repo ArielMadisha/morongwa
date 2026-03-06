@@ -233,6 +233,8 @@ function MorongwaTVPageContent() {
         <AppSidebar
           variant="wall"
           userName={user?.name}
+          userAvatar={(user as any)?.avatar}
+          userId={user?._id || user?.id}
           cartCount={cartCount}
           hasStore={hasStore}
           onLogout={handleLogout}
@@ -241,7 +243,7 @@ function MorongwaTVPageContent() {
           hideLogo
           belowHeader
         />
-        <div ref={containerRef} className="flex-1 flex flex-col lg:flex-row gap-2 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain">
+        <div ref={containerRef} className="flex-1 flex flex-col lg:flex-row gap-0 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain">
         <main className="flex-1 min-w-0 px-4 sm:px-6 lg:px-8 py-4 pb-24 lg:pb-6 order-2 lg:order-none">
           {loading && allItems.length === 0 ? (
             <div className="flex justify-center py-24">

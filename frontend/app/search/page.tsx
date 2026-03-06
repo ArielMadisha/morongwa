@@ -114,6 +114,8 @@ function SearchContent() {
           <AppSidebar
             variant="wall"
             userName={user?.name}
+            userAvatar={(user as any)?.avatar}
+            userId={user?._id || user?.id}
             cartCount={cartCount}
             hasStore={hasStore}
             onLogout={() => {}}
@@ -123,7 +125,7 @@ function SearchContent() {
             belowHeader
           />
         )}
-        <div className="flex-1 flex gap-2 min-h-0 overflow-y-auto overflow-x-hidden">
+        <div className="flex-1 flex gap-0 min-h-0 overflow-y-auto overflow-x-hidden">
           <main className="flex-1 min-w-0 px-4 sm:px-6 lg:px-8 py-6 pb-24 lg:pb-6">
             {q.length < 2 ? (
               <div className="rounded-2xl border border-slate-200 bg-white/90 p-12 text-center">
@@ -169,7 +171,7 @@ function SearchContent() {
                       {users.map((u) => (
                         <Link
                           key={u._id}
-                          href={`/morongwa-tv/user/${u._id}`}
+                          href={`/user/${u._id}`}
                           className="flex items-center gap-3 p-3 rounded-xl bg-white border border-slate-100 hover:border-sky-200 hover:shadow-md transition-all"
                         >
                           <div className="h-12 w-12 rounded-full bg-slate-200 overflow-hidden flex-shrink-0">
@@ -319,7 +321,7 @@ function SearchContent() {
             </div>
             <div className="p-6 text-slate-600">
               <p className="mb-4">
-                McGyver is your AI assistant for Qwertymates. When you can&apos;t find a product, user, or content on the site, McGyver will guide you—similar to Facebook&apos;s AI copilot.
+                McGyver is your AI assistant for Qwertymates. When you can&apos;t find a product, user, or content on the site, McGyver will guide you.
               </p>
               <p className="text-sm text-slate-500">
                 Full chat capabilities are coming soon. McGyver will help you discover alternatives, suggest where to look, and answer questions about the platform.

@@ -170,6 +170,8 @@ export default function ProfilePage() {
         <AppSidebar
           variant={variant}
           userName={user?.name}
+          userAvatar={(user as any)?.avatar}
+          userId={user?._id || user?.id}
           cartCount={cartCount}
           hasStore={hasStore}
           onLogout={logout}
@@ -178,7 +180,7 @@ export default function ProfilePage() {
         />
         <div className="flex-1 flex flex-col min-w-0">
           <header className="bg-white/85 backdrop-blur-md border-b border-slate-100 shadow-sm flex-shrink-0">
-            <div className="px-4 sm:px-6 lg:px-8 py-3 sm:py-4 flex items-center justify-between gap-3 sm:gap-4">
+            <div className="px-4 sm:px-6 lg:px-8 py-2 sm:py-3 flex items-center justify-between gap-3 sm:gap-4">
               <div className="flex items-center gap-2 sm:gap-3 min-w-0">
                 <AppSidebarMenuButton onClick={() => setMenuOpen(true)} />
                 <Link
@@ -194,10 +196,10 @@ export default function ProfilePage() {
             </div>
           </header>
           <div className="flex-1 overflow-auto pb-24 lg:pb-0">
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 py-8">
-          <div className="mb-8">
-            <h1 className="text-2xl sm:text-3xl font-bold text-slate-900">My profile</h1>
-            <p className="text-slate-600 mt-1">The Digital Home for Doers, Sellers & Creators.</p>
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 pt-4 pb-8">
+          <div className="mb-4">
+            <h1 className="text-xl sm:text-2xl font-bold text-slate-900">My profile</h1>
+            <p className="text-slate-600 text-sm mt-0.5">The Digital Home for Doers, Sellers & Creators.</p>
           </div>
 
           {/* Profile card */}

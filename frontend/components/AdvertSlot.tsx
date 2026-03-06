@@ -2,19 +2,10 @@
 
 import { useEffect, useState, useMemo } from 'react';
 import Link from 'next/link';
-import { advertsAPI, tvAPI } from '@/lib/api';
+import { tvAPI, followsAPI, getImageUrl } from '@/lib/api';
+import { useAuth } from '@/contexts/AuthContext';
+import { FollowButton } from '@/components/FollowButton';
 import { TrendingUp } from 'lucide-react';
-
-export interface Advert {
-  _id: string;
-  title: string;
-  imageUrl: string;
-  linkUrl?: string;
-  slot: 'random' | 'promo';
-  productId?: string;
-  active: boolean;
-  order?: number;
-}
 
 interface AdvertSlotProps {
   /** When true, slot sticks below fixed header */
@@ -25,62 +16,41 @@ interface AdvertSlotProps {
  * Web: Right-hand advert column - top square (sponsored/random ads only).
  * Use on all app pages for consistent design.
  */
+interface SuggestedUser {
+  _id: string;
+  name: string;
+  avatar?: string;
+  username?: string;
+  followerCount?: number;
+}
+
 export function AdvertSlot({ belowHeader }: AdvertSlotProps = {}) {
-  const [randomAdverts, setRandomAdverts] = useState<Advert[]>([]);
+  const { user } = useAuth();
   const [trendingHashtags, setTrendingHashtags] = useState<{ tag: string; count: number }[]>([]);
+  const [suggestedUsers, setSuggestedUsers] = useState<SuggestedUser[]>([]);
 
   useEffect(() => {
-    advertsAPI.getAdverts('random')
-      .then((res) => {
-        const r = res.data?.data ?? res.data ?? [];
-        setRandomAdverts(Array.isArray(r) ? r : []);
-      })
-      .catch(() => setRandomAdverts([]));
-  }, []);
-
-  useEffect(() => {
-    tvAPI.getTrendingHashtags(10)
+    tvAPI.getTrendingHashtags(5)
       .then((res) => {
         const d = res.data?.data ?? res.data ?? [];
-        setTrendingHashtags(Array.isArray(d) ? d : []);
+        const arr = Array.isArray(d) ? d : [];
+        setTrendingHashtags(arr.slice(0, 5));
       })
       .catch(() => setTrendingHashtags([]));
   }, []);
 
-  const randomAd = useMemo(() => {
-    if (randomAdverts.length === 0) return null;
-    return randomAdverts[Math.floor(Math.random() * randomAdverts.length)];
-  }, [randomAdverts]);
-
-  const renderAdBlock = (ad: Advert, square?: boolean) => {
-    const href = ad.linkUrl || '/marketplace';
-    const isExternal = href.startsWith('http');
-    const content = (
-      <div className="rounded-xl overflow-hidden shadow-sm border border-slate-200 bg-white hover:shadow-md transition">
-        <img
-          src={ad.imageUrl}
-          alt={ad.title}
-          className={`w-full object-cover ${square ? 'aspect-square' : 'aspect-[4/3] min-h-[100px]'}`}
-        />
-        <div className="p-3">
-          <h4 className="font-semibold text-slate-900 line-clamp-1">{ad.title}</h4>
-          <span className="text-xs text-brand-600 font-medium">Sponsored</span>
-        </div>
-      </div>
-    );
-    if (isExternal) {
-      return (
-        <a href={href} target="_blank" rel="noopener noreferrer" className="block relative">
-          {content}
-        </a>
-      );
+  useEffect(() => {
+    if (!user?._id && !(user as { id?: string })?.id) {
+      setSuggestedUsers([]);
+      return;
     }
-    return (
-      <Link href={href} className="block relative">
-        {content}
-      </Link>
-    );
-  };
+    followsAPI.getSuggested(5)
+      .then((res) => {
+        const d = res.data?.data ?? res.data ?? [];
+        setSuggestedUsers(Array.isArray(d) ? d : []);
+      })
+      .catch(() => setSuggestedUsers([]));
+  }, [user?._id, (user as { id?: string })?.id]);
 
   const headerOffset = belowHeader ? 'top-14' : 'top-0';
   const asideHeight = belowHeader ? 'h-[calc(100vh-3.5rem)]' : 'h-screen';
@@ -105,11 +75,11 @@ export function AdvertSlot({ belowHeader }: AdvertSlotProps = {}) {
         </div>
       </div>
     )}
-    <aside className={`sticky ${headerOffset} self-start hidden lg:flex flex-col w-56 xl:w-64 shrink-0 gap-2 pt-2 pr-2 lg:pr-4 ${asideHeight} order-3`}>
-      <div className="space-y-2">
+    <aside className={`sticky ${headerOffset} self-start hidden lg:flex flex-col w-64 xl:w-80 shrink-0 gap-4 pt-0 pr-2 lg:pr-4 overflow-hidden ${asideHeight} order-3`}>
+      <div className="space-y-6">
         {trendingHashtags.length > 0 && (
-          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-            <p className="text-[10px] uppercase tracking-wider text-slate-400 mb-3 font-semibold">Trending now</p>
+          <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+            <p className="text-[10px] uppercase tracking-wider text-slate-400 mb-2 font-semibold">Trending now</p>
             <ul className="space-y-2">
               {trendingHashtags.map((h) => (
                 <li key={h.tag}>
@@ -126,14 +96,41 @@ export function AdvertSlot({ belowHeader }: AdvertSlotProps = {}) {
             </ul>
           </div>
         )}
-        {randomAd ? (
-          <div>
-            <p className="text-[10px] uppercase tracking-wider text-slate-400 mb-1">Sponsored</p>
-            {renderAdBlock(randomAd, true)}
-          </div>
-        ) : (
-          <div className="rounded-xl h-48 border border-dashed border-slate-300 grid place-items-center text-slate-400 text-sm">
-            Ad Space
+        {suggestedUsers.length > 0 && (
+          <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+            <p className="text-[10px] uppercase tracking-wider text-slate-400 mb-2 font-semibold">Qwerty Users</p>
+            <ul className="space-y-2">
+              {suggestedUsers.map((u) => (
+                <li key={u._id} className="flex items-center gap-3">
+                  <Link href={`/user/${u._id}`} className="shrink-0">
+                    <div className="h-10 w-10 rounded-full bg-slate-200 overflow-hidden flex items-center justify-center">
+                      {u.avatar ? (
+                        <img src={getImageUrl(u.avatar)} alt="" className="h-full w-full object-cover" />
+                      ) : (
+                        <span className="text-sm font-medium text-slate-600">
+                          {(u.name || 'U').charAt(0).toUpperCase()}
+                        </span>
+                      )}
+                    </div>
+                  </Link>
+                  <div className="flex-1 min-w-0">
+                    <Link href={`/user/${u._id}`} className="font-semibold text-slate-900 block hover:text-sky-600 break-words">
+                      {u.name || (u.username ? `@${u.username}` : 'User')}
+                    </Link>
+                    <p className="text-xs text-slate-500">
+                      {(u.followerCount ?? 0)} Follower{(u.followerCount ?? 0) !== 1 ? 's' : ''}
+                    </p>
+                  </div>
+                  <FollowButton
+                    targetUserId={u._id}
+                    currentUserId={user?._id || (user as { id?: string })?.id}
+                    targetIsPrivate={(u as { isPrivate?: boolean }).isPrivate}
+                    className="shrink-0 px-3 py-1.5 text-xs"
+                    onFollowChange={() => setSuggestedUsers((prev) => prev.filter((x) => x._id !== u._id))}
+                  />
+                </li>
+              ))}
+            </ul>
           </div>
         )}
       </div>

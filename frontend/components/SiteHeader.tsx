@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useCartAndStores } from '@/lib/useCartAndStores';
+import { getImageUrl } from '@/lib/api';
 import { Package, Home, ArrowRight, LayoutDashboard, ShoppingBag, ShoppingCart, Store, Menu, X } from 'lucide-react';
 import { SearchButton } from '@/components/SearchButton';
 
@@ -119,9 +120,24 @@ export default function SiteHeader({ minimal }: SiteHeaderProps) {
             )}
           </nav>
 
-          {/* Mobile: Ask McGyver + hamburger (no Profile) */}
+          {/* Mobile: Ask McGyver + profile + hamburger */}
           <div className="md:hidden flex items-center gap-1">
             <SearchButton className="max-w-[140px]" />
+            {isAuthenticated && user ? (
+              <Link
+                href="/profile"
+                className={`${tapTarget} p-1 rounded-full text-slate-700 hover:bg-slate-100`}
+                aria-label="Profile"
+              >
+                <span className="w-8 h-8 rounded-full bg-brand-50 text-brand-700 flex items-center justify-center text-sm font-bold ring-2 ring-white shadow-sm overflow-hidden">
+                  {user.avatar ? (
+                    <img src={getImageUrl(user.avatar)} alt={user.name || 'Profile'} className="h-full w-full object-cover" />
+                  ) : (
+                    user.name?.charAt(0)?.toUpperCase() || 'U'
+                  )}
+                </span>
+              </Link>
+            ) : null}
             <button
               type="button"
               onClick={() => setMobileMenuOpen((o) => !o)}
