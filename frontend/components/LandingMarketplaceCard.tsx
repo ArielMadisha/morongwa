@@ -55,9 +55,10 @@ export default function LandingMarketplaceCard() {
             ))}
           </div>
         ) : loadError ? (
-          <div className="flex items-center gap-2 text-red-600 text-sm">
-            <AlertCircle className="h-4 w-4 shrink-0" />
-            Products temporarily unavailable. Try again later.
+          <div className="rounded-2xl border border-amber-100 bg-amber-50/80 p-4">
+            <p className="text-sm text-amber-800">
+              Products temporarily unavailable. If you’re running locally, start the backend (<code className="text-xs bg-amber-100/80 px-1 rounded">cd backend && npm run dev</code>) and refresh.
+            </p>
           </div>
         ) : products.length > 0 ? (
           <div className="space-y-3">

@@ -436,7 +436,7 @@ export default function PricingPage() {
 
           {/* CTA */}
           <div className="text-center">
-            <Link href="/register" className="inline-flex items-center gap-2 px-8 py-4 bg-gradient-to-r from-sky-500 via-cyan-500 to-teal-500 text-white font-bold rounded-xl hover:scale-105 transition shadow-xl">
+            <Link href="/" className="inline-flex items-center gap-2 px-8 py-4 bg-gradient-to-r from-sky-500 via-cyan-500 to-teal-500 text-white font-bold rounded-xl hover:scale-105 transition shadow-xl">
               Get Started Now
               <ArrowRight className="h-5 w-5" />
             </Link>
