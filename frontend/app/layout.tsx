@@ -1,16 +1,22 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { Toaster } from "react-hot-toast";
 import ErrorBoundary from "@/components/ErrorBoundary";
-import SiteFooter from "@/components/SiteFooter";
 
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Morongwa - Errand Runner Marketplace",
-  description: "The Digital Home for Doers, Sellers & Creators.",
+  title: "Qwertymates - Live The Qwerty Emotion",
+  description: "The Digital Home for Doers, Sellers & Creators. Qwertymates.com",
+  icons: { icon: "/qwertymates-logo-icon.png", apple: "/qwertymates-logo-icon.png" },
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 5,
 };
 
 export default function RootLayout({
@@ -25,7 +31,6 @@ export default function RootLayout({
           <AuthProvider>
             <div className="min-h-screen flex flex-col">
               <div className="flex-1">{children}</div>
-              <SiteFooter />
             </div>
             <Toaster 
               position="top-right"

@@ -8,9 +8,10 @@ import { useAuth } from '@/contexts/AuthContext';
 import ProtectedRoute from '@/components/ProtectedRoute';
 import { useCartAndStores } from '@/lib/useCartAndStores';
 import { AppSidebar, AppSidebarMenuButton } from '@/components/AppSidebar';
-import { ProfileDropdown } from '@/components/ProfileDropdown';
+import { SearchButton } from '@/components/SearchButton';
 import { FollowButton } from '@/components/FollowButton';
 import { AdvertSlot } from '@/components/AdvertSlot';
+import { MobileBottomNav } from '@/components/MobileBottomNav';
 import { tvAPI } from '@/lib/api';
 import { getImageUrl } from '@/lib/api';
 
@@ -55,6 +56,8 @@ function LiveTVPageContent() {
       <AppSidebar
         variant="wall"
         userName={user?.name}
+        userAvatar={(user as any)?.avatar}
+        userId={user?._id || user?.id}
         cartCount={cartCount}
         hasStore={hasStore}
         onLogout={handleLogout}
@@ -63,26 +66,26 @@ function LiveTVPageContent() {
       />
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         <header className="bg-white/85 backdrop-blur-md border-b border-slate-100 shadow-sm flex-shrink-0">
-          <div className="px-4 sm:px-6 lg:px-8 py-4">
-            <div className="flex items-center justify-between gap-4">
-              <div className="flex items-center gap-3 min-w-0">
+          <div className="px-4 sm:px-6 lg:px-8 py-3 sm:py-4">
+            <div className="flex items-center justify-between gap-3 sm:gap-4 min-w-0">
+              <div className="flex items-center gap-2 sm:gap-3 min-w-0 shrink">
                 <AppSidebarMenuButton onClick={() => setMenuOpen(true)} />
                 <Link href="/morongwa-tv" className="flex items-center gap-2 text-slate-600 hover:text-slate-900">
-                  <Tv className="h-5 w-5" />
-                  <span className="text-sm font-medium">Back to MorongwaTV</span>
+                  <Tv className="h-5 w-5 shrink-0" />
+                  <span className="text-sm font-medium">Back to QwertyTV</span>
                 </Link>
               </div>
-              <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-sky-100 text-sky-700 font-medium">
+              <SearchButton />
+              <div className="flex items-center gap-2 px-3 py-2 sm:px-4 rounded-xl bg-sky-100 text-sky-700 font-medium shrink-0">
                 <Radio className="h-5 w-5" />
                 Live TV
               </div>
-              <ProfileDropdown userName={user?.name} />
             </div>
           </div>
         </header>
 
-        <div className="flex-1 flex gap-6 min-h-0 overflow-hidden">
-          <main className="flex-1 min-w-0 overflow-y-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="flex-1 flex gap-0 min-h-0 overflow-hidden">
+          <main className="flex-1 min-w-0 overflow-y-auto px-4 sm:px-6 lg:px-8 py-8 pb-24 lg:pb-8">
             {loading ? (
               <div className="flex flex-col items-center justify-center py-24">
                 <Radio className="h-12 w-12 text-sky-500 animate-pulse mb-4" />
@@ -140,7 +143,7 @@ function LiveTVPageContent() {
                   className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-sky-500 text-white font-medium hover:bg-sky-600 transition-colors"
                 >
                   <Tv className="h-5 w-5" />
-                  Back to MorongwaTV
+                  Back to QwertyTV
                 </Link>
               </div>
             )}
@@ -148,6 +151,7 @@ function LiveTVPageContent() {
           <AdvertSlot />
         </div>
       </div>
+      <MobileBottomNav cartCount={cartCount} hasStore={hasStore} />
     </div>
   );
 }

@@ -13,13 +13,23 @@ import { ADMIN_PRODUCT_COMMISSION_PCT } from "../config/fees.config";
 
 const router = express.Router();
 
-const PLATFORM_FEE_PCT = parseFloat(process.env.PLATFORM_FEE_PCT || "2.5");
 const DEFAULT_SHIPPING_PER_SUPPLIER = 100; // flat ZAR per supplier when not set
 
 function getEffectivePrice(product: { price: number; discountPrice?: number }): number {
   const p = product as any;
   if (p.discountPrice != null && p.discountPrice >= 0 && p.discountPrice < p.price) return p.discountPrice;
   return p.price;
+}
+
+function getProductPriceForQty(product: any, qty: number): number {
+  const tiers = product?.bulkTiers;
+  if (Array.isArray(tiers) && tiers.length > 0) {
+    const tier = tiers
+      .filter((t: any) => qty >= t.minQty && qty <= t.maxQty)
+      .sort((a: any, b: any) => b.minQty - a.minQty)[0];
+    if (tier && tier.price >= 0) return Number(tier.price);
+  }
+  return getEffectivePrice(product);
 }
 
 // Get reseller commission for a product from wall (3-7%)
@@ -65,17 +75,15 @@ router.post("/quote", authenticate, async (req: AuthRequest, res: Response, next
 
     let subtotal = 0;
     let commissionTotal = 0;
-    const breakdown: Array<{ productId: string; originalPrice: number; sellingPrice: number; adminCommission: number; resellerCommission?: number }> = [];
+    const breakdown: Array<{ productId: string; title: string; price: number; qty: number }> = [];
 
     for (const item of cart.items) {
       const product = productMap.get((item.productId as any).toString());
       if (!product) continue;
-      const origPrice = (product as any).price;
-      const effectivePrice = getEffectivePrice(product as any);
+      const effectivePrice = getProductPriceForQty(product, item.qty);
       let sellingPrice = effectivePrice;
-      let resellerCommissionPct: number | null = null;
       if (item.resellerId && (product as any).allowResell) {
-        resellerCommissionPct = await getResellerCommissionPct((item.resellerId as any).toString(), (item.productId as any).toString());
+        const resellerCommissionPct = await getResellerCommissionPct((item.resellerId as any).toString(), (item.productId as any).toString());
         if (resellerCommissionPct != null) {
           sellingPrice = Math.round(effectivePrice * (1 + resellerCommissionPct / 100) * 100) / 100;
           commissionTotal += (effectivePrice * resellerCommissionPct) / 100 * item.qty;
@@ -83,19 +91,15 @@ router.post("/quote", authenticate, async (req: AuthRequest, res: Response, next
       }
       const linePrice = sellingPrice * item.qty;
       subtotal += linePrice;
-      const adminCommission = (effectivePrice * item.qty * ADMIN_PRODUCT_COMMISSION_PCT);
       breakdown.push({
         productId: (product as any)._id.toString(),
-        originalPrice: origPrice,
-        sellingPrice,
-        adminCommission,
-        resellerCommission: resellerCommissionPct != null ? (effectivePrice * resellerCommissionPct) / 100 : undefined,
+        title: (product as any).title ?? "Product",
+        price: sellingPrice,
+        qty: item.qty,
       });
     }
 
-    const platformFee = (subtotal * PLATFORM_FEE_PCT) / 100;
-    const total = subtotal + shipping + platformFee;
-    const adminCommissionTotal = breakdown.reduce((s, b) => s + b.adminCommission, 0);
+    const total = subtotal + shipping;
 
     const shippingBreakdown = supplierIds.map((sid) => {
       const s = supplierMap.get(sid);
@@ -108,8 +112,6 @@ router.post("/quote", authenticate, async (req: AuthRequest, res: Response, next
         shipping,
         shippingBreakdown,
         commissionTotal,
-        adminCommissionTotal,
-        platformFee,
         total,
         currency: "ZAR",
         itemCount: cart.items.length,
@@ -178,7 +180,7 @@ router.post("/pay", authenticate, async (req: AuthRequest, res: Response, next) 
         throw new AppError(`Insufficient stock for ${(product as any).title}`, 400);
       }
       if (!supplierId) supplierId = (product as any).supplierId?._id ?? (product as any).supplierId;
-      let price = getEffectivePrice(product as any);
+      let price = getProductPriceForQty(product as any, item.qty);
       let commissionPct: number | undefined;
       if (item.resellerId && (product as any).allowResell) {
         const pct = await getResellerCommissionPct((item.resellerId as any).toString(), (item.productId as any).toString());
@@ -191,7 +193,7 @@ router.post("/pay", authenticate, async (req: AuthRequest, res: Response, next) 
       subtotal += lineTotal;
       let commissionValue = 0;
       if (commissionPct != null) {
-        const effectiveBase = getEffectivePrice(product as any);
+        const effectiveBase = getProductPriceForQty(product as any, item.qty);
         commissionValue = (effectiveBase * item.qty * commissionPct) / 100;
         commissionTotal += commissionValue;
       }
@@ -205,8 +207,20 @@ router.post("/pay", authenticate, async (req: AuthRequest, res: Response, next) 
       });
     }
 
-    const platformFee = (subtotal * PLATFORM_FEE_PCT) / 100;
-    const total = subtotal + shipping + platformFee;
+    const total = subtotal + shipping;
+
+    const shippingBreakdownForOrder = Array.from(uniqueSupplierIds).map((sid) => {
+      const s = supplierMap.get(sid);
+      return { storeName: (s as any)?.storeName ?? "Supplier", shippingCost: (s as any)?.shippingCost ?? DEFAULT_SHIPPING_PER_SUPPLIER };
+    });
+
+    const paymentBreakdownForOrder = {
+      items: orderItems.map((oi) => {
+        const p = productMap.get((oi.productId as any).toString());
+        return { title: (p as any)?.title ?? "Product", price: oi.price, qty: oi.qty };
+      }),
+      shippingBreakdown: shippingBreakdownForOrder,
+    };
 
     const order = await Order.create({
       buyerId: req.user!._id,
@@ -217,10 +231,12 @@ router.post("/pay", authenticate, async (req: AuthRequest, res: Response, next) 
         subtotal,
         shipping,
         commissionTotal,
-        platformFee,
+        platformFee: 0,
         total,
         currency: "ZAR",
+        shippingBreakdown: shippingBreakdownForOrder,
       },
+      paymentBreakdown: paymentBreakdownForOrder,
       delivery: { address: deliveryAddress || "" },
       paymentMethod,
     });

@@ -107,7 +107,7 @@ function LandingBackgroundsManagement() {
       <header className="border-b border-white/60 bg-white/70 backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-6">
           <div>
-            <p className="text-xs uppercase tracking-[0.35em] text-sky-600">Morongwa</p>
+            <p className="text-xs uppercase tracking-[0.35em] text-sky-600">Qwertymates</p>
             <h1 className="mt-1 text-3xl font-semibold text-slate-900">Landing backgrounds</h1>
             <p className="mt-1 text-sm text-slate-600">Upload background images for login and register pages.</p>
           </div>

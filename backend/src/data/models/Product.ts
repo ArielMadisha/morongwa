@@ -9,6 +9,8 @@ export interface IProduct extends Document {
   price: number;
   /** Discount/sale price. When set and less than price, customers pay this instead. */
   discountPrice?: number;
+  /** Bulk sale tiers: quantity range → price per unit. E.g. [{ minQty: 1, maxQty: 100, price: 50 }, { minQty: 101, maxQty: 1000, price: 45 }] */
+  bulkTiers?: Array<{ minQty: number; maxQty: number; price: number }>;
   currency: string;
   stock: number;
   /** When true, product cannot be purchased (e.g. depleted stock). */
@@ -19,6 +21,8 @@ export interface IProduct extends Document {
   commissionPct?: number; // deprecated: moved to reseller wall; kept for backward compat
   categories: string[];
   tags: string[];
+  /** Countries where this product is available (e.g. ["South Africa", "Botswana"]). Empty = no restriction. */
+  availableCountries?: string[];
   ratingAvg?: number;
   ratingCount?: number;
   active: boolean;
@@ -35,6 +39,16 @@ const ProductSchema = new Schema<IProduct>(
     images: { type: [String], default: [] },
     price: { type: Number, required: true },
     discountPrice: { type: Number },
+    bulkTiers: {
+      type: [
+        {
+          minQty: { type: Number, required: true },
+          maxQty: { type: Number, required: true },
+          price: { type: Number, required: true },
+        },
+      ],
+      default: undefined,
+    },
     currency: { type: String, default: "ZAR" },
     stock: { type: Number, default: 0 },
     outOfStock: { type: Boolean, default: false },
@@ -44,6 +58,7 @@ const ProductSchema = new Schema<IProduct>(
     commissionPct: { type: Number }, // deprecated; reseller sets 3-7% when adding to wall
     categories: { type: [String], default: [] },
     tags: { type: [String], default: [] },
+    availableCountries: { type: [String], default: [] },
     ratingAvg: { type: Number },
     ratingCount: { type: Number, default: 0 },
     active: { type: Boolean, default: true },

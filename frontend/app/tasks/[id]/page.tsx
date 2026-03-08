@@ -163,7 +163,7 @@ function TaskDetailPage() {
         <header className="border-b border-white/60 bg-white/70 backdrop-blur">
           <div className="mx-auto flex max-w-4xl items-center justify-between px-6 py-6">
             <div>
-              <p className="text-xs uppercase tracking-[0.35em] text-sky-600">Morongwa</p>
+              <p className="text-xs uppercase tracking-[0.35em] text-sky-600">Qwertymates</p>
               <h1 className="mt-1 text-3xl font-semibold text-slate-900">{task.title}</h1>
               <p className="mt-1 text-sm text-slate-600">View details and manage this task</p>
             </div>
@@ -291,7 +291,7 @@ function TaskDetailPage() {
                   <h3 className="mt-1 font-semibold text-slate-900">{task.client?.firstName || 'Client'}</h3>
                 </div>
                 <p className="text-sm text-slate-600 mb-4">
-                  {task.client?.bio || (task.client?.createdAt ? `Morongwa member since ${new Date(task.client.createdAt).getFullYear()}` : 'Morongwa member since NaN')}
+                  {task.client?.bio || (task.client?.createdAt ? `Qwertymates member since ${new Date(task.client.createdAt).getFullYear()}` : 'Morongwa member since NaN')}
                 </p>
                 {isRunner && task.status !== 'posted' && (
                   <Link

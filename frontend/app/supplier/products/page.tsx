@@ -5,15 +5,29 @@ import { useRouter } from 'next/navigation';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { productsAPI, suppliersAPI } from '@/lib/api';
 import Link from 'next/link';
-import { Loader2, Package, ImagePlus, X, AlertTriangle } from 'lucide-react';
+import { Loader2, Package, ImagePlus, X, AlertTriangle, Layers } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import { useCartAndStores } from '@/lib/useCartAndStores';
 import { AppSidebar, AppSidebarMenuButton } from '@/components/AppSidebar';
-import { ProfileDropdown } from '@/components/ProfileDropdown';
+import { SearchButton } from '@/components/SearchButton';
+import { MobileBottomNav } from '@/components/MobileBottomNav';
 
 const MAX_IMAGES = 5;
 const MIN_IMAGES = 1;
+
+const AVAILABLE_COUNTRIES = [
+  'South Africa',
+  'Botswana',
+  'Namibia',
+  'Zimbabwe',
+  'Zambia',
+  'Mozambique',
+  'Lesotho',
+  'Eswatini',
+  'Malawi',
+  'Angola',
+] as const;
 
 export default function SupplierProductsPage() {
   const { user, logout } = useAuth();
@@ -50,7 +64,9 @@ export default function SupplierProductsPage() {
     allowResell: true,
     categories: '',
     tags: '',
+    availableCountries: [] as string[],
   });
+  const [bulkTiers, setBulkTiers] = useState<Array<{ minQty: string; maxQty: string; price: string }>>([]);
 
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
@@ -91,24 +107,35 @@ export default function SupplierProductsPage() {
         return;
       }
       const discountPrice = form.discountPrice.trim() ? Number(form.discountPrice) : undefined;
+      const bulkTiersData = bulkTiers
+        .filter((t) => t.minQty.trim() && t.maxQty.trim() && t.price.trim())
+        .map((t) => ({
+          minQty: Number(t.minQty),
+          maxQty: Number(t.maxQty),
+          price: Number(t.price),
+        }))
+        .filter((t) => t.minQty >= 0 && t.maxQty >= t.minQty && t.price >= 0);
       await productsAPI.create({
         title: form.title.trim(),
         description: form.description.trim() || undefined,
         images: urls,
         price: Number(form.price),
         ...(discountPrice != null && discountPrice >= 0 && discountPrice < Number(form.price) && { discountPrice }),
+        ...(bulkTiersData.length > 0 && { bulkTiers: bulkTiersData }),
         stock: Number(form.stock) || 0,
         outOfStock: form.outOfStock,
         sizes: form.sizes ? form.sizes.split(',').map((s) => s.trim()).filter(Boolean) : [],
         allowResell: form.allowResell,
         categories: form.categories ? form.categories.split(',').map((s) => s.trim()).filter(Boolean) : [],
         tags: form.tags ? form.tags.split(',').map((s) => s.trim()).filter(Boolean) : [],
+        availableCountries: form.availableCountries.length > 0 ? form.availableCountries : [],
       });
       toast.success('Product created and listed on QwertyHub');
       imagePreviews.forEach((url) => URL.revokeObjectURL(url));
       setImageFiles([]);
       setImagePreviews([]);
-      setForm({ title: '', description: '', price: '', discountPrice: '', stock: '0', outOfStock: false, sizes: '', allowResell: true, categories: '', tags: '' });
+      setForm({ title: '', description: '', price: '', discountPrice: '', stock: '0', outOfStock: false, sizes: '', allowResell: true, categories: '', tags: '', availableCountries: [] });
+      setBulkTiers([]);
     } catch (err: any) {
       const msg = err.response?.data?.message || 'Failed to create product';
       toast.error(msg);
@@ -122,11 +149,12 @@ export default function SupplierProductsPage() {
     return (
       <ProtectedRoute>
         <div className="min-h-screen bg-gradient-to-br from-slate-50 via-amber-50/20 to-sky-50 text-slate-800 flex">
-          <AppSidebar variant="wall" userName={user?.name} cartCount={cartCount} hasStore={hasStore} onLogout={handleLogout} menuOpen={menuOpen} setMenuOpen={setMenuOpen} />
+          <AppSidebar variant="wall" userName={user?.name} userAvatar={(user as any)?.avatar} cartCount={cartCount} hasStore={hasStore} onLogout={handleLogout} menuOpen={menuOpen} setMenuOpen={setMenuOpen} />
           <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-            <header className="bg-white/85 backdrop-blur-md border-b border-slate-100 px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between gap-4">
+            <header className="bg-white/85 backdrop-blur-md border-b border-slate-100 px-4 sm:px-6 lg:px-8 py-3 sm:py-4 flex items-center justify-between gap-3 sm:gap-4">
               <AppSidebarMenuButton onClick={() => setMenuOpen(true)} />
-              <ProfileDropdown userName={user?.name} className="ml-auto" />
+              <div className="flex-1 min-w-0" />
+              <SearchButton />
             </header>
             <main className="flex-1 overflow-y-auto px-4 sm:px-6 lg:px-8 py-8">
               <div className="max-w-xl mx-auto">
@@ -164,13 +192,12 @@ export default function SupplierProductsPage() {
   return (
     <ProtectedRoute>
       <div className="min-h-screen bg-gradient-to-br from-slate-50 via-amber-50/20 to-sky-50 text-slate-800 flex">
-        <AppSidebar variant="wall" userName={user?.name} cartCount={cartCount} hasStore={hasStore} onLogout={handleLogout} menuOpen={menuOpen} setMenuOpen={setMenuOpen} />
+        <AppSidebar variant="wall" userName={user?.name} userAvatar={(user as any)?.avatar} cartCount={cartCount} hasStore={hasStore} onLogout={handleLogout} menuOpen={menuOpen} setMenuOpen={setMenuOpen} />
         <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-          <header className="bg-white/85 backdrop-blur-md border-b border-slate-100 px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between gap-4">
+          <header className="bg-white/85 backdrop-blur-md border-b border-slate-100 px-4 sm:px-6 lg:px-8 py-3 sm:py-4 flex items-center justify-between gap-3 sm:gap-4">
             <AppSidebarMenuButton onClick={() => setMenuOpen(true)} />
-            <ProfileDropdown userName={user?.name} className="ml-auto" />
           </header>
-          <main className="flex-1 overflow-y-auto px-4 sm:px-6 lg:px-8 py-8">
+          <main className="flex-1 overflow-y-auto px-4 sm:px-6 lg:px-8 py-8 pb-24 lg:pb-8">
             <div className="max-w-xl mx-auto">
               <div className="flex items-center justify-between mb-6">
                 <div>
@@ -242,7 +269,7 @@ export default function SupplierProductsPage() {
                 className="w-full rounded-lg border border-slate-200 px-3 py-2 text-slate-900 focus:border-sky-300 focus:outline-none focus:ring-2 focus:ring-sky-100"
                 placeholder="0.00"
               />
-              <p className="text-xs text-slate-500 mt-1">e.g. R1000 — 7.5% to be paid to Morongwa after sale.</p>
+              <p className="text-xs text-slate-500 mt-1">e.g. R1000 — 7.5% to be paid to Qwertymates after sale.</p>
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Discount price (ZAR)</label>
@@ -256,6 +283,65 @@ export default function SupplierProductsPage() {
                 placeholder="Optional — e.g. 799 for sale"
               />
               <p className="text-xs text-slate-500 mt-1">Cheaper price for discounted orders. Must be less than regular price.</p>
+            </div>
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <label className="block text-sm font-medium text-slate-700">Bulk sale tiers</label>
+                <button
+                  type="button"
+                  onClick={() => setBulkTiers((t) => [...t, { minQty: '', maxQty: '', price: '' }])}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-sky-300 bg-sky-50 px-3 py-1.5 text-sm font-medium text-sky-700 hover:bg-sky-100"
+                >
+                  <Layers className="h-4 w-4" /> Add bulk sale tier
+                </button>
+              </div>
+              <p className="text-xs text-slate-500 mb-2">Quantity-based pricing. E.g. 1–100 at R50, 101–1000 at R45.</p>
+              {bulkTiers.length > 0 && (
+                <div className="space-y-2">
+                  {bulkTiers.map((tier, i) => (
+                    <div key={i} className="flex flex-wrap gap-2 items-center rounded-lg border border-slate-200 bg-slate-50/50 p-3">
+                      <span className="text-sm font-medium text-slate-600">Quantity</span>
+                      <input
+                        type="number"
+                        min="0"
+                        max="999999"
+                        value={tier.minQty}
+                        onChange={(e) => setBulkTiers((t) => t.map((x, j) => (j === i ? { ...x, minQty: e.target.value } : x)))}
+                        placeholder="Min"
+                        className="w-20 rounded-lg border border-slate-200 px-2 py-1.5 text-sm"
+                      />
+                      <span className="text-slate-500">–</span>
+                      <input
+                        type="number"
+                        min="0"
+                        max="999999"
+                        value={tier.maxQty}
+                        onChange={(e) => setBulkTiers((t) => t.map((x, j) => (j === i ? { ...x, maxQty: e.target.value } : x)))}
+                        placeholder="Max"
+                        className="w-20 rounded-lg border border-slate-200 px-2 py-1.5 text-sm"
+                      />
+                      <span className="text-sm font-medium text-slate-600">Price (ZAR)</span>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={tier.price}
+                        onChange={(e) => setBulkTiers((t) => t.map((x, j) => (j === i ? { ...x, price: e.target.value } : x)))}
+                        placeholder="Per unit"
+                        className="w-24 rounded-lg border border-slate-200 px-2 py-1.5 text-sm"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setBulkTiers((t) => t.filter((_, j) => j !== i))}
+                        className="p-1.5 rounded-lg text-red-600 hover:bg-red-50"
+                        aria-label="Remove tier"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Stock</label>
@@ -305,6 +391,32 @@ export default function SupplierProductsPage() {
               />
             </div>
             <div>
+              <label className="block text-sm font-medium text-slate-700 mb-2">Available in (countries)</label>
+              <p className="text-xs text-slate-500 mb-2">Select countries where this product can be sold. Leave empty for no restriction.</p>
+              <div className="flex flex-wrap gap-2">
+                {AVAILABLE_COUNTRIES.map((country) => (
+                  <label
+                    key={country}
+                    className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 cursor-pointer"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={form.availableCountries.includes(country)}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setForm((f) => ({ ...f, availableCountries: [...f.availableCountries, country] }));
+                        } else {
+                          setForm((f) => ({ ...f, availableCountries: f.availableCountries.filter((c) => c !== country) }));
+                        }
+                      }}
+                      className="rounded border-slate-300 text-sky-600"
+                    />
+                    <span className="text-sm text-slate-700">{country}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+            <div>
               <label className="flex items-center gap-2">
                 <input type="checkbox" checked={form.allowResell} onChange={(e) => setForm((f) => ({ ...f, allowResell: e.target.checked }))} className="rounded border-slate-300 text-sky-600" />
                 <span className="text-sm text-slate-700">Allow resell</span>
@@ -321,6 +433,7 @@ export default function SupplierProductsPage() {
             </div>
           </main>
         </div>
+        <MobileBottomNav cartCount={cartCount} hasStore={hasStore} />
       </div>
     </ProtectedRoute>
   );

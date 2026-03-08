@@ -43,7 +43,7 @@ async function fetchNominatim(
   queries: string[],
   signal: AbortSignal
 ): Promise<Array<{ display_name?: string; address?: string; lat: string; lon: string; place_id?: number }>> {
-  const opts = { signal, headers: { "User-Agent": "MorongwaApp/1.0", Accept: "application/json", "Accept-Language": "en" } };
+  const opts = { signal, headers: { "User-Agent": "QwertymatesApp/1.0", Accept: "application/json", "Accept-Language": "en" } };
   for (const q of queries) {
     const url =
       `https://nominatim.openstreetmap.org/search?` +
@@ -183,7 +183,7 @@ export default function LocationAutocomplete({ value = "", placeholder = "Search
           }}
           onBlur={() => setTimeout(() => setShow(false), 200)}
           placeholder={placeholder}
-          className="w-full pl-10 pr-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="w-full pl-10 pr-3 py-2 border border-slate-300 rounded-lg shadow-sm focus:ring-2 focus:ring-brand-500 focus:border-brand-500 transition"
           autoComplete="off"
         />
         {loading && (
@@ -197,7 +197,7 @@ export default function LocationAutocomplete({ value = "", placeholder = "Search
             <li
               key={r.place_id ?? `${r.lat}-${r.lon}`}
               onClick={() => handleSelect(r)}
-              className="cursor-pointer px-4 py-3 hover:bg-blue-50 text-sm text-slate-700 border-b border-slate-100 last:border-b-0 transition"
+              className="cursor-pointer px-4 py-3 hover:bg-brand-50 text-sm text-slate-700 border-b border-slate-100 last:border-b-0 transition"
             >
               <div className="font-medium text-slate-900">{r.display_name?.split(",")[0] || r.address || ""}</div>
               <div className="text-xs text-slate-500">{r.display_name?.split(",").slice(1).join(",").trim() || ""}</div>
@@ -221,7 +221,7 @@ export default function LocationAutocomplete({ value = "", placeholder = "Search
               onSelect({ address: query, lat, lon });
               setShow(false);
             }}
-            className="w-full px-3 py-2 bg-sky-50 text-sky-700 rounded-lg hover:bg-sky-100 transition text-xs font-medium"
+            className="w-full px-3 py-2 bg-brand-50 text-brand-700 rounded-lg hover:bg-brand-100 transition text-xs font-medium"
           >
             Use &quot;{query}&quot; anyway
           </button>

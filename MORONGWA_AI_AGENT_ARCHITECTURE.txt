@@ -1,5 +1,5 @@
 ================================================================================
-        MORONGWA AI AGENT ARCHITECTURE - "Grok-style" Assistant
+        McGYVER AI AGENT ARCHITECTURE - "Ask McGyver" (Grok-style Assistant)
 ================================================================================
         The Digital Home for Doers, Sellers & Creators
         Document Version: 1.0 | Last Updated: 2025
@@ -8,8 +8,9 @@
 
 1. EXECUTIVE SUMMARY
 --------------------------------------------------------------------------------
-This document outlines the concrete architecture for an AI agent (similar to
-Grok / xAI) integrated into the Morongwa platform. The agent will assist users
+This document outlines the concrete architecture for McGyver (Ask McGyver), an AI
+agent (similar to Grok / xAI / Facebook Copilot) integrated into the Morongwa platform.
+The agent will assist users
 with tasks, marketplace, Morongwa-TV, policies, wallet, and support—tailored
 to the existing Next.js frontend and Express/MongoDB backend.
 

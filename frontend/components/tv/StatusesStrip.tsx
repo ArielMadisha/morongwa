@@ -25,23 +25,52 @@ interface StatusesStripProps {
   userAvatar?: string;
   stripBackgroundPic?: string;
   onAddStatus?: () => void;
+  /** When this changes, statuses are refetched (e.g. after creating a post) */
+  refreshTrigger?: number;
+  /** Optimistic: current user's just-created post to show immediately in the strip */
+  currentUserLatestPost?: { _id: string; type: string; mediaUrls: string[]; createdAt?: string } | null;
+  /** Current user's name (for optimistic status display) */
+  currentUserName?: string;
 }
 
-export function StatusesStrip({ currentUserId, userAvatar, stripBackgroundPic, onAddStatus }: StatusesStripProps) {
+export function StatusesStrip({ currentUserId, userAvatar, stripBackgroundPic, onAddStatus, refreshTrigger, currentUserLatestPost, currentUserName }: StatusesStripProps) {
   const [statuses, setStatuses] = useState<StatusItem[]>([]);
   const [loading, setLoading] = useState(true);
   const stripRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
+  const fetchStatuses = () => {
     tvAPI
       .getStatuses()
       .then((res) => {
         const data = res.data?.data ?? res.data ?? [];
-        setStatuses(Array.isArray(data) ? data : []);
+        const list = Array.isArray(data) ? data : [];
+        setStatuses(list);
       })
       .catch(() => setStatuses([]))
       .finally(() => setLoading(false));
-  }, []);
+  };
+
+  useEffect(() => {
+    fetchStatuses();
+  }, [refreshTrigger]);
+
+  // Merge current user's just-created post into statuses (optimistic update)
+  const displayStatuses = (() => {
+    if (!currentUserLatestPost?.mediaUrls?.length || !currentUserId) return statuses;
+    const myStatus: StatusItem = {
+      userId: currentUserId,
+      name: currentUserName,
+      avatar: userAvatar,
+      latestPost: {
+        _id: currentUserLatestPost._id,
+        type: currentUserLatestPost.type,
+        mediaUrls: currentUserLatestPost.mediaUrls,
+        createdAt: currentUserLatestPost.createdAt ?? new Date().toISOString(),
+      },
+    };
+    const others = statuses.filter((s) => String(s.userId?._id ?? s.userId) !== currentUserId);
+    return [myStatus, ...others];
+  })();
 
   const thumbnail = (s: StatusItem) => {
     if (s.latestPost?.mediaUrls?.[0]) {
@@ -59,7 +88,7 @@ export function StatusesStrip({ currentUserId, userAvatar, stripBackgroundPic, o
   return (
     <div
       ref={stripRef}
-      className="flex gap-4 overflow-x-auto pb-2 scroll-smooth [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden min-h-[88px] rounded-xl px-3 py-2 items-start"
+      className="flex gap-4 overflow-x-auto pb-2 scroll-smooth [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden min-h-[72px] rounded-xl px-3 py-1.5 items-start"
       style={stripBgStyle}
     >
       {onAddStatus && (
@@ -88,7 +117,7 @@ export function StatusesStrip({ currentUserId, userAvatar, stripBackgroundPic, o
           <span className="text-[10px] font-semibold leading-tight text-slate-700">create</span>
         </div>
       )}
-      {statuses.map((s) => {
+      {displayStatuses.map((s) => {
         const uid = String(s.userId?._id ?? s.userId);
         return (
         <div
@@ -96,9 +125,9 @@ export function StatusesStrip({ currentUserId, userAvatar, stripBackgroundPic, o
           className="flex-shrink-0 flex flex-col items-center gap-1"
         >
           <Link
-            href="/morongwa-tv"
+            href={`/morongwa-tv/user/${uid}`}
             className="flex flex-col items-center gap-1 cursor-pointer group"
-            aria-label={`View ${s.name || 'user'}'s story`}
+            aria-label={`View ${s.name || 'user'}'s posts`}
           >
             <div className="relative">
               <div

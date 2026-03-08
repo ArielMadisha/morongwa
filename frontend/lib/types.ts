@@ -4,6 +4,7 @@ export interface User {
   id?: string;
   name: string;
   email: string;
+  username?: string;
   // Roles assigned to the user (always an array)
   role: Array<'client' | 'runner' | 'admin' | 'superadmin'>;
   avatar?: string;
@@ -153,12 +154,16 @@ export interface Product {
   price: number;
   /** Discount/sale price. When set, customers pay this instead of price. */
   discountPrice?: number;
+  /** Bulk sale tiers: quantity range → price per unit. */
+  bulkTiers?: Array<{ minQty: number; maxQty: number; price: number }>;
   currency: string;
   stock: number;
   outOfStock?: boolean;
   sizes?: string[];
   categories: string[];
   tags: string[];
+  /** Countries where this product is available (e.g. ["South Africa", "Botswana"]). Empty = no restriction. */
+  availableCountries?: string[];
   ratingAvg?: number;
   ratingCount?: number;
 }

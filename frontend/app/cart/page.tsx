@@ -4,13 +4,14 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { ShoppingCart, Minus, Plus, Trash2, ArrowRight, Package } from 'lucide-react';
+import { SearchButton } from '@/components/SearchButton';
 import { cartAPI, getImageUrl } from '@/lib/api';
 import { invalidateCartStoresCache, useCartAndStores } from '@/lib/useCartAndStores';
 import ProtectedRoute from '@/components/ProtectedRoute';
 import { useAuth } from '@/contexts/AuthContext';
 import { AppSidebar, AppSidebarMenuButton } from '@/components/AppSidebar';
-import { ProfileDropdown } from '@/components/ProfileDropdown';
 import { AdvertSlot } from '@/components/AdvertSlot';
+import { MobileBottomNav } from '@/components/MobileBottomNav';
 
 interface CartItem {
   productId: string;
@@ -86,32 +87,42 @@ function CartPageContent() {
   const subtotal = items.reduce((sum, i) => sum + i.lineTotal, 0);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-sky-50 via-blue-50 to-white text-slate-900 flex">
-      <AppSidebar
-        variant="wall"
-        userName={user?.name}
-        cartCount={cartCount}
-        hasStore={hasStore}
-        onLogout={handleLogout}
-        menuOpen={menuOpen}
-        setMenuOpen={setMenuOpen}
-      />
-      <div className="flex-1 flex flex-col min-w-0 overflow-visible">
-        <header className="bg-white/85 backdrop-blur-md border-b border-slate-100 shadow-sm flex-shrink-0 overflow-visible">
-          <div className="px-4 sm:px-6 lg:px-8 py-4">
-            <div className="flex items-center justify-between gap-4">
-              <div className="flex items-center gap-3 min-w-0">
-                <AppSidebarMenuButton onClick={() => setMenuOpen(true)} />
-                <p className="text-sm text-slate-600 truncate">Welcome back, {user?.name}</p>
+    <div className="min-h-screen flex flex-col bg-gradient-to-br from-sky-50 via-blue-50 to-white text-slate-900">
+      <header className="sticky top-0 z-40 w-full bg-white/95 backdrop-blur-md border-b border-slate-100 shadow-sm flex-shrink-0">
+        <div className="px-4 sm:px-6 lg:px-8 py-3 sm:py-4">
+          <div className="flex items-center justify-between gap-3 sm:gap-4 min-w-0">
+            <Link href="/wall" className="shrink-0 flex items-center" aria-label="Home">
+              <img src="/qwertymates-logo-icon.png" alt="Qwertymates" className="h-9 w-9 object-contain lg:hidden" />
+              <img src="/qwertymates-logo.png" alt="Qwertymates" className="h-9 w-auto object-contain hidden lg:block" />
+            </Link>
+            <AppSidebarMenuButton onClick={() => setMenuOpen(true)} />
+            <div className="flex items-center gap-2 min-w-0 shrink-0">
+              <div className="h-8 w-8 rounded-lg bg-brand-50 flex items-center justify-center shrink-0">
+                <ShoppingCart className="h-4 w-4 text-brand-600" />
               </div>
-              <div className="shrink-0">
-                <ProfileDropdown userName={user?.name} />
-              </div>
+              <h1 className="text-base sm:text-lg font-semibold text-slate-900 truncate">Cart</h1>
             </div>
+            <div className="flex-1 min-w-0" />
+            <SearchButton />
           </div>
-        </header>
-        <div className="flex-1 flex gap-6 pt-6 min-h-0">
-          <main className="flex-1 min-w-0 max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+        </div>
+      </header>
+      <div className="flex flex-1 min-h-0">
+        <AppSidebar
+          variant="wall"
+          userName={user?.name}
+          userAvatar={(user as any)?.avatar}
+          userId={user?._id || user?.id}
+          cartCount={cartCount}
+          hasStore={hasStore}
+          onLogout={handleLogout}
+          menuOpen={menuOpen}
+          setMenuOpen={setMenuOpen}
+          hideLogo
+          belowHeader
+        />
+        <div className="flex-1 flex gap-0 min-h-0 overflow-y-auto overflow-x-hidden">
+          <main className="flex-1 min-w-0 max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-6 pb-24 lg:pb-6">
           <div className="flex items-center gap-3 mb-8">
             <div className="h-12 w-12 rounded-2xl bg-blue-100 border border-blue-200 flex items-center justify-center">
               <ShoppingCart className="h-6 w-6 text-blue-600" />
@@ -214,9 +225,10 @@ function CartPageContent() {
             </>
           )}
           </main>
-          <AdvertSlot />
+          <AdvertSlot belowHeader />
         </div>
       </div>
+      <MobileBottomNav cartCount={cartCount} hasStore={hasStore} />
     </div>
   );
 }

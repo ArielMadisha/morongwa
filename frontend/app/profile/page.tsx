@@ -2,11 +2,13 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { ArrowLeft, LayoutDashboard, Wallet, ClipboardList, HelpCircle, ShieldCheck, Lock, Radio, UserCheck, Camera } from "lucide-react";
+import { ArrowLeft, LayoutDashboard, Wallet, ClipboardList, HelpCircle, ShieldCheck, Lock, Radio, UserCheck, Camera, Pencil, Check, X } from "lucide-react";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import { useAuth } from "@/contexts/AuthContext";
 import { usersAPI, followsAPI } from "@/lib/api";
 import { AppSidebar, AppSidebarMenuButton } from "@/components/AppSidebar";
+import { SearchButton } from "@/components/SearchButton";
+import { MobileBottomNav } from "@/components/MobileBottomNav";
 import { SetPictureOptionsModal } from "@/components/SetPictureOptionsModal";
 import { useCartAndStores } from "@/lib/useCartAndStores";
 import { getImageUrl } from "@/lib/api";
@@ -27,6 +29,9 @@ export default function ProfilePage() {
   const [pendingRequests, setPendingRequests] = useState<any[]>([]);
   const [pictureOptionsOpen, setPictureOptionsOpen] = useState(false);
   const [selectedPictureFile, setSelectedPictureFile] = useState<File | null>(null);
+  const [editingUsername, setEditingUsername] = useState(false);
+  const [usernameValue, setUsernameValue] = useState("");
+  const [usernameSaving, setUsernameSaving] = useState(false);
   const { cartCount, hasStore } = useCartAndStores(!!user);
 
   useEffect(() => {
@@ -114,6 +119,37 @@ export default function ProfilePage() {
     }
   };
 
+  const startEditUsername = () => {
+    setUsernameValue((user as any).username || "");
+    setEditingUsername(true);
+  };
+
+  const cancelEditUsername = () => {
+    setEditingUsername(false);
+    setUsernameValue("");
+  };
+
+  const saveUsername = async () => {
+    const uname = usernameValue.trim().toLowerCase().replace(/[^a-z0-9_]/g, "").slice(0, 30);
+    if (uname.length < 2) {
+      toast.error("Username must be at least 2 characters (letters, numbers, underscore)");
+      return;
+    }
+    if (!user?._id && !user?.id) return;
+    setUsernameSaving(true);
+    try {
+      await usersAPI.updateProfile(user._id || user.id!, { username: uname });
+      toast.success("Username updated");
+      setEditingUsername(false);
+      setUsernameValue("");
+      refreshUser?.();
+    } catch (e: any) {
+      toast.error(e.response?.data?.message || "Username already taken");
+    } finally {
+      setUsernameSaving(false);
+    }
+  };
+
   if (!user) return null;
 
   const roles = Array.isArray(user.role) ? user.role : [user.role];
@@ -134,6 +170,8 @@ export default function ProfilePage() {
         <AppSidebar
           variant={variant}
           userName={user?.name}
+          userAvatar={(user as any)?.avatar}
+          userId={user?._id || user?.id}
           cartCount={cartCount}
           hasStore={hasStore}
           onLogout={logout}
@@ -142,8 +180,8 @@ export default function ProfilePage() {
         />
         <div className="flex-1 flex flex-col min-w-0">
           <header className="bg-white/85 backdrop-blur-md border-b border-slate-100 shadow-sm flex-shrink-0">
-            <div className="px-4 sm:px-6 lg:px-8 py-4">
-              <div className="flex items-center gap-3 min-w-0">
+            <div className="px-4 sm:px-6 lg:px-8 py-2 sm:py-3 flex items-center justify-between gap-3 sm:gap-4">
+              <div className="flex items-center gap-2 sm:gap-3 min-w-0">
                 <AppSidebarMenuButton onClick={() => setMenuOpen(true)} />
                 <Link
                   href={dashboardHref}
@@ -153,13 +191,15 @@ export default function ProfilePage() {
                   Back to dashboard
                 </Link>
               </div>
+              <div className="flex-1 min-w-0" />
+              <SearchButton />
             </div>
           </header>
-          <div className="flex-1 overflow-auto">
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 py-8">
-          <div className="mb-8">
-            <h1 className="text-2xl sm:text-3xl font-bold text-slate-900">My profile</h1>
-            <p className="text-slate-600 mt-1">The Digital Home for Doers, Sellers & Creators.</p>
+          <div className="flex-1 overflow-auto pb-24 lg:pb-0">
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 pt-4 pb-8">
+          <div className="mb-4">
+            <h1 className="text-xl sm:text-2xl font-bold text-slate-900">My profile</h1>
+            <p className="text-slate-600 text-sm mt-0.5">The Digital Home for Doers, Sellers & Creators.</p>
           </div>
 
           {/* Profile card */}
@@ -180,6 +220,55 @@ export default function ProfilePage() {
                 <div className="flex-1 min-w-0">
                   <h2 className="text-xl font-semibold text-slate-900">{user.name}</h2>
                   <p className="text-slate-600">{user.email}</p>
+                  <div className="mt-2 flex items-center gap-2">
+                    {editingUsername ? (
+                      <div className="flex flex-col gap-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-slate-500 text-sm">@</span>
+                          <input
+                            type="text"
+                            value={usernameValue}
+                            onChange={(e) => setUsernameValue(e.target.value)}
+                            placeholder="username"
+                            className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm w-40 focus:ring-2 focus:ring-sky-500 focus:border-sky-500"
+                            autoFocus
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") saveUsername();
+                              if (e.key === "Escape") cancelEditUsername();
+                            }}
+                          />
+                          <button
+                            onClick={saveUsername}
+                            disabled={usernameSaving}
+                            className="p-1.5 rounded-lg bg-sky-500 text-white hover:bg-sky-600 disabled:opacity-50"
+                          >
+                            <Check className="h-4 w-4" />
+                          </button>
+                          <button
+                            onClick={cancelEditUsername}
+                            disabled={usernameSaving}
+                            className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50"
+                          >
+                            <X className="h-4 w-4" />
+                          </button>
+                        </div>
+                        <p className="text-xs text-slate-500">Letters, numbers, underscore (2–30 chars)</p>
+                      </div>
+                    ) : (
+                      <span className="text-slate-600 text-sm">
+                        @{(user as any).username || "not set"}
+                      </span>
+                    )}
+                    {!editingUsername && (
+                      <button
+                        onClick={startEditUsername}
+                        className="p-1 rounded text-slate-500 hover:text-sky-600 hover:bg-sky-50"
+                        title="Edit username"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </div>
                   <div className="mt-2 inline-flex items-center gap-2 rounded-lg bg-blue-50 px-3 py-1.5 text-sm font-medium text-blue-700">
                     <ShieldCheck className="h-4 w-4" />
                     {roles.map((r) => r.charAt(0).toUpperCase() + r.slice(1)).join(" + ")}
@@ -235,7 +324,7 @@ export default function ProfilePage() {
                     className="rounded text-sky-600"
                   />
                 </label>
-                <p className="text-xs text-slate-500">When live, you appear in statuses and on MorongwaTV.</p>
+                <p className="text-xs text-slate-500">When live, you appear in statuses and on QwertyTV.</p>
               </div>
 
               {/* Upload profile picture / strip background */}
@@ -340,6 +429,7 @@ export default function ProfilePage() {
           </div>
         </div>
       </div>
+      <MobileBottomNav cartCount={cartCount} hasStore={hasStore} />
 
       <SetPictureOptionsModal
         open={pictureOptionsOpen}

@@ -1,0 +1,14 @@
+# Linode deployment config
+# Copy to deploy-linode.config and fill in your values
+
+# SSH connection (user@hostname or user@ip)
+LINODE_HOST=root@your-linode-ip
+
+# Remote path where the app will be deployed
+LINODE_PATH=/var/www/morongwa
+
+# Optional: SSH key path (default: ~/.ssh/id_rsa)
+# LINODE_SSH_KEY=~/.ssh/linode_key
+
+# Optional: Skip npm install on server (if you sync node_modules)
+# SKIP_NPM_INSTALL=false

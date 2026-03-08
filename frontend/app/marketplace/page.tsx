@@ -9,8 +9,9 @@ import type { Product } from '@/lib/types';
 import { useAuth } from '@/contexts/AuthContext';
 import { useCartAndStores } from '@/lib/useCartAndStores';
 import { AppSidebar, AppSidebarMenuButton } from '@/components/AppSidebar';
-import { ProfileDropdown } from '@/components/ProfileDropdown';
+import { SearchButton } from '@/components/SearchButton';
 import { AdvertSlot } from '@/components/AdvertSlot';
+import { MobileBottomNav } from '@/components/MobileBottomNav';
 
 function formatPrice(price: number, currency: string) {
   return new Intl.NumberFormat('en-ZA', {
@@ -56,64 +57,73 @@ function MarketplacePageContent() {
   const homeLink = isGuest ? '/' : '/wall';
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-sky-50 via-blue-50 to-white text-slate-900 flex">
-      {!isGuest && (
-        <AppSidebar
-          variant="wall"
-          userName={user?.name}
-          cartCount={cartCount}
-          hasStore={hasStore}
-          onLogout={handleLogout}
-          menuOpen={menuOpen}
-          setMenuOpen={setMenuOpen}
-        />
-      )}
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        <header className="bg-white/85 backdrop-blur-md border-b border-slate-100 shadow-sm flex-shrink-0">
-          <div className="px-4 sm:px-6 lg:px-8 py-4">
-            <div className="flex items-center justify-between gap-4">
-              <div className="flex items-center gap-3 min-w-0">
-                {!isGuest && <AppSidebarMenuButton onClick={() => setMenuOpen(true)} />}
-                <div className="flex items-center gap-2">
-                  <div className="h-9 w-9 rounded-xl bg-sky-100 border border-sky-200 flex items-center justify-center">
-                    <ShoppingBag className="h-5 w-5 text-sky-600" />
-                  </div>
-                  <h1 className="text-lg font-semibold text-slate-900">QwertyHub</h1>
-                </div>
+    <div className="min-h-screen flex flex-col bg-gradient-to-br from-sky-50 via-blue-50 to-white text-slate-900">
+      {/* Full-width frozen header */}
+      <header className="sticky top-0 z-40 w-full bg-white/95 backdrop-blur-md border-b border-slate-100 shadow-sm flex-shrink-0">
+        <div className="px-4 sm:px-6 lg:px-8 py-3 sm:py-4">
+          <div className="flex items-center justify-between gap-3 sm:gap-4 min-w-0">
+            <Link href={homeLink} className="shrink-0 flex items-center" aria-label="Home">
+              <img src="/qwertymates-logo-icon.png" alt="Qwertymates" className="h-9 w-9 object-contain lg:hidden" />
+              <img src="/qwertymates-logo.png" alt="Qwertymates" className="h-9 w-auto object-contain hidden lg:block" />
+            </Link>
+            {!isGuest && <AppSidebarMenuButton onClick={() => setMenuOpen(true)} />}
+            <div className="flex items-center gap-2 min-w-0 shrink-0">
+              <div className="h-8 w-8 rounded-lg bg-brand-50 flex items-center justify-center shrink-0">
+                <ShoppingBag className="h-4 w-4 text-brand-600" />
               </div>
-              <div className="flex gap-2">
+              <h1 className="text-base sm:text-lg font-semibold text-slate-900 truncate">QwertyHub</h1>
+            </div>
+            <div className="flex-1 min-w-0" />
+            <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+                <SearchButton />
                 {isGuest ? (
                   <>
-                    <Link href="/login" className="shrink-0 rounded-xl border border-sky-200 bg-white/80 px-4 py-2 text-sm font-medium text-sky-700 hover:bg-sky-50 transition-colors">
+                    <Link href="/login" className="shrink-0 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 sm:px-4 sm:py-2 text-xs sm:text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors">
                       Sign in
                     </Link>
-                    <Link href="/register" className="shrink-0 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:from-blue-700 hover:to-indigo-700 transition-colors">
+                    <Link href="/register" className="shrink-0 rounded-lg bg-brand-500 px-2.5 py-1.5 sm:px-4 sm:py-2 text-xs sm:text-sm font-semibold text-white hover:bg-brand-600 transition-colors">
                       Register
                     </Link>
                   </>
                 ) : (
                   <>
-                    <Link href={supplierLink} className="shrink-0 rounded-xl border border-sky-200 bg-white/80 px-4 py-2 text-sm font-medium text-sky-700 hover:bg-sky-50 transition-colors">
-                      Become a supplier
+                    <Link href={supplierLink} className="shrink-0 rounded-lg border border-slate-200 bg-white px-2 py-1.5 sm:px-4 sm:py-2 text-xs sm:text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors whitespace-nowrap" title="Become a supplier">
+                      <span className="hidden sm:inline">Become a supplier</span>
+                      <span className="sm:hidden">Supplier</span>
                     </Link>
-                    <ProfileDropdown userName={user?.name} />
                   </>
                 )}
-              </div>
             </div>
           </div>
-        </header>
-        <div className="flex-1 flex gap-6 min-h-0 overflow-hidden">
-        <main className="flex-1 min-w-0 overflow-y-auto px-4 sm:px-6 lg:px-8 py-6">
+        </div>
+      </header>
+      <div className="flex flex-1 min-h-0">
+        {!isGuest && (
+          <AppSidebar
+            variant="wall"
+            userName={user?.name}
+            userAvatar={(user as any)?.avatar}
+            userId={user?._id || user?.id}
+            cartCount={cartCount}
+            hasStore={hasStore}
+            onLogout={handleLogout}
+            menuOpen={menuOpen}
+            setMenuOpen={setMenuOpen}
+            hideLogo
+            belowHeader
+          />
+        )}
+        <div className="flex-1 flex gap-0 min-h-0 overflow-y-auto overflow-x-hidden">
+        <main className="flex-1 min-w-0 px-4 sm:px-6 lg:px-8 py-6 pb-24 lg:pb-6">
         {isGuest && (
           <div className="mb-6 rounded-xl border border-blue-100 bg-blue-50/80 px-4 py-3 text-sm text-slate-700">
-            Browse our gallery. <Link href="/register" className="font-medium text-blue-600 hover:text-blue-700">Sign up</Link> or <Link href="/login" className="font-medium text-blue-600 hover:text-blue-700">sign in</Link> to add to cart, checkout, or sell.
+            Browse our gallery. <Link href="/register" className="font-medium text-brand-600 hover:text-brand-700">Sign up</Link> or <Link href="/login" className="font-medium text-brand-600 hover:text-brand-700">sign in</Link> to add to cart, checkout, or sell.
           </div>
         )}
         <p className="text-slate-600 mb-8">Products from verified suppliers. Buy or resell with delivery by runners.</p>
 
         {loading ? (
-          <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
             {[1, 2, 3, 4, 5, 6].map((i) => (
               <div key={i} className="bg-white/80 rounded-2xl border border-slate-100 p-6 animate-pulse">
                 <div className="h-40 bg-slate-200 rounded-xl mb-4" />
@@ -136,7 +146,7 @@ function MarketplacePageContent() {
             </Link>
           </div>
         ) : (
-          <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
             {products.map((p) => {
               const outOfStock = (p as any).outOfStock || (p.stock != null && p.stock < 1);
               const allowResell = (p as any).allowResell ?? false;
@@ -209,7 +219,7 @@ function MarketplacePageContent() {
         )}
 
         <div className="mt-12 rounded-2xl border border-slate-200 bg-white/90 p-6">
-          <h2 className="text-lg font-semibold text-slate-900 mb-4">Sell on Morongwa</h2>
+          <h2 className="text-lg font-semibold text-slate-900 mb-4">Sell on Qwertymates</h2>
           <div className="grid sm:grid-cols-2 gap-6">
             <div className="rounded-xl border border-sky-100 bg-sky-50/50 p-4">
               <div className="flex items-center gap-2 mb-2">
@@ -240,9 +250,10 @@ function MarketplacePageContent() {
           </div>
         </div>
       </main>
-        <AdvertSlot />
+        <AdvertSlot belowHeader />
         </div>
       </div>
+      {!isGuest && <MobileBottomNav cartCount={cartCount} hasStore={hasStore} />}
     </div>
   );
 }

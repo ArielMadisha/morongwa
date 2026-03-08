@@ -1,6 +1,7 @@
 import { Router, Request, Response } from "express";
 import Product from "../data/models/Product";
 import Supplier from "../data/models/Supplier";
+import TVPost from "../data/models/TVPost";
 import { authenticate, AuthRequest } from "../middleware/auth";
 import { AppError } from "../middleware/errorHandler";
 import { slugify } from "../utils/helpers";
@@ -43,6 +44,7 @@ router.get("/", async (req: Request, res: Response) => {
   try {
     const limit = Math.min(parseInt(req.query.limit as string, 10) || 20, 50);
     const random = req.query.random === "1" || req.query.random === "true";
+    const q = (req.query.q as string)?.trim();
 
     const approvedSupplierIds = await Supplier.find({ status: "approved" })
       .select("_id")
@@ -53,11 +55,21 @@ router.get("/", async (req: Request, res: Response) => {
       return res.json({ data: [], count: 0 });
     }
 
-    let query = Product.find({
+    const match: Record<string, unknown> = {
       supplierId: { $in: approvedSupplierIds },
       active: true,
-    })
-      .select("title slug description images price discountPrice currency stock outOfStock categories tags ratingAvg ratingCount")
+    };
+    if (q && q.length >= 2) {
+      match.$or = [
+        { title: { $regex: q, $options: "i" } },
+        { description: { $regex: q, $options: "i" } },
+        { categories: { $in: [new RegExp(q, "i")] } },
+        { tags: { $in: [new RegExp(q, "i")] } },
+      ];
+    }
+
+    let query = Product.find(match)
+      .select("title slug description images price discountPrice bulkTiers currency stock outOfStock categories tags availableCountries ratingAvg ratingCount")
       .populate("supplierId", "storeName")
       .lean();
 
@@ -129,6 +141,7 @@ router.post("/", authenticate, async (req: AuthRequest, res: Response, next) => 
       images?: string[];
       price: number;
       discountPrice?: number;
+      bulkTiers?: Array<{ minQty: number; maxQty: number; price: number }>;
       currency?: string;
       stock?: number;
       outOfStock?: boolean;
@@ -137,6 +150,7 @@ router.post("/", authenticate, async (req: AuthRequest, res: Response, next) => 
       allowResell?: boolean;
       categories?: string[];
       tags?: string[];
+      availableCountries?: string[];
     };
     const { title, price } = body;
     if (!title || title.trim() === "" || price == null || Number(price) < 0) {
@@ -149,6 +163,11 @@ router.post("/", authenticate, async (req: AuthRequest, res: Response, next) => 
     let n = 1;
     while (await Product.findOne({ slug })) slug = `${slugify(title.trim())}-${++n}`;
     const discountPrice = body.discountPrice != null ? Number(body.discountPrice) : undefined;
+    const bulkTiers = Array.isArray(body.bulkTiers)
+      ? body.bulkTiers
+          .filter((t) => t != null && Number(t.minQty) >= 0 && Number(t.maxQty) >= Number(t.minQty) && Number(t.price) >= 0)
+          .map((t) => ({ minQty: Number(t.minQty), maxQty: Number(t.maxQty), price: Number(t.price) }))
+      : undefined;
     const product = await Product.create({
       supplierId: supplier._id,
       title: title.trim(),
@@ -157,6 +176,7 @@ router.post("/", authenticate, async (req: AuthRequest, res: Response, next) => 
       images,
       price: Number(price),
       ...(discountPrice != null && discountPrice >= 0 && discountPrice < Number(price) && { discountPrice }),
+      ...(bulkTiers && bulkTiers.length > 0 && { bulkTiers }),
       currency: body.currency || "ZAR",
       stock: body.stock != null ? Number(body.stock) : 0,
       outOfStock: body.outOfStock != null ? !!body.outOfStock : false,
@@ -165,8 +185,18 @@ router.post("/", authenticate, async (req: AuthRequest, res: Response, next) => 
       allowResell: body.allowResell != null ? !!body.allowResell : true,
       categories: Array.isArray(body.categories) ? body.categories : [],
       tags: Array.isArray(body.tags) ? body.tags : [],
+      availableCountries: Array.isArray(body.availableCountries) ? body.availableCountries.filter(Boolean) : [],
       active: true,
     });
+    // Auto-create TVPost so product appears on wall feed (default home page)
+    await TVPost.create({
+      creatorId: supplier.userId,
+      type: "product",
+      mediaUrls: images,
+      productId: product._id,
+      caption: title.trim(),
+      status: "approved",
+    }).catch(() => {});
     res.status(201).json({ message: "Product created", data: product });
   } catch (err) {
     next(err);

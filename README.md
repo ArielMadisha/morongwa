@@ -155,6 +155,10 @@ Push-Location "C:\Users\Dell\OneDrive - \Documents\Coding\Morongwa\backend"; npm
 - Backend: http://localhost:5001/api
 - Frontend: http://localhost:3001
 
+## 📚 Documentation
+
+- **[WhatsApp & SMS Integration](docs/WHATSAPP_SMS_INTEGRATION.md)** – OTP delivery via Twilio (SMS) and WhatsApp Cloud API, plus username auto-generation.
+
 ## 📚 API Documentation
 
 ### Authentication

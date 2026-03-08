@@ -10,36 +10,41 @@ export interface AdvertTileProps {
 }
 
 /**
- * Mobile: Renders as a post-like tile in the wall feed.
- * Use with lg:hidden so it only shows on mobile (desktop uses AdvertSlot in right column).
+ * Renders as a post-like tile in the wall feed, interspersed between posts.
+ * Same dimensions as posts (aspect-square, max-h-[min(580px,62vh)]).
  */
 export function AdvertTile({ _id, title, imageUrl, linkUrl }: AdvertTileProps) {
   const href = linkUrl || '/marketplace';
   const isExternal = href.startsWith('http');
 
   const content = (
-    <div className="relative overflow-hidden rounded-xl border border-slate-100 bg-white shadow-sm aspect-square">
-      <img
-        src={imageUrl}
-        alt={title}
-        className="w-full h-full object-cover"
-      />
-      <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-2">
-        <span className="text-[10px] uppercase text-sky-200">Sponsored</span>
-        <p className="text-white text-sm font-medium line-clamp-2">{title}</p>
+    <div className="rounded-lg overflow-hidden bg-white border border-slate-100 shadow-sm flex flex-col">
+      <div className="relative aspect-square w-full mx-auto bg-slate-900 max-h-[min(580px,62vh)]">
+        <img
+          src={imageUrl}
+          alt={title}
+          className="w-full h-full object-cover"
+        />
+        <span className="absolute top-2 right-2 px-2 py-0.5 text-xs rounded-full bg-brand-50 text-brand-700 border border-brand-100">
+          Sponsored
+        </span>
+      </div>
+      <div className="p-3 border-t border-slate-100">
+        <h3 className="font-semibold text-slate-800 line-clamp-1 text-sm">{title}</h3>
+        <p className="text-xs text-slate-500 mt-0.5">Sponsored</p>
       </div>
     </div>
   );
 
   if (isExternal) {
     return (
-      <a href={href} target="_blank" rel="noopener noreferrer" className="block lg:hidden">
+      <a href={href} target="_blank" rel="noopener noreferrer" className="block">
         {content}
       </a>
     );
   }
   return (
-    <Link href={href} className="block lg:hidden">
+    <Link href={href} className="block">
       {content}
     </Link>
   );

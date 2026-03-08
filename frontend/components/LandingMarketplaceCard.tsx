@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { Package, ArrowRight } from 'lucide-react';
+import { Package, ArrowRight, AlertCircle } from 'lucide-react';
 import { productsAPI, getImageUrl } from '@/lib/api';
 import type { Product } from '@/lib/types';
 
@@ -36,22 +36,15 @@ export default function LandingMarketplaceCard() {
   }, []);
 
   return (
-    <Link
-      href="/marketplace"
-      className="block bg-white/80 backdrop-blur-lg border border-slate-100 rounded-3xl shadow-2xl p-10 relative overflow-hidden hover:shadow-xl hover:border-sky-200 transition-all group"
-    >
-      <div className="absolute -right-10 -top-10 h-40 w-40 rounded-full bg-blue-100 blur-3xl" />
-      <div className="absolute -left-16 bottom-0 h-36 w-36 rounded-full bg-cyan-100 blur-3xl" />
-      <div className="relative space-y-6">
+    <div className="w-full max-w-md rounded-xl bg-white shadow-md p-5 border border-slate-100 hover:shadow-lg transition-shadow">
+      <div className="space-y-4">
         <div className="flex items-center gap-3">
-          <div className="h-12 w-12 rounded-2xl bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-600 text-xl font-bold group-hover:bg-blue-100 transition-colors">
+          <div className="h-10 w-10 rounded-full bg-brand-500 text-white grid place-items-center font-semibold">
             M
           </div>
           <div>
-            <p className="text-lg font-semibold text-slate-900 group-hover:text-sky-700 transition-colors">
-              QwertyHub
-            </p>
-            <p className="text-sm text-slate-500">Buy from verified suppliers</p>
+            <h3 className="text-lg font-bold text-slate-900">QwertyHub</h3>
+            <p className="text-slate-500 text-sm">Buy from verified suppliers</p>
           </div>
         </div>
 
@@ -62,58 +55,52 @@ export default function LandingMarketplaceCard() {
             ))}
           </div>
         ) : loadError ? (
-          <div className="rounded-2xl border border-amber-100 bg-amber-50/80 p-4">
-            <p className="text-sm text-amber-800">
-              Products temporarily unavailable. Check your internet and try again.
-            </p>
+          <div className="flex items-center gap-2 text-red-600 text-sm">
+            <AlertCircle className="h-4 w-4 shrink-0" />
+            Products temporarily unavailable. Try again later.
           </div>
         ) : products.length > 0 ? (
           <div className="space-y-3">
-            {products.map((p) => (
-              <div
+            {          products.map((p) => (
+              <Link
                 key={p._id}
-                className="flex items-center gap-3 p-3 rounded-2xl bg-slate-50/80 border border-slate-100"
+                href={`/marketplace/product/${p._id}`}
+                className="flex items-center gap-3 p-2 rounded-md hover:bg-slate-50 transition"
               >
-                <div className="h-12 w-12 rounded-xl bg-slate-200 flex items-center justify-center shrink-0">
+                <div className="h-14 w-14 rounded-md border border-slate-200 shrink-0 overflow-hidden bg-slate-100 flex items-center justify-center">
                   {p.images?.[0] ? (
-                    <img
-                      src={getImageUrl(p.images[0])}
-                      alt=""
-                      className="h-12 w-12 rounded-xl object-cover"
-                    />
+                    <img src={getImageUrl(p.images[0])} alt={p.title} className="h-full w-full object-cover" />
                   ) : (
                     <Package className="h-6 w-6 text-slate-400" />
                   )}
                 </div>
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium text-slate-900 truncate">{p.title}</p>
-                  <div className="text-sm">
-                    {p.discountPrice != null && p.discountPrice < p.price ? (
-                      <>
-                        <span className="font-semibold text-sky-600">{formatPrice(p.discountPrice, p.currency)}</span>
-                        <span className="ml-1 text-slate-400 line-through text-xs">{formatPrice(p.price, p.currency)}</span>
-                      </>
-                    ) : (
-                      <p className="font-semibold text-sky-600">{formatPrice(p.price, p.currency)}</p>
-                    )}
-                  </div>
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium text-slate-800 line-clamp-1">{p.title}</p>
+                  {p.discountPrice != null && p.discountPrice < p.price ? (
+                    <p className="text-brand-600 font-semibold">
+                      {formatPrice(p.discountPrice, p.currency)}{' '}
+                      <span className="line-through text-slate-400 text-xs ml-1">{formatPrice(p.price, p.currency)}</span>
+                    </p>
+                  ) : (
+                    <p className="text-brand-600 font-semibold">{formatPrice(p.price, p.currency)}</p>
+                  )}
                 </div>
-              </div>
+              </Link>
             ))}
           </div>
         ) : (
-          <div className="rounded-2xl border border-slate-100 bg-gradient-to-r from-sky-50 to-white p-4 shadow-inner">
-            <p className="text-sm text-slate-600">
-              Browse products from verified suppliers. Delivery by runners.
-            </p>
-          </div>
+          <p className="text-slate-500 text-sm">
+            Browse products from verified suppliers. Delivery by runners.
+          </p>
         )}
 
-        <div className="flex items-center justify-end gap-2 text-sky-600 font-medium text-sm group-hover:gap-3 transition-all">
-          <span>View QwertyHub</span>
-          <ArrowRight className="h-4 w-4" />
-        </div>
+        <Link
+          href="/marketplace"
+          className="mt-4 inline-flex items-center gap-2 text-brand-600 hover:text-brand-700 font-semibold transition"
+        >
+          View QwertyHub <ArrowRight className="h-4 w-4" />
+        </Link>
       </div>
-    </Link>
+    </div>
   );
 }
