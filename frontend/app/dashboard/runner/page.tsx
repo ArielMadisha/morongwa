@@ -18,18 +18,21 @@ import {
   FileCheck,
   Car,
   ArrowRight,
+  Box,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import ProtectedRoute from '@/components/ProtectedRoute';
 import { AppSidebar, AppSidebarMenuButton } from '@/components/AppSidebar';
-import { ProfileDropdown } from '@/components/ProfileDropdown';
-import { tasksAPI, productsAPI, getImageUrl } from '@/lib/api';
+import { SearchButton } from '@/components/SearchButton';
+import { tasksAPI, productsAPI, usersAPI, getImageUrl } from '@/lib/api';
+import { AdvertSlot } from '@/components/AdvertSlot';
+import { MobileBottomNav } from '@/components/MobileBottomNav';
 import { useCartAndStores } from '@/lib/useCartAndStores';
 import { Task } from '@/lib/types';
 import type { Product } from '@/lib/types';
 
 function RunnerDashboard() {
-  const { user, logout } = useAuth();
+  const { user, logout, refreshUser } = useAuth();
   const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
   const [availableTasks, setAvailableTasks] = useState<Task[]>([]);
@@ -38,9 +41,16 @@ function RunnerDashboard() {
   const [activeTab, setActiveTab] = useState<'available' | 'my-tasks' | 'products'>('available');
   const [products, setProducts] = useState<Product[]>([]);
   const [commissionRate, setCommissionRate] = useState<number>(0.15);
+  const [pdpUploading, setPdpUploading] = useState(false);
+  const [vehicleUploading, setVehicleUploading] = useState(false);
+  const [vehicleMake, setVehicleMake] = useState('');
+  const [vehicleModel, setVehicleModel] = useState('');
+  const [vehiclePlate, setVehiclePlate] = useState('');
   const { cartCount, hasStore } = useCartAndStores(!!user);
 
   const hasRunnerRole = user?.role && (Array.isArray(user.role) ? user.role.includes('runner') : user.role === 'runner');
+  const needsVerification = hasRunnerRole && !user?.runnerVerified;
+  const userId = user?._id || user?.id;
 
   const handleLogout = () => {
     logout();
@@ -119,6 +129,46 @@ function RunnerDashboard() {
     }
   };
 
+  const handlePdpUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !userId) return;
+    setPdpUploading(true);
+    try {
+      await usersAPI.uploadPdp(userId, file);
+      toast.success('PDP uploaded. Awaiting admin verification.');
+      await refreshUser();
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'Failed to upload PDP');
+    } finally {
+      setPdpUploading(false);
+      e.target.value = '';
+    }
+  };
+
+  const handleVehicleUpload = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const fileInput = (e.target as HTMLFormElement).querySelector<HTMLInputElement>('input[type="file"]');
+    const files = fileInput?.files ? Array.from(fileInput.files) : [];
+    if (!userId || files.length === 0) {
+      toast.error('Please select at least one document');
+      return;
+    }
+    setVehicleUploading(true);
+    try {
+      await usersAPI.uploadVehicle(userId, { make: vehicleMake, model: vehicleModel, plate: vehiclePlate }, files);
+      toast.success('Vehicle added. Awaiting admin verification.');
+      await refreshUser();
+      setVehicleMake('');
+      setVehicleModel('');
+      setVehiclePlate('');
+      if (fileInput) fileInput.value = '';
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'Failed to add vehicle');
+    } finally {
+      setVehicleUploading(false);
+    }
+  };
+
   const handleCheckArrival = async (taskId: string) => {
     if (!navigator.geolocation) {
       toast.error('Geolocation not supported');
@@ -164,36 +214,45 @@ function RunnerDashboard() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-sky-50 via-blue-50 to-white text-slate-900 flex">
-      <AppSidebar
-        variant="runner"
-        userName={user?.name}
-        cartCount={cartCount}
-        hasStore={hasStore}
-        onLogout={handleLogout}
-        menuOpen={menuOpen}
-        setMenuOpen={setMenuOpen}
-      />
-
-      <div className="flex-1 flex flex-col min-w-0 overflow-visible">
-        <header className="bg-white/85 backdrop-blur-md border-b border-slate-100 shadow-sm flex-shrink-0 overflow-visible">
-          <div className="px-4 sm:px-6 lg:px-8 py-4">
-            <div className="flex items-center justify-between gap-4">
-              <div className="flex items-center gap-3 min-w-0">
-                <AppSidebarMenuButton onClick={() => setMenuOpen(true)} />
-                <div className="min-w-0">
-                  <p className="text-sm text-slate-600 truncate">Welcome back, {user?.name}</p>
-                </div>
+    <div className="min-h-screen flex flex-col bg-gradient-to-br from-sky-50 via-blue-50 to-white text-slate-900">
+      {/* Full-width frozen header - same as QwertyHub */}
+      <header className="sticky top-0 z-40 w-full bg-white/95 backdrop-blur-md border-b border-slate-100 shadow-sm flex-shrink-0">
+        <div className="px-4 sm:px-6 lg:px-8 py-3 sm:py-4">
+          <div className="flex items-center justify-between gap-3 sm:gap-4 min-w-0">
+            <Link href="/wall" className="shrink-0 flex items-center" aria-label="Home">
+              <img src="/qwertymates-logo-icon.png" alt="Qwertymates" className="h-9 w-9 object-contain lg:hidden" />
+              <img src="/qwertymates-logo.png" alt="Qwertymates" className="h-9 w-auto object-contain hidden lg:block" />
+            </Link>
+            <AppSidebarMenuButton onClick={() => setMenuOpen(true)} />
+            <div className="flex items-center gap-2 min-w-0 shrink-0">
+              <div className="h-8 w-8 rounded-lg bg-brand-50 flex items-center justify-center shrink-0">
+                <Box className="h-4 w-4 text-brand-600" />
               </div>
-              <div className="shrink-0">
-                <ProfileDropdown userName={user?.name} onLogout={handleLogout} />
-              </div>
+              <h1 className="text-base sm:text-lg font-semibold text-slate-900 truncate">Runner Cockpit</h1>
             </div>
+            <div className="flex-1 min-w-0" />
+            <SearchButton />
           </div>
-        </header>
+        </div>
+      </header>
 
-        <div className="flex-1 flex gap-6 pt-6 min-h-0">
-      <main className="flex-1 min-w-0 max-w-6xl w-full mx-auto px-4 sm:px-6 lg:px-8">
+      <div className="flex flex-1 min-h-0">
+        <AppSidebar
+          variant="runner"
+          userName={user?.name}
+          userAvatar={(user as any)?.avatar}
+          userId={user?._id || user?.id}
+          cartCount={cartCount}
+          hasStore={hasStore}
+          onLogout={handleLogout}
+          menuOpen={menuOpen}
+          setMenuOpen={setMenuOpen}
+          hideLogo
+          belowHeader
+        />
+        <div className="flex-1 flex flex-col min-w-0 overflow-visible">
+        <div className="flex-1 flex gap-0 pt-6 min-h-0">
+      <main className="flex-1 min-w-0 max-w-6xl w-full mx-auto px-4 sm:px-6 lg:px-8 pb-24 lg:pb-0">
         {!hasRunnerRole && (
           <div className="mb-8 rounded-2xl border-2 border-sky-200 bg-sky-50/80 p-8">
             <h2 className="text-xl font-bold text-slate-900 mb-2">Become a verified runner</h2>
@@ -228,6 +287,65 @@ function RunnerDashboard() {
               Apply to become a runner
               <ArrowRight className="h-5 w-5" />
             </Link>
+          </div>
+        )}
+        {needsVerification && (
+          <div className="mb-8 rounded-2xl border-2 border-amber-200 bg-amber-50/80 p-8">
+            <h2 className="text-xl font-bold text-slate-900 mb-2">Complete runner verification</h2>
+            <p className="text-slate-600 mb-6">Upload your documents for admin approval. You need PDP and at least one vehicle to become verified.</p>
+            <div className="grid sm:grid-cols-2 gap-6">
+              <div className="p-5 rounded-xl bg-white border border-amber-100">
+                <h3 className="font-semibold text-slate-900 mb-2 flex items-center gap-2">
+                  <FileCheck className="h-5 w-5 text-sky-600" />
+                  Professional Driving Permit (PDP)
+                </h3>
+                {user?.pdp ? (
+                  <div className="flex items-center gap-2 text-sm">
+                    <CheckCircle className={`h-5 w-5 ${user.pdp.verified ? 'text-emerald-600' : 'text-amber-500'}`} />
+                    <span>{user.pdp.verified ? 'Verified by admin' : 'Uploaded – pending verification'}</span>
+                    {user.pdp.path && (
+                      <a href={user.pdp.path} target="_blank" rel="noopener noreferrer" className="text-sky-600 hover:underline">View</a>
+                    )}
+                  </div>
+                ) : (
+                  <label className="inline-flex items-center gap-2 mt-2 px-4 py-2 bg-sky-100 text-sky-700 rounded-lg cursor-pointer hover:bg-sky-200 transition">
+                    <input type="file" accept=".pdf,.jpg,.jpeg,.png" onChange={handlePdpUpload} disabled={pdpUploading} className="hidden" />
+                    {pdpUploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileCheck className="h-4 w-4" />}
+                    {pdpUploading ? 'Uploading...' : 'Upload PDP (PDF or image)'}
+                  </label>
+                )}
+              </div>
+              <div className="p-5 rounded-xl bg-white border border-amber-100">
+                <h3 className="font-semibold text-slate-900 mb-2 flex items-center gap-2">
+                  <Car className="h-5 w-5 text-sky-600" />
+                  Vehicle ({((user?.vehicles?.length) ?? 0)}/3)
+                </h3>
+                {user?.vehicles && user.vehicles.length > 0 && (
+                  <ul className="space-y-1 mb-3 text-sm">
+                    {user.vehicles.map((v, i) => (
+                      <li key={i} className="flex items-center gap-2">
+                        <CheckCircle className={`h-4 w-4 ${v.verified ? 'text-emerald-600' : 'text-amber-500'}`} />
+                        {v.make || v.model || v.plate || `Vehicle ${i + 1}`} {v.verified ? '(verified)' : '(pending)'}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {((user?.vehicles?.length) ?? 0) < 3 && (
+                  <form onSubmit={handleVehicleUpload} className="space-y-2">
+                    <input type="text" placeholder="Make" value={vehicleMake} onChange={(e) => setVehicleMake(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
+                    <input type="text" placeholder="Model" value={vehicleModel} onChange={(e) => setVehicleModel(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
+                    <input type="text" placeholder="Plate" value={vehiclePlate} onChange={(e) => setVehiclePlate(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
+                    <label className="flex flex-col gap-1">
+                      <span className="text-xs text-slate-600">Documents (licence, inspection)</span>
+                      <input type="file" multiple accept=".pdf,.jpg,.jpeg,.png" className="rounded-lg border border-slate-200 text-sm" required />
+                    </label>
+                    <button type="submit" disabled={vehicleUploading} className="w-full mt-2 px-4 py-2 bg-sky-600 text-white rounded-lg text-sm font-medium hover:bg-sky-700 disabled:opacity-50">
+                      {vehicleUploading ? 'Uploading...' : 'Add vehicle'}
+                    </button>
+                  </form>
+                )}
+              </div>
+            </div>
           </div>
         )}
         {hasRunnerRole && (
@@ -501,12 +619,11 @@ function RunnerDashboard() {
         )}
       </main>
 
-          {/* Area 2: Reserved space - well below profile so dropdown displays properly */}
-          <aside className="hidden lg:block w-56 xl:w-64 shrink-0 pr-4 lg:pr-6 pt-8">
-            <div className="sticky top-24 h-48 rounded-xl border border-dashed border-slate-200 bg-slate-50/50" aria-hidden="true" />
-          </aside>
+          <AdvertSlot belowHeader />
+        </div>
         </div>
       </div>
+      <MobileBottomNav cartCount={cartCount} hasStore={hasStore} />
     </div>
   );
 }

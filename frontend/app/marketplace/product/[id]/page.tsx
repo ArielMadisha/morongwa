@@ -1,14 +1,17 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useParams } from 'next/navigation';
+import { useParams, usePathname, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { Package, ArrowLeft, ShoppingCart, LayoutGrid, X } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { Package, ArrowLeft, ShoppingCart, X, MapPin } from 'lucide-react';
 import { productsAPI, cartAPI, resellerAPI, getImageUrl, getEffectivePrice } from '@/lib/api';
-import { invalidateCartStoresCache } from '@/lib/useCartAndStores';
+import { invalidateCartStoresCache, useCartAndStores } from '@/lib/useCartAndStores';
 import { useAuth } from '@/contexts/AuthContext';
 import type { Product } from '@/lib/types';
-import SiteHeader from '@/components/SiteHeader';
+import { AppSidebar, AppSidebarMenuButton } from '@/components/AppSidebar';
+import { SearchButton } from '@/components/SearchButton';
+import { MobileBottomNav } from '@/components/MobileBottomNav';
 import toast from 'react-hot-toast';
 
 function formatPrice(price: number, currency: string) {
@@ -22,14 +25,20 @@ function formatPrice(price: number, currency: string) {
 
 export default function ProductPage() {
   const params = useParams();
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const id = params.id as string;
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
+  const { cartCount, hasStore } = useCartAndStores(!!user);
   const [product, setProduct] = useState<Product | null>(null);
   const [loading, setLoading] = useState(true);
   const [addingCart, setAddingCart] = useState(false);
   const [addingWall, setAddingWall] = useState(false);
   const [addToWallModal, setAddToWallModal] = useState(false);
   const [resellerCommissionPct, setResellerCommissionPct] = useState(5);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const viewResell = searchParams.get('view') === 'resell';
 
   useEffect(() => {
     if (!id) return;
@@ -39,6 +48,18 @@ export default function ProductPage() {
       .catch(() => setProduct(null))
       .finally(() => setLoading(false));
   }, [id]);
+
+  // When view=resell, open add-to-wall modal automatically (after product loads)
+  useEffect(() => {
+    if (viewResell && product && user && (product as any).allowResell) {
+      setAddToWallModal(true);
+    }
+  }, [viewResell, product, user]);
+
+  const handleLogout = () => {
+    logout();
+    router.push('/');
+  };
 
   if (loading) {
     return (
@@ -69,14 +90,12 @@ export default function ProductPage() {
 
   const addToCart = () => {
     if (isOutOfStock) { toast.error('Product is out of stock'); return; }
-    if (!user) { toast.error('Sign in to add to cart'); return; }
+    if (!user) {
+      router.push(`/register?returnTo=${encodeURIComponent(pathname || `/marketplace/product/${id}`)}`);
+      return;
+    }
     setAddingCart(true);
     cartAPI.add(product._id, 1).then(() => { toast.success('Added to cart'); invalidateCartStoresCache(); setAddingCart(false); }).catch(() => { toast.error('Failed'); setAddingCart(false); });
-  };
-
-  const openAddToWallModal = () => {
-    if (!user) { toast.error('Sign in to add to your wall'); return; }
-    setAddToWallModal(true);
   };
 
   const addToWall = () => {
@@ -84,9 +103,11 @@ export default function ProductPage() {
     setAddingWall(true);
     resellerAPI.addToWall(product._id, resellerCommissionPct)
       .then(() => {
-        toast.success('Added to your reseller wall');
+        toast.success('Added to MyStore');
+        invalidateCartStoresCache(); // Refresh hasStore so MyStore appears in nav
         setAddToWallModal(false);
         setAddingWall(false);
+        router.push('/store'); // Navigate so user sees the product in MyStore
       })
       .catch((e) => {
         toast.error(e.response?.data?.message ?? 'Failed');
@@ -95,9 +116,39 @@ export default function ProductPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-sky-50 via-blue-50 to-white text-slate-900">
-      <SiteHeader />
-      <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <div className="min-h-screen bg-gradient-to-br from-sky-50 via-blue-50 to-white text-slate-900 flex">
+      {user && (
+        <AppSidebar
+          variant="wall"
+          userName={user?.name}
+          userAvatar={(user as any)?.avatar}
+          userId={user?._id || user?.id}
+          cartCount={cartCount}
+          hasStore={hasStore}
+          onLogout={handleLogout}
+          menuOpen={menuOpen}
+          setMenuOpen={setMenuOpen}
+        />
+      )}
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        <header className="bg-white/85 backdrop-blur-md border-b border-slate-100 shadow-sm flex-shrink-0">
+          <div className="px-4 sm:px-6 lg:px-8 py-3 sm:py-4 flex items-center justify-between gap-3 sm:gap-4">
+            <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+              {user && <AppSidebarMenuButton onClick={() => setMenuOpen(true)} />}
+              <Link href="/marketplace" className="text-slate-700 hover:text-sky-600 font-medium">← QwertyHub</Link>
+            </div>
+            <div className="flex-1 min-w-0" />
+            <SearchButton />
+            {!user && (
+              <div className="flex gap-2">
+                <Link href="/login" className="rounded-lg border border-sky-200 px-4 py-2 text-sm font-medium text-sky-700 hover:bg-sky-50">Sign in</Link>
+                <Link href={`/register?returnTo=${encodeURIComponent(pathname || '/marketplace')}`} className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-700">Register</Link>
+              </div>
+            )}
+          </div>
+        </header>
+        <main className="flex-1 overflow-y-auto px-4 sm:px-6 lg:px-8 py-8 pb-24 lg:pb-8">
+          <div className="max-w-4xl mx-auto">
         <Link
           href="/marketplace"
           className="inline-flex items-center gap-2 text-sky-600 hover:text-sky-700 mb-6 text-sm font-medium"
@@ -134,9 +185,28 @@ export default function ProductPage() {
                   <p className="text-2xl font-bold text-sky-600">{formatPrice(product.price, product.currency)}</p>
                 )}
               </div>
-              <p className="text-xs text-slate-500 mt-1">Manufacturer/Supplier pays 7.5% to Morongwa on successful sale.</p>
+              {(product as any).bulkTiers?.length > 0 && (
+                <div className="mt-2 rounded-lg bg-sky-50 border border-sky-100 px-3 py-2">
+                  <p className="text-xs font-medium text-sky-800 mb-1">Bulk pricing</p>
+                  <ul className="text-sm text-sky-700 space-y-0.5">
+                    {((product as any).bulkTiers as Array<{ minQty: number; maxQty: number; price: number }>).map((t, i) => (
+                      <li key={i}>
+                        {t.minQty}–{t.maxQty} units: {formatPrice(t.price, product.currency)} each
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
               {storeName && (
                 <p className="text-sm text-slate-500 mt-1">Sold by {storeName}</p>
+              )}
+              {(product as any).availableCountries?.length > 0 && (
+                <p className="text-sm text-slate-600 mt-2 flex items-center gap-1.5">
+                  <MapPin className="h-4 w-4 text-slate-500 shrink-0" />
+                  Available in {(product as any).availableCountries.length === 1
+                    ? (product as any).availableCountries[0]
+                    : (product as any).availableCountries.join(', ')}
+                </p>
               )}
               {(product as any).sizes?.length > 0 && (
                 <p className="text-sm text-slate-600 mt-2">Sizes: {(product as any).sizes.join(', ')}</p>
@@ -160,26 +230,19 @@ export default function ProductPage() {
                   <ShoppingCart className="h-4 w-4" />
                   {isOutOfStock ? 'Out of stock' : addingCart ? 'Adding...' : 'Add to cart'}
                 </button>
-                {allowResell && (
-                  <button
-                    type="button"
-                    onClick={openAddToWallModal}
-                    disabled={addingWall}
-                    className="inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-slate-100 text-slate-700 font-medium hover:bg-slate-200 disabled:opacity-50"
-                  >
-                    <LayoutGrid className="h-4 w-4" />
-                    {addingWall ? 'Adding...' : 'Add to my reseller wall'}
-                  </button>
-                )}
               </div>
               <p className="text-sm text-slate-500 mt-4">
-                <Link href="/cart" className="text-sky-600 hover:text-sky-700">View cart</Link>
+                <Link href={user ? '/cart' : `/register?returnTo=${encodeURIComponent('/cart')}`} className="text-sky-600 hover:text-sky-700">View cart</Link>
                 {' · '}
                 <Link href="/marketplace" className="text-sky-600 hover:text-sky-700">Back to marketplace</Link>
               </p>
             </div>
           </div>
         </div>
+          </div>
+        </main>
+      </div>
+      {user && <MobileBottomNav cartCount={cartCount} hasStore={hasStore} />}
 
         {/* Add to wall modal - set reseller commission 3-7% */}
         {addToWallModal && (
@@ -187,7 +250,7 @@ export default function ProductPage() {
             <div className="absolute inset-0 bg-black/40" onClick={() => setAddToWallModal(false)} aria-hidden="true" />
             <div className="relative w-full max-w-md rounded-2xl border border-slate-200 bg-white shadow-xl p-6">
               <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-semibold text-slate-900">Add to reseller wall</h3>
+                <h3 className="text-lg font-semibold text-slate-900">Add to MyStore</h3>
                 <button onClick={() => setAddToWallModal(false)} className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100"><X className="h-5 w-5" /></button>
               </div>
               <p className="text-sm text-slate-600 mb-4">Set your commission (3–7%). This markup will be added to the price in your store.</p>
@@ -205,14 +268,13 @@ export default function ProductPage() {
               </div>
               <div className="flex gap-2">
                 <button onClick={addToWall} disabled={addingWall} className="flex-1 rounded-lg bg-sky-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-700 disabled:opacity-50">
-                  {addingWall ? 'Adding...' : 'Add to my wall'}
+                  {addingWall ? 'Adding...' : 'Add to MyStore'}
                 </button>
                 <button onClick={() => setAddToWallModal(false)} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Cancel</button>
               </div>
             </div>
           </div>
         )}
-      </main>
     </div>
   );
 }

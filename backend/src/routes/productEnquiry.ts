@@ -46,7 +46,7 @@ router.post("/product/:productId", authenticate, async (req: AuthRequest, res: R
     // Notify seller
     try {
       await sendNotification({
-        user: sellerId.toString(),
+        userId: sellerId.toString(),
         type: "product_enquiry",
         message: `${req.user!.name} enquired about "${(product as any).title}"`,
         channel: "realtime",
@@ -138,7 +138,7 @@ router.post("/:id/messages", authenticate, async (req: AuthRequest, res: Respons
     // Notify receiver
     try {
       await sendNotification({
-        user: receiverId,
+        userId: (receiverId as any)?.toString?.() ?? String(receiverId),
         type: "product_enquiry",
         message: `${req.user!.name} replied about "${(enquiry.productId as any).title}"`,
         channel: "realtime",

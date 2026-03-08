@@ -2,15 +2,19 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { Tv, Plus, Loader2, Radio } from 'lucide-react';
+import Link from 'next/link';
+import { Tv, Plus, Loader2, User } from 'lucide-react';
+import { QwertyTVWithGenres } from '@/components/tv/QwertyTVWithGenres';
 import { useAuth } from '@/contexts/AuthContext';
 import ProtectedRoute from '@/components/ProtectedRoute';
 import { useCartAndStores } from '@/lib/useCartAndStores';
 import { AppSidebar, AppSidebarMenuButton } from '@/components/AppSidebar';
-import { ProfileDropdown } from '@/components/ProfileDropdown';
+import { SearchButton } from '@/components/SearchButton';
 import { TVGridTileWithObserver } from '@/components/tv/TVGridTileWithObserver';
 import type { TVGridItem } from '@/components/tv/TVGridTile';
 import { CreatePostModal } from '@/components/tv/CreatePostModal';
+import { AdvertSlot } from '@/components/AdvertSlot';
+import { MobileBottomNav } from '@/components/MobileBottomNav';
 import { tvAPI, productEnquiryAPI } from '@/lib/api';
 import type { Product } from '@/lib/types';
 import toast from 'react-hot-toast';
@@ -30,15 +34,32 @@ function MorongwaTVPageContent() {
   const [enquireMessage, setEnquireMessage] = useState('');
   const [enquireSending, setEnquireSending] = useState(false);
   const [likedMap, setLikedMap] = useState<Record<string, boolean>>({});
+  const [liveUsers, setLiveUsers] = useState<Array<{ userId: string; name?: string; avatar?: string }>>([]);
+  const [genre, setGenre] = useState<string>('qwertz');
   const { cartCount, hasStore } = useCartAndStores(!!user);
   const containerRef = useRef<HTMLDivElement>(null);
-  const limit = 24;
+  const loadMoreSentinelRef = useRef<HTMLDivElement>(null);
+  const limit = 8;
+
+  const loadLiveUsers = useCallback(() => {
+    tvAPI.getStatuses().then((res) => {
+      const statuses = res.data?.data ?? res.data ?? [];
+      const live = Array.isArray(statuses)
+        ? statuses.filter((s: any) => s.isLive).map((s: any) => ({
+            userId: String(s.userId?._id ?? s.userId),
+            name: s.name,
+            avatar: s.avatar,
+          }))
+        : [];
+      setLiveUsers(live);
+    }).catch(() => setLiveUsers([]));
+  }, []);
 
   const loadFeed = useCallback(async (pageNum = 1, append = false) => {
     if (pageNum === 1) setLoading(true);
     else setLoadingMore(true);
     try {
-      const res = await tvAPI.getFeed({ page: pageNum, limit, type: 'video' });
+      const res = await tvAPI.getFeed({ page: pageNum, limit, type: 'video', genre: genre || undefined });
       const data = res.data?.data ?? res.data ?? [];
       const posts = Array.isArray(data) ? data : [];
       setTotal(res.data?.total ?? posts.length);
@@ -49,18 +70,36 @@ function MorongwaTVPageContent() {
       setLoading(false);
       setLoadingMore(false);
     }
-  }, []);
+  }, [limit, genre]);
 
   useEffect(() => {
     loadFeed(1);
-  }, [loadFeed]);
+    loadLiveUsers();
+  }, [loadFeed, loadLiveUsers, genre]);
 
-  const loadMore = () => {
+  const loadMore = useCallback(() => {
     if (loadingMore || gridItems.length >= total) return;
     const nextPage = page + 1;
     setPage(nextPage);
     loadFeed(nextPage, true);
-  };
+  }, [loadingMore, gridItems.length, total, page, loadFeed]);
+
+  useEffect(() => {
+    const sentinel = loadMoreSentinelRef.current;
+    const container = containerRef.current;
+    if (!sentinel || !container) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const [e] = entries;
+        if (e?.isIntersecting && !loading && !loadingMore && gridItems.length < total && gridItems.length > 0) {
+          loadMore();
+        }
+      },
+      { root: container, rootMargin: '200px', threshold: 0.1 }
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [loadMore, loading, loadingMore, gridItems.length, total]);
 
   const handleLike = (id: string, liked: boolean) => {
     setLikedMap((m) => ({ ...m, [id]: liked }));
@@ -134,51 +173,78 @@ function MorongwaTVPageContent() {
   const allItems: TVGridItem[] = [...gridItems];
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-sky-50 via-blue-50 to-white text-slate-900 flex">
-      <AppSidebar
-        variant="wall"
-        userName={user?.name}
-        cartCount={cartCount}
-        hasStore={hasStore}
-        onLogout={handleLogout}
-        menuOpen={menuOpen}
-        setMenuOpen={setMenuOpen}
-      />
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        <header className="bg-white/85 backdrop-blur-md border-b border-slate-100 shadow-sm flex-shrink-0">
-          <div className="px-4 sm:px-6 lg:px-8 py-4">
-            <div className="flex items-center justify-between gap-4">
-              <div className="flex items-center gap-3 min-w-0">
-                <AppSidebarMenuButton onClick={() => setMenuOpen(true)} />
-                <div className="flex items-center gap-2">
-                  <div className="h-9 w-9 rounded-full bg-sky-500 flex items-center justify-center text-white font-bold text-sm">
-                    @
-                  </div>
-                  <h1 className="text-lg font-semibold text-slate-900">Qwerty TV</h1>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-sky-100 text-sky-700 font-medium">
-                  <Radio className="h-5 w-5" />
-                  Live TV
-                </div>
-                <button
-                  onClick={() => setCreateOpen(true)}
-                  className="flex items-center gap-2 px-4 py-2 rounded-xl bg-sky-500 text-white font-medium hover:bg-sky-600 transition-colors"
-                >
-                  <Plus className="h-5 w-5" />
-                  Create
-                </button>
-                <ProfileDropdown userName={user?.name} onLogout={handleLogout} />
-              </div>
+    <div className="min-h-screen flex flex-col bg-gradient-to-br from-sky-50 via-blue-50 to-white text-slate-900">
+      {/* Full-width frozen header - logo, QwertyTV title, Live now strip, actions */}
+      <header className="sticky top-0 z-40 w-full bg-white/95 backdrop-blur-md border-b border-slate-100 shadow-sm flex-shrink-0">
+        <div className="px-4 sm:px-6 lg:px-8 py-2 sm:py-3">
+          <div className="flex items-center gap-2 sm:gap-4 min-w-0">
+            <Link href="/wall" className="shrink-0 flex items-center" aria-label="Home">
+              <img src="/qwertymates-logo-icon.png" alt="Qwertymates" className="h-8 w-8 object-contain lg:hidden" />
+              <img src="/qwertymates-logo.png" alt="Qwertymates" className="h-8 w-auto object-contain hidden lg:block" />
+            </Link>
+            <AppSidebarMenuButton onClick={() => setMenuOpen(true)} />
+            <button
+              onClick={() => setCreateOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-brand-500 text-white font-medium hover:bg-brand-600 transition-colors shrink-0"
+            >
+              <Plus className="h-4 w-4" />
+              <span className="text-sm">Create</span>
+            </button>
+            {/* Live now strip - in top bar */}
+            <div className="flex-1 min-w-0 overflow-x-auto scrollbar-thin flex items-center gap-2 py-1">
+              {liveUsers.length > 0 && (
+                <>
+                  <span className="flex items-center gap-1.5 shrink-0 text-xs font-medium text-slate-600">
+                    <span className="inline-flex h-1.5 w-1.5 rounded-full bg-red-500 animate-pulse" />
+                    Live now
+                  </span>
+                  {liveUsers.map((u) => (
+                    <Link
+                      key={u.userId}
+                      href={`/morongwa-tv/user/${u.userId}`}
+                      className="flex-shrink-0 flex items-center gap-2 px-2 py-1.5 rounded-lg bg-red-50 border border-red-200 hover:border-red-400 transition-colors"
+                    >
+                      <div className="relative">
+                        <div className="h-7 w-7 rounded-full bg-sky-100 border-2 border-red-300 flex items-center justify-center overflow-hidden">
+                          {u.avatar ? (
+                            <img src={u.avatar} alt="" className="h-full w-full object-cover" />
+                          ) : (
+                            <User className="h-4 w-4 text-sky-600" />
+                          )}
+                        </div>
+                        <span className="absolute -bottom-0.5 -right-0.5 inline-flex h-2 w-2 rounded-full bg-red-500" />
+                      </div>
+                      <span className="text-xs font-medium text-slate-800 truncate max-w-[60px] sm:max-w-[80px]">{u.name || 'User'}</span>
+                    </Link>
+                  ))}
+                </>
+              )}
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <SearchButton />
+              <QwertyTVWithGenres selectedGenre={genre} onGenreSelect={setGenre} />
             </div>
           </div>
-        </header>
+        </div>
+      </header>
 
-        <main
-          ref={containerRef}
-          className="flex-1 overflow-y-auto px-4 sm:px-6 lg:px-8 py-6"
-        >
+      {/* Menu (sidebar) + content below header */}
+      <div className="flex flex-1 min-h-0">
+        <AppSidebar
+          variant="wall"
+          userName={user?.name}
+          userAvatar={(user as any)?.avatar}
+          userId={user?._id || user?.id}
+          cartCount={cartCount}
+          hasStore={hasStore}
+          onLogout={handleLogout}
+          menuOpen={menuOpen}
+          setMenuOpen={setMenuOpen}
+          hideLogo
+          belowHeader
+        />
+        <div ref={containerRef} className="flex-1 flex flex-col lg:flex-row gap-0 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain">
+        <main className="flex-1 min-w-0 px-4 sm:px-6 lg:px-8 py-4 pb-24 lg:pb-6 order-2 lg:order-none">
           {loading && allItems.length === 0 ? (
             <div className="flex justify-center py-24">
               <Loader2 className="h-12 w-12 text-sky-500 animate-spin" />
@@ -197,34 +263,38 @@ function MorongwaTVPageContent() {
               </button>
             </div>
           ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 lg:gap-6">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 w-full">
               {allItems.map((item) => (
-                <TVGridTileWithObserver
-                  key={item._id}
-                  item={item}
-                  liked={likedMap[item._id]}
-                  onLike={handleLike}
-                  onRepost={item.type !== 'product_tile' ? handleRepost : undefined}
-                  onEnquire={handleEnquire}
-                  onCommentAdded={item.type !== 'product_tile' ? handleCommentAdded : undefined}
-                />
+                <div key={item._id} className="w-full min-h-[300px] flex flex-col rounded-xl bg-white border border-slate-100 shadow-sm overflow-hidden">
+                  <TVGridTileWithObserver
+                    item={item}
+                    liked={likedMap[item._id]}
+                    onLike={handleLike}
+                    onRepost={item.type !== 'product_tile' ? handleRepost : undefined}
+                    currentUserId={user?._id || user?.id}
+                    onEnquire={handleEnquire}
+                    onCommentAdded={item.type !== 'product_tile' ? handleCommentAdded : undefined}
+                    variant="grid"
+                  />
+                </div>
               ))}
             </div>
           )}
 
           {!loading && allItems.length < total && (
-            <div className="flex justify-center py-8">
-              <button
-                onClick={loadMore}
-                disabled={loadingMore}
-                className="px-6 py-2 rounded-xl border border-slate-200 text-slate-700 font-medium hover:bg-slate-50 disabled:opacity-50"
-              >
-                {loadingMore ? <Loader2 className="h-5 w-5 animate-spin inline" /> : 'Load more'}
-              </button>
+            <div ref={loadMoreSentinelRef} className="flex justify-center py-8 min-h-[80px]">
+              {loadingMore ? (
+                <Loader2 className="h-8 w-8 text-sky-500 animate-spin" />
+              ) : (
+                <div className="h-4" aria-hidden />
+              )}
             </div>
           )}
         </main>
+        <AdvertSlot belowHeader />
+        </div>
       </div>
+      <MobileBottomNav cartCount={cartCount} hasStore={hasStore} />
 
       <CreatePostModal
         open={createOpen}
@@ -232,8 +302,10 @@ function MorongwaTVPageContent() {
         onCreated={() => {
           setPage(1);
           loadFeed(1);
+          loadLiveUsers();
         }}
         featuredProducts={[]}
+        currentUserId={user?._id || user?.id}
       />
 
       {enquireOpen && (

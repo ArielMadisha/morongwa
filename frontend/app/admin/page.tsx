@@ -25,6 +25,10 @@ import {
   ShoppingBag,
   LayoutGrid,
   Tv,
+  Car,
+  Megaphone,
+  Image,
+  Music2,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -86,7 +90,7 @@ function AdminLoginForm() {
           <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-sky-600 text-white mb-4">
             <Shield className="h-8 w-8" />
           </div>
-          <p className="text-xs uppercase tracking-widest text-sky-600 font-semibold">Morongwa</p>
+          <p className="text-xs uppercase tracking-widest text-sky-600 font-semibold">Qwertymates</p>
           <h1 className="mt-2 text-2xl font-bold text-slate-900">Admin sign in</h1>
           <p className="mt-1 text-sm text-slate-600">Sign in with an admin or superadmin account</p>
         </div>
@@ -105,7 +109,7 @@ function AdminLoginForm() {
                   className={`block w-full pl-10 pr-3 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500 ${
                     errors.email ? 'border-red-300 bg-red-50' : 'border-slate-200'
                   }`}
-                  placeholder="admin@morongwa.com"
+                  placeholder="admin@qwertymates.com"
                 />
               </div>
               {errors.email && (
@@ -227,7 +231,7 @@ function AdminDashboard() {
       <header className="border-b border-white/60 bg-white/70 backdrop-blur">
         <div className="mx-auto flex max-w-6xl flex-col gap-4 px-6 py-6 md:flex-row md:items-center md:justify-between">
           <div>
-            <p className="text-xs uppercase tracking-[0.35em] text-sky-600">Morongwa</p>
+            <p className="text-xs uppercase tracking-[0.35em] text-sky-600">Qwertymates</p>
             <div className="mt-1 flex items-center gap-2 text-sm text-slate-500">
               <Shield className="h-4 w-4 text-sky-500" />
               <span>Admin headquarters</span>
@@ -290,11 +294,16 @@ function AdminDashboard() {
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
             {[
               { href: '/admin/users', icon: Users, title: 'Manage users', desc: 'View, suspend, activate accounts', color: 'sky' },
+              { href: '/admin/runners', icon: Car, title: 'Runner applications', desc: 'Verify PDP and vehicle documents', color: 'cyan' },
+              { href: '/admin/adverts', icon: Megaphone, title: 'Adverts', desc: 'Create and manage platform adverts', color: 'purple' },
+              { href: '/admin/landing-backgrounds', icon: Image, title: 'Landing backgrounds', desc: 'Upload login/register page background images', color: 'sky' },
               { href: '/admin/tasks', icon: Package, title: 'Manage tasks', desc: 'Monitor & cancel tasks', color: 'emerald' },
               { href: '/admin/suppliers', icon: Building2, title: 'Suppliers / Sellers', desc: 'Verify company & individual sellers', color: 'cyan' },
               { href: '/admin/orders', icon: ShoppingBag, title: 'Marketplace orders', desc: 'Checkout & wallet orders', color: 'purple' },
               { href: '/admin/products', icon: Package, title: 'Marketplace products', desc: 'Load and manage products for sale', color: 'emerald' },
-              { href: '/admin/tv', icon: Tv, title: 'Morongwa-TV', desc: 'Moderate posts, comments & reports', color: 'purple' },
+              { href: '/admin/tv', icon: Tv, title: 'QwertyTV', desc: 'Moderate posts, comments & reports', color: 'purple' },
+              { href: '/admin/music', icon: Music2, title: 'QwertyMusic', desc: 'Load songs/albums, manage music catalog', color: 'purple' },
+              { href: '/admin/artists', icon: Users, title: 'Artist accounts', desc: 'Create artist/publisher accounts, approve applications', color: 'indigo' },
               { href: '/admin/admins', icon: Shield, title: 'Create admins', desc: 'Super-admin: create admins with section permissions', color: 'indigo' },
               { href: '/admin/stores', icon: Building2, title: 'Stores', desc: 'Create and manage supplier/reseller stores', color: 'cyan' },
               { href: '/admin/reseller', icon: LayoutGrid, title: 'Reseller stats', desc: 'Walls and products on walls', color: 'indigo' },

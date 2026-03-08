@@ -12,6 +12,7 @@ pnpm-debug.log*
 .env
 .env.*
 !.env.example
+deploy-linode.config
 backend/.env
 frontend/.env
 .env.local

@@ -13,9 +13,17 @@ export interface IOrderAmounts {
   subtotal: number;
   shipping: number;
   commissionTotal: number;
-  platformFee: number;
+  platformFee?: number; // deprecated, kept for backward compat
   total: number;
   currency: string;
+  /** Per-supplier shipping for invoice (when multiple suppliers) */
+  shippingBreakdown?: Array<{ storeName: string; shippingCost: number }>;
+}
+
+/** Buyer-facing payment breakdown for wallet/invoice */
+export interface IOrderPaymentBreakdown {
+  items: Array<{ title: string; price: number; qty: number }>;
+  shippingBreakdown: Array<{ storeName: string; shippingCost: number }>;
 }
 
 export interface IOrderDelivery {
@@ -39,6 +47,8 @@ export interface IOrder extends Document {
   status: OrderStatus;
   items: IOrderItem[];
   amounts: IOrderAmounts;
+  /** Stored breakdown for wallet transaction list and invoice */
+  paymentBreakdown?: IOrderPaymentBreakdown;
   delivery: IOrderDelivery;
   paymentMethod: "wallet" | "card";
   paymentReference?: string;
@@ -76,6 +86,11 @@ const OrderSchema = new Schema<IOrder>(
       platformFee: { type: Number, default: 0 },
       total: { type: Number, required: true },
       currency: { type: String, default: "ZAR" },
+      shippingBreakdown: [{ storeName: String, shippingCost: Number }],
+    },
+    paymentBreakdown: {
+      items: [{ title: String, price: Number, qty: Number }],
+      shippingBreakdown: [{ storeName: String, shippingCost: Number }],
     },
     delivery: {
       method: { type: String, enum: ["runner", "courier"] },

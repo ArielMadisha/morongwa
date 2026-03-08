@@ -15,7 +15,7 @@ import {
 import { tvAPI, getImageUrl, getEffectivePrice } from '@/lib/api';
 import type { Product } from '@/lib/types';
 
-const TV_WATERMARK = 'The Digital Home for Doers, Sellers & Creators - Qwertymates.com';
+const WATERMARK_IMG = '/watermark-qwertymates.svg';
 
 interface TVPost {
   _id: string;
@@ -117,14 +117,15 @@ export function TVPostCard({ post, liked = false, onLike, onRepost, onComment }:
   };
 
   const handleShare = () => {
+    const shareUrl = typeof window !== 'undefined' ? `${window.location.origin}/morongwa-tv/post/${post._id}` : '';
     if (navigator.share) {
       navigator.share({
-        title: 'Morongwa-TV',
-        text: post.caption || 'Check this out on Morongwa-TV',
-        url: window.location.href,
+        title: 'Qwertymates',
+        text: post.caption || 'Check this out on Qwertymates',
+        url: shareUrl,
       });
     } else {
-      navigator.clipboard.writeText(window.location.href);
+      navigator.clipboard.writeText(shareUrl);
     }
   };
 
@@ -207,10 +208,8 @@ export function TVPostCard({ post, liked = false, onLike, onRepost, onComment }:
               className={`w-full h-full object-contain ${filterClass}`}
             />
             {post.hasWatermark !== false && (
-              <div className="absolute bottom-2 left-0 right-0 text-center pointer-events-none">
-                <p className="text-[10px] sm:text-xs text-white/90 drop-shadow-lg font-medium">
-                  {TV_WATERMARK}
-                </p>
+              <div className="absolute bottom-2 right-2 pointer-events-none">
+                <img src={WATERMARK_IMG} alt="Qwertymates" className="h-6 sm:h-7 w-auto object-contain drop-shadow-lg" />
               </div>
             )}
           </>
@@ -233,10 +232,8 @@ export function TVPostCard({ post, liked = false, onLike, onRepost, onComment }:
                   ))}
                 </div>
                 {post.hasWatermark !== false && (
-                  <div className="absolute bottom-8 left-0 right-0 text-center pointer-events-none">
-                    <p className="text-[10px] sm:text-xs text-white/90 drop-shadow-lg font-medium">
-                      {TV_WATERMARK}
-                    </p>
+                  <div className="absolute bottom-2 right-2 pointer-events-none">
+                    <img src={WATERMARK_IMG} alt="Qwertymates" className="h-6 sm:h-7 w-auto object-contain drop-shadow-lg" />
                   </div>
                 )}
               </div>
@@ -248,10 +245,8 @@ export function TVPostCard({ post, liked = false, onLike, onRepost, onComment }:
                   className={`w-full h-full object-contain ${filterClass}`}
                 />
                 {post.hasWatermark !== false && (
-                  <div className="absolute bottom-2 left-0 right-0 text-center pointer-events-none">
-                    <p className="text-[10px] sm:text-xs text-white/90 drop-shadow-lg font-medium">
-                      {TV_WATERMARK}
-                    </p>
+                  <div className="absolute bottom-2 right-2 pointer-events-none">
+                    <img src={WATERMARK_IMG} alt="Qwertymates" className="h-6 sm:h-7 w-auto object-contain drop-shadow-lg" />
                   </div>
                 )}
               </>

@@ -11,6 +11,8 @@ let cache: {
   fetchedAt: number;
 } | null = null;
 
+/** MyStore shows when user has a store. Store is created by: (1) user reselling a product (auto-created, never disappears),
+ *  or (2) admin creating a supplier store. Once created, the store stays forever. */
 export function useCartAndStores(isAuthenticated: boolean) {
   const [cartCount, setCartCount] = useState(cache?.cartCount ?? 0);
   const [hasStore, setHasStore] = useState(cache?.hasStore ?? false);

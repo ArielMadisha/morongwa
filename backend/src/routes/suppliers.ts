@@ -1,5 +1,6 @@
 import express, { Response } from "express";
 import Supplier from "../data/models/Supplier";
+import Product from "../data/models/Product";
 import { authenticate, AuthRequest } from "../middleware/auth";
 import { AppError } from "../middleware/errorHandler";
 import { upload } from "../middleware/upload";
@@ -33,6 +34,7 @@ router.post("/apply", authenticate, async (req: AuthRequest, res: Response, next
       pickupAddress,
       companyRegNo,
       directorsIdDoc,
+      directorsIdDocs,
       idDocument,
       contactEmail,
       contactPhone,
@@ -46,9 +48,13 @@ router.post("/apply", authenticate, async (req: AuthRequest, res: Response, next
       throw new AppError("contactEmail and contactPhone are required", 400);
     }
 
+    const directorDocs = Array.isArray(directorsIdDocs) && directorsIdDocs.length > 0
+      ? directorsIdDocs.filter((p: any) => typeof p === "string" && p.trim())
+      : directorsIdDoc ? [directorsIdDoc] : [];
+
     if (type === "company") {
       if (!companyRegNo) throw new AppError("companyRegNo is required for company", 400);
-      if (!directorsIdDoc) throw new AppError("directorsIdDoc (directors ID document reference) is required for company", 400);
+      if (directorDocs.length === 0) throw new AppError("At least one directors ID document is required for company", 400);
     } else {
       if (!idDocument) throw new AppError("idDocument (seller ID document reference) is required for individual", 400);
     }
@@ -66,7 +72,8 @@ router.post("/apply", authenticate, async (req: AuthRequest, res: Response, next
       supplier.storeName = storeName;
       supplier.pickupAddress = pickupAddress;
       supplier.companyRegNo = type === "company" ? companyRegNo : undefined;
-      supplier.directorsIdDoc = type === "company" ? directorsIdDoc : undefined;
+      (supplier as any).directorsIdDocs = type === "company" ? directorDocs : undefined;
+      (supplier as any).directorsIdDoc = type === "company" ? directorDocs[0] : undefined;
       supplier.idDocument = type === "individual" ? idDocument : undefined;
       supplier.contactEmail = contactEmail;
       supplier.contactPhone = contactPhone;
@@ -85,7 +92,8 @@ router.post("/apply", authenticate, async (req: AuthRequest, res: Response, next
         storeName,
         pickupAddress,
         companyRegNo: type === "company" ? companyRegNo : undefined,
-        directorsIdDoc: type === "company" ? directorsIdDoc : undefined,
+        directorsIdDocs: type === "company" ? directorDocs : undefined,
+        directorsIdDoc: type === "company" ? directorDocs[0] : undefined,
         idDocument: type === "individual" ? idDocument : undefined,
         contactEmail,
         contactPhone,
@@ -134,6 +142,23 @@ router.get("/me", authenticate, async (req: AuthRequest, res: Response, next) =>
       return res.json({ data: null });
     }
     res.json({ data: supplier });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Get my products (approved suppliers only) – auth required
+router.get("/me/products", authenticate, async (req: AuthRequest, res: Response, next) => {
+  try {
+    const supplier = await Supplier.findOne({ userId: req.user!._id, status: "approved" });
+    if (!supplier) {
+      return res.json({ data: [] });
+    }
+    const products = await Product.find({ supplierId: supplier._id, active: true })
+      .populate("supplierId", "storeName")
+      .sort({ createdAt: -1 })
+      .lean();
+    res.json({ data: products });
   } catch (err) {
     next(err);
   }

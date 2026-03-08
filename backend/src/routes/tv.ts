@@ -1,6 +1,7 @@
 import express, { Response } from "express";
 import fs from "fs";
 import path from "path";
+import mongoose from "mongoose";
 import TVPost from "../data/models/TVPost";
 import TVComment from "../data/models/TVComment";
 import TVInteraction from "../data/models/TVInteraction";
@@ -18,6 +19,85 @@ function mediaUrl(filename: string) {
   return `/uploads/tv/${filename}`;
 }
 
+// GET /api/tv/statuses - Instagram-style statuses: users with recent posts (last 24h) + live users
+router.get("/statuses", async (req: express.Request, res: Response, next) => {
+  try {
+    const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const User = require("../data/models/User").default;
+    const [agg, liveUsers] = await Promise.all([
+      TVPost.aggregate([
+        { $match: { status: "approved", createdAt: { $gte: cutoff } } },
+        { $sort: { createdAt: -1 } },
+        { $group: { _id: "$creatorId", latestPost: { $first: "$$ROOT" } } },
+        {
+          $lookup: {
+            from: "users",
+            localField: "_id",
+            foreignField: "_id",
+            as: "user",
+            pipeline: [{ $project: { name: 1, avatar: 1, isLive: 1 } }],
+          },
+        },
+        { $unwind: "$user" },
+        { $sort: { "latestPost.createdAt": -1 } },
+        { $limit: 50 },
+      ]),
+      User.find({ isLive: true }).select("_id name avatar isLive").lean(),
+    ]);
+    const seen = new Set<string>();
+    const statuses: any[] = [];
+    for (const u of liveUsers) {
+      const id = (u as any)._id.toString();
+      if (!seen.has(id)) {
+        seen.add(id);
+        statuses.push({
+          userId: (u as any)._id,
+          name: (u as any).name,
+          avatar: (u as any).avatar,
+          isLive: true,
+          latestPost: null,
+        });
+      }
+    }
+    for (const s of agg) {
+      const id = s._id.toString();
+      if (!seen.has(id)) {
+        seen.add(id);
+        statuses.push({
+          userId: s._id,
+          name: s.user?.name,
+          avatar: s.user?.avatar,
+          isLive: !!s.user?.isLive,
+          latestPost: s.latestPost
+            ? { _id: s.latestPost._id, type: s.latestPost.type, mediaUrls: s.latestPost.mediaUrls, createdAt: s.latestPost.createdAt }
+            : null,
+        });
+      }
+    }
+    res.json({ data: statuses });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /api/tv/hashtags/trending - list trending hashtags with post counts
+router.get("/hashtags/trending", async (_req: express.Request, res: Response, next) => {
+  try {
+    const limit = Math.min(20, parseInt((_req as any).query?.limit as string) || 10);
+    const agg = await TVPost.aggregate([
+      { $match: { status: "approved", hashtags: { $exists: true, $ne: [] } } },
+      { $unwind: "$hashtags" },
+      { $group: { _id: { $toLower: "$hashtags" }, count: { $sum: 1 } } },
+      { $sort: { count: -1 } },
+      { $limit: limit },
+      { $project: { tag: "$_id", count: 1, _id: 0 } },
+    ]);
+    res.json({ data: agg });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // GET /api/tv - list posts (feed, scroll). sort=newest|trending|random, type=video|image|carousel|product
 router.get("/", async (req: express.Request, res: Response, next) => {
   try {
@@ -27,8 +107,29 @@ router.get("/", async (req: express.Request, res: Response, next) => {
     const type = req.query.type as string; // optional: video, image, carousel, product
 
     const match: Record<string, unknown> = { status: "approved" };
-    if (type && ["video", "image", "carousel", "product"].includes(type)) {
-      match.type = type;
+    if (type) {
+      if (type === "images") {
+        (match as any).type = { $in: ["image", "carousel"] };
+      } else if (["video", "image", "carousel", "product", "audio", "text"].includes(type)) {
+        match.type = type;
+      }
+    }
+    const genreParam = (req.query.genre as string)?.trim();
+    if (genreParam && genreParam !== "qwertz") {
+      (match as any).genre = genreParam;
+    }
+    const qRaw = (req.query.q as string)?.trim();
+    const q = qRaw?.replace(/^#/, "") ?? "";
+    if (q && q.length >= 2) {
+      const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      (match as any).$or = [
+        { caption: { $regex: escaped, $options: "i" } },
+        { hashtags: new RegExp(`^${escaped}$`, "i") },
+      ];
+    }
+    const creatorId = req.query.creatorId as string;
+    if (creatorId && mongoose.Types.ObjectId.isValid(creatorId)) {
+      match.creatorId = new mongoose.Types.ObjectId(creatorId);
     }
 
     let query = TVPost.find(match)
@@ -38,7 +139,7 @@ router.get("/", async (req: express.Request, res: Response, next) => {
     if (sort === "trending") {
       query = query.sort({ likeCount: -1, commentCount: -1, createdAt: -1 });
     } else if (sort === "random") {
-      query = query.aggregate([
+      const posts = await TVPost.aggregate([
         { $match: match },
         { $sample: { size: limit } },
         {
@@ -74,7 +175,6 @@ router.get("/", async (req: express.Request, res: Response, next) => {
         },
         { $unwind: { path: "$productId", preserveNullAndEmptyArrays: true } },
       ]);
-      const posts = await query;
       const total = await TVPost.countDocuments(match);
       return res.json({ data: posts, total, page: 1, limit });
     }
@@ -144,7 +244,7 @@ router.get("/watermark", (_req, res) => {
 router.get("/products/featured", async (_req, res: Response, next) => {
   try {
     const products = await Product.find({ active: true })
-      .select("title price discountPrice images currency slug")
+      .select("title price discountPrice images currency slug allowResell")
       .populate("supplierId", "userId")
       .limit(12)
       .lean();
@@ -157,23 +257,31 @@ router.get("/products/featured", async (_req, res: Response, next) => {
 // POST /api/tv - create post
 router.post("/", authenticate, async (req: AuthRequest, res: Response, next) => {
   try {
-    const { type, mediaUrls, caption, productId, filter } = req.body;
-    if (!type || !mediaUrls?.length) throw new AppError("type and mediaUrls required", 400);
-    if (!["video", "image", "carousel", "product"].includes(type)) throw new AppError("Invalid type", 400);
+    const { type, mediaUrls, caption, heading, subject, hashtags, productId, filter, genre } = req.body;
+    if (!type) throw new AppError("type required", 400);
+    if (!["video", "image", "carousel", "product", "text", "audio"].includes(type)) throw new AppError("Invalid type", 400);
+    const isTextPost = type === "text";
+    const isAudioPost = type === "audio";
+    if (isAudioPost && !mediaUrls?.length) throw new AppError("mediaUrls required for audio posts", 400);
+    if (!isTextPost && !isAudioPost && !mediaUrls?.length) throw new AppError("mediaUrls required for non-text posts", 400);
 
     const post = await TVPost.create({
       creatorId: req.user!._id,
       type,
-      mediaUrls: Array.isArray(mediaUrls) ? mediaUrls : [mediaUrls],
+      mediaUrls: isTextPost ? [] : (Array.isArray(mediaUrls) ? mediaUrls : [mediaUrls]),
       caption: caption?.trim(),
+      heading: isTextPost ? heading?.trim() : undefined,
+      subject: isTextPost ? subject?.trim() : undefined,
+      hashtags: isTextPost && Array.isArray(hashtags) ? hashtags.filter((t: string) => typeof t === "string" && t.trim()).map((t: string) => t.trim().replace(/^#/, "")) : undefined,
       productId: productId || undefined,
       filter: filter || undefined,
+      genre: genre || undefined,
       hasWatermark: true,
       status: "approved",
     });
     const populated = await TVPost.findById(post._id)
       .populate("creatorId", "name avatar")
-      .populate("productId", "title price discountPrice images currency")
+      .populate("productId", "title price discountPrice images currency allowResell")
       .lean();
     res.status(201).json({ data: populated });
   } catch (err) {
@@ -192,6 +300,9 @@ router.post("/:id/repost", authenticate, async (req: AuthRequest, res: Response,
       type: original.type,
       mediaUrls: original.mediaUrls,
       caption: original.caption,
+      heading: original.heading,
+      subject: original.subject,
+      hashtags: original.hashtags,
       productId: original.productId,
       filter: original.filter,
       hasWatermark: true,
@@ -204,7 +315,7 @@ router.post("/:id/repost", authenticate, async (req: AuthRequest, res: Response,
 
     const populated = await TVPost.findById(repost._id)
       .populate("creatorId", "name avatar")
-      .populate("productId", "title price discountPrice images currency")
+      .populate("productId", "title price discountPrice images currency allowResell")
       .populate("originalPostId", "creatorId")
       .lean();
     res.status(201).json({ data: populated });
@@ -292,6 +403,20 @@ router.post("/:id/comments", authenticate, async (req: AuthRequest, res: Respons
     await TVPost.findByIdAndUpdate(post._id, { $inc: { commentCount: 1 } });
     const populated = await TVComment.findById(comment._id).populate("userId", "name avatar").lean();
     res.status(201).json({ data: populated });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /api/tv/:id - single post (for share links) - must be after /:id/liked, /:id/comments, etc.
+router.get("/:id", async (req: express.Request, res: Response, next) => {
+  try {
+    const post = await TVPost.findOne({ _id: req.params.id, status: "approved" })
+      .populate("creatorId", "name avatar")
+      .populate({ path: "productId", populate: { path: "supplierId", select: "userId" } })
+      .lean();
+    if (!post) throw new AppError("Post not found", 404);
+    res.json({ data: post });
   } catch (err) {
     next(err);
   }

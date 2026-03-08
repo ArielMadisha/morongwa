@@ -1,13 +1,47 @@
 // User management routes
 import express, { Response } from "express";
+import mongoose from "mongoose";
 import User from "../data/models/User";
 import AuditLog from "../data/models/AuditLog";
+import TVPost from "../data/models/TVPost";
+import Follow from "../data/models/Follow";
 import { authenticate, AuthRequest } from "../middleware/auth";
 import { upload } from "../middleware/upload";
 import { AppError } from "../middleware/errorHandler";
 import { getPaginationParams } from "../utils/helpers";
 
 const router = express.Router();
+
+// Get user profile with stats (postCount, followerCount, followingCount) - public for profile page
+router.get("/:id/profile-stats", async (req: express.Request, res: Response, next) => {
+  try {
+    const id = req.params.id;
+    if (!mongoose.Types.ObjectId.isValid(id)) throw new AppError("Invalid user id", 400);
+    const user = await User.findById(id).select("-passwordHash").lean();
+    if (!user) throw new AppError("User not found", 404);
+
+    const [postCount, imageCount, videoCount, musicCount, followerCount, followingCount] = await Promise.all([
+      TVPost.countDocuments({ creatorId: id, status: "approved" }),
+      TVPost.countDocuments({ creatorId: id, status: "approved", type: { $in: ["image", "carousel"] } }),
+      TVPost.countDocuments({ creatorId: id, status: "approved", type: "video" }),
+      TVPost.countDocuments({ creatorId: id, status: "approved", type: "audio" }),
+      Follow.countDocuments({ followingId: id, status: "accepted" }),
+      Follow.countDocuments({ followerId: id, status: "accepted" }),
+    ]);
+
+    res.json({
+      user,
+      postCount,
+      imageCount,
+      videoCount,
+      musicCount,
+      followerCount,
+      followingCount,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
 
 // Get user profile
 router.get("/:id", authenticate, async (req: AuthRequest, res: Response, next) => {
@@ -28,9 +62,20 @@ router.put("/:id", authenticate, async (req: AuthRequest, res: Response, next) =
       throw new AppError("Unauthorized", 403);
     }
 
-    const { name } = req.body;
+    const { name, username, isPrivate, avatar, stripBackgroundPic } = req.body;
     const updates: any = {};
     if (name) updates.name = name;
+    if (typeof username === "string" && username.trim()) {
+      const uname = username.toLowerCase().trim().replace(/[^a-z0-9_]/g, "").slice(0, 30);
+      if (uname.length >= 2) {
+        const existing = await User.findOne({ username: uname, _id: { $ne: req.params.id } });
+        if (existing) throw new AppError("Username already taken", 400);
+        updates.username = uname;
+      }
+    }
+    if (typeof isPrivate === "boolean") updates.isPrivate = isPrivate;
+    if (typeof avatar === "string" && avatar.trim()) updates.avatar = avatar.trim();
+    if (typeof stripBackgroundPic === "string") updates.stripBackgroundPic = stripBackgroundPic.trim() || null;
 
     const user = await User.findByIdAndUpdate(req.params.id, updates, { new: true }).select(
       "-passwordHash"
@@ -45,6 +90,22 @@ router.put("/:id", authenticate, async (req: AuthRequest, res: Response, next) =
     });
 
     res.json({ message: "Profile updated successfully", user });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Go live / end live (toggle isLive)
+router.patch("/:id/live", authenticate, async (req: AuthRequest, res: Response, next) => {
+  try {
+    if (req.user?._id.toString() !== req.params.id) {
+      throw new AppError("Unauthorized", 403);
+    }
+    const user = await User.findById(req.params.id);
+    if (!user) throw new AppError("User not found", 404);
+    (user as any).isLive = !(user as any).isLive;
+    await user.save();
+    res.json({ message: (user as any).isLive ? "You are now live" : "Live ended", isLive: (user as any).isLive });
   } catch (err) {
     next(err);
   }
@@ -80,6 +141,41 @@ router.post(
       });
 
       res.json({ message: "Avatar uploaded successfully", avatar: avatarPath, user });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// Set avatar from existing URL (e.g. from wall post image)
+router.patch("/:id/avatar-url", authenticate, async (req: AuthRequest, res: Response, next) => {
+  try {
+    if (req.user?._id.toString() !== req.params.id) throw new AppError("Unauthorized", 403);
+    const { url } = req.body;
+    if (!url || typeof url !== "string" || !url.trim()) throw new AppError("URL required", 400);
+    const user = await User.findByIdAndUpdate(req.params.id, { avatar: url.trim() }, { new: true }).select("-passwordHash");
+    if (!user) throw new AppError("User not found", 404);
+    await AuditLog.create({ action: "AVATAR_UPDATED", user: user._id, meta: { avatar: url } });
+    res.json({ message: "Profile picture updated", avatar: url, user });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Upload strip background
+router.post(
+  "/:id/strip-background",
+  authenticate,
+  upload.single("image"),
+  async (req: AuthRequest, res: Response, next) => {
+    try {
+      if (req.user?._id.toString() !== req.params.id) throw new AppError("Unauthorized", 403);
+      if (!req.file) throw new AppError("No file uploaded", 400);
+      const url = `/uploads/${req.file.filename}`;
+      const user = await User.findByIdAndUpdate(req.params.id, { stripBackgroundPic: url }, { new: true }).select("-passwordHash");
+      if (!user) throw new AppError("User not found", 404);
+      await AuditLog.create({ action: "STRIP_BACKGROUND_UPDATED", user: user._id, meta: { stripBackgroundPic: url } });
+      res.json({ message: "Strip background updated", stripBackgroundPic: url, user });
     } catch (err) {
       next(err);
     }
@@ -215,10 +311,10 @@ router.delete("/:id", authenticate, async (req: AuthRequest, res: Response, next
   }
 });
 
-// List users (with pagination)
+// List users (with pagination and search)
 router.get("/", authenticate, async (req: AuthRequest, res: Response, next) => {
   try {
-    const { page, limit } = req.query;
+    const { page, limit, q } = req.query;
     const { skip, limit: limitNum } = getPaginationParams(
       page ? parseInt(page as string) : undefined,
       limit ? parseInt(limit as string) : undefined
@@ -226,6 +322,14 @@ router.get("/", authenticate, async (req: AuthRequest, res: Response, next) => {
 
     const query: any = { active: true };
     if (req.query.role) query.role = { $in: [req.query.role] };
+    const search = (q as string)?.trim();
+    if (search && search.length >= 2) {
+      query.$or = [
+        { name: { $regex: search, $options: "i" } },
+        { username: { $regex: search, $options: "i" } },
+        { email: { $regex: search, $options: "i" } },
+      ];
+    }
 
     const [users, total] = await Promise.all([
       User.find(query).select("-passwordHash").skip(skip).limit(limitNum),

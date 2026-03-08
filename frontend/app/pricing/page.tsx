@@ -451,7 +451,7 @@ export default function PricingPage() {
       <footer className="bg-slate-900 text-white py-8 px-4">
         <div className="max-w-7xl mx-auto text-center">
           <p className="text-slate-400 text-sm">
-            © 2026 Morongwa. Transparent pricing across Southern Africa.
+            © 2026 Qwertymates. Transparent pricing across Southern Africa.
           </p>
         </div>
       </footer>

@@ -8,8 +8,9 @@ import toast from 'react-hot-toast';
 interface AuthContextType {
   user: User | null;
   loading: boolean;
-  login: (email: string, password: string) => Promise<void>;
-  register: (name: string, email: string, password: string, role: string[], policyAcceptances?: string[]) => Promise<void>;
+  login: (emailOrPhoneOrUsername: string, password: string, usePhone?: boolean, useUsername?: boolean) => Promise<void>;
+  register: (name: string, email: string, password: string, role: string[], policyAcceptances?: string[], dateOfBirth?: string) => Promise<void>;
+  registerWithOtp?: (data: { name: string; password: string; dateOfBirth: string; otpToken: string; policyAcceptances?: string[] }) => Promise<void>;
   logout: () => void;
   refreshUser: () => Promise<void>;
   isAuthenticated: boolean;
@@ -63,9 +64,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  const login = async (email: string, password: string) => {
+  const login = async (emailOrPhoneOrUsername: string, password: string, usePhone = false, useUsername = false) => {
     try {
-      const response = await authAPI.login({ email, password });
+      const payload = usePhone
+        ? { phone: emailOrPhoneOrUsername, password }
+        : useUsername
+        ? { username: emailOrPhoneOrUsername.trim().toLowerCase(), password }
+        : { email: emailOrPhoneOrUsername.trim().toLowerCase(), password };
+      const response = await authAPI.login(payload);
       const { token, user: userData } = response.data;
 
       localStorage.setItem('token', token);
@@ -83,9 +89,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const register = async (name: string, email: string, password: string, role: string[], acceptSlugs: string[] = []) => {
+  const register = async (name: string, email: string, password: string, role: string[], acceptSlugs: string[] = [], dateOfBirth?: string) => {
     try {
-      const response = await authAPI.register({ name, email, password, role });
+      const response = await authAPI.register({ name, email, password, role, dateOfBirth });
       const { token, user: userData } = response.data;
 
       localStorage.setItem('token', token);
@@ -108,6 +114,40 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const message = isNetworkError
         ? 'Cannot reach the server. Start the backend: cd backend && npm run dev'
         : (error.response?.data?.error || 'Registration failed');
+      toast.error(message);
+      throw error;
+    }
+  };
+
+  const registerWithOtp = async (data: { name: string; password: string; dateOfBirth: string; otpToken: string; policyAcceptances?: string[] }) => {
+    try {
+      const response = await authAPI.register({
+        name: data.name,
+        password: data.password,
+        dateOfBirth: data.dateOfBirth,
+        otpToken: data.otpToken,
+        role: ['client'],
+      });
+      const { token, user: userData } = response.data;
+
+      localStorage.setItem('token', token);
+      localStorage.setItem('user', JSON.stringify(userData));
+      setUser(userData);
+
+      if (data.policyAcceptances?.length) {
+        try {
+          await policiesAPI.acceptPolicies(data.policyAcceptances, { source: 'register' });
+        } catch (acceptErr) {
+          console.error('Failed to record policy acceptance', acceptErr);
+        }
+      }
+      
+      toast.success('Registration successful!');
+    } catch (error: any) {
+      const isNetworkError = !error.response && (error.code === 'ERR_NETWORK' || error.message === 'Network Error');
+      const message = isNetworkError
+        ? 'Cannot reach the server. Start the backend: cd backend && npm run dev'
+        : (error.response?.data?.message || error.response?.data?.error || 'Registration failed');
       toast.error(message);
       throw error;
     }
@@ -146,6 +186,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         loading,
         login,
         register,
+        registerWithOtp,
         logout,
         refreshUser,
         isAuthenticated: !!user,

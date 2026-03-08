@@ -3,18 +3,39 @@ import Joi from "joi";
 
 export const registerSchema = Joi.object({
   name: Joi.string().min(2).max(100).required(),
-  email: Joi.string().email().required(),
+  email: Joi.string().email().optional(),
+  username: Joi.string().min(2).max(30).pattern(/^[a-zA-Z0-9_]+$/).optional(),
   password: Joi.string().min(8).required(),
+  dateOfBirth: Joi.string()
+    .pattern(/^\d{4}-\d{2}-\d{2}$/)
+    .required()
+    .messages({
+      "string.pattern.base": "Date of birth must be in YYYY-MM-DD format",
+    }),
   role: Joi.alternatives().try(
     Joi.string().valid("client", "runner"),
     Joi.array().items(Joi.string().valid("client", "runner"))
   ).optional(),
+  phone: Joi.string().optional(),
+  otpToken: Joi.string().optional(),
+}).or("email", "otpToken");
+
+export const sendOtpSchema = Joi.object({
+  phone: Joi.string().min(10).max(20).required(),
+  channel: Joi.string().valid("sms", "whatsapp").default("whatsapp"),
+});
+
+export const verifyOtpSchema = Joi.object({
+  phone: Joi.string().min(10).max(20).required(),
+  otp: Joi.string().length(6).pattern(/^\d+$/).required(),
 });
 
 export const loginSchema = Joi.object({
-  email: Joi.string().email().required(),
+  email: Joi.string().optional(),
+  username: Joi.string().optional(),
+  phone: Joi.string().optional(),
   password: Joi.string().required(),
-});
+}).or("email", "username", "phone");
 
 export const taskSchema = Joi.object({
   title: Joi.string().min(3).max(200).required(),
@@ -62,6 +83,11 @@ export const topupSchema = Joi.object({
 
 export const payoutSchema = Joi.object({
   amount: Joi.number().min(10).required(),
+});
+
+export const donateSchema = Joi.object({
+  recipientId: Joi.string().required(),
+  amount: Joi.number().min(1).max(50000).required(),
 });
 
 export const supportTicketSchema = Joi.object({

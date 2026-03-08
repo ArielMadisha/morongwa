@@ -3,8 +3,11 @@ import axios from 'axios';
 
 export const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api';
 
-/** Backend base URL (no /api) - used for image URLs. */
+/** Backend base URL (no /api) - used for image URLs and Socket.IO. */
 export const API_BASE = API_URL.replace(/\/api\/?$/, '').replace(/\/$/, '');
+
+/** Socket.IO server URL - same as API_BASE. */
+export const SOCKET_URL = process.env.NEXT_PUBLIC_SOCKET_URL || API_BASE || (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:4000');
 
 /** Effective price for a product (discountPrice when set and valid, else price). */
 export function getEffectivePrice(p: { price: number; discountPrice?: number }): number {
@@ -15,12 +18,25 @@ export function getEffectivePrice(p: { price: number; discountPrice?: number }):
 /** Normalize product image URL - use /uploads/... so Next.js proxy serves same-origin (avoids CORS/cross-origin blocking). */
 export function getImageUrl(url: string | undefined): string {
   if (!url || typeof url !== 'string') return '';
-  let normalized = url.replace(/\/api\/uploads\//g, '/uploads/');
-  // If backend returned full URL (e.g. http://localhost:4000/uploads/...), use path only for same-origin proxy
+  let normalized = url.trim().replace(/\/api\/uploads\//g, '/uploads/');
+  // Ensure leading slash for relative paths (e.g. "uploads/tv/x" -> "/uploads/tv/x")
+  if (normalized.startsWith('uploads/') && !normalized.startsWith('/')) {
+    normalized = '/' + normalized;
+  }
+  // Strip protocol/host so we always use same-origin proxy (e.g. http://localhost:4000/uploads/... -> /uploads/...)
   const uploadsMatch = normalized.match(/\/uploads\/.+$/);
   if (uploadsMatch) return uploadsMatch[0];
   if (normalized.startsWith('/uploads/')) return normalized;
   return normalized;
+}
+
+/** Full URL for images when relative path fails (e.g. cross-origin). */
+export function getImageUrlFull(url: string | undefined): string {
+  const path = getImageUrl(url);
+  if (!path) return '';
+  if (path.startsWith('http')) return path;
+  const base = API_BASE || (typeof window !== 'undefined' ? '' : 'http://localhost:4000');
+  return base ? `${base.replace(/\/$/, '')}${path}` : path;
 }
 
 export const api = axios.create({
@@ -69,12 +85,28 @@ api.interceptors.response.use(
 
 // API endpoints
 export const authAPI = {
-  register: (data: { name: string; email: string; password: string; role?: string[] }) =>
-    api.post('/auth/register', data),
-  login: (data: { email: string; password: string }) =>
+  register: (data: {
+    name: string;
+    email?: string;
+    username?: string;
+    password: string;
+    role?: string[];
+    dateOfBirth?: string;
+    phone?: string;
+    otpToken?: string;
+  }) => api.post('/auth/register', data),
+  sendOtp: (phone: string, channel?: 'sms' | 'whatsapp') =>
+    api.post('/auth/send-otp', { phone, channel: channel || 'whatsapp' }),
+  verifyOtp: (phone: string, otp: string) => api.post('/auth/verify-otp', { phone, otp }),
+  login: (data: { email?: string; username?: string; phone?: string; password: string }) =>
     api.post('/auth/login', data),
   getCurrentUser: () => api.get('/auth/me'),
   requestRunnerRole: () => api.post('/auth/request-runner'),
+};
+
+export const advertsAPI = {
+  getAdverts: (slot?: 'random' | 'promo') =>
+    api.get('/adverts', { params: slot ? { slot } : {} }),
 };
 
 export const tasksAPI = {
@@ -98,7 +130,8 @@ export const walletAPI = {
   getBalance: () => api.get('/wallet/balance'),
   getTransactions: (params?: any) => api.get('/wallet/transactions', { params }),
   topUp: (amount: number) => api.post('/wallet/topup', { amount }),
-  withdraw: (amount: number) => api.post('/wallet/withdraw', { amount }),
+  withdraw: (amount: number) => api.post('/wallet/payout', { amount }),
+  donate: (amount: number, recipientId: string) => api.post('/wallet/donate', { amount, recipientId }),
 };
 
 export const paymentsAPI = {
@@ -139,6 +172,31 @@ export const adminAPI = {
   suspendUser: (id: string, reason?: string) =>
     api.post(`/admin/users/${id}/suspend`, { reason }),
   activateUser: (id: string) => api.post(`/admin/users/${id}/activate`),
+  verifyRunnerVehicle: (userId: string, vehicleIndex: number) =>
+    api.post(`/admin/users/${userId}/vehicles/${vehicleIndex}/verify`),
+  verifyRunnerPdp: (userId: string) => api.post(`/admin/users/${userId}/pdp/verify`),
+
+  // Adverts
+  getAdverts: (params?: { slot?: string }) => api.get('/admin/adverts', { params }),
+  createAdvert: (data: { title: string; imageUrl: string; linkUrl?: string; slot: 'random' | 'promo'; productId?: string; active?: boolean; startDate?: string; endDate?: string; order?: number }) =>
+    api.post('/admin/adverts', data),
+  updateAdvert: (id: string, data: Partial<{ title: string; imageUrl: string; linkUrl: string; slot: string; productId: string; active: boolean; startDate: string; endDate: string; order: number }>) =>
+    api.put(`/admin/adverts/${id}`, data),
+  deleteAdvert: (id: string) => api.delete(`/admin/adverts/${id}`),
+
+  // Landing backgrounds (login/register page)
+  getLandingBackgrounds: () => api.get('/admin/landing-backgrounds'),
+  uploadLandingBackground: (file: File) => {
+    const formData = new FormData();
+    formData.append('image', file);
+    return api.post<{ url: string }>('/admin/landing-backgrounds/upload', formData);
+  },
+  createLandingBackground: (data: { imageUrl: string; order?: number }) =>
+    api.post('/admin/landing-backgrounds', data),
+  updateLandingBackground: (id: string, data: Partial<{ imageUrl: string; order: number; active: boolean }>) =>
+    api.put(`/admin/landing-backgrounds/${id}`, data),
+  deleteLandingBackground: (id: string) => api.delete(`/admin/landing-backgrounds/${id}`),
+
   getTasks: (params?: any) => api.get('/admin/tasks', { params }),
   cancelTask: (id: string, reason?: string) =>
     api.post(`/admin/tasks/${id}/cancel`, { reason }),
@@ -206,6 +264,7 @@ export const adminAPI = {
     images: string[];
     price: number;
     discountPrice?: number;
+    bulkTiers?: Array<{ minQty: number; maxQty: number; price: number }>;
     currency?: string;
     stock?: number;
     outOfStock?: boolean;
@@ -214,6 +273,7 @@ export const adminAPI = {
     allowResell?: boolean;
     categories?: string[];
     tags?: string[];
+    availableCountries?: string[];
   }) => api.post('/admin/products', data),
   getProduct: (id: string) => api.get(`/admin/products/${id}`),
   updateProduct: (id: string, data: Record<string, unknown>) => api.put(`/admin/products/${id}`, data),
@@ -232,6 +292,29 @@ export const adminAPI = {
   createAdmin: (data: { email: string; name: string; password: string; sections?: string[] }) =>
     api.post('/admin/admins', data),
   getAdmins: () => api.get('/admin/admins'),
+
+  // Music (admin: load songs)
+  getMusicSongs: () => api.get('/admin/music/songs'),
+  uploadMusicSong: (audio: File, artwork: File, metadata: { userId?: string; title: string; artist: string; songwriters?: string; producer?: string; genre: string; lyrics?: string }) => {
+    const formData = new FormData();
+    formData.append('audio', audio);
+    formData.append('artwork', artwork);
+    formData.append('title', metadata.title);
+    formData.append('artist', metadata.artist);
+    formData.append('genre', metadata.genre);
+    if (metadata.userId) formData.append('userId', metadata.userId);
+    if (metadata.songwriters) formData.append('songwriters', metadata.songwriters);
+    if (metadata.producer) formData.append('producer', metadata.producer);
+    if (metadata.lyrics) formData.append('lyrics', metadata.lyrics);
+    return api.post('/admin/music/upload-song', formData);
+  },
+
+  // Artists (admin: create artist/publisher, manage verifications)
+  getArtistVerifications: (params?: { status?: string }) => api.get('/admin/artist-verifications', { params }),
+  approveArtistVerification: (id: string) => api.post(`/admin/artist-verifications/${id}/approve`),
+  rejectArtistVerification: (id: string, reason?: string) => api.post(`/admin/artist-verifications/${id}/reject`, { reason }),
+  createArtist: (data: { userId: string; type?: 'artist' | 'company' | 'producer'; stageName?: string; labelName?: string }) =>
+    api.post('/admin/artists', data),
 };
 
 export const supportAPI = {
@@ -251,9 +334,14 @@ export const analyticsAPI = {
 };
 
 export const usersAPI = {
+  list: (params?: { page?: number; limit?: number; q?: string }) =>
+    api.get('/users', { params }),
   getProfile: (id: string) => api.get(`/users/${id}`),
-  updateProfile: (id: string, data: { name: string }) =>
+  getProfileStats: (id: string) =>
+    api.get<{ user: any; postCount: number; imageCount: number; videoCount: number; musicCount: number; followerCount: number; followingCount: number }>(`/users/${id}/profile-stats`),
+  updateProfile: (id: string, data: { name?: string; username?: string; isPrivate?: boolean; avatar?: string; stripBackgroundPic?: string }) =>
     api.put(`/users/${id}`, data),
+  toggleLive: (id: string) => api.patch(`/users/${id}/live`),
   uploadAvatar: (id: string, file: File) => {
     const formData = new FormData();
     formData.append('avatar', file);
@@ -261,10 +349,32 @@ export const usersAPI = {
       headers: { 'Content-Type': 'multipart/form-data' },
     });
   },
+  setAvatarFromUrl: (id: string, url: string) =>
+    api.patch(`/users/${id}/avatar-url`, { url }),
+  uploadStripBackground: (id: string, file: File) => {
+    const formData = new FormData();
+    formData.append('image', file);
+    return api.post(`/users/${id}/strip-background`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
   addRole: (id: string, role: 'client' | 'runner') =>
     api.post(`/users/${id}/roles`, { action: 'add', role }),
   removeRole: (id: string, role: 'client' | 'runner') =>
     api.post(`/users/${id}/roles`, { action: 'remove', role }),
+  uploadPdp: (id: string, file: File) => {
+    const formData = new FormData();
+    formData.append('pdp', file);
+    return api.post(`/users/${id}/pdp`, formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+  },
+  uploadVehicle: (id: string, data: { make?: string; model?: string; plate?: string }, documents: File[]) => {
+    const formData = new FormData();
+    if (data.make) formData.append('make', data.make);
+    if (data.model) formData.append('model', data.model);
+    if (data.plate) formData.append('plate', data.plate);
+    documents.forEach((f) => formData.append('documents', f));
+    return api.post(`/users/${id}/vehicles`, formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+  },
 };
 
 export const policiesAPI = {
@@ -278,7 +388,7 @@ export const policiesAPI = {
 };
 
 export const productsAPI = {
-  list: (params?: { limit?: number; random?: boolean }) =>
+  list: (params?: { limit?: number; random?: boolean; q?: string }) =>
     api.get('/products', { params: { ...params, random: params?.random ? '1' : undefined } }),
   getByIdOrSlug: (idOrSlug: string) => api.get(`/products/${idOrSlug}`),
   /** Upload 1–5 product images. Returns { urls: string[] }. */
@@ -293,6 +403,7 @@ export const productsAPI = {
     images: string[];
     price: number;
     discountPrice?: number;
+    bulkTiers?: Array<{ minQty: number; maxQty: number; price: number }>;
     currency?: string;
     stock?: number;
     outOfStock?: boolean;
@@ -301,6 +412,7 @@ export const productsAPI = {
     allowResell?: boolean;
     categories?: string[];
     tags?: string[];
+    availableCountries?: string[];
   }) => api.post('/products', data),
 };
 
@@ -331,7 +443,26 @@ export const resellerAPI = {
 export const storesAPI = {
   getMyStores: () => api.get('/stores/me'),
   renameStore: (id: string, name: string) => api.put(`/stores/${id}`, { name }),
+  updateStore: (id: string, data: { name?: string; address?: string; email?: string; cellphone?: string; whatsapp?: string; stripBackgroundPic?: string }) =>
+    api.put(`/stores/${id}`, data),
+  uploadStripBackground: (id: string, file: File) => {
+    const formData = new FormData();
+    formData.append('image', file);
+    return api.post<{ url: string; data: any }>(`/stores/${id}/strip-background`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
   getBySlug: (slug: string) => api.get(`/stores/by-slug/${slug}`),
+};
+
+export const followsAPI = {
+  follow: (userId: string) => api.post(`/follows/${userId}`),
+  unfollow: (userId: string) => api.delete(`/follows/${userId}`),
+  getSuggested: (limit?: number) => api.get<{ data: Array<{ _id: string; name: string; avatar?: string; username?: string; followerCount?: number }> }>('/follows/suggested', { params: { limit } }),
+  getStatus: (userId: string) => api.get(`/follows/${userId}/status`),
+  getPendingRequests: () => api.get('/follows/requests/pending'),
+  acceptRequest: (followerId: string) => api.post(`/follows/${followerId}/accept`),
+  rejectRequest: (followerId: string) => api.post(`/follows/${followerId}/reject`),
 };
 
 export const productEnquiryAPI = {
@@ -344,8 +475,11 @@ export const productEnquiryAPI = {
 };
 
 export const tvAPI = {
-  getFeed: (params?: { page?: number; limit?: number; sort?: 'newest' | 'trending' | 'random'; type?: 'video' | 'image' | 'carousel' | 'product' }) =>
+  getPost: (id: string) => api.get(`/tv/${id}`),
+  getFeed: (params?: { page?: number; limit?: number; sort?: 'newest' | 'trending' | 'random'; type?: 'video' | 'image' | 'carousel' | 'product' | 'images' | 'audio' | 'text'; creatorId?: string; q?: string; genre?: string }) =>
     api.get('/tv', { params }),
+  getStatuses: () => api.get('/tv/statuses'),
+  getTrendingHashtags: (limit?: number) => api.get<{ data: { tag: string; count: number }[] }>('/tv/hashtags/trending', { params: { limit } }),
   uploadMedia: (file: File) => {
     const formData = new FormData();
     formData.append('media', file);
@@ -357,11 +491,15 @@ export const tvAPI = {
     return api.post<{ urls: string[] }>('/tv/upload-images', formData);
   },
   createPost: (data: {
-    type: 'video' | 'image' | 'carousel' | 'product';
-    mediaUrls: string[];
+    type: 'video' | 'image' | 'carousel' | 'product' | 'text' | 'audio';
+    mediaUrls?: string[];
     caption?: string;
+    heading?: string;
+    subject?: string;
+    hashtags?: string[];
     productId?: string;
     filter?: string;
+    genre?: string;
   }) => api.post('/tv', data),
   repost: (id: string) => api.post(`/tv/${id}/repost`),
   like: (id: string) => api.post(`/tv/${id}/like`),
@@ -371,6 +509,53 @@ export const tvAPI = {
   addComment: (id: string, text: string) => api.post(`/tv/${id}/comments`, { text }),
   getWatermark: () => api.get<{ data: { watermark: string } }>('/tv/watermark'),
   getFeaturedProducts: () => api.get('/tv/products/featured'),
+};
+
+export interface SongRecord {
+  _id: string;
+  type: 'song' | 'album';
+  title: string;
+  artist: string;
+  songwriters?: string;
+  producer?: string;
+  genre: string;
+  lyrics?: string;
+  audioUrl: string;
+  artworkUrl: string;
+  userId?: { _id: string; name?: string };
+  createdAt: string;
+}
+
+export const musicAPI = {
+  getGenres: () => api.get<{ data: { id: string; label: string }[] }>('/music/genres'),
+  getArtistStatus: () => api.get<{ data: { isVerified: boolean; status: string | null; type: string | null } }>('/music/artist-status'),
+  getSongs: () => api.get<{ data: SongRecord[] }>('/music/songs'),
+  uploadAudio: (file: File) => {
+    const formData = new FormData();
+    formData.append('audio', file);
+    return api.post<{ data: { url: string } }>('/music/upload-audio', formData);
+  },
+  artistApply: (data: { type: string; stageName?: string; labelName?: string }, documents?: File[]) => {
+    const formData = new FormData();
+    formData.append('type', data.type);
+    if (data.stageName) formData.append('stageName', data.stageName);
+    if (data.labelName) formData.append('labelName', data.labelName);
+    (documents || []).forEach((f) => formData.append('documents', f, f.name));
+    return api.post('/music/artist-apply', formData);
+  },
+  /** Upload song: WAV audio, JPEG/PNG artwork (3000x3000), metadata */
+  uploadSong: (audio: File, artwork: File, metadata: { title: string; artist: string; songwriters?: string; producer?: string; genre: string; lyrics?: string }) => {
+    const formData = new FormData();
+    formData.append('audio', audio);
+    formData.append('artwork', artwork);
+    formData.append('title', metadata.title);
+    formData.append('artist', metadata.artist);
+    formData.append('genre', metadata.genre);
+    if (metadata.songwriters) formData.append('songwriters', metadata.songwriters);
+    if (metadata.producer) formData.append('producer', metadata.producer);
+    if (metadata.lyrics) formData.append('lyrics', metadata.lyrics);
+    return api.post<{ data: SongRecord }>('/music/upload-song', formData);
+  },
 };
 
 export const suppliersAPI = {
@@ -387,10 +572,12 @@ export const suppliersAPI = {
     pickupAddress?: string;
     companyRegNo?: string;
     directorsIdDoc?: string;
+    directorsIdDocs?: string[];
     idDocument?: string;
     contactEmail: string;
     contactPhone: string;
     verificationFeeWaived?: boolean;
   }) => api.post('/suppliers/apply', data),
   getMe: () => api.get('/suppliers/me'),
+  getMyProducts: () => api.get('/suppliers/me/products'),
 };

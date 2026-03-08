@@ -14,7 +14,9 @@ export default function Home() {
         <div className="absolute right-0 top-1/4 h-[360px] w-[360px] translate-x-1/3 rounded-full bg-blue-200/40 blur-[80px]" />
       </div>
 
-      <SiteHeader minimal />
+      <div className="relative z-10">
+        <SiteHeader minimal />
+      </div>
 
       <main className="relative max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Hero */}

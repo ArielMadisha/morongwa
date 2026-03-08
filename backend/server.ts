@@ -11,6 +11,7 @@ dotenv.config();
 import { logger } from "./src/services/monitoring";
 import { initializeNotificationService } from "./src/services/notification";
 import { initializeChatService } from "./src/services/chat";
+import { initializeWebRTCSignaling } from "./src/services/webrtcSignaling";
 import { securityMiddleware, requestLogger, validateInput } from "./src/middleware/security";
 import { apiLimiter } from "./src/middleware/rateLimit";
 import { errorHandler, notFoundHandler } from "./src/middleware/errorHandler";
@@ -40,8 +41,14 @@ import resellerRoutes from "./src/routes/reseller";
 import storesRoutes from "./src/routes/stores";
 import tvRoutes from "./src/routes/tv";
 import productEnquiryRoutes from "./src/routes/productEnquiry";
+import advertsRoutes from "./src/routes/adverts";
+import landingBackgroundsRoutes from "./src/routes/landingBackgrounds";
+import followsRoutes from "./src/routes/follows";
+import musicRoutes from "./src/routes/music";
 import { ensureDefaultPolicies } from "./src/services/policyService";
 import { seedPricingConfig } from "./src/services/pricingConfig";
+import { ensureDefaultProducts } from "./src/services/marketplaceSeed";
+import { ensureSampleAdvert } from "./src/services/advertSeed";
 
 const app: Application = express();
 const server = http.createServer(app);
@@ -101,31 +108,44 @@ app.get("/health", (req, res) => {
   });
 });
 
-// API Routes
-app.use("/api/auth", authRoutes);
-app.use("/api/users", userRoutes);
-app.use("/api/password", passwordRoutes);
-app.use("/api/tasks", taskRoutes);
-app.use("/api/wallet", walletRoutes);
-app.use("/api/payments", paymentRoutes);
-app.use("/api/reviews", reviewRoutes);
-app.use("/api/messenger", messengerRoutes);
-app.use("/api/filesharing", filesharingRoutes);
-app.use("/api/notifications", notificationRoutes);
-app.use("/api/admin", adminRoutes);
-app.use("/api/support", supportRoutes);
-app.use("/api/analytics", analyticsRoutes);
-app.use("/api/pricing", pricingRoutes);
-app.use("/api/policies", policyRoutes);
-app.use("/api/runners", runnersRoutes);
-app.use("/api/products", productsRoutes);
-app.use("/api/suppliers", suppliersRoutes);
-app.use("/api/cart", cartRoutes);
-app.use("/api/checkout", checkoutRoutes);
-app.use("/api/reseller", resellerRoutes);
-app.use("/api/stores", storesRoutes);
-app.use("/api/tv", tvRoutes);
-app.use("/api/product-enquiry", productEnquiryRoutes);
+// API Routes - guard against undefined route modules (e.g. failed imports)
+const routePairs: [string, express.RequestHandler | undefined][] = [
+  ["/api/auth", authRoutes],
+  ["/api/users", userRoutes],
+  ["/api/password", passwordRoutes],
+  ["/api/tasks", taskRoutes],
+  ["/api/wallet", walletRoutes],
+  ["/api/payments", paymentRoutes],
+  ["/api/reviews", reviewRoutes],
+  ["/api/messenger", messengerRoutes],
+  ["/api/filesharing", filesharingRoutes],
+  ["/api/notifications", notificationRoutes],
+  ["/api/admin", adminRoutes],
+  ["/api/support", supportRoutes],
+  ["/api/analytics", analyticsRoutes],
+  ["/api/pricing", pricingRoutes],
+  ["/api/policies", policyRoutes],
+  ["/api/runners", runnersRoutes],
+  ["/api/products", productsRoutes],
+  ["/api/suppliers", suppliersRoutes],
+  ["/api/cart", cartRoutes],
+  ["/api/checkout", checkoutRoutes],
+  ["/api/reseller", resellerRoutes],
+  ["/api/stores", storesRoutes],
+  ["/api/tv", tvRoutes],
+  ["/api/product-enquiry", productEnquiryRoutes],
+  ["/api/adverts", advertsRoutes],
+  ["/api/landing-backgrounds", landingBackgroundsRoutes],
+  ["/api/follows", followsRoutes],
+  ["/api/music", musicRoutes],
+];
+for (const [path, handler] of routePairs) {
+  if (handler == null) {
+    logger.error(`Route ${path} is undefined - check import`);
+  } else {
+    app.use(path, handler);
+  }
+}
 
 // Error handling
 app.use(notFoundHandler);
@@ -135,6 +155,7 @@ app.use(errorHandler);
 const initializeServices = () => {
   initializeNotificationService(io);
   initializeChatService(io);
+  initializeWebRTCSignaling(io);
   logger.info("Services initialized successfully");
 };
 
@@ -147,6 +168,8 @@ const startServer = async () => {
     await connectDB();
     await ensureDefaultPolicies();
     await seedPricingConfig();
+    await ensureDefaultProducts();
+    await ensureSampleAdvert();
   } catch (error) {
     logger.error("Database not available (server will start; API will return 503 until DB is up):", error);
   }

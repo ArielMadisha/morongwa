@@ -18,6 +18,7 @@ interface SupplierDetail {
   shippingCost?: number;
   companyRegNo?: string;
   directorsIdDoc?: string;
+  directorsIdDocs?: string[];
   idDocument?: string;
   contactEmail?: string;
   contactPhone?: string;
@@ -136,7 +137,26 @@ export default function AdminSupplierDetailPage() {
                 <h2 className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-3">Company</h2>
                 <ul className="space-y-2 text-slate-700">
                   <li><strong>Company reg no:</strong> {supplier.companyRegNo ?? '—'}</li>
-                  <li><strong>Directors ID document:</strong> {supplier.directorsIdDoc ? <span className="text-sky-600">{supplier.directorsIdDoc}</span> : '—'}</li>
+                  <li>
+                    <strong>Directors ID documents:</strong>{' '}
+                    {((supplier as any).directorsIdDocs?.length ?? 0) > 0 ? (
+                      <ul className="mt-1 list-disc list-inside text-sky-600 space-y-0.5">
+                        {(supplier as any).directorsIdDocs.map((path: string, i: number) => (
+                          <li key={i}>
+                            <a href={path} target="_blank" rel="noopener noreferrer" className="hover:underline">
+                              Director {i + 1}: {path.split('/').pop()}
+                            </a>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : supplier.directorsIdDoc ? (
+                      <a href={supplier.directorsIdDoc} target="_blank" rel="noopener noreferrer" className="text-sky-600 hover:underline">
+                        {supplier.directorsIdDoc}
+                      </a>
+                    ) : (
+                      '—'
+                    )}
+                  </li>
                   {supplier.storeName && <li><strong>Store name:</strong> {supplier.storeName}</li>}
                 </ul>
               </section>

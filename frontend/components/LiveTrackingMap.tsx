@@ -44,9 +44,8 @@ export default function LiveTrackingMap({ runnerLocation, pickupLocation, delive
 
   if (!runnerLocation) {
     return (
-      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-8 text-center">
-        <MapPin className="mx-auto h-12 w-12 text-slate-300" />
-        <p className="mt-3 text-sm text-slate-600">Runner location not available yet</p>
+      <div className="rounded-xl bg-white border border-slate-200 p-6 text-center text-slate-500 shadow-sm">
+        Runner location not available yet
       </div>
     );
   }
@@ -55,58 +54,53 @@ export default function LiveTrackingMap({ runnerLocation, pickupLocation, delive
   const lon = parseFloat(runnerLocation.lon);
 
   return (
-    <div className="rounded-2xl border border-white/60 bg-white/80 p-4 shadow-xl shadow-sky-50 backdrop-blur">
-      <div className="flex items-center justify-between mb-3">
-        <p className="text-xs uppercase tracking-[0.2em] text-sky-600 font-semibold">Live Runner Location</p>
-        <Navigation className="h-4 w-4 text-sky-600 animate-pulse" />
-      </div>
-      
-      <div className="space-y-2 mb-4 text-sm">
-        <div className="flex items-center gap-2">
-          <div className="h-2 w-2 rounded-full bg-blue-500"></div>
-          <span className="text-slate-700">Runner: {lat.toFixed(6)}, {lon.toFixed(6)}</span>
-        </div>
-        {pickupLocation?.address && (
-          <div className="flex items-center gap-2">
-            <div className="h-2 w-2 rounded-full bg-green-500"></div>
-            <span className="text-slate-600 text-xs">Pickup: {pickupLocation.address}</span>
-          </div>
-        )}
-        {deliveryLocation?.address && (
-          <div className="flex items-center gap-2">
-            <div className="h-2 w-2 rounded-full bg-red-500"></div>
-            <span className="text-slate-600 text-xs">Delivery: {deliveryLocation.address}</span>
-          </div>
-        )}
-      </div>
+    <div className="rounded-xl bg-white border border-slate-200 p-6 shadow-sm space-y-4">
+      <h3 className="text-lg font-semibold text-slate-900 flex items-center gap-2">
+        <MapPin className="text-brand-500" size={20} />
+        Live Runner Location
+      </h3>
 
-      <div className="flex gap-2">
+      <p className="text-sm text-slate-600">
+        Runner: {lat.toFixed(6)}, {lon.toFixed(6)}
+      </p>
+
+      {pickupLocation?.address && (
+        <p className="text-sm text-slate-600">
+          <span className="font-medium text-brand-600">Pickup:</span> {pickupLocation.address}
+        </p>
+      )}
+
+      {deliveryLocation?.address && (
+        <p className="text-sm text-slate-600">
+          <span className="font-medium text-brand-600">Delivery:</span> {deliveryLocation.address}
+        </p>
+      )}
+
+      <div className="flex gap-3 mt-4">
         <a
           href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${lat},${lon}`)}`}
           target="_blank"
-          rel="noreferrer"
-          className="flex-1 inline-flex items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-sky-500 to-blue-500 px-4 py-2 text-sm font-semibold text-white shadow-md transition hover:scale-[1.02]"
+          rel="noopener noreferrer"
+          className="flex items-center gap-2 px-4 py-2 rounded-lg bg-brand-500 text-white hover:bg-brand-600 transition"
         >
-          <MapPin className="h-4 w-4" />
-          Open in Maps
+          <MapPin size={16} /> Open in Maps
         </a>
         {deliveryLocation?.coordinates && (
           <a
             href={`https://www.google.com/maps/dir/?api=1&origin=${lat},${lon}&destination=${deliveryLocation.coordinates[1]},${deliveryLocation.coordinates[0]}`}
             target="_blank"
-            rel="noreferrer"
-            className="flex-1 inline-flex items-center justify-center gap-2 rounded-lg border-2 border-sky-500 bg-white px-4 py-2 text-sm font-semibold text-sky-700 transition hover:bg-sky-50"
+            rel="noopener noreferrer"
+            className="flex items-center gap-2 px-4 py-2 rounded-lg border border-brand-200 text-brand-700 bg-brand-50 hover:bg-brand-100 transition"
           >
-            <Navigation className="h-4 w-4" />
-            Directions
+            <Navigation size={16} /> Directions
           </a>
         )}
       </div>
 
-      <div className="mt-4 rounded-lg bg-slate-50 p-3 text-xs text-slate-600">
-        <p>🔵 Runner current position</p>
-        {pickupLocation && <p>🟢 Pickup location</p>}
-        {deliveryLocation && <p>🔴 Delivery destination</p>}
+      <div className="mt-6 space-y-1 text-sm text-slate-600">
+        <p className="flex items-center gap-2"><span className="text-blue-500">🔵</span> Runner position</p>
+        {pickupLocation && <p className="flex items-center gap-2"><span className="text-green-500">🟢</span> Pickup location</p>}
+        {deliveryLocation && <p className="flex items-center gap-2"><span className="text-red-500">🔴</span> Delivery destination</p>}
       </div>
     </div>
   );

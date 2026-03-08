@@ -72,7 +72,7 @@ function AdminEscrowsPage() {
               ← Dashboard
             </Link>
             <div>
-              <p className="text-xs uppercase tracking-widest text-sky-600">Morongwa</p>
+              <p className="text-xs uppercase tracking-widest text-sky-600">Qwertymates</p>
               <div className="mt-1 flex items-center gap-2 text-sm text-slate-500">
                 <Lock className="h-4 w-4 text-sky-500" />
                 <span>Escrow & ledger</span>
