@@ -39,6 +39,13 @@ export interface IUser extends Document {
   isLive?: boolean;
   /** Verified music artist/company/producer - can upload music to QwertyMusic */
   artistVerified?: boolean;
+  /** Delivery preferences for order notifications */
+  notificationPreferences?: {
+    orderMessenger?: boolean;
+    orderEmail?: boolean;
+    orderSms?: boolean;
+    orderWhatsapp?: boolean;
+  };
   createdAt: Date;
   updatedAt: Date;
 }
@@ -94,6 +101,12 @@ const UserSchema = new Schema<IUser>(
     isPrivate: { type: Boolean, default: false },
     isLive: { type: Boolean, default: false },
     artistVerified: { type: Boolean, default: false },
+    notificationPreferences: {
+      orderMessenger: { type: Boolean, default: true },
+      orderEmail: { type: Boolean, default: true },
+      orderSms: { type: Boolean, default: false },
+      orderWhatsapp: { type: Boolean, default: false },
+    },
     isVerified: { type: Boolean, default: false },
     active: { type: Boolean, default: true },
     suspended: { type: Boolean, default: false },

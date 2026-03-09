@@ -144,6 +144,40 @@ router.get("/suggested", authenticate, async (req: AuthRequest, res: Response, n
   }
 });
 
+// Get followers for a user (accepted only)
+router.get("/:userId/followers", async (req: AuthRequest, res: Response, next) => {
+  try {
+    const followingId = req.params.userId;
+    const followers = await Follow.find({ followingId, status: "accepted" })
+      .populate("followerId", "name avatar username")
+      .sort({ createdAt: -1 })
+      .lean();
+    const users = followers
+      .map((f: any) => f.followerId)
+      .filter(Boolean);
+    res.json({ data: users });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Get accounts a user follows (accepted only)
+router.get("/:userId/following", async (req: AuthRequest, res: Response, next) => {
+  try {
+    const followerId = req.params.userId;
+    const following = await Follow.find({ followerId, status: "accepted" })
+      .populate("followingId", "name avatar username")
+      .sort({ createdAt: -1 })
+      .lean();
+    const users = following
+      .map((f: any) => f.followingId)
+      .filter(Boolean);
+    res.json({ data: users });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // Check if current user follows target
 router.get("/:userId/status", authenticate, async (req: AuthRequest, res: Response, next) => {
   try {

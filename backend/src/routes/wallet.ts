@@ -4,10 +4,12 @@ import Wallet from "../data/models/Wallet";
 import Transaction from "../data/models/Transaction";
 import AuditLog from "../data/models/AuditLog";
 import Order from "../data/models/Order";
+import Payment from "../data/models/Payment";
 import { authenticate, AuthRequest } from "../middleware/auth";
 import { topupSchema, payoutSchema, donateSchema } from "../utils/validators";
 import { AppError } from "../middleware/errorHandler";
 import { getPaginationParams } from "../utils/helpers";
+import { initiatePayment } from "../services/payment";
 
 const router = express.Router();
 
@@ -66,45 +68,45 @@ router.get("/transactions", authenticate, async (req: AuthRequest, res: Response
   }
 });
 
-// Top up wallet (placeholder - integrate with payment gateway)
+// Top up wallet via PayGate redirect
 router.post("/topup", authenticate, async (req: AuthRequest, res: Response, next) => {
   try {
     const { error } = topupSchema.validate(req.body);
     if (error) throw new AppError(error.details[0].message, 400);
 
-    const { amount } = req.body;
+    const { amount, returnPath } = req.body as { amount: number; returnPath?: string };
+    const safeReturnPath = typeof returnPath === "string" && returnPath.startsWith("/") ? returnPath : "/wallet";
+    const reference = `TOPUP-${Date.now()}-${Math.round(Math.random() * 1e6)}`;
 
-    let wallet = await Wallet.findOne({ user: req.user!._id });
-    if (!wallet) {
-      wallet = await Wallet.create({ user: req.user!._id });
+    await Payment.create({
+      user: req.user!._id,
+      amount,
+      reference,
+      status: "pending",
+    });
+
+    const paymentResult = await initiatePayment({
+      amount,
+      reference,
+      email: req.user!.email,
+      returnUrl: `${process.env.FRONTEND_URL || "http://localhost:3000"}${safeReturnPath}`,
+      notifyUrl: `${process.env.BACKEND_URL || "http://localhost:4000"}/api/payments/webhook`,
+    });
+    if (!paymentResult.success || !paymentResult.paymentUrl) {
+      throw new AppError(paymentResult.error || "Payment initiation failed", 500);
     }
 
-    // In production, this would integrate with PayGate
-    // For now, directly add to balance
-    wallet.balance += amount;
-    wallet.transactions.push({
-      type: "topup",
-      amount,
-      createdAt: new Date(),
-    });
-    await wallet.save();
-
-    await Transaction.create({
-      wallet: wallet._id,
-      user: req.user!._id,
-      type: "topup",
-      amount,
-      reference: `TOPUP-${Date.now()}`,
-      status: "successful",
-    });
-
     await AuditLog.create({
-      action: "WALLET_TOPUP",
+      action: "WALLET_TOPUP_INITIATED",
       user: req.user!._id,
-      meta: { amount },
+      meta: { amount, reference },
     });
 
-    res.json({ message: "Wallet topped up successfully", balance: wallet.balance });
+    res.json({
+      message: "Top-up initiated",
+      paymentUrl: paymentResult.paymentUrl,
+      reference,
+    });
   } catch (err) {
     next(err);
   }

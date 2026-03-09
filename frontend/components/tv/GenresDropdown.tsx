@@ -48,8 +48,7 @@ export function GenresDropdown({ selectedGenre, onSelect, className = '' }: Genr
       </button>
       {open && (
         <div
-          className="absolute right-0 top-full mt-1 py-2 bg-white rounded-xl border border-slate-200 shadow-xl z-50 min-w-[240px] max-w-[320px]"
-          onMouseLeave={() => setOpen(false)}
+          className="absolute right-0 top-full mt-1 py-2 bg-white rounded-xl border border-slate-200 shadow-xl z-[120] min-w-[240px] max-w-[320px]"
         >
           {GENRES.map((g) => (
             <button

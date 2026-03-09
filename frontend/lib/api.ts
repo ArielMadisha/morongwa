@@ -129,7 +129,7 @@ export const tasksAPI = {
 export const walletAPI = {
   getBalance: () => api.get('/wallet/balance'),
   getTransactions: (params?: any) => api.get('/wallet/transactions', { params }),
-  topUp: (amount: number) => api.post('/wallet/topup', { amount }),
+  topUp: (amount: number, returnPath?: string) => api.post('/wallet/topup', { amount, returnPath }),
   withdraw: (amount: number) => api.post('/wallet/payout', { amount }),
   donate: (amount: number, recipientId: string) => api.post('/wallet/donate', { amount, recipientId }),
 };
@@ -154,6 +154,9 @@ export const messengerAPI = {
   getMessages: (taskId: string) => api.get(`/messenger/task/${taskId}`),
   sendMessage: (taskId: string, content: string) =>
     api.post(`/messenger/task/${taskId}`, { content }),
+  searchUsers: (q?: string, limit?: number) => api.get('/messenger/users/search', { params: { q, limit } }),
+  getDirectMessages: (userId: string) => api.get(`/messenger/direct/${userId}`),
+  sendDirectMessage: (userId: string, content: string) => api.post(`/messenger/direct/${userId}`, { content }),
   markAsRead: (taskId: string) => api.post(`/messenger/task/${taskId}/read`),
   getUnreadCount: () => api.get('/messenger/unread'),
 };
@@ -295,7 +298,7 @@ export const adminAPI = {
 
   // Music (admin: load songs)
   getMusicSongs: () => api.get('/admin/music/songs'),
-  uploadMusicSong: (audio: File, artwork: File, metadata: { userId?: string; title: string; artist: string; songwriters?: string; producer?: string; genre: string; lyrics?: string }) => {
+  uploadMusicSong: (audio: File, artwork: File, metadata: { userId?: string; title: string; artist: string; songwriters?: string; producer?: string; genre: string; lyrics?: string; downloadEnabled?: boolean; downloadPrice?: number }) => {
     const formData = new FormData();
     formData.append('audio', audio);
     formData.append('artwork', artwork);
@@ -306,7 +309,28 @@ export const adminAPI = {
     if (metadata.songwriters) formData.append('songwriters', metadata.songwriters);
     if (metadata.producer) formData.append('producer', metadata.producer);
     if (metadata.lyrics) formData.append('lyrics', metadata.lyrics);
+    formData.append('downloadEnabled', metadata.downloadEnabled ? 'true' : 'false');
+    if (metadata.downloadEnabled && metadata.downloadPrice != null) formData.append('downloadPrice', String(metadata.downloadPrice));
     return api.post('/admin/music/upload-song', formData);
+  },
+  uploadMusicAlbum: (
+    tracks: File[],
+    artwork: File,
+    metadata: { userId?: string; title: string; artist: string; songwriters?: string; producer?: string; genre: string; lyrics?: string; downloadEnabled?: boolean; downloadPrice?: number }
+  ) => {
+    const formData = new FormData();
+    tracks.forEach((track) => formData.append('tracks', track));
+    formData.append('artwork', artwork);
+    formData.append('title', metadata.title);
+    formData.append('artist', metadata.artist);
+    formData.append('genre', metadata.genre);
+    if (metadata.userId) formData.append('userId', metadata.userId);
+    if (metadata.songwriters) formData.append('songwriters', metadata.songwriters);
+    if (metadata.producer) formData.append('producer', metadata.producer);
+    if (metadata.lyrics) formData.append('lyrics', metadata.lyrics);
+    formData.append('downloadEnabled', metadata.downloadEnabled ? 'true' : 'false');
+    if (metadata.downloadEnabled && metadata.downloadPrice != null) formData.append('downloadPrice', String(metadata.downloadPrice));
+    return api.post('/admin/music/upload-album', formData);
   },
 
   // Artists (admin: create artist/publisher, manage verifications)
@@ -426,9 +450,14 @@ export const cartAPI = {
 };
 
 export const checkoutAPI = {
-  quote: () => api.post('/checkout/quote'),
-  pay: (paymentMethod: 'wallet' | 'card', deliveryAddress?: string) =>
-    api.post('/checkout/pay', { paymentMethod, deliveryAddress }),
+  quote: (fulfillmentMethod: 'delivery' | 'collection' = 'delivery') =>
+    api.post('/checkout/quote', { fulfillmentMethod }),
+  pay: (
+    paymentMethod: 'wallet' | 'card',
+    deliveryAddress?: string,
+    fulfillmentMethod: 'delivery' | 'collection' = 'delivery'
+  ) =>
+    api.post('/checkout/pay', { paymentMethod, deliveryAddress, fulfillmentMethod }),
   getOrder: (orderId: string) => api.get(`/checkout/order/${orderId}`),
 };
 
@@ -522,6 +551,9 @@ export interface SongRecord {
   lyrics?: string;
   audioUrl: string;
   artworkUrl: string;
+  tracks?: { title: string; audioUrl: string; duration?: number }[];
+  downloadEnabled?: boolean;
+  downloadPrice?: number;
   userId?: { _id: string; name?: string };
   createdAt: string;
 }
@@ -556,6 +588,27 @@ export const musicAPI = {
     if (metadata.lyrics) formData.append('lyrics', metadata.lyrics);
     return api.post<{ data: SongRecord }>('/music/upload-song', formData);
   },
+  uploadAlbum: (
+    tracks: File[],
+    artwork: File,
+    metadata: { title: string; artist: string; songwriters?: string; producer?: string; genre: string; lyrics?: string; downloadEnabled?: boolean; downloadPrice?: number }
+  ) => {
+    const formData = new FormData();
+    tracks.forEach((track) => formData.append('tracks', track));
+    formData.append('artwork', artwork);
+    formData.append('title', metadata.title);
+    formData.append('artist', metadata.artist);
+    formData.append('genre', metadata.genre);
+    if (metadata.songwriters) formData.append('songwriters', metadata.songwriters);
+    if (metadata.producer) formData.append('producer', metadata.producer);
+    if (metadata.lyrics) formData.append('lyrics', metadata.lyrics);
+    formData.append('downloadEnabled', metadata.downloadEnabled ? 'true' : 'false');
+    if (metadata.downloadEnabled && metadata.downloadPrice != null) formData.append('downloadPrice', String(metadata.downloadPrice));
+    return api.post<{ data: SongRecord }>('/music/upload-album', formData);
+  },
+  purchaseDownload: (songId: string) => api.post(`/music/${songId}/purchase`),
+  getDownloadLinks: (songId: string) => api.get(`/music/${songId}/download`),
+  getMyPurchases: () => api.get<{ data: Array<{ songId: string; reference: string; amount: number; createdAt: string }> }>('/music/purchases/me'),
 };
 
 export const suppliersAPI = {

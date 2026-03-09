@@ -10,6 +10,7 @@ import { authenticate, AuthRequest } from "../middleware/auth";
 import { AppError } from "../middleware/errorHandler";
 import { initiatePayment } from "../services/payment";
 import { ADMIN_PRODUCT_COMMISSION_PCT } from "../config/fees.config";
+import { notifyOrderPaid } from "../services/orderNotification";
 
 const router = express.Router();
 
@@ -43,6 +44,7 @@ async function getResellerCommissionPct(resellerId: string, productId: string): 
 // Get checkout quote from current cart
 router.post("/quote", authenticate, async (req: AuthRequest, res: Response, next) => {
   try {
+    const fulfillmentMethod = req.body?.fulfillmentMethod === "collection" ? "collection" : "delivery";
     const cart = await Cart.findOne({ user: req.user!._id });
     if (!cart || cart.items.length === 0) {
       throw new AppError("Cart is empty", 400);
@@ -68,9 +70,11 @@ router.post("/quote", authenticate, async (req: AuthRequest, res: Response, next
     const supplierMap = new Map(suppliers.map((s) => [s._id.toString(), s]));
     let shipping = 0;
     const DEFAULT_SHIPPING_PER_SUPPLIER = 100;
-    for (const sid of supplierIds) {
-      const s = supplierMap.get(sid);
-      shipping += (s as any)?.shippingCost ?? DEFAULT_SHIPPING_PER_SUPPLIER;
+    if (fulfillmentMethod === "delivery") {
+      for (const sid of supplierIds) {
+        const s = supplierMap.get(sid);
+        shipping += (s as any)?.shippingCost ?? DEFAULT_SHIPPING_PER_SUPPLIER;
+      }
     }
 
     let subtotal = 0;
@@ -103,7 +107,8 @@ router.post("/quote", authenticate, async (req: AuthRequest, res: Response, next
 
     const shippingBreakdown = supplierIds.map((sid) => {
       const s = supplierMap.get(sid);
-      return { supplierId: sid, storeName: (s as any)?.storeName ?? "Supplier", shippingCost: (s as any)?.shippingCost ?? DEFAULT_SHIPPING_PER_SUPPLIER };
+      const shippingCost = fulfillmentMethod === "collection" ? 0 : (s as any)?.shippingCost ?? DEFAULT_SHIPPING_PER_SUPPLIER;
+      return { supplierId: sid, storeName: (s as any)?.storeName ?? "Supplier", shippingCost };
     });
 
     res.json({
@@ -116,6 +121,7 @@ router.post("/quote", authenticate, async (req: AuthRequest, res: Response, next
         currency: "ZAR",
         itemCount: cart.items.length,
         paymentBreakdown: breakdown,
+        fulfillmentMethod,
       },
     });
   } catch (err) {
@@ -126,9 +132,13 @@ router.post("/quote", authenticate, async (req: AuthRequest, res: Response, next
 // Create order and pay (wallet or card)
 router.post("/pay", authenticate, async (req: AuthRequest, res: Response, next) => {
   try {
-    const { paymentMethod, deliveryAddress } = req.body;
+    const { paymentMethod, deliveryAddress, fulfillmentMethod: rawFulfillmentMethod } = req.body;
+    const fulfillmentMethod = rawFulfillmentMethod === "collection" ? "collection" : "delivery";
     if (!paymentMethod || !["wallet", "card"].includes(paymentMethod)) {
       throw new AppError("paymentMethod must be 'wallet' or 'card'", 400);
+    }
+    if (fulfillmentMethod === "delivery" && !String(deliveryAddress || "").trim()) {
+      throw new AppError("deliveryAddress is required for delivery", 400);
     }
 
     const cart = await Cart.findOne({ user: req.user!._id });
@@ -153,9 +163,11 @@ router.post("/pay", authenticate, async (req: AuthRequest, res: Response, next) 
     const suppliers = await Supplier.find({ _id: { $in: Array.from(uniqueSupplierIds) } }).select("shippingCost").lean();
     const supplierMap = new Map(suppliers.map((s) => [s._id.toString(), s]));
     let shipping = 0;
-    for (const sid of uniqueSupplierIds) {
-      const s = supplierMap.get(sid);
-      shipping += (s as any)?.shippingCost ?? DEFAULT_SHIPPING_PER_SUPPLIER;
+    if (fulfillmentMethod === "delivery") {
+      for (const sid of uniqueSupplierIds) {
+        const s = supplierMap.get(sid);
+        shipping += (s as any)?.shippingCost ?? DEFAULT_SHIPPING_PER_SUPPLIER;
+      }
     }
 
     const orderItems: Array<{
@@ -211,7 +223,8 @@ router.post("/pay", authenticate, async (req: AuthRequest, res: Response, next) 
 
     const shippingBreakdownForOrder = Array.from(uniqueSupplierIds).map((sid) => {
       const s = supplierMap.get(sid);
-      return { storeName: (s as any)?.storeName ?? "Supplier", shippingCost: (s as any)?.shippingCost ?? DEFAULT_SHIPPING_PER_SUPPLIER };
+      const shippingCost = fulfillmentMethod === "collection" ? 0 : (s as any)?.shippingCost ?? DEFAULT_SHIPPING_PER_SUPPLIER;
+      return { storeName: (s as any)?.storeName ?? "Supplier", shippingCost };
     });
 
     const paymentBreakdownForOrder = {
@@ -237,7 +250,10 @@ router.post("/pay", authenticate, async (req: AuthRequest, res: Response, next) 
         shippingBreakdown: shippingBreakdownForOrder,
       },
       paymentBreakdown: paymentBreakdownForOrder,
-      delivery: { address: deliveryAddress || "" },
+      delivery: {
+        method: fulfillmentMethod === "collection" ? "collection" : "courier",
+        address: fulfillmentMethod === "delivery" ? deliveryAddress || "" : "",
+      },
       paymentMethod,
     });
 
@@ -260,6 +276,14 @@ router.post("/pay", authenticate, async (req: AuthRequest, res: Response, next) 
       order.paidAt = new Date();
       order.paymentReference = `WALLET-${order._id}`;
       await order.save();
+      await notifyOrderPaid({
+        orderId: order._id.toString(),
+        buyerId: req.user!._id.toString(),
+        items: order.items.map((it) => ({
+          productId: (it.productId as any).toString(),
+          qty: it.qty,
+        })),
+      });
       cart.items = [];
       await cart.save();
 

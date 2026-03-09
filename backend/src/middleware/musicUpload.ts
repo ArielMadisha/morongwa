@@ -132,3 +132,29 @@ export const musicUploadSong = multer({
   { name: "audio", maxCount: 1 },
   { name: "artwork", maxCount: 1 },
 ]);
+
+/** Album upload: one artwork + up to 20 WAV track files */
+const albumUploadFileFilter = (
+  _req: Express.Request,
+  file: Express.Multer.File,
+  cb: multer.FileFilterCallback
+) => {
+  if (file.fieldname === "tracks") {
+    if (WAV_MIMETYPES.includes(file.mimetype)) cb(null, true);
+    else cb(new Error("Album tracks must be WAV (16-bit, 44.1 kHz or higher)."));
+  } else if (file.fieldname === "artwork") {
+    if (ARTWORK_MIMETYPES.includes(file.mimetype)) cb(null, true);
+    else cb(new Error("Artwork must be JPEG or PNG (3000x3000 square recommended)."));
+  } else {
+    cb(new Error("Invalid field"));
+  }
+};
+
+export const musicUploadAlbum = multer({
+  storage: songStorage,
+  fileFilter: albumUploadFileFilter,
+  limits: { fileSize: 100 * 1024 * 1024, files: 21 },
+}).fields([
+  { name: "tracks", maxCount: 20 },
+  { name: "artwork", maxCount: 1 },
+]);

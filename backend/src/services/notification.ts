@@ -93,7 +93,7 @@ interface NotificationOptions {
   userId?: string;
   type: string;
   message: string;
-  channel?: "realtime" | "email" | "sms" | "push" | "broadcast";
+  channel?: "realtime" | "email" | "sms" | "whatsapp" | "push" | "broadcast";
   email?: {
     subject: string;
     html?: string;

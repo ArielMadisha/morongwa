@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { Tv, Plus, Loader2, User } from 'lucide-react';
 import { QwertyTVWithGenres } from '@/components/tv/QwertyTVWithGenres';
@@ -22,6 +22,7 @@ import toast from 'react-hot-toast';
 function MorongwaTVPageContent() {
   const { user, logout } = useAuth();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [menuOpen, setMenuOpen] = useState(false);
   const [gridItems, setGridItems] = useState<TVGridItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -39,6 +40,7 @@ function MorongwaTVPageContent() {
   const { cartCount, hasStore } = useCartAndStores(!!user);
   const containerRef = useRef<HTMLDivElement>(null);
   const loadMoreSentinelRef = useRef<HTMLDivElement>(null);
+  const composeHandledRef = useRef(false);
   const limit = 8;
 
   const loadLiveUsers = useCallback(() => {
@@ -76,6 +78,17 @@ function MorongwaTVPageContent() {
     loadFeed(1);
     loadLiveUsers();
   }, [loadFeed, loadLiveUsers, genre]);
+
+  useEffect(() => {
+    const compose = searchParams.get('compose');
+    if (composeHandledRef.current) return;
+    if (compose === 'qwertz') {
+      composeHandledRef.current = true;
+      setGenre('qwertz');
+      setCreateOpen(true);
+      router.replace('/morongwa-tv');
+    }
+  }, [router, searchParams]);
 
   const loadMore = useCallback(() => {
     if (loadingMore || gridItems.length >= total) return;

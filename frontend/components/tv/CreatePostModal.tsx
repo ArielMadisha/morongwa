@@ -17,6 +17,9 @@ import { GENRES } from './GenresDropdown';
 import type { Product } from '@/lib/types';
 import toast from 'react-hot-toast';
 
+const MAX_CAROUSEL_IMAGES = 20;
+const QWERTZ_MAX_DURATION_SECONDS = 180; // 3 minutes
+
 const FILTERS = [
   { id: 'none', label: 'None' },
   { id: 'warm', label: 'Warm' },
@@ -58,9 +61,35 @@ export function CreatePostModal({
   const [musicGenre, setMusicGenre] = useState('');
   const [musicTitle, setMusicTitle] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const qwertzInputRef = useRef<HTMLInputElement>(null);
   const imagesInputRef = useRef<HTMLInputElement>(null);
   const audioInputRef = useRef<HTMLInputElement>(null);
   const musicInputRef = useRef<HTMLInputElement>(null);
+
+  const validateQwertzVideoDuration = (file: File) =>
+    new Promise<void>((resolve, reject) => {
+      const url = URL.createObjectURL(file);
+      const media = document.createElement('video');
+      media.preload = 'metadata';
+      media.src = url;
+      media.onloadedmetadata = () => {
+        const duration = Number(media.duration || 0);
+        URL.revokeObjectURL(url);
+        if (!duration || Number.isNaN(duration)) {
+          reject(new Error('Could not read video duration.'));
+          return;
+        }
+        if (duration > QWERTZ_MAX_DURATION_SECONDS) {
+          reject(new Error('Qwertz videos must be 3 minutes or less.'));
+          return;
+        }
+        resolve();
+      };
+      media.onerror = () => {
+        URL.revokeObjectURL(url);
+        reject(new Error('Invalid video file.'));
+      };
+    });
 
   useEffect(() => {
     if (audioStep === 'choose' && currentUserId) {
@@ -114,7 +143,7 @@ export function CreatePostModal({
           toast.error('Please select images only for carousel');
           return;
         }
-        const res = await tvAPI.uploadImages(imageFiles.slice(0, 10));
+        const res = await tvAPI.uploadImages(imageFiles.slice(0, MAX_CAROUSEL_IMAGES));
         const urls = res.data?.urls ?? (res.data as any)?.urls ?? (res.data as any)?.data?.urls ?? [];
         if (urls.length) {
           setMediaUrls(urls);
@@ -130,6 +159,32 @@ export function CreatePostModal({
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
       if (imagesInputRef.current) imagesInputRef.current.value = '';
+    }
+  };
+
+  const handleQwertzSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('video/')) {
+      toast.error('Please select a video file for Qwertz');
+      return;
+    }
+    setUploading(true);
+    try {
+      await validateQwertzVideoDuration(file);
+      const res = await tvAPI.uploadMedia(file);
+      const url = res.data?.url ?? (res.data as any)?.url;
+      if (url) {
+        setMediaUrls([url]);
+        setType('video');
+        setGenre('qwertz');
+        setStep('details');
+      }
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to upload Qwertz video');
+    } finally {
+      setUploading(false);
+      if (qwertzInputRef.current) qwertzInputRef.current.value = '';
     }
   };
 
@@ -232,7 +287,7 @@ export function CreatePostModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
-      <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
+      <div className="bg-white rounded-2xl shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between p-4 border-b border-slate-100">
           <h2 className="text-lg font-semibold text-slate-900">Create post</h2>
           <div className="flex items-center gap-2">
@@ -479,26 +534,44 @@ export function CreatePostModal({
           </div>
         ) : step === 'upload' ? (
           <div className="p-4 pt-0 space-y-4">
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-              <label className="flex flex-col items-center justify-center gap-2 p-6 rounded-xl border-2 border-dashed border-slate-200 hover:border-sky-300 hover:bg-sky-50/50 cursor-pointer transition-colors">
+            <div className="flex items-stretch gap-3 overflow-x-auto pb-1">
+              <label
+                title="Upload up to 20 images"
+                className="min-w-[120px] flex-1 flex flex-col items-center justify-center gap-2 p-4 rounded-xl border-2 border-dashed border-slate-200 hover:border-sky-300 hover:bg-sky-50/50 cursor-pointer transition-colors"
+              >
                 <input
                   ref={fileInputRef}
                   type="file"
-                  accept="video/mp4,video/webm,video/quicktime,image/*"
+                  accept="video/*,image/*"
                   onChange={handleFileSelect}
                   disabled={uploading}
                   className="hidden"
                 />
                 {uploading ? (
-                  <div className="h-10 w-10 flex items-center justify-center">
+                  <div className="h-9 w-9 flex items-center justify-center">
                     <QSpinner size={28} running="loop" speedMs={800} />
                   </div>
                 ) : (
-                  <Video className="h-10 w-10 text-sky-500" />
+                  <Video className="h-9 w-9 text-sky-500" />
                 )}
-                <span className="text-sm font-medium text-slate-700 text-center">Video or image</span>
+                <span className="text-sm font-medium text-slate-700 text-center">Video</span>
               </label>
-              <label className="flex flex-col items-center justify-center gap-2 p-6 rounded-xl border-2 border-dashed border-slate-200 hover:border-sky-300 hover:bg-sky-50/50 cursor-pointer transition-colors">
+              <label
+                title="create short videos"
+                className="min-w-[120px] flex-1 flex flex-col items-center justify-center gap-2 p-4 rounded-xl border-2 border-dashed border-fuchsia-200 hover:border-fuchsia-300 hover:bg-fuchsia-50/50 cursor-pointer transition-colors"
+              >
+                <input
+                  ref={qwertzInputRef}
+                  type="file"
+                  accept="video/*"
+                  onChange={handleQwertzSelect}
+                  disabled={uploading}
+                  className="hidden"
+                />
+                <Plus className="h-9 w-9 text-fuchsia-500" />
+                <span className="text-sm font-medium text-slate-700 text-center">Create Qwertz</span>
+              </label>
+              <label className="min-w-[120px] flex-1 flex flex-col items-center justify-center gap-2 p-4 rounded-xl border-2 border-dashed border-slate-200 hover:border-sky-300 hover:bg-sky-50/50 cursor-pointer transition-colors">
                 <input
                   ref={imagesInputRef}
                   type="file"
@@ -508,8 +581,8 @@ export function CreatePostModal({
                   disabled={uploading}
                   className="hidden"
                 />
-                <ImagePlus className="h-10 w-10 text-sky-500" />
-                <span className="text-sm font-medium text-slate-700 text-center">Carousel (up to 10)</span>
+                <ImagePlus className="h-9 w-9 text-sky-500" />
+                <span className="text-sm font-medium text-slate-700 text-center">Images</span>
               </label>
               <button
                 type="button"
@@ -528,17 +601,17 @@ export function CreatePostModal({
                     toast.error(e.response?.data?.message || 'Failed to toggle live');
                   }
                 }}
-                className="flex flex-col items-center justify-center gap-2 p-6 rounded-xl border-2 border-dashed border-slate-200 hover:border-red-300 hover:bg-red-50/50 cursor-pointer transition-colors"
+                className="min-w-[120px] flex-1 flex flex-col items-center justify-center gap-2 p-4 rounded-xl border-2 border-dashed border-slate-200 hover:border-red-300 hover:bg-red-50/50 cursor-pointer transition-colors"
               >
-                <Radio className="h-10 w-10 text-red-500" />
+                <Radio className="h-9 w-9 text-red-500" />
                 <span className="text-sm font-medium text-slate-700 text-center">Go live</span>
               </button>
               <button
                 type="button"
                 onClick={() => setAudioStep('choose')}
-                className="flex flex-col items-center justify-center gap-2 p-6 rounded-xl border-2 border-dashed border-slate-200 hover:border-sky-300 hover:bg-sky-50/50 cursor-pointer transition-colors"
+                className="min-w-[120px] flex-1 flex flex-col items-center justify-center gap-2 p-4 rounded-xl border-2 border-dashed border-slate-200 hover:border-sky-300 hover:bg-sky-50/50 cursor-pointer transition-colors"
               >
-                <Music2 className="h-10 w-10 text-sky-500" />
+                <Music2 className="h-9 w-9 text-sky-500" />
                 <span className="text-sm font-medium text-slate-700 text-center">Post Audio</span>
               </button>
             </div>

@@ -17,7 +17,14 @@ const storage = multer.diskStorage({
   },
 });
 
-const ALLOWED_VIDEO = ["video/mp4", "video/webm", "video/quicktime"];
+const ALLOWED_VIDEO = [
+  "video/mp4",
+  "video/webm",
+  "video/quicktime",
+  "video/x-m4v",
+  "video/3gpp",
+  "video/3gpp2",
+];
 const ALLOWED_IMAGE = ["image/jpeg", "image/png", "image/gif", "image/webp"];
 const ALLOWED_MIMES = [...ALLOWED_VIDEO, ...ALLOWED_IMAGE];
 
@@ -41,5 +48,5 @@ export const tvUploadSingle = multer({
 export const tvUploadMultiple = multer({
   storage,
   fileFilter,
-  limits: { fileSize: 50 * 1024 * 1024, files: 10 }, // 50MB each, max 10
+  limits: { fileSize: 50 * 1024 * 1024, files: 20 }, // 50MB each, max 20
 });

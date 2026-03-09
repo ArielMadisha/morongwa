@@ -37,8 +37,7 @@ export function QwertyTVWithGenres({ selectedGenre, onGenreSelect }: QwertyTVWit
       </div>
       {open && (
         <div
-          className="absolute right-0 top-full mt-1 py-2 bg-white rounded-xl border border-slate-200 shadow-xl z-50 min-w-[240px] max-w-[320px]"
-          onMouseLeave={() => setOpen(false)}
+          className="absolute right-0 top-full mt-1 py-2 bg-white rounded-xl border border-slate-200 shadow-xl z-[120] min-w-[240px] max-w-[320px]"
         >
           <Link
             href="/morongwa-tv/live"
@@ -49,20 +48,34 @@ export function QwertyTVWithGenres({ selectedGenre, onGenreSelect }: QwertyTVWit
             <span className="font-medium">Live TV</span>
           </Link>
           {GENRES.map((g) => (
-            <button
-              key={g.id}
-              type="button"
-              onClick={() => {
-                onGenreSelect?.(g.id);
-                setOpen(false);
-              }}
-              className={`w-full px-4 py-2.5 text-left hover:bg-slate-50 transition-colors cursor-pointer ${
-                selectedGenre === g.id ? 'bg-sky-50 text-sky-700' : 'text-slate-700'
-              }`}
-            >
-              <span className="font-medium block">{g.label}</span>
-              <span className="text-xs text-slate-500 block mt-0.5">{g.desc}</span>
-            </button>
+            g.id === 'qwertz' ? (
+              <Link
+                key={g.id}
+                href="/morongwa-tv?compose=qwertz"
+                onClick={() => setOpen(false)}
+                className={`block w-full px-4 py-2.5 text-left hover:bg-slate-50 transition-colors cursor-pointer ${
+                  selectedGenre === g.id ? 'bg-sky-50 text-sky-700' : 'text-slate-700'
+                }`}
+              >
+                <span className="font-medium block">{g.label}</span>
+                <span className="text-xs text-slate-500 block mt-0.5">{g.desc}</span>
+              </Link>
+            ) : (
+              <button
+                key={g.id}
+                type="button"
+                onClick={() => {
+                  onGenreSelect?.(g.id);
+                  setOpen(false);
+                }}
+                className={`w-full px-4 py-2.5 text-left hover:bg-slate-50 transition-colors cursor-pointer ${
+                  selectedGenre === g.id ? 'bg-sky-50 text-sky-700' : 'text-slate-700'
+                }`}
+              >
+                <span className="font-medium block">{g.label}</span>
+                <span className="text-xs text-slate-500 block mt-0.5">{g.desc}</span>
+              </button>
+            )
           ))}
         </div>
       )}

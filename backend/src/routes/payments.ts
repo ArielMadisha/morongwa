@@ -16,6 +16,7 @@ import payoutService from "../services/payoutService";
 import fnbService from "../services/fnbService";
 import logger from "../utils/logger";
 import { generateReference } from "../utils/helpers";
+import { notifyOrderPaid } from "../services/orderNotification";
 
 const router = express.Router();
 
@@ -77,11 +78,12 @@ router.post("/webhook", async (req: Request, res: Response, next) => {
 
     const payment = await Payment.findOne({ reference: result.reference });
     if (!payment) throw new AppError("Payment not found", 404);
+    const wasSuccessful = payment.status === "successful";
 
     payment.status = result.status as "pending" | "successful" | "failed" | "refunded" | "disputed";
     await payment.save();
 
-    if (result.status === "successful") {
+    if (result.status === "successful" && !wasSuccessful) {
       if (payment.reference.startsWith("ORDER-")) {
         const orderId = payment.reference.replace("ORDER-", "");
         const order = await Order.findById(orderId);
@@ -90,9 +92,17 @@ router.post("/webhook", async (req: Request, res: Response, next) => {
           order.paidAt = new Date();
           order.paymentReference = payment.reference;
           await order.save();
+          await notifyOrderPaid({
+            orderId: order._id.toString(),
+            buyerId: order.buyerId.toString(),
+            items: order.items.map((it: any) => ({
+              productId: it.productId.toString(),
+              qty: it.qty,
+            })),
+          });
         }
-      } else {
-        // Credit wallet (top-up)
+      } else if (payment.reference.startsWith("TOPUP-") || payment.reference.startsWith("PAY-")) {
+        // Credit wallet for top-up payments
         let wallet = await Wallet.findOne({ user: payment.user });
         if (!wallet) {
           wallet = await Wallet.create({ user: payment.user });

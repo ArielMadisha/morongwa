@@ -396,36 +396,17 @@ function ClientDashboard() {
     setTopupSubmitting(true);
     try {
       const amount = parseFloat(topupAmount);
-      const { data } = await walletAPI.topUp(amount);
-      setWalletBalance(data.balance || 0);
-      toast.success('Wallet topped up successfully!');
-      setShowWalletModal(false);
-      setTopupAmount('');
-
-      // Now create the task with the new wallet balance
-      if (pendingTaskData) {
-        try {
-          await tasksAPI.create(pendingTaskData);
-          toast.success('Task created successfully!');
-          setShowCreateModal(false);
-          setTitle('');
-          setDescription('');
-          setBudget('');
-          setLocation('');
-          setPickupAddress('');
-          setPickupLat('');
-          setPickupLon('');
-          setDeliveryAddress('');
-          setDeliveryLat('');
-          setDeliveryLon('');
-          setPendingTaskData(null);
-          fetchTasks();
-        } catch (error: any) {
-          toast.error(error.response?.data?.message || 'Failed to create task');
-        }
+      if (pendingTaskData && typeof window !== 'undefined') {
+        localStorage.setItem('pending_client_task_after_topup', JSON.stringify(pendingTaskData));
       }
+      const { data } = await walletAPI.topUp(amount, '/dashboard/client');
+      if (data?.paymentUrl) {
+        window.location.href = data.paymentUrl;
+        return;
+      }
+      toast.success('Top-up initiated');
     } catch (error: any) {
-      toast.error(error.message || 'Failed to add funds to wallet');
+      toast.error(error?.response?.data?.message || error.message || 'Failed to add funds to wallet');
     } finally {
       setTopupSubmitting(false);
     }

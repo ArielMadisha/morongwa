@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { adminAPI } from '@/lib/api';
 import Link from 'next/link';
-import { ArrowLeft, Package, Loader2, Plus, Pencil, Trash2, ImagePlus, X, Layers } from 'lucide-react';
+import { ArrowLeft, Package, Loader2, Plus, Trash2, ImagePlus, X, Layers } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 const MAX_IMAGES = 5;
@@ -466,6 +466,7 @@ export default function AdminProductsPage() {
                         <td className="py-3 px-4 text-sm">{p.active ? 'Active' : 'Inactive'}</td>
                         <td className="py-3 px-4 text-right">
                           <Link href={`/marketplace/product/${p._id}`} className="text-sky-600 hover:underline text-sm mr-2">View</Link>
+                          <Link href={`/admin/products/${p._id}/edit`} className="text-emerald-600 hover:underline text-sm mr-2">Edit</Link>
                           <button type="button" onClick={() => handleDelete(p._id)} className="text-red-600 hover:underline text-sm">Delete</button>
                         </td>
                       </tr>

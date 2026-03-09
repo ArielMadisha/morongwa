@@ -2,6 +2,8 @@ import express, { Response } from "express";
 import fs from "fs";
 import path from "path";
 import mongoose from "mongoose";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import TVPost from "../data/models/TVPost";
 import TVComment from "../data/models/TVComment";
 import TVInteraction from "../data/models/TVInteraction";
@@ -14,9 +16,46 @@ import { TV_WATERMARK } from "../data/models/TVPost";
 import { moderateMedia } from "../services/contentModeration";
 
 const router = express.Router();
+const execFileAsync = promisify(execFile);
+const QWERTZ_MAX_DURATION_SECONDS = 180;
 
 function mediaUrl(filename: string) {
   return `/uploads/tv/${filename}`;
+}
+
+function resolveUploadedTvFilePath(url: string): string | null {
+  if (!url) return null;
+  const normalized = String(url).trim();
+  let mediaPath = normalized;
+  if (normalized.startsWith("http://") || normalized.startsWith("https://")) {
+    try {
+      mediaPath = new URL(normalized).pathname;
+    } catch {
+      return null;
+    }
+  }
+  if (!mediaPath.startsWith("/uploads/tv/")) return null;
+  const fileName = path.basename(mediaPath);
+  return path.join(__dirname, "../../uploads/tv", fileName);
+}
+
+async function probeVideoDurationSeconds(filePath: string): Promise<number | null> {
+  try {
+    const { stdout } = await execFileAsync("ffprobe", [
+      "-v",
+      "error",
+      "-show_entries",
+      "format=duration",
+      "-of",
+      "default=noprint_wrappers=1:nokey=1",
+      filePath,
+    ]);
+    const duration = Number(String(stdout || "").trim());
+    if (!Number.isFinite(duration) || duration <= 0) return null;
+    return duration;
+  } catch {
+    return null;
+  }
 }
 
 // GET /api/tv/statuses - Instagram-style statuses: users with recent posts (last 24h) + live users
@@ -210,7 +249,7 @@ router.post("/upload", authenticate, tvUploadSingle.single("media"), async (req:
 });
 
 // POST /api/tv/upload-images - upload multiple images (carousel, auto-moderation)
-router.post("/upload-images", authenticate, tvUploadMultiple.array("images", 10), async (req: AuthRequest, res: Response, next) => {
+router.post("/upload-images", authenticate, tvUploadMultiple.array("images", 20), async (req: AuthRequest, res: Response, next) => {
   try {
     const files = (req as any).files as Express.Multer.File[];
     if (!files?.length) throw new AppError("No images uploaded", 400);
@@ -263,8 +302,25 @@ router.post("/", authenticate, async (req: AuthRequest, res: Response, next) => 
     if (!["video", "image", "carousel", "product", "text", "audio"].includes(type)) throw new AppError("Invalid type", 400);
     const isTextPost = type === "text";
     const isAudioPost = type === "audio";
+    const isQwertzVideo = type === "video" && String(genre || "").trim().toLowerCase() === "qwertz";
     if (isAudioPost && !mediaUrls?.length) throw new AppError("mediaUrls required for audio posts", 400);
     if (!isTextPost && !isAudioPost && !mediaUrls?.length) throw new AppError("mediaUrls required for non-text posts", 400);
+    if (isQwertzVideo) {
+      const urls = Array.isArray(mediaUrls) ? mediaUrls : [mediaUrls];
+      const first = urls[0];
+      if (!first) throw new AppError("Qwertz video is required", 400);
+      const localPath = resolveUploadedTvFilePath(first);
+      if (!localPath || !fs.existsSync(localPath)) {
+        throw new AppError("Unable to verify Qwertz video duration on server", 400);
+      }
+      const seconds = await probeVideoDurationSeconds(localPath);
+      if (!seconds) {
+        throw new AppError("Could not read Qwertz video duration", 400);
+      }
+      if (seconds > QWERTZ_MAX_DURATION_SECONDS) {
+        throw new AppError("Qwertz videos must be 3 minutes or less", 400);
+      }
+    }
 
     const post = await TVPost.create({
       creatorId: req.user!._id,

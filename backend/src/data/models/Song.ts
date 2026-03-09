@@ -18,6 +18,10 @@ export interface ISong extends Document {
   userId: mongoose.Types.ObjectId;
   /** For albums: tracks */
   tracks?: { title: string; audioUrl: string; duration?: number }[];
+  /** Optional paid download setting (streaming remains default). */
+  downloadEnabled?: boolean;
+  /** Download price in ZAR when enabled (R10-R15). */
+  downloadPrice?: number;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -41,6 +45,8 @@ const SongSchema = new Schema<ISong>(
         duration: Number,
       },
     ],
+    downloadEnabled: { type: Boolean, default: false },
+    downloadPrice: { type: Number, min: 10, max: 15 },
   },
   { timestamps: true }
 );

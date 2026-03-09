@@ -9,11 +9,15 @@ import toast from 'react-hot-toast';
 
 interface SongRecord {
   _id: string;
+  type?: 'song' | 'album';
   title: string;
   artist: string;
   genre: string;
   audioUrl: string;
   artworkUrl: string;
+  tracks?: { title: string; audioUrl: string }[];
+  downloadEnabled?: boolean;
+  downloadPrice?: number;
   userId?: { _id: string; name?: string; email?: string };
   createdAt?: string;
 }
@@ -24,7 +28,9 @@ function MusicManagement() {
   const [uploadOpen, setUploadOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [audioFile, setAudioFile] = useState<File | null>(null);
+  const [trackFiles, setTrackFiles] = useState<File[]>([]);
   const [artworkFile, setArtworkFile] = useState<File | null>(null);
+  const [uploadType, setUploadType] = useState<'song' | 'album'>('song');
   const [form, setForm] = useState({
     title: '',
     artist: '',
@@ -33,6 +39,8 @@ function MusicManagement() {
     genre: '',
     lyrics: '',
     userId: '',
+    downloadEnabled: false,
+    downloadPrice: '10',
   });
 
   useEffect(() => {
@@ -54,33 +62,64 @@ function MusicManagement() {
 
   const resetUpload = () => {
     setAudioFile(null);
+    setTrackFiles([]);
     setArtworkFile(null);
-    setForm({ title: '', artist: '', songwriters: '', producer: '', genre: '', lyrics: '', userId: '' });
+    setUploadType('song');
+    setForm({ title: '', artist: '', songwriters: '', producer: '', genre: '', lyrics: '', userId: '', downloadEnabled: false, downloadPrice: '10' });
     setUploadOpen(false);
   };
 
   const handleUpload = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!audioFile || !artworkFile) {
-      toast.error('Please upload both audio (WAV) and artwork (JPEG/PNG)');
+    if (!artworkFile) {
+      toast.error('Please upload artwork (JPEG/PNG)');
+      return;
+    }
+    if (uploadType === 'song' && !audioFile) {
+      toast.error('Please upload song audio (WAV)');
+      return;
+    }
+    if (uploadType === 'album' && trackFiles.length === 0) {
+      toast.error('Please upload album tracks (WAV)');
       return;
     }
     if (!form.title.trim() || !form.artist.trim() || !form.genre.trim()) {
       toast.error('Title, artist, and genre are required');
       return;
     }
+    if (form.downloadEnabled && (Number(form.downloadPrice) < 10 || Number(form.downloadPrice) > 15)) {
+      toast.error('Download price must be between R10 and R15');
+      return;
+    }
     setUploading(true);
     try {
-      await adminAPI.uploadMusicSong(audioFile, artworkFile, {
-        title: form.title.trim(),
-        artist: form.artist.trim(),
-        songwriters: form.songwriters.trim() || undefined,
-        producer: form.producer.trim() || undefined,
-        genre: form.genre.trim(),
-        lyrics: form.lyrics.trim() || undefined,
-        userId: form.userId.trim() || undefined,
-      });
-      toast.success('Song uploaded successfully');
+      if (uploadType === 'album') {
+        await adminAPI.uploadMusicAlbum(trackFiles, artworkFile, {
+          title: form.title.trim(),
+          artist: form.artist.trim(),
+          songwriters: form.songwriters.trim() || undefined,
+          producer: form.producer.trim() || undefined,
+          genre: form.genre.trim(),
+          lyrics: form.lyrics.trim() || undefined,
+          userId: form.userId.trim() || undefined,
+          downloadEnabled: form.downloadEnabled,
+          downloadPrice: form.downloadEnabled ? Number(form.downloadPrice) : undefined,
+        });
+        toast.success('Album uploaded successfully');
+      } else {
+        await adminAPI.uploadMusicSong(audioFile as File, artworkFile, {
+          title: form.title.trim(),
+          artist: form.artist.trim(),
+          songwriters: form.songwriters.trim() || undefined,
+          producer: form.producer.trim() || undefined,
+          genre: form.genre.trim(),
+          lyrics: form.lyrics.trim() || undefined,
+          userId: form.userId.trim() || undefined,
+          downloadEnabled: form.downloadEnabled,
+          downloadPrice: form.downloadEnabled ? Number(form.downloadPrice) : undefined,
+        });
+        toast.success('Song uploaded successfully');
+      }
       resetUpload();
       fetchSongs();
     } catch (err: any) {
@@ -157,6 +196,8 @@ function MusicManagement() {
                       <p className="font-semibold text-slate-900 truncate" title={s.title}>{s.title}</p>
                       <p className="text-sm text-slate-600 truncate">{s.artist}</p>
                       <p className="text-xs text-slate-500">{s.genre}</p>
+                      {s.type === 'album' && <p className="text-xs text-violet-600 mt-1">Album · {s.tracks?.length || 0} tracks</p>}
+                      {s.downloadEnabled && <p className="text-xs text-emerald-700 mt-1">Downloads: R{Number(s.downloadPrice || 0).toFixed(0)}</p>}
                       {s.userId && (
                         <p className="text-xs text-slate-400 mt-1 truncate">{(s.userId as any).name || (s.userId as any).email}</p>
                       )}
@@ -179,6 +220,17 @@ function MusicManagement() {
                 </button>
               </div>
               <form onSubmit={handleUpload} className="p-6 space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Type *</label>
+                  <select
+                    value={uploadType}
+                    onChange={(e) => setUploadType(e.target.value as 'song' | 'album')}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm"
+                  >
+                    <option value="song">Song</option>
+                    <option value="album">Album</option>
+                  </select>
+                </div>
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">Song title *</label>
                   <input
@@ -223,14 +275,22 @@ function MusicManagement() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Audio (WAV) *</label>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">
+                    {uploadType === 'album' ? 'Album tracks (WAV) *' : 'Audio (WAV) *'}
+                  </label>
                   <input
                     type="file"
+                    multiple={uploadType === 'album'}
                     accept=".wav,audio/wav,audio/wave,audio/x-wav"
-                    onChange={(e) => setAudioFile(e.target.files?.[0] || null)}
+                    onChange={(e) => {
+                      if (uploadType === 'album') setTrackFiles(Array.from(e.target.files || []));
+                      else setAudioFile(e.target.files?.[0] || null);
+                    }}
                     className="w-full text-sm text-slate-600 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-sky-50 file:text-sky-700"
                   />
-                  {audioFile && <p className="mt-1 text-sm text-emerald-600">✓ {audioFile.name}</p>}
+                  {uploadType === 'album'
+                    ? (trackFiles.length > 0 && <p className="mt-1 text-sm text-emerald-600">✓ {trackFiles.length} tracks selected</p>)
+                    : (audioFile && <p className="mt-1 text-sm text-emerald-600">✓ {audioFile.name}</p>)}
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">Artwork (JPEG/PNG 3000×3000) *</label>
@@ -242,16 +302,48 @@ function MusicManagement() {
                   />
                   {artworkFile && <p className="mt-1 text-sm text-emerald-600">✓ {artworkFile.name}</p>}
                 </div>
+                <div className="rounded-xl border border-slate-200 p-3">
+                  <label className="inline-flex items-center gap-2 text-sm font-medium text-slate-700">
+                    <input
+                      type="checkbox"
+                      checked={form.downloadEnabled}
+                      onChange={(e) => setForm((f) => ({ ...f, downloadEnabled: e.target.checked }))}
+                    />
+                    Allow paid downloads (streaming stays default)
+                  </label>
+                  {form.downloadEnabled && (
+                    <div className="mt-2">
+                      <label className="block text-sm text-slate-700 mb-1">Download price (R10-R15)</label>
+                      <input
+                        type="number"
+                        min={10}
+                        max={15}
+                        step={1}
+                        value={form.downloadPrice}
+                        onChange={(e) => setForm((f) => ({ ...f, downloadPrice: e.target.value }))}
+                        className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm"
+                      />
+                    </div>
+                  )}
+                </div>
                 <div className="flex gap-2 pt-4">
                   <button type="button" onClick={resetUpload} className="flex-1 px-4 py-2 rounded-xl border border-slate-200 text-slate-700 font-medium hover:bg-slate-50">
                     Cancel
                   </button>
                   <button
                     type="submit"
-                    disabled={uploading || !audioFile || !artworkFile || !form.title.trim() || !form.artist.trim() || !form.genre.trim()}
+                    disabled={
+                      uploading ||
+                      !artworkFile ||
+                      (uploadType === 'song' ? !audioFile : trackFiles.length === 0) ||
+                      !form.title.trim() ||
+                      !form.artist.trim() ||
+                      !form.genre.trim() ||
+                      (form.downloadEnabled && (Number(form.downloadPrice) < 10 || Number(form.downloadPrice) > 15))
+                    }
                     className="flex-1 px-4 py-2 rounded-xl bg-sky-500 text-white font-medium hover:bg-sky-600 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    {uploading ? <><Loader2 className="inline h-4 w-4 animate-spin mr-2" />Uploading…</> : 'Upload song'}
+                    {uploading ? <><Loader2 className="inline h-4 w-4 animate-spin mr-2" />Uploading…</> : uploadType === 'album' ? 'Upload album' : 'Upload song'}
                   </button>
                 </div>
               </form>

@@ -63,6 +63,14 @@ frontend/
 └── package.json
 ```
 
+### Mobile (React Native + Expo + TypeScript)
+```
+mobile/
+├── App.tsx            # App entry point
+├── src/               # Shared mobile logic
+└── package.json
+```
+
 ## 🚀 Quick Start
 
 ### Prerequisites
@@ -132,6 +140,29 @@ Backend will run on http://localhost:5000
    ```
 
 Frontend will run on http://localhost:3000
+
+### Mobile Setup
+
+1. **Navigate to mobile folder**:
+   ```bash
+   cd mobile
+   ```
+
+2. **Install dependencies**:
+   ```bash
+   npm install
+   ```
+
+3. **Start development server**:
+   ```bash
+   npm run start
+   ```
+
+4. **Run on Android / iOS**:
+   ```bash
+   npm run android
+   npm run ios
+   ```
 
 ## 🖥️ Local Run (Windows)
 

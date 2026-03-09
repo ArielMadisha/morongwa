@@ -27,7 +27,7 @@ export interface IOrderPaymentBreakdown {
 }
 
 export interface IOrderDelivery {
-  method?: "runner" | "courier";
+  method?: "runner" | "courier" | "collection";
   address?: string;
   trackingNo?: string;
 }
@@ -93,7 +93,7 @@ const OrderSchema = new Schema<IOrder>(
       shippingBreakdown: [{ storeName: String, shippingCost: Number }],
     },
     delivery: {
-      method: { type: String, enum: ["runner", "courier"] },
+      method: { type: String, enum: ["runner", "courier", "collection"] },
       address: { type: String },
       trackingNo: { type: String },
     },

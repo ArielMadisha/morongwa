@@ -114,10 +114,10 @@ export function AdvertSlot({ belowHeader }: AdvertSlotProps = {}) {
                     </div>
                   </Link>
                   <div className="flex-1 min-w-0">
-                    <Link href={`/user/${u._id}`} className="font-semibold text-slate-900 block hover:text-sky-600 break-words">
+                    <Link href={`/user/${u._id}`} className="font-semibold text-xs text-slate-900 block hover:text-sky-600 break-words">
                       {u.name || (u.username ? `@${u.username}` : 'User')}
                     </Link>
-                    <p className="text-xs text-slate-500">
+                    <p className="text-[8px] text-slate-500">
                       {(u.followerCount ?? 0)} Follower{(u.followerCount ?? 0) !== 1 ? 's' : ''}
                     </p>
                   </div>

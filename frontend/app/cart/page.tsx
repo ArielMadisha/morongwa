@@ -214,13 +214,15 @@ function CartPageContent() {
                   Subtotal ({items.length} item{items.length !== 1 ? 's' : ''}):{' '}
                   <span className="font-bold text-slate-900">{formatPrice(subtotal, 'ZAR')}</span>
                 </p>
-                <Link
-                  href="/checkout"
-                  className="inline-flex items-center gap-2 bg-sky-600 text-white px-6 py-3 rounded-xl hover:bg-sky-700 font-medium"
-                >
-                  Proceed to checkout
-                  <ArrowRight className="h-4 w-4" />
-                </Link>
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <Link
+                    href="/checkout"
+                    className="inline-flex items-center gap-2 bg-sky-600 text-white px-6 py-3 rounded-xl hover:bg-sky-700 font-medium"
+                  >
+                    Proceed to checkout
+                    <ArrowRight className="h-4 w-4" />
+                  </Link>
+                </div>
               </div>
             </>
           )}

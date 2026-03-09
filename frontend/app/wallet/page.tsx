@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import toast from 'react-hot-toast';
 import {
   ArrowUpRight,
@@ -27,6 +27,7 @@ import { MobileBottomNav } from '@/components/MobileBottomNav';
 function WalletDashboard() {
   const { user, logout } = useAuth();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [menuOpen, setMenuOpen] = useState(false);
   const { cartCount, hasStore } = useCartAndStores(!!user);
 
@@ -45,6 +46,35 @@ function WalletDashboard() {
   useEffect(() => {
     fetchWalletData();
   }, []);
+
+  useEffect(() => {
+    if (searchParams.get('pendingDonate') !== '1') return;
+    const run = async () => {
+      try {
+        const raw = typeof window !== 'undefined' ? localStorage.getItem('pending_donation') : null;
+        if (!raw) return;
+        const parsed = JSON.parse(raw) as { recipientId?: string; amount?: number; createdAt?: number };
+        if (!parsed?.recipientId || !parsed?.amount) return;
+        if (parsed.createdAt && Date.now() - parsed.createdAt > 30 * 60 * 1000) {
+          localStorage.removeItem('pending_donation');
+          return;
+        }
+        const balRes = await walletAPI.getBalance();
+        const balanceNow = Number(balRes.data?.balance ?? 0);
+        if (balanceNow < Number(parsed.amount)) {
+          toast.error('Top-up is still processing. Donation will be available once wallet is credited.');
+          return;
+        }
+        await walletAPI.donate(Number(parsed.amount), String(parsed.recipientId));
+        localStorage.removeItem('pending_donation');
+        toast.success('Donation sent successfully');
+        fetchWalletData();
+      } catch (error: any) {
+        toast.error(error?.response?.data?.message || 'Could not complete pending donation');
+      }
+    };
+    void run();
+  }, [searchParams]);
 
   const fetchWalletData = async () => {
     try {
@@ -70,10 +100,13 @@ function WalletDashboard() {
 
     setIsSubmitting(true);
     try {
-      await walletAPI.topUp(amount);
-      toast.success(`R${amount.toFixed(2)} added to wallet`);
-      setTopUpAmount('');
-      fetchWalletData();
+      const res = await walletAPI.topUp(amount, '/wallet');
+      const paymentUrl = res.data?.paymentUrl;
+      if (paymentUrl) {
+        window.location.href = paymentUrl;
+        return;
+      }
+      toast.success('Top-up initiated');
     } catch (error: any) {
       toast.error(error.response?.data?.message || 'Top-up failed');
     } finally {
@@ -111,6 +144,10 @@ function WalletDashboard() {
         return <Plus className="h-5 w-5 text-emerald-600" />;
       case 'payout':
         return <ArrowDownLeft className="h-5 w-5 text-sky-600" />;
+      case 'credit':
+        return <ArrowUpRight className="h-5 w-5 text-emerald-600" />;
+      case 'debit':
+        return <ArrowDownLeft className="h-5 w-5 text-rose-600" />;
       case 'escrow':
         return <Send className="h-5 w-5 text-purple-600" />;
       case 'refund':
@@ -124,9 +161,12 @@ function WalletDashboard() {
     switch (type) {
       case 'topup':
       case 'refund':
+      case 'credit':
         return 'text-emerald-700';
       case 'payout':
         return 'text-sky-700';
+      case 'debit':
+        return 'text-rose-700';
       case 'escrow':
         return 'text-purple-700';
       default:
@@ -290,7 +330,9 @@ function WalletDashboard() {
                             </div>
                             <div>
                               <p className="font-semibold text-slate-900 capitalize">
-                                {tx.type === 'debit' && tx.reference?.startsWith('ORDER-') ? (
+                                {tx.reference?.startsWith('DONATE-') ? (
+                                  tx.type === 'credit' ? 'Donation received' : 'Donation sent'
+                                ) : tx.type === 'debit' && tx.reference?.startsWith('ORDER-') ? (
                                   <Link href={`/checkout/order/${tx.reference.replace('ORDER-', '')}`} className="hover:text-sky-600">
                                     Order
                                   </Link>
@@ -302,7 +344,7 @@ function WalletDashboard() {
                             </div>
                           </div>
                           <p className={`font-bold ${getTransactionColor(tx.type)}`}>
-                            {['topup', 'refund'].includes(tx.type) ? '+' : '-'}R{Math.abs(tx.amount).toFixed(2)}
+                            {['topup', 'refund', 'credit'].includes(tx.type) ? '+' : '-'}R{Math.abs(tx.amount).toFixed(2)}
                           </p>
                         </div>
                         {tx.orderBreakdown && (

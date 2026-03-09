@@ -100,6 +100,8 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
   const [donateModalOpen, setDonateModalOpen] = useState(false);
   const [donateAmount, setDonateAmount] = useState('');
   const [donateSending, setDonateSending] = useState(false);
+  const [donateBalance, setDonateBalance] = useState<number | null>(null);
+  const [donateBalanceLoading, setDonateBalanceLoading] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
 
   const creatorName = item.creatorId?.name || 'Creator';
@@ -183,19 +185,52 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
     });
   };
 
-  const handleDonate = () => {
+  useEffect(() => {
+    if (!donateModalOpen) return;
+    setDonateBalanceLoading(true);
+    walletAPI
+      .getBalance()
+      .then((res) => setDonateBalance(Number(res.data?.balance ?? 0)))
+      .catch(() => setDonateBalance(null))
+      .finally(() => setDonateBalanceLoading(false));
+  }, [donateModalOpen]);
+
+  const handleDonate = (mode: 'wallet' | 'topup' = 'wallet') => {
     const amount = parseFloat(donateAmount);
     if (!creatorIdResolved || !currentUserId || isNaN(amount) || amount < 1) return;
     if (creatorIdResolved === String(currentUserId)) return; // Guard: cannot donate to self
     setDonateSending(true);
-    walletAPI
-      .donate(amount, creatorIdResolved)
+    (async () => {
+      if (mode === 'topup') {
+        const current = Math.max(0, Number(donateBalance ?? 0));
+        const shortfall = Math.max(0, amount - current);
+        if (shortfall > 0) {
+          const topupAmount = Math.max(10, Math.ceil(shortfall));
+          if (typeof window !== 'undefined') {
+            localStorage.setItem(
+              'pending_donation',
+              JSON.stringify({ recipientId: creatorIdResolved, amount, createdAt: Date.now() })
+            );
+          }
+          const res = await walletAPI.topUp(topupAmount, '/wallet?pendingDonate=1');
+          const paymentUrl = res.data?.paymentUrl;
+          if (paymentUrl) {
+            window.location.href = paymentUrl;
+            return;
+          }
+        }
+      } else if ((donateBalance ?? 0) < amount) {
+        throw new Error('Insufficient wallet balance');
+      }
+      await walletAPI.donate(amount, creatorIdResolved);
+      setDonateBalance((prev) => Math.max(0, Number(prev ?? 0) - amount));
+    })()
       .then(() => {
         toast.success('Donation sent successfully');
         setDonateModalOpen(false);
         setDonateAmount('');
       })
-      .catch((e: any) => toast.error(e.response?.data?.message || 'Failed to send donation'))
+      .catch((e: any) => toast.error(e.response?.data?.message || e.message || 'Failed to send donation'))
       .finally(() => setDonateSending(false));
   };
 
@@ -960,7 +995,10 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => { setDonateModalOpen(false); setDonateAmount(''); }}>
           <div className="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6" onClick={(e) => e.stopPropagation()}>
             <h2 className="text-lg font-semibold text-slate-900 mb-2">Donate to {creatorName}</h2>
-            <p className="text-sm text-slate-600 mb-4">Amount will be deducted from your wallet and sent to the creator.</p>
+            <p className="text-sm text-slate-600 mb-2">Amount will be deducted from your wallet and sent to the creator.</p>
+            <p className="text-xs text-slate-500 mb-4">
+              {donateBalanceLoading ? 'Checking wallet balance...' : `Wallet balance: R${Number(donateBalance ?? 0).toFixed(0)}`}
+            </p>
             <input
               type="number"
               min={1}
@@ -979,13 +1017,22 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
                 Cancel
               </button>
               <button
-                onClick={handleDonate}
+                onClick={() => handleDonate('wallet')}
                 disabled={donateSending || !donateAmount || parseFloat(donateAmount) < 1}
                 className="flex-1 px-4 py-2 rounded-xl bg-rose-500 text-white font-medium disabled:opacity-50 hover:bg-rose-600"
               >
                 {donateSending ? 'Sending...' : 'Donate'}
               </button>
             </div>
+            {!!donateAmount && parseFloat(donateAmount) > 0 && (donateBalance ?? 0) < parseFloat(donateAmount) && (
+              <button
+                onClick={() => handleDonate('topup')}
+                disabled={donateSending || donateBalanceLoading}
+                className="mt-3 w-full px-4 py-2 rounded-xl border border-sky-200 bg-sky-50 text-sky-700 font-medium disabled:opacity-50 hover:bg-sky-100"
+              >
+                {donateSending ? 'Processing...' : 'Top up & Donate'}
+              </button>
+            )}
           </div>
         </div>
       )}

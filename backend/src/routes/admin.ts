@@ -20,7 +20,7 @@ import LandingBackground from "../data/models/LandingBackground";
 import ArtistVerification from "../data/models/ArtistVerification";
 import Song from "../data/models/Song";
 import AdminPermission, { AdminSection } from "../data/models/AdminPermission";
-import { musicUploadSong } from "../middleware/musicUpload";
+import { musicUploadSong, musicUploadAlbum } from "../middleware/musicUpload";
 import { authenticate, AuthRequest, authorize } from "../middleware/auth";
 import { AppError } from "../middleware/errorHandler";
 import { getPaginationParams, slugify } from "../utils/helpers";
@@ -783,6 +783,14 @@ router.post(
       if (!title?.trim()) throw new AppError("Song title is required", 400);
       if (!artist?.trim()) throw new AppError("Artist name is required", 400);
       if (!genre?.trim()) throw new AppError("Genre is required", 400);
+      const downloadEnabled = String(req.body?.downloadEnabled || "false") === "true";
+      const parsedDownloadPrice = Number(req.body?.downloadPrice);
+      const downloadPrice = Number.isFinite(parsedDownloadPrice) ? parsedDownloadPrice : undefined;
+      if (downloadEnabled) {
+        if (downloadPrice == null || downloadPrice < 10 || downloadPrice > 15) {
+          throw new AppError("Download price must be between R10 and R15", 400);
+        }
+      }
       const creatorId = userId ? (await User.findById(userId))?._id : req.user!._id;
       if (!creatorId) throw new AppError("User not found", 404);
 
@@ -806,6 +814,8 @@ router.post(
         audioUrl,
         artworkUrl,
         userId: creatorId,
+        downloadEnabled,
+        downloadPrice: downloadEnabled ? downloadPrice : undefined,
       });
 
       const tvPost = await TVPost.create({
@@ -819,6 +829,75 @@ router.post(
       });
 
       const populated = await Song.findById(song._id).populate("userId", "name email").lean();
+      res.status(201).json({ data: populated, post: await TVPost.findById(tvPost._id).populate("creatorId", "name avatar").lean() });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/** Admin: Upload album (bypass artist verification) */
+router.post(
+  "/music/upload-album",
+  (req: AuthRequest, res: Response, next) => {
+    musicUploadAlbum(req, res, (err) => (err ? next(err) : next()));
+  },
+  async (req: AuthRequest, res: Response, next) => {
+    try {
+      const { userId, title, artist, songwriters, producer, genre, lyrics } = req.body;
+      if (!title?.trim()) throw new AppError("Album title is required", 400);
+      if (!artist?.trim()) throw new AppError("Artist name is required", 400);
+      if (!genre?.trim()) throw new AppError("Genre is required", 400);
+      const downloadEnabled = String(req.body?.downloadEnabled || "false") === "true";
+      const parsedDownloadPrice = Number(req.body?.downloadPrice);
+      const downloadPrice = Number.isFinite(parsedDownloadPrice) ? parsedDownloadPrice : undefined;
+      if (downloadEnabled) {
+        if (downloadPrice == null || downloadPrice < 10 || downloadPrice > 15) {
+          throw new AppError("Download price must be between R10 and R15", 400);
+        }
+      }
+      const creatorId = userId ? (await User.findById(userId))?._id : req.user!._id;
+      if (!creatorId) throw new AppError("User not found", 404);
+
+      const files = (req as any).files as { tracks?: Express.Multer.File[]; artwork?: Express.Multer.File[] };
+      const trackFiles = files?.tracks || [];
+      const artworkFile = files?.artwork?.[0];
+      if (!trackFiles.length) throw new AppError("At least one WAV track is required", 400);
+      if (!artworkFile) throw new AppError("Album artwork is required", 400);
+
+      const tracks = trackFiles.map((file) => ({
+        title: path.parse(file.originalname).name,
+        audioUrl: `/uploads/music/${file.filename}`,
+      }));
+      const artworkUrl = `/uploads/music/${artworkFile.filename}`;
+
+      const album = await Song.create({
+        type: "album",
+        title: title.trim(),
+        artist: artist.trim(),
+        songwriters: songwriters?.trim(),
+        producer: producer?.trim(),
+        genre: genre.trim(),
+        lyrics: lyrics?.trim(),
+        audioUrl: tracks[0].audioUrl,
+        artworkUrl,
+        tracks,
+        userId: creatorId,
+        downloadEnabled,
+        downloadPrice: downloadEnabled ? downloadPrice : undefined,
+      });
+
+      const tvPost = await TVPost.create({
+        creatorId,
+        type: "audio",
+        mediaUrls: [tracks[0].audioUrl],
+        caption: `${title.trim()} (Album) – ${artist.trim()}`,
+        genre: genre.trim(),
+        hasWatermark: true,
+        status: "approved",
+      });
+
+      const populated = await Song.findById(album._id).populate("userId", "name email").lean();
       res.status(201).json({ data: populated, post: await TVPost.findById(tvPost._id).populate("creatorId", "name avatar").lean() });
     } catch (err) {
       next(err);
