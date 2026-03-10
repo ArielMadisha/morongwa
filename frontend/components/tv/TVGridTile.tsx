@@ -70,6 +70,55 @@ export interface TVGridItem {
   allowResell?: boolean;
 }
 
+function toWord(num: number) {
+  const words = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve"];
+  return words[num] || String(num);
+}
+
+function formatPostPeriod(createdAt?: string) {
+  if (!createdAt) return "";
+  const created = new Date(createdAt);
+  if (Number.isNaN(created.getTime())) return "";
+  const now = new Date();
+  const diffMs = now.getTime() - created.getTime();
+  const dayMs = 24 * 60 * 60 * 1000;
+  const days = Math.floor(diffMs / dayMs);
+
+  if (days < 7) {
+    const monthNames = [
+      "Jan",
+      "Feb",
+      "March",
+      "April",
+      "May",
+      "June",
+      "July",
+      "Aug",
+      "Sept",
+      "Oct",
+      "Nov",
+      "Dec",
+    ];
+    const day = created.getDate();
+    const month = monthNames[created.getMonth()] || "";
+    const year = created.getFullYear();
+    return `${day} ${month} ${year}`;
+  }
+  if (days < 30) {
+    const weeks = Math.max(1, Math.floor(days / 7));
+    if (weeks === 1) return "a week ago";
+    return `${toWord(weeks)} weeks ago`;
+  }
+  if (days < 365) {
+    const months = Math.max(1, Math.floor(days / 30));
+    if (months === 1) return "a month ago";
+    return `${toWord(months)} months ago`;
+  }
+  const years = Math.max(1, Math.floor(days / 365));
+  if (years === 1) return "1 year ago";
+  return `${toWord(years)} years ago`;
+}
+
 interface TVGridTileProps {
   item: TVGridItem;
   liked?: boolean;
@@ -105,6 +154,7 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
   const videoRef = useRef<HTMLVideoElement>(null);
 
   const creatorName = item.creatorId?.name || 'Creator';
+  const postPeriod = formatPostPeriod(item.createdAt);
   // Resolve creatorId (populated object or raw string) for donate/own-post logic
   const creatorIdResolved = typeof item.creatorId === 'object' && item.creatorId !== null && '_id' in item.creatorId
     ? String((item.creatorId as { _id: string })._id)
@@ -230,7 +280,7 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
         setDonateModalOpen(false);
         setDonateAmount('');
       })
-      .catch((e: any) => toast.error(e.response?.data?.message || e.message || 'Failed to send donation'))
+      .catch((e: any) => toast.error(e.response?.data?.error || e.response?.data?.message || e.message || 'Failed to send donation'))
       .finally(() => setDonateSending(false));
   };
 
@@ -451,6 +501,9 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
           </Link>
         </div>
         <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
+          {postPeriod && (
+            <span className="text-white/90 text-xs font-medium mr-1">{postPeriod}</span>
+          )}
           {!isProductTile && (
             <div className="relative">
               <button
@@ -678,95 +731,99 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
           )}
           <div className="flex items-center justify-between gap-2">
             {/* Action icons - bottom left (homepage only) */}
-            <div className="flex items-center gap-2 sm:gap-4 flex-wrap">
+            <div className="flex items-center gap-1.5 sm:gap-3 flex-wrap">
               <button
                 onClick={(e) => { e.stopPropagation(); onLike?.(item._id, !liked); }}
-                className={`flex items-center gap-1.5 min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0 justify-center py-1 px-1 sm:px-0 rounded-lg transition-colors cursor-pointer touch-manipulation ${
+                className={`flex items-center gap-1 min-h-[36px] min-w-[36px] sm:min-h-0 sm:min-w-0 justify-center py-1 px-1 sm:px-0 rounded-lg transition-colors cursor-pointer touch-manipulation ${
                   liked ? 'text-rose-500' : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                <Heart className={`h-5 w-5 sm:h-6 sm:w-6 ${liked ? 'fill-current' : ''}`} />
+                <Heart className={`h-4 w-4 sm:h-5 sm:w-5 ${liked ? 'fill-current' : ''}`} />
                 <span className="text-xs sm:text-sm font-medium">{(item.likeCount ?? 0) >= 1000 ? `${((item.likeCount ?? 0) / 1000).toFixed(1)}K` : item.likeCount ?? 0}</span>
               </button>
               <button
                 onClick={(e) => { e.stopPropagation(); setCommentModalOpen(true); }}
-                className="flex items-center gap-1.5 min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0 justify-center py-1 px-1 sm:px-0 rounded-lg text-slate-600 hover:text-slate-900 transition-colors cursor-pointer touch-manipulation"
+                className="flex items-center gap-1 min-h-[36px] min-w-[36px] sm:min-h-0 sm:min-w-0 justify-center py-1 px-1 sm:px-0 rounded-lg text-slate-600 hover:text-slate-900 transition-colors cursor-pointer touch-manipulation"
               >
-                <MessageCircle className="h-5 w-5 sm:h-6 sm:w-6" />
+                <MessageCircle className="h-4 w-4 sm:h-5 sm:w-5" />
                 <span className="text-xs sm:text-sm font-medium">{item.commentCount ?? 0}</span>
               </button>
               <button
                 onClick={(e) => { e.stopPropagation(); handleShare(); }}
-                className="min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0 flex items-center justify-center py-1 rounded-lg text-slate-600 hover:text-slate-900 transition-colors cursor-pointer touch-manipulation"
+                className="min-h-[36px] min-w-[36px] sm:min-h-0 sm:min-w-0 flex items-center justify-center py-1 rounded-lg text-slate-600 hover:text-slate-900 transition-colors cursor-pointer touch-manipulation"
                 title="Share"
               >
-                <Share2 className="h-5 w-5 sm:h-6 sm:w-6" />
+                <Share2 className="h-4 w-4 sm:h-5 sm:w-5" />
               </button>
               {onRepost && (
                 <button
                   onClick={(e) => { e.stopPropagation(); onRepost(item._id); }}
-                  className="min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0 flex items-center justify-center py-1 rounded-lg text-slate-600 hover:text-slate-900 transition-colors cursor-pointer touch-manipulation"
+                  className="min-h-[36px] min-w-[36px] sm:min-h-0 sm:min-w-0 flex items-center justify-center py-1 rounded-lg text-slate-600 hover:text-slate-900 transition-colors cursor-pointer touch-manipulation"
                   title="Repost"
                 >
-                  <Repeat2 className="h-5 w-5 sm:h-6 sm:w-6" />
+                  <Repeat2 className="h-4 w-4 sm:h-5 sm:w-5" />
                 </button>
               )}
               <Link
                 href="/messages"
-                className="min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0 flex items-center justify-center py-1 rounded-lg text-slate-600 hover:text-slate-900 transition-colors touch-manipulation"
+                className="min-h-[36px] min-w-[36px] sm:min-h-0 sm:min-w-0 flex items-center justify-center py-1 rounded-lg text-slate-600 hover:text-slate-900 transition-colors touch-manipulation"
                 title="Send to message"
               >
-                <Send className="h-5 w-5 sm:h-6 sm:w-6" />
+                <Send className="h-4 w-4 sm:h-5 sm:w-5" />
               </Link>
               {!isOwnPost && creatorIdResolved && currentUserId && (
                 <button
                   onClick={(e) => { e.stopPropagation(); setDonateModalOpen(true); }}
-                  className="min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0 flex items-center justify-center py-1 rounded-lg text-slate-600 hover:text-slate-900 transition-colors cursor-pointer touch-manipulation"
+                  className="min-h-[36px] min-w-[36px] sm:min-h-0 sm:min-w-0 flex items-center justify-center py-1 rounded-lg text-slate-600 hover:text-slate-900 transition-colors cursor-pointer touch-manipulation"
                   title="Donate"
                 >
-                  <HeartHandshake className="h-5 w-5 sm:h-6 sm:w-6" />
+                  <HeartHandshake className="h-4 w-4 sm:h-5 sm:w-5" />
                 </button>
               )}
             </div>
-            {/* Report button - right */}
+            {/* Report flag - bottom right */}
             <div className="relative shrink-0">
               <button
                 onClick={(e) => { e.stopPropagation(); setReportOpen(!reportOpen); }}
                 className="p-2 rounded-lg text-slate-600 hover:text-slate-800 hover:bg-slate-50 transition-colors cursor-pointer"
                 aria-label="Report post"
+                title="Report"
               >
-                <Flag className="h-5 w-5" />
+                <Flag className="h-4 w-4 sm:h-5 sm:w-5" />
               </button>
               {reportOpen && (
-                <div className="absolute right-0 top-full mt-1 py-2 bg-white rounded-xl border border-slate-200 shadow-lg z-20 min-w-[200px]">
-                  {mediaUrl && currentUserId && (onSetProfilePicFromUrl || onSetStripBackgroundFromUrl) && (
-                  <>
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setReportOpen(false)} aria-hidden="true" />
+                  <div className="absolute right-0 bottom-full mb-1 py-2 bg-white rounded-xl border border-slate-200 shadow-lg z-50 min-w-[200px]">
+                    {mediaUrl && currentUserId && (onSetProfilePicFromUrl || onSetStripBackgroundFromUrl) && (
+                      <>
+                        <button
+                          onClick={() => { setReportOpen(false); setPictureOptionsOpen(true); }}
+                          className="w-full px-4 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                        >
+                          Use this image
+                        </button>
+                        <div className="border-t border-slate-100 my-2" />
+                      </>
+                    )}
+                    <div className="px-3 pb-2">
+                      <input
+                        type="text"
+                        placeholder="Report reason..."
+                        value={reportReason}
+                        onChange={(e) => setReportReason(e.target.value)}
+                        className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-900"
+                      />
+                    </div>
                     <button
-                      onClick={() => { setReportOpen(false); setPictureOptionsOpen(true); }}
-                      className="w-full px-4 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                      onClick={handleReport}
+                      className="w-full px-4 py-2 text-left text-sm text-rose-600 hover:bg-rose-50 flex items-center gap-2"
                     >
-                      Use this image
+                      <Flag className="h-4 w-4" />
+                      Submit report
                     </button>
-                    <div className="border-t border-slate-100 my-2" />
-                  </>
-                  )}
-                  <div className="px-3 pb-2">
-                    <input
-                      type="text"
-                      placeholder="Report reason..."
-                      value={reportReason}
-                      onChange={(e) => setReportReason(e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-900"
-                    />
                   </div>
-                  <button
-                    onClick={handleReport}
-                    className="w-full px-4 py-2 text-left text-sm text-rose-600 hover:bg-rose-50 flex items-center gap-2"
-                  >
-                    <Flag className="h-4 w-4" />
-                    Submit report
-                  </button>
-                </div>
+                </>
               )}
             </div>
           </div>

@@ -1,7 +1,7 @@
 import { StatusBar } from "expo-status-bar";
 import { useState } from "react";
 import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import { AuthProvider, useAuth } from "./src/contexts/AuthContext";
 import { HomeScreen } from "./src/screens/HomeScreen";
 import { LoginScreen } from "./src/screens/LoginScreen";
@@ -9,14 +9,16 @@ import { RegisterScreen } from "./src/screens/RegisterScreen";
 
 export default function App() {
   return (
-    <AuthProvider>
-      <SafeAreaView style={styles.safe}>
-        <View style={styles.container}>
-          <AuthGate />
-        </View>
-        <StatusBar style="light" />
-      </SafeAreaView>
-    </AuthProvider>
+    <SafeAreaProvider>
+      <AuthProvider>
+        <SafeAreaView style={styles.safe}>
+          <View style={styles.container}>
+            <AuthGate />
+          </View>
+          <StatusBar style="light" />
+        </SafeAreaView>
+      </AuthProvider>
+    </SafeAreaProvider>
   );
 }
 
@@ -51,8 +53,11 @@ const styles = StyleSheet.create({
   },
   container: {
     flex: 1,
-    paddingHorizontal: 20,
-    paddingTop: 36
+    width: "100%",
+    maxWidth: 560,
+    alignSelf: "center",
+    paddingHorizontal: 12,
+    paddingTop: 12
   },
   loadingWrap: {
     flex: 1,

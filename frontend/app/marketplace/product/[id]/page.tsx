@@ -134,7 +134,7 @@ export default function ProductPage() {
         <header className="bg-white/85 backdrop-blur-md border-b border-slate-100 shadow-sm flex-shrink-0">
           <div className="px-4 sm:px-6 lg:px-8 py-3 sm:py-4 flex items-center justify-between gap-3 sm:gap-4">
             <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-              {user && <AppSidebarMenuButton onClick={() => setMenuOpen(true)} />}
+              {user && <AppSidebarMenuButton onClick={() => setMenuOpen((v) => !v)} />}
               <Link href="/marketplace" className="text-slate-700 hover:text-sky-600 font-medium">← QwertyHub</Link>
             </div>
             <div className="flex-1 min-w-0" />

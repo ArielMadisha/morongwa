@@ -3,8 +3,8 @@
 import { useState, useEffect, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Search, Package, Loader2, ShoppingCart, User, Video, Wrench } from 'lucide-react';
-import { productsAPI, usersAPI, tvAPI, getImageUrl } from '@/lib/api';
+import { Search, Package, Loader2, ShoppingCart, User, Video, Wrench, Music } from 'lucide-react';
+import { productsAPI, usersAPI, tvAPI, musicAPI, followsAPI, getImageUrl } from '@/lib/api';
 import type { Product } from '@/lib/types';
 import { useAuth } from '@/contexts/AuthContext';
 import { useCartAndStores } from '@/lib/useCartAndStores';
@@ -31,9 +31,10 @@ function SearchContent() {
   const [q, setQ] = useState(qParam);
   const [products, setProducts] = useState<Product[]>([]);
   const [users, setUsers] = useState<any[]>([]);
-  const [videos, setVideos] = useState<any[]>([]);
+  const [tvPosts, setTvPosts] = useState<any[]>([]);
+  const [musicResults, setMusicResults] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [mcgyverOpen, setMcgyverOpen] = useState(false);
+  const [macgyverOpen, setMacgyverOpen] = useState(false);
 
   useEffect(() => {
     setQ(qParam);
@@ -47,35 +48,117 @@ function SearchContent() {
   };
 
   useEffect(() => {
-    if (q.length >= 2) {
-      setLoading(true);
-      Promise.all([
-        productsAPI.list({ limit: 20, q }).then((res) => {
-          const list = res.data?.data ?? res.data ?? [];
-          return Array.isArray(list) ? list : [];
-        }).catch(() => []),
-        user ? usersAPI.list({ limit: 15, q }).then((res) => {
-          const list = res.data?.users ?? res.data ?? [];
-          return Array.isArray(list) ? list : [];
-        }).catch(() => []) : Promise.resolve([]),
-        tvAPI.getFeed({ limit: 15, q, type: 'video' }).then((res) => {
-          const list = res.data?.data ?? res.data ?? [];
-          return Array.isArray(list) ? list : [];
-        }).catch(() => []),
-      ]).then(([prods, usrs, vids]) => {
-        setProducts(prods);
-        setUsers(usrs);
-        setVideos(vids);
-      }).finally(() => setLoading(false));
+    const search = q.trim().toLowerCase();
+    if (search.length >= 1) {
+      let cancelled = false;
+      const timer = setTimeout(() => {
+        setLoading(true);
+        Promise.all([
+          productsAPI
+            .list({ limit: 40, q: search })
+            .then((res) => {
+              const list = res.data?.data ?? res.data ?? [];
+              return Array.isArray(list) ? list : [];
+            })
+            .catch(() => []),
+          Promise.all([
+            usersAPI
+              .list({ limit: 40, q: search })
+              .then((res) => {
+                const list = res.data?.data?.users ?? res.data?.users ?? res.data?.data ?? res.data ?? [];
+                return Array.isArray(list) ? list : [];
+              })
+              .catch(() => []),
+            user
+              ? followsAPI
+                  .getSuggested({ limit: 20, q: search })
+                  .then((res) => res.data?.data ?? [])
+                  .catch(() => [])
+              : Promise.resolve([]),
+          ]).then(([mainUsers, suggested]) => {
+            const seen = new Set<string>();
+            const merged: any[] = [];
+            for (const u of mainUsers) {
+              const id = u._id?._id ?? u._id ?? u.id;
+              if (id && !seen.has(id)) {
+                seen.add(id);
+                merged.push(u);
+              }
+            }
+            for (const u of suggested) {
+              const id = u._id?._id ?? u._id ?? u.id;
+              if (id && !seen.has(id)) {
+                seen.add(id);
+                merged.push(u);
+              }
+            }
+            return merged;
+          }),
+          tvAPI
+            .getFeed({ limit: 40, q: search })
+            .then((res) => {
+              const list = res.data?.data ?? res.data ?? [];
+              return Array.isArray(list) ? list : [];
+            })
+            .catch(() => []),
+          musicAPI
+            .getSongs()
+            .then((res) => {
+              const list = res.data?.data ?? [];
+              if (!Array.isArray(list)) return [];
+              const ranked = list
+                .map((item) => {
+                  const haystack = [
+                    item?.title,
+                    item?.artist,
+                    item?.genre,
+                    item?.lyrics,
+                    item?.songwriters,
+                    item?.producer,
+                  ]
+                    .filter(Boolean)
+                    .join(' ')
+                    .toLowerCase();
+                  const starts = (
+                    String(item?.title || '').toLowerCase().startsWith(search) ||
+                    String(item?.artist || '').toLowerCase().startsWith(search) ||
+                    String(item?.genre || '').toLowerCase().startsWith(search)
+                  );
+                  const includes = haystack.includes(search);
+                  return { item, score: starts ? 2 : includes ? 1 : 0 };
+                })
+                .filter((entry) => entry.score > 0)
+                .sort((a, b) => b.score - a.score)
+                .map((entry) => entry.item);
+              return ranked.slice(0, 40);
+            })
+            .catch(() => []),
+        ])
+          .then(([prods, usrs, posts, music]) => {
+            if (cancelled) return;
+            setProducts(prods);
+            setUsers(usrs);
+            setTvPosts(posts);
+            setMusicResults(music);
+          })
+          .finally(() => {
+            if (!cancelled) setLoading(false);
+          });
+      }, 180);
+      return () => {
+        cancelled = true;
+        clearTimeout(timer);
+      };
     } else {
       setProducts([]);
       setUsers([]);
-      setVideos([]);
+      setTvPosts([]);
+      setMusicResults([]);
       setLoading(false);
     }
   }, [q, user]);
 
-  const hasResults = products.length > 0 || users.length > 0 || videos.length > 0;
+  const hasResults = products.length > 0 || users.length > 0 || tvPosts.length > 0 || musicResults.length > 0;
   const homeLink = user ? '/wall' : '/';
 
   return (
@@ -87,14 +170,14 @@ function SearchContent() {
               <img src="/qwertymates-logo-icon.png" alt="Qwertymates" className="h-9 w-9 object-contain lg:hidden" />
               <img src="/qwertymates-logo.png" alt="Qwertymates" className="h-9 w-auto object-contain hidden lg:block" />
             </Link>
-            {user && <AppSidebarMenuButton onClick={() => setMenuOpen(true)} />}
+            {user && <AppSidebarMenuButton onClick={() => setMenuOpen((v) => !v)} />}
             <form onSubmit={handleSearch} className="flex-1 flex items-center gap-2 min-w-0 max-w-md mx-2">
               <Search className="h-5 w-5 text-slate-400 shrink-0" />
               <input
                 type="search"
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
-                placeholder="Ask McGyver"
+                placeholder="Ask MacGyver"
                 className="flex-1 min-w-0 px-3 py-2 rounded-lg border border-slate-200 bg-white text-slate-900 placeholder-slate-400 focus:ring-2 focus:ring-sky-500 focus:border-sky-500"
               />
               <button
@@ -127,11 +210,11 @@ function SearchContent() {
         )}
         <div className="flex-1 flex gap-0 min-h-0 overflow-y-auto overflow-x-hidden">
           <main className="flex-1 min-w-0 px-4 sm:px-6 lg:px-8 py-6 pb-24 lg:pb-6">
-            {q.length < 2 ? (
+            {q.trim().length < 1 ? (
               <div className="rounded-2xl border border-slate-200 bg-white/90 p-12 text-center">
                 <Search className="h-16 w-16 text-slate-300 mx-auto mb-4" />
-                <h2 className="text-xl font-semibold text-slate-700 mb-2">Ask McGyver Anything</h2>
-                <p className="text-slate-600 mb-6">Search products, users, videos, and more on Qwertymates.</p>
+                <h2 className="text-xl font-semibold text-slate-700 mb-2">Ask MacGyver Anything</h2>
+                <p className="text-slate-600 mb-6">Search users, products, TV posts/videos, songs, albums, and more on Qwertymates.</p>
                 <Link
                   href="/marketplace"
                   className="inline-flex items-center gap-2 text-sky-600 hover:text-sky-700 font-medium"
@@ -147,13 +230,13 @@ function SearchContent() {
               <div className="rounded-2xl border border-slate-200 bg-white/90 p-12 text-center">
                 <Package className="h-16 w-16 text-slate-300 mx-auto mb-4" />
                 <h2 className="text-xl font-semibold text-slate-700 mb-2">No results for &quot;{q}&quot;</h2>
-                <p className="text-slate-600 mb-6">Try different keywords or ask McGyver for help finding what you need.</p>
+                <p className="text-slate-600 mb-6">Try different keywords or ask MacGyver for help finding what you need.</p>
                 <button
-                  onClick={() => setMcgyverOpen(true)}
+                  onClick={() => setMacgyverOpen(true)}
                   className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-500 text-white font-medium hover:bg-amber-600 transition-colors"
                 >
                   <Wrench className="h-5 w-5" />
-                  Ask McGyver
+                  Ask MacGyver
                 </button>
               </div>
             ) : (
@@ -193,13 +276,13 @@ function SearchContent() {
                   </section>
                 )}
 
-                {videos.length > 0 && (
+                {tvPosts.length > 0 && (
                   <section className="mb-8">
                     <h3 className="text-lg font-semibold text-slate-800 mb-4 flex items-center gap-2">
-                      <Video className="h-5 w-5" /> Videos ({videos.length})
+                      <Video className="h-5 w-5" /> TV Posts & Videos ({tvPosts.length})
                     </h3>
                     <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
-                      {videos.map((v) => (
+                      {tvPosts.map((v) => (
                         <Link
                           key={v._id}
                           href={`/morongwa-tv`}
@@ -215,6 +298,29 @@ function SearchContent() {
                             )}
                           </div>
                           <p className="p-2 text-sm text-slate-700 truncate">{v.caption || 'Video'}</p>
+                        </Link>
+                      ))}
+                    </div>
+                  </section>
+                )}
+
+                {musicResults.length > 0 && (
+                  <section className="mb-8">
+                    <h3 className="text-lg font-semibold text-slate-800 mb-4 flex items-center gap-2">
+                      <Music className="h-5 w-5" /> Music & Albums ({musicResults.length})
+                    </h3>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                      {musicResults.map((m) => (
+                        <Link
+                          key={m._id}
+                          href="/qwerty-music"
+                          className="rounded-xl border border-slate-100 bg-white p-4 hover:border-sky-200 hover:shadow-md transition-all"
+                        >
+                          <p className="font-semibold text-slate-900 truncate">{m.title || 'Untitled'}</p>
+                          <p className="text-sm text-slate-600 truncate">{m.artist || 'Unknown artist'}</p>
+                          <p className="text-xs text-slate-500 mt-1">
+                            {(m.type || 'song') === 'album' ? 'Album' : 'Song'}{m.genre ? ` • ${m.genre}` : ''}
+                          </p>
                         </Link>
                       ))}
                     </div>
@@ -291,10 +397,10 @@ function SearchContent() {
                   <div className="mt-8 p-4 rounded-xl bg-amber-50 border border-amber-200">
                     <p className="text-sm text-amber-800 mb-2">Still can&apos;t find what you need?</p>
                     <button
-                      onClick={() => setMcgyverOpen(true)}
+                      onClick={() => setMacgyverOpen(true)}
                       className="inline-flex items-center gap-2 text-amber-700 font-medium hover:text-amber-900"
                     >
-                      <Wrench className="h-4 w-4" /> Ask McGyver for help
+                      <Wrench className="h-4 w-4" /> Ask MacGyver for help
                     </button>
                   </div>
                 )}
@@ -306,25 +412,25 @@ function SearchContent() {
       </div>
       {user && <MobileBottomNav cartCount={cartCount} hasStore={hasStore} />}
 
-      {/* McGyver AI panel (placeholder - full implementation coming) */}
-      {mcgyverOpen && (
+      {/* MacGyver AI panel (placeholder - full implementation coming) */}
+      {macgyverOpen && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center sm:justify-center p-4">
-          <div className="absolute inset-0 bg-black/40" onClick={() => setMcgyverOpen(false)} aria-hidden="true" />
+          <div className="absolute inset-0 bg-black/40" onClick={() => setMacgyverOpen(false)} aria-hidden="true" />
           <div className="relative bg-white rounded-2xl shadow-2xl max-w-md w-full max-h-[80vh] overflow-hidden">
             <div className="p-4 border-b border-slate-100 flex items-center justify-between">
               <h3 className="font-semibold text-slate-900 flex items-center gap-2">
-                <Wrench className="h-5 w-5 text-amber-500" /> Ask McGyver
+                <Wrench className="h-5 w-5 text-amber-500" /> Ask MacGyver
               </h3>
-              <button onClick={() => setMcgyverOpen(false)} className="p-2 rounded-lg hover:bg-slate-100 text-slate-600">
+              <button onClick={() => setMacgyverOpen(false)} className="p-2 rounded-lg hover:bg-slate-100 text-slate-600">
                 ×
               </button>
             </div>
             <div className="p-6 text-slate-600">
               <p className="mb-4">
-                McGyver is your AI assistant for Qwertymates. When you can&apos;t find a product, user, or content on the site, McGyver will guide you.
+                MacGyver is your AI assistant for Qwertymates. When you can&apos;t find a product, user, or content on the site, MacGyver will guide you.
               </p>
               <p className="text-sm text-slate-500">
-                Full chat capabilities are coming soon. McGyver will help you discover alternatives, suggest where to look, and answer questions about the platform.
+                Full chat capabilities are coming soon. MacGyver will help you discover alternatives, suggest where to look, and answer questions about the platform.
               </p>
             </div>
           </div>

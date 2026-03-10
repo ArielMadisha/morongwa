@@ -88,7 +88,7 @@ export function StatusesStrip({ currentUserId, userAvatar, stripBackgroundPic, o
   return (
     <div
       ref={stripRef}
-      className="flex gap-4 overflow-x-auto pb-2 scroll-smooth [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden min-h-[72px] rounded-xl px-3 py-1.5 items-start"
+      className="flex gap-2 sm:gap-4 overflow-x-auto pb-1.5 sm:pb-2 scroll-smooth [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden min-h-[64px] sm:min-h-[72px] rounded-xl px-1.5 sm:px-3 py-1 items-start"
       style={stripBgStyle}
     >
       {onAddStatus && (
@@ -96,7 +96,7 @@ export function StatusesStrip({ currentUserId, userAvatar, stripBackgroundPic, o
           <button
             type="button"
             onClick={onAddStatus}
-            className="flex-shrink-0 relative flex flex-col items-center justify-center gap-0.5 cursor-pointer group w-14 h-14 rounded-full bg-sky-500 hover:bg-sky-600 text-white transition-colors border-0 overflow-hidden"
+            className="flex-shrink-0 relative flex flex-col items-center justify-center gap-0.5 cursor-pointer group w-10 h-10 sm:w-14 sm:h-14 rounded-full bg-sky-500 hover:bg-sky-600 text-white transition-colors border-0 overflow-hidden"
             aria-label="Create post"
           >
             {userAvatar ? (
@@ -107,14 +107,14 @@ export function StatusesStrip({ currentUserId, userAvatar, stripBackgroundPic, o
                   className="absolute inset-0 w-full h-full object-cover"
                 />
                 <div className="absolute inset-0 bg-sky-900/40 flex flex-col items-center justify-center">
-                  <Plus className="h-5 w-5" strokeWidth={2.5} />
+                  <Plus className="h-4 w-4 sm:h-5 sm:w-5" strokeWidth={2.5} />
                 </div>
               </>
             ) : (
-              <Plus className="h-5 w-5" strokeWidth={2.5} />
+              <Plus className="h-4 w-4 sm:h-5 sm:w-5" strokeWidth={2.5} />
             )}
           </button>
-          <span className="text-[10px] font-semibold leading-tight text-slate-700">create</span>
+          <span className="text-[9px] sm:text-[10px] font-semibold leading-tight text-slate-700">create</span>
         </div>
       )}
       {displayStatuses.map((s) => {
@@ -131,7 +131,7 @@ export function StatusesStrip({ currentUserId, userAvatar, stripBackgroundPic, o
           >
             <div className="relative">
               <div
-                className={`w-14 h-14 rounded-full p-0.5 flex-shrink-0 bg-gradient-to-tr from-sky-500 via-purple-500 to-pink-500 ${
+                className={`w-10 h-10 sm:w-14 sm:h-14 rounded-full p-0.5 flex-shrink-0 bg-gradient-to-tr from-sky-500 via-purple-500 to-pink-500 ${
                   s.isLive ? 'animate-pulse' : ''
                 }`}
               >
@@ -150,17 +150,17 @@ export function StatusesStrip({ currentUserId, userAvatar, stripBackgroundPic, o
                 </div>
               </div>
               {s.isLive && (
-                <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 px-1.5 py-0.5 rounded text-[10px] font-bold bg-red-500 text-white whitespace-nowrap">
+                <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 px-1.5 py-0.5 rounded text-[9px] sm:text-[10px] font-bold bg-red-500 text-white whitespace-nowrap">
                   LIVE
                 </span>
               )}
             </div>
-            <span className="text-[10px] font-semibold leading-tight text-slate-700 truncate max-w-[70px]">
+            <span className="text-[9px] sm:text-[10px] font-semibold leading-tight text-slate-700 truncate max-w-[58px] sm:max-w-[70px]">
               {s.name || 'Unknown'}
             </span>
           </Link>
           <div onClick={(e) => e.stopPropagation()}>
-            <FollowButton targetUserId={uid} currentUserId={currentUserId} className="!px-2 !py-1 !text-[10px]" />
+            <FollowButton targetUserId={uid} currentUserId={currentUserId} className="!px-1.5 !py-0.5 !text-[9px] sm:!px-2 sm:!py-1 sm:!text-[10px]" />
           </div>
         </div>
       );

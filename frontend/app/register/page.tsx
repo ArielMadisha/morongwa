@@ -23,7 +23,7 @@ import AuthBackground from '@/components/AuthBackground';
 import { authAPI } from '@/lib/api';
 
 type Step = 'phone' | 'verify' | 'profile' | 'email';
-type Mode = 'whatsapp' | 'email';
+type Mode = 'whatsapp' | 'sms' | 'email';
 
 export default function RegisterPage() {
   const searchParams = useSearchParams();
@@ -84,7 +84,22 @@ export default function RegisterPage() {
     setErrors({});
     setSendingOtp(true);
     setSendingChannel(channel);
+    setMode(channel);
     try {
+      const healthRes = await authAPI.getOtpHealth();
+      const health = healthRes.data?.data;
+      if (!health?.configured && health?.mode === 'production') {
+        toast.error('OTP service is not configured yet. Please contact support.');
+        return;
+      }
+      if (channel === 'sms' && health?.configured && !health?.smsReady) {
+        toast.error('SMS channel is not configured yet.');
+        return;
+      }
+      if (channel === 'whatsapp' && health?.configured && !health?.whatsappReady) {
+        toast.error('WhatsApp channel is not configured yet.');
+        return;
+      }
       await authAPI.sendOtp(phone, channel);
       toast.success(`OTP sent via ${channel === 'sms' ? 'SMS' : 'WhatsApp'}`);
       setStep('verify');
@@ -139,7 +154,7 @@ export default function RegisterPage() {
     setLoading(true);
 
     try {
-      if (otpToken && mode === 'whatsapp') {
+      if (otpToken && mode !== 'email') {
         await registerWithOtp!({
           name: name.trim(),
           password,

@@ -18,11 +18,50 @@ interface PaymentResponse {
   error?: string;
 }
 
+function isLocalHostUrl(raw?: string): boolean {
+  if (!raw) return false;
+  try {
+    const u = new URL(raw);
+    return u.hostname === "localhost" || u.hostname === "127.0.0.1" || u.hostname === "::1";
+  } catch {
+    return /localhost|127\.0\.0\.1|::1/i.test(raw);
+  }
+}
+
+export function getCardPaymentConfigIssues(): string[] {
+  const issues: string[] = [];
+  const frontendUrl = process.env.FRONTEND_URL || "";
+  const backendUrl = process.env.BACKEND_URL || "";
+  if (isLocalHostUrl(frontendUrl)) {
+    issues.push("FRONTEND_URL points to localhost");
+  }
+  if (isLocalHostUrl(backendUrl)) {
+    issues.push("BACKEND_URL points to localhost");
+  }
+  return issues;
+}
+
 export const initiatePayment = async (request: PaymentRequest): Promise<PaymentResponse> => {
   try {
+    const configIssues = getCardPaymentConfigIssues();
+    if (configIssues.length > 0) {
+      return {
+        success: false,
+        error: `Card payments blocked: ${configIssues.join(
+          ", "
+        )}. Use public tunnel URLs (ngrok/cloudflare) and whitelist RETURN_URL/NOTIFY_URL in PayGate.`,
+      };
+    }
+
     const paygateId = process.env.PAYGATE_ID || "";
     const paygateSecret = process.env.PAYGATE_SECRET || "";
-    const paygateUrl = process.env.PAYGATE_URL || "https://secure.paygate.co.za/payweb3/process.trans";
+    const configuredUrl = process.env.PAYGATE_URL || "https://secure.paygate.co.za/payweb3/process.trans";
+    const paygateInitiateUrl = configuredUrl.includes("process.trans")
+      ? configuredUrl.replace("process.trans", "initiate.trans")
+      : configuredUrl;
+    const paygateProcessUrl = configuredUrl.includes("initiate.trans")
+      ? configuredUrl.replace("initiate.trans", "process.trans")
+      : configuredUrl;
 
     const data = {
       PAYGATE_ID: paygateId,
@@ -40,7 +79,7 @@ export const initiatePayment = async (request: PaymentRequest): Promise<PaymentR
     const checksum = generateChecksum({ ...data, ENCRYPTION_KEY: paygateSecret });
     const payload = { ...data, CHECKSUM: checksum };
 
-    const response = await axios.post(paygateUrl, new URLSearchParams(payload as any).toString(), {
+    const response = await axios.post(paygateInitiateUrl, new URLSearchParams(payload as any).toString(), {
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
     });
 
@@ -52,7 +91,7 @@ export const initiatePayment = async (request: PaymentRequest): Promise<PaymentR
       throw new Error("Invalid response from PayGate");
     }
 
-    const paymentUrl = `${paygateUrl}?PAY_REQUEST_ID=${transactionId}&CHECKSUM=${responseChecksum}`;
+    const paymentUrl = `${paygateProcessUrl}?PAY_REQUEST_ID=${transactionId}&CHECKSUM=${responseChecksum}`;
 
     logger.info("Payment initiated", { reference: request.reference, transactionId });
 
@@ -63,9 +102,15 @@ export const initiatePayment = async (request: PaymentRequest): Promise<PaymentR
     };
   } catch (error: any) {
     logger.error("Payment initiation failed:", error);
+    const status = error?.response?.status;
+    const responseBody = typeof error?.response?.data === "string" ? error.response.data : "";
+    const hint =
+      status === 403
+        ? "PayGate rejected the request (403). Ensure credentials are live/valid and RETURN_URL/NOTIFY_URL are publicly reachable/whitelisted."
+        : "";
     return {
       success: false,
-      error: error.message || "Payment initiation failed",
+      error: hint || error.message || "Payment initiation failed",
     };
   }
 };

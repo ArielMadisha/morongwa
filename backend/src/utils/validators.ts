@@ -79,6 +79,7 @@ export const messageSchema = Joi.object({
 
 export const topupSchema = Joi.object({
   amount: Joi.number().min(10).max(50000).required(),
+  returnPath: Joi.string().pattern(/^\//).optional(),
 });
 
 export const payoutSchema = Joi.object({

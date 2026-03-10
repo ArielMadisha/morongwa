@@ -109,7 +109,7 @@ function UserFeedContent() {
             </Link>
             <div className="flex-1 min-w-0" />
             <SearchButton />
-            <AppSidebarMenuButton onClick={() => setMenuOpen(true)} />
+            <AppSidebarMenuButton onClick={() => setMenuOpen((v) => !v)} />
           </div>
         </header>
 

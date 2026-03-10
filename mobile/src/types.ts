@@ -62,3 +62,30 @@ export interface TVComment {
   } | string;
   createdAt?: string;
 }
+
+export interface Product {
+  _id: string;
+  title: string;
+  slug?: string;
+  description?: string;
+  images?: string[];
+  price: number;
+  discountPrice?: number;
+  currency?: string;
+  stock?: number;
+  outOfStock?: boolean;
+}
+
+export interface CartItem {
+  productId: string;
+  qty: number;
+  lineTotal?: number;
+  product?: Product;
+}
+
+export interface WalletTransaction {
+  type: string;
+  amount: number;
+  reference?: string;
+  createdAt?: string;
+}

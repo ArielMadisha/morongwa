@@ -97,6 +97,8 @@ export const authAPI = {
   }) => api.post('/auth/register', data),
   sendOtp: (phone: string, channel?: 'sms' | 'whatsapp') =>
     api.post('/auth/send-otp', { phone, channel: channel || 'whatsapp' }),
+  getOtpHealth: () =>
+    api.get<{ data: { provider: string; configured: boolean; smsReady: boolean; whatsappReady: boolean; mode: string } }>('/auth/otp-health'),
   verifyOtp: (phone: string, otp: string) => api.post('/auth/verify-otp', { phone, otp }),
   login: (data: { email?: string; username?: string; phone?: string; password: string }) =>
     api.post('/auth/login', data),
@@ -487,7 +489,7 @@ export const storesAPI = {
 export const followsAPI = {
   follow: (userId: string) => api.post(`/follows/${userId}`),
   unfollow: (userId: string) => api.delete(`/follows/${userId}`),
-  getSuggested: (limit?: number) => api.get<{ data: Array<{ _id: string; name: string; avatar?: string; username?: string; followerCount?: number }> }>('/follows/suggested', { params: { limit } }),
+  getSuggested: (params?: { limit?: number; q?: string }) => api.get<{ data: Array<{ _id: string; name: string; avatar?: string; username?: string; followerCount?: number }> }>('/follows/suggested', { params }),
   getStatus: (userId: string) => api.get(`/follows/${userId}/status`),
   getPendingRequests: () => api.get('/follows/requests/pending'),
   acceptRequest: (followerId: string) => api.post(`/follows/${followerId}/accept`),
@@ -535,7 +537,15 @@ export const tvAPI = {
   getLiked: (id: string) => api.get<{ data: { liked: boolean } }>(`/tv/${id}/liked`),
   report: (id: string, reason: string) => api.post(`/tv/${id}/report`, { reason }),
   getComments: (id: string) => api.get(`/tv/${id}/comments`),
-  addComment: (id: string, text: string) => api.post(`/tv/${id}/comments`, { text }),
+  uploadCommentAudio: (file: File) => {
+    const formData = new FormData();
+    formData.append('audio', file);
+    return api.post<{ data: { url: string } }>('/tv/comments/upload-audio', formData);
+  },
+  addComment: (id: string, payload: string | { text?: string; audioUrl?: string }) => {
+    if (typeof payload === 'string') return api.post(`/tv/${id}/comments`, { text: payload });
+    return api.post(`/tv/${id}/comments`, payload);
+  },
   getWatermark: () => api.get<{ data: { watermark: string } }>('/tv/watermark'),
   getFeaturedProducts: () => api.get('/tv/products/featured'),
 };

@@ -10,6 +10,7 @@ import { Loader2, Package, Plus, Store } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { AppSidebar, AppSidebarMenuButton } from '@/components/AppSidebar';
 import { SearchButton } from '@/components/SearchButton';
+import { ProfileHeaderButton } from '@/components/ProfileHeaderButton';
 import { useCartAndStores } from '@/lib/useCartAndStores';
 import { MobileBottomNav } from '@/components/MobileBottomNav';
 import StoreHeader from '@/components/StoreHeader';
@@ -158,7 +159,7 @@ export default function MyStorePage() {
                 <img src="/qwertymates-logo-icon.png" alt="Qwertymates" className="h-9 w-9 object-contain lg:hidden" />
                 <img src="/qwertymates-logo.png" alt="Qwertymates" className="h-9 w-auto object-contain hidden lg:block" />
               </Link>
-              <AppSidebarMenuButton onClick={() => setMenuOpen(true)} />
+              <AppSidebarMenuButton onClick={() => setMenuOpen((v) => !v)} />
               <div className="flex items-center gap-2 min-w-0 shrink-0">
                 <div className="h-8 w-8 rounded-lg bg-brand-50 flex items-center justify-center shrink-0">
                   <Store className="h-4 w-4 text-brand-600" />
@@ -166,7 +167,10 @@ export default function MyStorePage() {
                 <h1 className="text-base sm:text-lg font-semibold text-slate-900 truncate">My Store</h1>
               </div>
               <div className="flex-1 min-w-0" />
+            <div className="flex items-center gap-2 shrink-0">
               <SearchButton />
+              <ProfileHeaderButton />
+            </div>
             </div>
           </div>
         </header>

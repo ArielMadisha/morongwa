@@ -1,6 +1,6 @@
 import axios from "axios";
 import { MOBILE_API_URL } from "../config";
-import { Advert, TVComment, TVPost, User, UserProfileStats } from "../types";
+import { Advert, CartItem, Product, TVComment, TVPost, User, UserProfileStats, WalletTransaction } from "../types";
 
 let authToken: string | null = null;
 
@@ -66,4 +66,61 @@ export const followsAPI = {
     api.get<{ following: boolean; status: "accepted" | "pending" | null }>(`/follows/${userId}/status`),
   getFollowers: (userId: string) => api.get<{ data: User[] }>(`/follows/${userId}/followers`),
   getFollowing: (userId: string) => api.get<{ data: User[] }>(`/follows/${userId}/following`)
+};
+
+export const productsAPI = {
+  list: (params?: { limit?: number; random?: boolean; q?: string }) =>
+    api.get<{ data?: Product[] }>("/products", {
+      params: {
+        ...params,
+        random: params?.random ? "1" : undefined
+      }
+    }),
+  getByIdOrSlug: (idOrSlug: string) => api.get<{ data?: Product }>(`/products/${idOrSlug}`)
+};
+
+export const cartAPI = {
+  get: () => api.get<{ data?: { items?: CartItem[] } }>("/cart"),
+  add: (productId: string, qty = 1, resellerId?: string) =>
+    api.post<{ data?: { items?: CartItem[] } }>("/cart", { productId, qty, resellerId }),
+  updateItem: (productId: string, qty: number) =>
+    api.put(`/cart/item/${productId}`, { qty }),
+  removeItem: (productId: string) => api.delete(`/cart/item/${productId}`)
+};
+
+export const walletAPI = {
+  getBalance: () => api.get<{ balance?: number }>("/wallet/balance"),
+  getTransactions: (params?: { limit?: number }) =>
+    api.get<WalletTransaction[]>("/wallet/transactions", { params }),
+  topUp: (amount: number, returnPath?: string) =>
+    api.post<{ paymentUrl?: string; reference?: string; message?: string }>("/wallet/topup", {
+      amount,
+      returnPath
+    })
+};
+
+export const checkoutAPI = {
+  quote: (fulfillmentMethod: "delivery" | "collection" = "delivery") =>
+    api.post<{
+      data?: {
+        subtotal: number;
+        shipping: number;
+        total: number;
+        currency?: string;
+        fulfillmentMethod: "delivery" | "collection";
+      };
+    }>("/checkout/quote", { fulfillmentMethod }),
+  pay: (
+    paymentMethod: "wallet" | "card",
+    deliveryAddress?: string,
+    fulfillmentMethod: "delivery" | "collection" = "delivery"
+  ) =>
+    api.post<{
+      data?: {
+        orderId?: string;
+        status?: string;
+        message?: string;
+        paymentUrl?: string;
+      };
+    }>("/checkout/pay", { paymentMethod, deliveryAddress, fulfillmentMethod })
 };

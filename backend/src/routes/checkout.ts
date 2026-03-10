@@ -309,12 +309,12 @@ router.post("/pay", authenticate, async (req: AuthRequest, res: Response, next) 
       amount: total,
       reference,
       email: req.user!.email,
-      returnUrl: `${process.env.FRONTEND_URL || "http://localhost:3001"}/checkout/return?orderId=${order._id}`,
+      returnUrl: `${process.env.FRONTEND_URL || "http://localhost:3000"}/checkout/return?orderId=${order._id}`,
       notifyUrl: `${process.env.BACKEND_URL || "http://localhost:4000"}/api/payments/webhook`,
     });
 
     if (!paymentResult.success) {
-      throw new AppError(paymentResult.error || "Payment initiation failed", 500);
+      throw new AppError(paymentResult.error || "Payment initiation failed", 502);
     }
 
     cart.items = [];

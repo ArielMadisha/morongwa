@@ -23,6 +23,7 @@ import { useCartAndStores } from '@/lib/useCartAndStores';
 import { AppSidebar, AppSidebarMenuButton } from '@/components/AppSidebar';
 import { AdvertSlot } from '@/components/AdvertSlot';
 import { MobileBottomNav } from '@/components/MobileBottomNav';
+import { ProfileHeaderButton } from '@/components/ProfileHeaderButton';
 
 function WalletDashboard() {
   const { user, logout } = useAuth();
@@ -70,7 +71,7 @@ function WalletDashboard() {
         toast.success('Donation sent successfully');
         fetchWalletData();
       } catch (error: any) {
-        toast.error(error?.response?.data?.message || 'Could not complete pending donation');
+        toast.error(error?.response?.data?.error || error?.response?.data?.message || 'Could not complete pending donation');
       }
     };
     void run();
@@ -108,7 +109,7 @@ function WalletDashboard() {
       }
       toast.success('Top-up initiated');
     } catch (error: any) {
-      toast.error(error.response?.data?.message || 'Top-up failed');
+      toast.error(error.response?.data?.error || error.response?.data?.message || 'Top-up failed');
     } finally {
       setIsSubmitting(false);
     }
@@ -183,18 +184,21 @@ function WalletDashboard() {
               <img src="/qwertymates-logo-icon.png" alt="Qwertymates" className="h-8 w-8 object-contain lg:hidden" />
               <img src="/qwertymates-logo.png" alt="Qwertymates" className="h-8 w-auto object-contain hidden lg:block" />
             </Link>
-            <AppSidebarMenuButton onClick={() => setMenuOpen(true)} />
+            <AppSidebarMenuButton onClick={() => setMenuOpen((v) => !v)} />
             <div className="flex items-center gap-2 min-w-0 shrink-0">
               <Wallet className="h-5 w-5 text-sky-600" />
               <h1 className="text-base sm:text-lg font-semibold text-slate-900 truncate">ACBPayWallet</h1>
             </div>
             <div className="flex-1 min-w-0" />
-            <SearchButton />
+            <div className="flex items-center gap-2 shrink-0">
+              <SearchButton />
+              <ProfileHeaderButton />
+            </div>
           </div>
         </div>
       </header>
 
-      <div className="flex flex-1 min-h-0">
+      <div className="flex flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain">
         <AppSidebar
           variant="wall"
           userName={user?.name}
@@ -207,9 +211,10 @@ function WalletDashboard() {
           setMenuOpen={setMenuOpen}
           hideLogo
           belowHeader
+          allowPageScroll
         />
-        <div className="flex-1 flex gap-0 min-h-0 overflow-hidden">
-          <main className="flex-1 min-w-0 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain px-4 sm:px-6 lg:px-8 py-4 pb-24 lg:pb-6">
+        <div className="flex-1 flex gap-0 min-h-0">
+          <main className="flex-1 min-w-0 min-h-0 px-4 sm:px-6 lg:px-8 py-4 pb-24 lg:pb-6">
           <div className="max-w-6xl mx-auto">
           {loading ? (
             <div className="flex min-h-[400px] items-center justify-center">

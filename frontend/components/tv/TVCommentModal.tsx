@@ -1,14 +1,15 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { X, Send, Loader2 } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { X, Send, Loader2, Mic } from 'lucide-react';
 import { tvAPI, getImageUrl } from '@/lib/api';
 import type { TVGridItem } from './TVGridTile';
 import { FollowButton } from '@/components/FollowButton';
 
 interface TVComment {
   _id: string;
-  text: string;
+  text?: string;
+  audioUrl?: string;
   userId: { _id: string; name?: string; avatar?: string };
   createdAt: string;
 }
@@ -26,6 +27,9 @@ export function TVCommentModal({ open, onClose, item, onCommentAdded, currentUse
   const [commentText, setCommentText] = useState('');
   const [loadingComments, setLoadingComments] = useState(false);
   const [postingComment, setPostingComment] = useState(false);
+  const [voiceUrl, setVoiceUrl] = useState('');
+  const [uploadingVoice, setUploadingVoice] = useState(false);
+  const voiceInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!open || !item || item.type === 'product_tile') return;
@@ -37,19 +41,45 @@ export function TVCommentModal({ open, onClose, item, onCommentAdded, currentUse
       .finally(() => setLoadingComments(false));
   }, [open, item?._id]);
 
+  useEffect(() => {
+    if (open) return;
+    setCommentText('');
+    setVoiceUrl('');
+    setUploadingVoice(false);
+    if (voiceInputRef.current) voiceInputRef.current.value = '';
+  }, [open]);
+
   const submitComment = () => {
-    if (!item || !commentText.trim() || postingComment || item.type === 'product_tile') return;
+    if (!item || postingComment || item.type === 'product_tile') return;
+    const text = commentText.trim();
+    if (!text && !voiceUrl) return;
     setPostingComment(true);
     tvAPI
-      .addComment(item._id, commentText.trim())
+      .addComment(item._id, { text: text || undefined, audioUrl: voiceUrl || undefined })
       .then((res) => {
         const newComment = res.data?.data ?? res.data;
         if (newComment) setComments((c) => [...c, newComment]);
         setCommentText('');
+        setVoiceUrl('');
+        if (voiceInputRef.current) voiceInputRef.current.value = '';
         onCommentAdded?.();
         onClose(); // Close modal automatically so user returns to posts
       })
       .finally(() => setPostingComment(false));
+  };
+
+  const handleVoicePick = async (file?: File | null) => {
+    if (!file || uploadingVoice) return;
+    setUploadingVoice(true);
+    try {
+      const res = await tvAPI.uploadCommentAudio(file);
+      const url = res.data?.data?.url ?? (res.data as any)?.url;
+      if (url) setVoiceUrl(url);
+    } catch {
+      setVoiceUrl('');
+    } finally {
+      setUploadingVoice(false);
+    }
   };
 
   if (!open) return null;
@@ -124,7 +154,12 @@ export function TVCommentModal({ open, onClose, item, onCommentAdded, currentUse
                           <FollowButton targetUserId={c.userId._id} currentUserId={currentUserId} className="!px-2 !py-1 !text-xs" />
                         )}
                       </div>
-                      <p className="text-sm text-slate-600">{c.text}</p>
+                      {!!c.text && <p className="text-sm text-slate-600">{c.text}</p>}
+                      {!!c.audioUrl && (
+                        <audio controls className="mt-1 w-full max-w-[260px]">
+                          <source src={getImageUrl(c.audioUrl) || c.audioUrl} />
+                        </audio>
+                      )}
                       <p className="text-xs text-slate-400 mt-0.5">
                         {new Date(c.createdAt).toLocaleDateString()}
                       </p>
@@ -141,6 +176,15 @@ export function TVCommentModal({ open, onClose, item, onCommentAdded, currentUse
           <div className="p-4 border-t border-slate-100 flex-shrink-0">
             <div className="flex gap-2">
               <input
+                ref={voiceInputRef}
+                type="file"
+                accept="audio/*"
+                className="hidden"
+                onChange={(e) => {
+                  void handleVoicePick(e.target.files?.[0] || null);
+                }}
+              />
+              <input
                 type="text"
                 value={commentText}
                 onChange={(e) => setCommentText(e.target.value)}
@@ -149,14 +193,30 @@ export function TVCommentModal({ open, onClose, item, onCommentAdded, currentUse
                 className="flex-1 px-3 py-2 rounded-xl border border-slate-200 text-sm"
               />
               <button
+                onClick={() => voiceInputRef.current?.click()}
+                disabled={uploadingVoice}
+                className="px-3 py-2 rounded-xl border border-slate-200 text-slate-700 disabled:opacity-60"
+                title="Attach voice note"
+              >
+                {uploadingVoice ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mic className="h-4 w-4" />}
+              </button>
+              <button
                 onClick={submitComment}
-                disabled={!commentText.trim() || postingComment}
+                disabled={(!commentText.trim() && !voiceUrl) || postingComment}
                 className="px-4 py-2 rounded-xl bg-sky-500 text-white disabled:opacity-50 flex items-center gap-2"
               >
                 {postingComment ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                 Post
               </button>
             </div>
+            {!!voiceUrl && (
+              <div className="mt-2">
+                <p className="text-xs text-slate-500 mb-1">Voice note attached</p>
+                <audio controls className="w-full max-w-[300px]">
+                  <source src={getImageUrl(voiceUrl) || voiceUrl} />
+                </audio>
+              </div>
+            )}
           </div>
         )}
       </div>

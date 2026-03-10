@@ -152,7 +152,7 @@ export default function SupplierProductsPage() {
           <AppSidebar variant="wall" userName={user?.name} userAvatar={(user as any)?.avatar} cartCount={cartCount} hasStore={hasStore} onLogout={handleLogout} menuOpen={menuOpen} setMenuOpen={setMenuOpen} />
           <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
             <header className="bg-white/85 backdrop-blur-md border-b border-slate-100 px-4 sm:px-6 lg:px-8 py-3 sm:py-4 flex items-center justify-between gap-3 sm:gap-4">
-              <AppSidebarMenuButton onClick={() => setMenuOpen(true)} />
+              <AppSidebarMenuButton onClick={() => setMenuOpen((v) => !v)} />
               <div className="flex-1 min-w-0" />
               <SearchButton />
             </header>
@@ -195,7 +195,7 @@ export default function SupplierProductsPage() {
         <AppSidebar variant="wall" userName={user?.name} userAvatar={(user as any)?.avatar} cartCount={cartCount} hasStore={hasStore} onLogout={handleLogout} menuOpen={menuOpen} setMenuOpen={setMenuOpen} />
         <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
           <header className="bg-white/85 backdrop-blur-md border-b border-slate-100 px-4 sm:px-6 lg:px-8 py-3 sm:py-4 flex items-center justify-between gap-3 sm:gap-4">
-            <AppSidebarMenuButton onClick={() => setMenuOpen(true)} />
+            <AppSidebarMenuButton onClick={() => setMenuOpen((v) => !v)} />
           </header>
           <main className="flex-1 overflow-y-auto px-4 sm:px-6 lg:px-8 py-8 pb-24 lg:pb-8">
             <div className="max-w-xl mx-auto">

@@ -274,7 +274,7 @@ function MessagesPageContent() {
               <img src="/qwertymates-logo-icon.png" alt="Qwertymates" className="h-9 w-9 object-contain lg:hidden" />
               <img src="/qwertymates-logo.png" alt="Qwertymates" className="h-9 w-auto object-contain hidden lg:block" />
             </Link>
-            <AppSidebarMenuButton onClick={() => setMenuOpen(true)} />
+            <AppSidebarMenuButton onClick={() => setMenuOpen((v) => !v)} />
             <div className="flex items-center gap-2 min-w-0 shrink-0">
               <MessageCircle className="h-5 w-5 text-brand-600" />
               <h1 className="text-base sm:text-lg font-semibold text-slate-900 truncate">Morongwa</h1>

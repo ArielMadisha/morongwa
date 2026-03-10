@@ -44,7 +44,7 @@ export function AdvertSlot({ belowHeader }: AdvertSlotProps = {}) {
       setSuggestedUsers([]);
       return;
     }
-    followsAPI.getSuggested(5)
+    followsAPI.getSuggested({ limit: 5 })
       .then((res) => {
         const d = res.data?.data ?? res.data ?? [];
         setSuggestedUsers(Array.isArray(d) ? d : []);

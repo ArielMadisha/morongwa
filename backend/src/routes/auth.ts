@@ -10,6 +10,7 @@ import { registerSchema, loginSchema, sendOtpSchema, verifyOtpSchema } from "../
 import { authLimiter } from "../middleware/rateLimit";
 import { AppError } from "../middleware/errorHandler";
 import { authenticate, AuthRequest } from "../middleware/auth";
+import { sendOtpCode } from "../services/otpDelivery";
 
 const router = express.Router();
 
@@ -35,7 +36,26 @@ const otpStore = new Map<string, { otpHash: string; expiresAt: number }>();
 const OTP_EXPIRY_MS = 5 * 60 * 1000; // 5 minutes
 const OTP_SECRET = process.env.OTP_SECRET || "otp-secret-change-me";
 
-// Send OTP via SMS or WhatsApp (stub - integrate Twilio for SMS, WhatsApp Cloud API for WhatsApp)
+// OTP provider health (safe, no secret values returned)
+router.get("/otp-health", (_req: Request, res: Response) => {
+  const hasSid = !!process.env.TWILIO_ACCOUNT_SID;
+  const hasToken = !!process.env.TWILIO_AUTH_TOKEN;
+  const hasSmsFrom = !!process.env.TWILIO_SMS_FROM;
+  const hasWhatsappFrom = !!process.env.TWILIO_WHATSAPP_FROM;
+  const twilioConfigured = hasSid && hasToken;
+
+  res.json({
+    data: {
+      provider: "twilio",
+      configured: twilioConfigured,
+      smsReady: twilioConfigured && hasSmsFrom,
+      whatsappReady: twilioConfigured && hasWhatsappFrom,
+      mode: process.env.NODE_ENV === "production" ? "production" : "development",
+    },
+  });
+});
+
+// Send OTP via SMS or WhatsApp (Twilio)
 router.post("/send-otp", authLimiter, async (req: Request, res: Response, next) => {
   try {
     const { error } = sendOtpSchema.validate(req.body);
@@ -48,11 +68,7 @@ router.post("/send-otp", authLimiter, async (req: Request, res: Response, next) 
     const otpHash = crypto.createHmac("sha256", OTP_SECRET).update(otp).digest("hex");
     otpStore.set(normalized, { otpHash, expiresAt: Date.now() + OTP_EXPIRY_MS });
 
-    // TODO: Integrate Twilio (SMS) and WhatsApp Cloud API to send OTP
-    // For dev, log OTP (remove in production)
-    if (process.env.NODE_ENV !== "production") {
-      console.log(`[DEV] OTP for ${normalized} (${channel}): ${otp}`);
-    }
+    await sendOtpCode({ phone: normalized, channel, otp });
 
     const channelLabel = channel === "sms" ? "SMS" : "WhatsApp";
     res.json({ message: `OTP sent via ${channelLabel}`, sent: true });

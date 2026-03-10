@@ -37,6 +37,8 @@ interface AppSidebarProps {
   hideLogo?: boolean;
   /** Sidebar is below a fixed header - stick below it */
   belowHeader?: boolean;
+  /** Use page-level scrolling instead of sidebar scroll capture */
+  allowPageScroll?: boolean;
 }
 
 export function AppSidebar({
@@ -49,6 +51,7 @@ export function AppSidebar({
   setMenuOpen,
   hideLogo = false,
   belowHeader = false,
+  allowPageScroll = true,
 }: AppSidebarProps) {
   const pathname = usePathname();
   const isActive = (href: string) => pathname === href || (href !== '/' && pathname.startsWith(href));
@@ -81,7 +84,7 @@ export function AppSidebar({
         {hideLogo && null}
       </div>
 
-      <nav className={`flex-1 p-3 space-y-0 min-h-0 overflow-y-auto ${hideLogo ? 'pt-4' : ''}`}>
+      <nav className={`flex-1 p-3 space-y-0 min-h-0 ${allowPageScroll ? 'overflow-visible' : 'overflow-y-auto'} ${hideLogo ? 'pt-4' : ''}`}>
         {navItems.map(({ href, label, icon: Icon, badge, showChevron, customIcon, transparentBg }) => (
           <Link
             key={href}

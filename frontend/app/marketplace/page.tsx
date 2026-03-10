@@ -10,6 +10,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useCartAndStores } from '@/lib/useCartAndStores';
 import { AppSidebar, AppSidebarMenuButton } from '@/components/AppSidebar';
 import { SearchButton } from '@/components/SearchButton';
+import { ProfileHeaderButton } from '@/components/ProfileHeaderButton';
 import { AdvertSlot } from '@/components/AdvertSlot';
 import { MobileBottomNav } from '@/components/MobileBottomNav';
 
@@ -66,7 +67,7 @@ function MarketplacePageContent() {
               <img src="/qwertymates-logo-icon.png" alt="Qwertymates" className="h-9 w-9 object-contain lg:hidden" />
               <img src="/qwertymates-logo.png" alt="Qwertymates" className="h-9 w-auto object-contain hidden lg:block" />
             </Link>
-            {!isGuest && <AppSidebarMenuButton onClick={() => setMenuOpen(true)} />}
+            {!isGuest && <AppSidebarMenuButton onClick={() => setMenuOpen((v) => !v)} />}
             <div className="flex items-center gap-2 min-w-0 shrink-0">
               <div className="h-8 w-8 rounded-lg bg-brand-50 flex items-center justify-center shrink-0">
                 <ShoppingBag className="h-4 w-4 text-brand-600" />
@@ -75,9 +76,9 @@ function MarketplacePageContent() {
             </div>
             <div className="flex-1 min-w-0" />
             <div className="flex items-center gap-2 sm:gap-3 shrink-0">
-                <SearchButton />
                 {isGuest ? (
                   <>
+                    <SearchButton />
                     <Link href="/login" className="shrink-0 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 sm:px-4 sm:py-2 text-xs sm:text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors">
                       Sign in
                     </Link>
@@ -91,6 +92,8 @@ function MarketplacePageContent() {
                       <span className="hidden sm:inline">Become a supplier</span>
                       <span className="sm:hidden">Supplier</span>
                     </Link>
+                    <SearchButton />
+                    <ProfileHeaderButton />
                   </>
                 )}
             </div>

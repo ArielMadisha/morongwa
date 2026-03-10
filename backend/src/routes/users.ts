@@ -311,7 +311,7 @@ router.delete("/:id", authenticate, async (req: AuthRequest, res: Response, next
   }
 });
 
-// List users (with pagination and search)
+// List users (with pagination and search) - MacGyver super search: 1-char ok, relevance sorted
 router.get("/", authenticate, async (req: AuthRequest, res: Response, next) => {
   try {
     const { page, limit, q } = req.query;
@@ -323,7 +323,7 @@ router.get("/", authenticate, async (req: AuthRequest, res: Response, next) => {
     const query: any = { active: true };
     if (req.query.role) query.role = { $in: [req.query.role] };
     const search = (q as string)?.trim();
-    if (search && search.length >= 2) {
+    if (search && search.length >= 1) {
       query.$or = [
         { name: { $regex: search, $options: "i" } },
         { username: { $regex: search, $options: "i" } },
@@ -331,13 +331,62 @@ router.get("/", authenticate, async (req: AuthRequest, res: Response, next) => {
       ];
     }
 
+    // Relevance sort: name/username starting with search first, then contains (MacGyver super search)
+    const searchLower = search?.toLowerCase() || "";
+    const searchLen = searchLower.length;
+    const sortStages =
+      searchLen >= 1
+        ? [
+            {
+              $addFields: {
+                _relevance: {
+                  $switch: {
+                    branches: [
+                      {
+                        case: {
+                          $or: [
+                            { $eq: [{ $toLower: { $substrCP: [{ $ifNull: ["$name", ""] }, 0, searchLen] } }, searchLower] },
+                            { $eq: [{ $toLower: { $substrCP: [{ $ifNull: ["$username", ""] }, 0, searchLen] } }, searchLower] },
+                          ],
+                        },
+                        then: 2,
+                      },
+                      {
+                        case: {
+                          $or: [
+                            { $gt: [{ $indexOfCP: [{ $toLower: { $ifNull: ["$name", ""] } }, searchLower] }, -1] },
+                            { $gt: [{ $indexOfCP: [{ $toLower: { $ifNull: ["$username", ""] } }, searchLower] }, -1] },
+                          ],
+                        },
+                        then: 1,
+                      },
+                    ],
+                    default: 0,
+                  },
+                },
+              },
+            },
+            { $sort: { _relevance: -1 as 1 | -1, name: 1 as 1 | -1 } },
+            { $project: { _relevance: 0 } },
+          ]
+        : [];
+
+    const baseQuery = User.find(query).select("-passwordHash");
     const [users, total] = await Promise.all([
-      User.find(query).select("-passwordHash").skip(skip).limit(limitNum),
+      sortStages.length > 0
+        ? User.aggregate([
+            { $match: query },
+            { $project: { passwordHash: 0 } },
+            ...sortStages,
+            { $skip: skip },
+            { $limit: limitNum },
+          ])
+        : baseQuery.skip(skip).limit(limitNum).lean(),
       User.countDocuments(query),
     ]);
 
     res.json({
-      users,
+      users: Array.isArray(users) ? users : [],
       pagination: {
         total,
         page: Math.floor(skip / limitNum) + 1,

@@ -71,7 +71,16 @@ export default function CheckoutPage() {
       const d = res.data?.data ?? res.data;
       if (d?.paymentUrl) { window.location.href = d.paymentUrl; return; }
       if (d?.status === 'paid') { toast.success('Order paid with wallet'); window.location.href = `/checkout/order/${d.orderId}`; }
-    }).catch((err) => { toast.error(err.response?.data?.message ?? err.message ?? 'Payment failed'); setPaying(false); });
+    }).catch((err) => {
+      const status = Number(err?.response?.status || 0);
+      const backendMessage = err?.response?.data?.error || err?.response?.data?.message;
+      if (status === 502) {
+        toast.error(backendMessage || 'Card gateway is unavailable right now. Please try again shortly or use wallet.');
+      } else {
+        toast.error(backendMessage || err.message || 'Payment failed');
+      }
+      setPaying(false);
+    });
   };
 
   if (loading || !quote) {
@@ -87,10 +96,10 @@ export default function CheckoutPage() {
   const canPayWallet = walletBalance != null && quote.total <= walletBalance;
   const walletStatusText =
     walletBalance == null || walletBalance <= 0
-      ? 'Balance R0'
+      ? 'Load Wallet - R0'
       : walletBalance < 50
-      ? `Low Credit ${formatCreditAmount(walletBalance)}`
-      : `Credit ${formatCreditAmount(walletBalance)}`;
+      ? `Balance Low - ${formatCreditAmount(walletBalance)}`
+      : formatCreditAmount(walletBalance);
 
   return (
     <ProtectedRoute>
@@ -102,7 +111,7 @@ export default function CheckoutPage() {
                 <img src="/qwertymates-logo-icon.png" alt="Qwertymates" className="h-9 w-9 object-contain lg:hidden" />
                 <img src="/qwertymates-logo.png" alt="Qwertymates" className="h-9 w-auto object-contain hidden lg:block" />
               </Link>
-              <AppSidebarMenuButton onClick={() => setMenuOpen(true)} />
+              <AppSidebarMenuButton onClick={() => setMenuOpen((v) => !v)} />
               <div className="flex items-center gap-2 min-w-0 shrink-0">
                 <div className="h-8 w-8 rounded-lg bg-brand-50 flex items-center justify-center shrink-0">
                   <ShoppingBag className="h-4 w-4 text-brand-600" />
@@ -199,19 +208,20 @@ export default function CheckoutPage() {
               </div>
             </div>
           </div>
-          <button type="button" onClick={handlePay} disabled={paying || (paymentMethod === 'wallet' && !canPayWallet)} className="w-full flex items-center justify-center gap-2 bg-sky-600 text-white py-4 rounded-xl hover:bg-sky-700 disabled:opacity-50 font-semibold text-lg">
-            {paying ? <Loader2 className="h-5 w-5 animate-spin" /> : paymentMethod === 'wallet' && !canPayWallet ? 'Insufficient balance' : paymentMethod === 'card' ? 'Pay with card' : 'Pay with wallet'}
-          </button>
+          {paymentMethod === 'wallet' && !canPayWallet ? (
+            <div className="w-full rounded-2xl bg-sky-400 py-6 flex items-center justify-center">
+              <div className="px-8 py-1.5 text-2xl font-semibold text-white tracking-tight">
+                {walletStatusText}
+              </div>
+            </div>
+          ) : (
+            <button type="button" onClick={handlePay} disabled={paying} className="w-full flex items-center justify-center gap-2 bg-sky-600 text-white py-4 rounded-xl hover:bg-sky-700 disabled:opacity-50 font-semibold text-lg">
+              {paying ? <Loader2 className="h-5 w-5 animate-spin" /> : paymentMethod === 'card' ? 'Pay with card' : 'Pay with wallet'}
+            </button>
+          )}
           {paymentMethod === 'wallet' && walletBalance != null && quote.total > walletBalance && (
             <div className="mt-3 flex flex-col items-center gap-2">
-              <p className="text-sm text-amber-600 text-center">{walletStatusText}</p>
               <div className="flex flex-wrap items-center justify-center gap-2">
-                <Link
-                  href="/wallet"
-                  className="inline-flex items-center rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-700 hover:bg-amber-100"
-                >
-                  Top up wallet
-                </Link>
                 <button
                   type="button"
                   onClick={() => setPaymentMethod('card')}

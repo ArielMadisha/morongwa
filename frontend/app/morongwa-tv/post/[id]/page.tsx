@@ -114,7 +114,7 @@ export default function PostPage() {
                 <img src="/qwertymates-logo-icon.png" alt="Qwertymates" className="h-8 w-8 object-contain lg:hidden" />
                 <img src="/qwertymates-logo.png" alt="Qwertymates" className="h-8 w-auto object-contain hidden lg:block" />
               </Link>
-              <AppSidebarMenuButton onClick={() => setMenuOpen(true)} />
+              <AppSidebarMenuButton onClick={() => setMenuOpen((v) => !v)} />
               <div className="flex items-center gap-2 min-w-0 shrink-0">
                 <Tv className="h-5 w-5 text-sky-600" />
                 <h1 className="text-base sm:text-lg font-semibold text-slate-900 truncate">Post</h1>

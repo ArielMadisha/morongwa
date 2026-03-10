@@ -113,7 +113,7 @@ export default function SiteHeader({ minimal }: SiteHeaderProps) {
             )}
           </nav>
 
-          {/* Mobile: Ask McGyver + profile + hamburger */}
+          {/* Mobile: Ask MacGyver + profile + hamburger */}
           <div className="md:hidden flex items-center gap-1">
             <SearchButton className="max-w-[140px]" />
             {isAuthenticated && user ? (

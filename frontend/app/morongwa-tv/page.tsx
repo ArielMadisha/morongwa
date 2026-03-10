@@ -10,6 +10,7 @@ import ProtectedRoute from '@/components/ProtectedRoute';
 import { useCartAndStores } from '@/lib/useCartAndStores';
 import { AppSidebar, AppSidebarMenuButton } from '@/components/AppSidebar';
 import { SearchButton } from '@/components/SearchButton';
+import { ProfileHeaderButton } from '@/components/ProfileHeaderButton';
 import { TVGridTileWithObserver } from '@/components/tv/TVGridTileWithObserver';
 import type { TVGridItem } from '@/components/tv/TVGridTile';
 import { CreatePostModal } from '@/components/tv/CreatePostModal';
@@ -29,6 +30,7 @@ function MorongwaTVPageContent() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
+  const [hasMore, setHasMore] = useState(true);
   const [createOpen, setCreateOpen] = useState(false);
   const [enquireOpen, setEnquireOpen] = useState(false);
   const [enquireProductId, setEnquireProductId] = useState<string | null>(null);
@@ -60,14 +62,23 @@ function MorongwaTVPageContent() {
   const loadFeed = useCallback(async (pageNum = 1, append = false) => {
     if (pageNum === 1) setLoading(true);
     else setLoadingMore(true);
+    if (pageNum === 1) setHasMore(true);
     try {
       const res = await tvAPI.getFeed({ page: pageNum, limit, type: 'video', genre: genre || undefined });
       const data = res.data?.data ?? res.data ?? [];
       const posts = Array.isArray(data) ? data : [];
-      setTotal(res.data?.total ?? posts.length);
-      setGridItems((prev) => (append ? [...prev, ...posts] : posts));
+      const fetchedTotal = Number(res.data?.total ?? posts.length);
+      setTotal(fetchedTotal);
+      let nextCount = posts.length;
+      setGridItems((prev) => {
+        const next = append ? [...prev, ...posts] : posts;
+        nextCount = next.length;
+        return next;
+      });
+      setHasMore(nextCount < fetchedTotal && posts.length > 0);
     } catch {
       if (!append) setGridItems([]);
+      if (append) setHasMore(false);
     } finally {
       setLoading(false);
       setLoadingMore(false);
@@ -91,11 +102,11 @@ function MorongwaTVPageContent() {
   }, [router, searchParams]);
 
   const loadMore = useCallback(() => {
-    if (loadingMore || gridItems.length >= total) return;
+    if (!hasMore || loadingMore || gridItems.length >= total) return;
     const nextPage = page + 1;
     setPage(nextPage);
     loadFeed(nextPage, true);
-  }, [loadingMore, gridItems.length, total, page, loadFeed]);
+  }, [hasMore, loadingMore, gridItems.length, total, page, loadFeed]);
 
   useEffect(() => {
     const sentinel = loadMoreSentinelRef.current;
@@ -104,7 +115,7 @@ function MorongwaTVPageContent() {
     const observer = new IntersectionObserver(
       (entries) => {
         const [e] = entries;
-        if (e?.isIntersecting && !loading && !loadingMore && gridItems.length < total && gridItems.length > 0) {
+        if (e?.isIntersecting && hasMore && !loading && !loadingMore && gridItems.length < total && gridItems.length > 0) {
           loadMore();
         }
       },
@@ -112,7 +123,7 @@ function MorongwaTVPageContent() {
     );
     observer.observe(sentinel);
     return () => observer.disconnect();
-  }, [loadMore, loading, loadingMore, gridItems.length, total]);
+  }, [loadMore, hasMore, loading, loadingMore, gridItems.length, total]);
 
   const handleLike = (id: string, liked: boolean) => {
     setLikedMap((m) => ({ ...m, [id]: liked }));
@@ -195,7 +206,7 @@ function MorongwaTVPageContent() {
               <img src="/qwertymates-logo-icon.png" alt="Qwertymates" className="h-8 w-8 object-contain lg:hidden" />
               <img src="/qwertymates-logo.png" alt="Qwertymates" className="h-8 w-auto object-contain hidden lg:block" />
             </Link>
-            <AppSidebarMenuButton onClick={() => setMenuOpen(true)} />
+            <AppSidebarMenuButton onClick={() => setMenuOpen((v) => !v)} />
             <button
               onClick={() => setCreateOpen(true)}
               className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-brand-500 text-white font-medium hover:bg-brand-600 transition-colors shrink-0"
@@ -234,15 +245,16 @@ function MorongwaTVPageContent() {
               )}
             </div>
             <div className="flex items-center gap-2 shrink-0">
-              <SearchButton />
               <QwertyTVWithGenres selectedGenre={genre} onGenreSelect={setGenre} />
+              <SearchButton />
+              <ProfileHeaderButton />
             </div>
           </div>
         </div>
       </header>
 
       {/* Menu (sidebar) + content below header */}
-      <div className="flex flex-1 min-h-0">
+      <div ref={containerRef} className="flex flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain">
         <AppSidebar
           variant="wall"
           userName={user?.name}
@@ -255,8 +267,9 @@ function MorongwaTVPageContent() {
           setMenuOpen={setMenuOpen}
           hideLogo
           belowHeader
+          allowPageScroll
         />
-        <div ref={containerRef} className="flex-1 flex flex-col lg:flex-row gap-0 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain">
+        <div className="flex-1 flex flex-col lg:flex-row gap-0 min-h-0">
         <main className="flex-1 min-w-0 px-4 sm:px-6 lg:px-8 py-4 pb-24 lg:pb-6 order-2 lg:order-none">
           {loading && allItems.length === 0 ? (
             <div className="flex justify-center py-24">
@@ -294,7 +307,7 @@ function MorongwaTVPageContent() {
             </div>
           )}
 
-          {!loading && allItems.length < total && (
+          {!loading && hasMore && allItems.length < total && (
             <div ref={loadMoreSentinelRef} className="flex justify-center py-8 min-h-[80px]">
               {loadingMore ? (
                 <Loader2 className="h-8 w-8 text-sky-500 animate-spin" />

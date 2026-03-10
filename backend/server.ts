@@ -45,6 +45,7 @@ import advertsRoutes from "./src/routes/adverts";
 import landingBackgroundsRoutes from "./src/routes/landingBackgrounds";
 import followsRoutes from "./src/routes/follows";
 import musicRoutes from "./src/routes/music";
+import { getCardPaymentConfigIssues } from "./src/services/payment";
 import { ensureDefaultPolicies } from "./src/services/policyService";
 import { seedPricingConfig } from "./src/services/pricingConfig";
 import { ensureDefaultProducts } from "./src/services/marketplaceSeed";
@@ -57,6 +58,7 @@ const server = http.createServer(app);
 const allowedOrigins = [
   "http://localhost:3000",
   "http://localhost:3001",
+  "http://localhost:8081",
   process.env.FRONTEND_URL,
 ].filter(Boolean) as string[];
 
@@ -179,6 +181,14 @@ const startServer = async () => {
     logger.info(`📝 Environment: ${process.env.NODE_ENV || "development"}`);
     logger.info(`🔗 API: http://localhost:${PORT}/api`);
     logger.info(`💬 Socket.IO: http://localhost:${PORT}`);
+    const paymentConfigIssues = getCardPaymentConfigIssues();
+    if (paymentConfigIssues.length > 0) {
+      logger.warn(
+        `⚠️ Card payments are blocked in current config: ${paymentConfigIssues.join(
+          ", "
+        )}. Configure public FRONTEND_URL/BACKEND_URL for PayGate.`
+      );
+    }
     if (!isDbConnected()) {
       logger.warn("⚠️ MongoDB not connected. API will return 503 until DB is available.");
     }

@@ -2,6 +2,7 @@ import express, { Response } from "express";
 import fs from "fs";
 import path from "path";
 import mongoose from "mongoose";
+import multer from "multer";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import TVPost from "../data/models/TVPost";
@@ -18,6 +19,35 @@ import { moderateMedia } from "../services/contentModeration";
 const router = express.Router();
 const execFileAsync = promisify(execFile);
 const QWERTZ_MAX_DURATION_SECONDS = 180;
+
+const commentAudioStorage = multer.diskStorage({
+  destination: (_req, _file, cb) => cb(null, path.join(__dirname, "../../uploads/tv")),
+  filename: (_req, file, cb) => {
+    const unique = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+    const ext = path.extname(file.originalname || "") || ".m4a";
+    cb(null, `tv-comment-audio-${unique}${ext}`);
+  },
+});
+
+const commentAudioUpload = multer({
+  storage: commentAudioStorage,
+  fileFilter: (_req, file, cb) => {
+    const allowed = [
+      "audio/mpeg",
+      "audio/mp3",
+      "audio/wav",
+      "audio/x-wav",
+      "audio/webm",
+      "audio/ogg",
+      "audio/mp4",
+      "audio/aac",
+      "audio/x-m4a",
+    ];
+    if (allowed.includes(file.mimetype)) cb(null, true);
+    else cb(new AppError("Invalid audio format for voice note", 400));
+  },
+  limits: { fileSize: 20 * 1024 * 1024 },
+});
 
 function mediaUrl(filename: string) {
   return `/uploads/tv/${filename}`;
@@ -275,6 +305,17 @@ router.post("/upload-images", authenticate, tvUploadMultiple.array("images", 20)
   }
 });
 
+// POST /api/tv/comments/upload-audio - upload voice note for comments
+router.post("/comments/upload-audio", authenticate, commentAudioUpload.single("audio"), async (req: AuthRequest, res: Response, next) => {
+  try {
+    if (!req.file) throw new AppError("No audio uploaded", 400);
+    const url = mediaUrl(req.file.filename);
+    res.json({ data: { url } });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // GET /api/tv/watermark - must be before /:id
 router.get("/watermark", (_req, res) => {
   res.json({ data: { watermark: TV_WATERMARK } });
@@ -447,15 +488,17 @@ router.get("/:id/comments", async (req: express.Request, res: Response, next) =>
 // POST /api/tv/:id/comments
 router.post("/:id/comments", authenticate, async (req: AuthRequest, res: Response, next) => {
   try {
-    const { text } = req.body;
-    if (!text?.trim()) throw new AppError("text required", 400);
+    const rawText = typeof req.body?.text === "string" ? req.body.text.trim() : "";
+    const audioUrl = typeof req.body?.audioUrl === "string" ? req.body.audioUrl.trim() : "";
+    if (!rawText && !audioUrl) throw new AppError("text or audioUrl is required", 400);
     const post = await TVPost.findById(req.params.id);
     if (!post) throw new AppError("Post not found", 404);
 
     const comment = await TVComment.create({
       postId: post._id,
       userId: req.user!._id,
-      text: text.trim().substring(0, 1000),
+      text: rawText ? rawText.substring(0, 1000) : undefined,
+      audioUrl: audioUrl || undefined,
     });
     await TVPost.findByIdAndUpdate(post._id, { $inc: { commentCount: 1 } });
     const populated = await TVComment.findById(comment._id).populate("userId", "name avatar").lean();

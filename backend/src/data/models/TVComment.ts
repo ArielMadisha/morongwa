@@ -3,7 +3,8 @@ import mongoose, { Schema, Document } from "mongoose";
 export interface ITVComment extends Document {
   postId: mongoose.Types.ObjectId;
   userId: mongoose.Types.ObjectId;
-  text: string;
+  text?: string;
+  audioUrl?: string;
   parentId?: mongoose.Types.ObjectId;
   status: "visible" | "hidden" | "removed";
   aiModerated?: boolean;
@@ -16,7 +17,8 @@ const TVCommentSchema = new Schema<ITVComment>(
   {
     postId: { type: Schema.Types.ObjectId, ref: "TVPost", required: true },
     userId: { type: Schema.Types.ObjectId, ref: "User", required: true },
-    text: { type: String, required: true, maxlength: 1000 },
+    text: { type: String, maxlength: 1000, trim: true },
+    audioUrl: { type: String },
     parentId: { type: Schema.Types.ObjectId, ref: "TVComment" },
     status: { type: String, enum: ["visible", "hidden", "removed"], default: "visible" },
     aiModerated: { type: Boolean },

@@ -32,6 +32,7 @@ function WallPageContent() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
+  const [hasMore, setHasMore] = useState(true);
   const [createOpen, setCreateOpen] = useState(false);
   const [statusRefreshKey, setStatusRefreshKey] = useState(0);
   const [latestCreatedPost, setLatestCreatedPost] = useState<TVGridItem | null>(null);
@@ -48,19 +49,28 @@ function WallPageContent() {
   const loadFeed = useCallback(async (pageNum = 1, append = false) => {
     if (pageNum === 1) setLoading(true);
     else setLoadingMore(true);
+    if (pageNum === 1) setHasMore(true);
     try {
       const res = await tvAPI.getFeed({ page: pageNum, limit, q: searchQ || undefined });
       const data = res.data?.data ?? res.data ?? [];
       const posts = Array.isArray(data) ? data : [];
-      setTotal(res.data?.total ?? posts.length);
-      setGridItems((prev) => (append ? [...prev, ...posts] : posts));
+      const fetchedTotal = Number(res.data?.total ?? posts.length);
+      setTotal(fetchedTotal);
+      let nextCount = posts.length;
+      setGridItems((prev) => {
+        const next = append ? [...prev, ...posts] : posts;
+        nextCount = next.length;
+        return next;
+      });
+      setHasMore(nextCount < fetchedTotal && posts.length > 0);
     } catch {
       if (!append) setGridItems([]);
+      if (append) setHasMore(false);
     } finally {
       setLoading(false);
       setLoadingMore(false);
     }
-  }, [searchQ]);
+  }, [searchQ, limit]);
 
   const [productTiles, setProductTiles] = useState<TVGridItem[]>([]);
   const [featuredProducts, setFeaturedProducts] = useState<(Product & { _id: string })[]>([]);
@@ -121,11 +131,11 @@ function WallPageContent() {
   }, []);
 
   const loadMore = useCallback(() => {
-    if (loadingMore || gridItems.length >= total) return;
+    if (!hasMore || loadingMore || gridItems.length >= total) return;
     const nextPage = page + 1;
     setPage(nextPage);
     loadFeed(nextPage, true);
-  }, [loadingMore, gridItems.length, total, page, loadFeed]);
+  }, [hasMore, loadingMore, gridItems.length, total, page, loadFeed]);
 
   useEffect(() => {
     const sentinel = loadMoreSentinelRef.current;
@@ -134,7 +144,7 @@ function WallPageContent() {
     const observer = new IntersectionObserver(
       (entries) => {
         const [e] = entries;
-        if (e?.isIntersecting && !loading && !loadingMore && gridItems.length < total && gridItems.length > 0) {
+        if (e?.isIntersecting && hasMore && !loading && !loadingMore && gridItems.length < total && gridItems.length > 0) {
           loadMore();
         }
       },
@@ -142,7 +152,7 @@ function WallPageContent() {
     );
     observer.observe(sentinel);
     return () => observer.disconnect();
-  }, [loadMore, loading, loadingMore, gridItems.length, total]);
+  }, [loadMore, hasMore, loading, loadingMore, gridItems.length, total]);
 
   const handleSetProfilePicFromUrl = async (url: string) => {
     if (!user?._id && !user?.id) return;
@@ -258,13 +268,15 @@ function WallPageContent() {
     <div className="min-h-screen flex flex-col bg-gradient-to-br from-sky-50 via-blue-50 to-white text-slate-900">
       {/* Full-width frozen header - logo at top-left */}
       <header className="sticky top-0 z-40 w-full bg-white/95 backdrop-blur-md border-b border-slate-100 shadow-sm flex-shrink-0">
-        <div className="px-4 sm:px-6 lg:px-8 py-2 sm:py-3">
-          <div className="flex items-center justify-between gap-3 sm:gap-4 min-w-0 overflow-hidden">
-            <Link href="/wall" className="shrink-0 flex items-center" aria-label="Home">
-              <img src="/qwertymates-logo-icon.png" alt="Qwertymates" className="h-9 w-9 object-contain lg:hidden" />
-              <img src="/qwertymates-logo.png" alt="Qwertymates" className="h-9 w-auto object-contain hidden lg:block" />
-            </Link>
-            <AppSidebarMenuButton onClick={() => setMenuOpen(true)} />
+        <div className="px-3 sm:px-6 lg:px-8 py-2 sm:py-3">
+          <div className="flex items-center justify-between gap-2 sm:gap-4 min-w-0 overflow-hidden">
+            <div className="shrink-0 flex items-center gap-1 sm:gap-2">
+              <Link href="/wall" className="shrink-0 flex items-center" aria-label="Home">
+                <img src="/qwertymates-logo-icon.png" alt="Qwertymates" className="h-9 w-9 sm:h-10 sm:w-10 object-contain lg:hidden" />
+                <img src="/qwertymates-logo.png" alt="Qwertymates" className="h-7 sm:h-9 w-auto max-w-[112px] sm:max-w-none object-contain hidden lg:block" />
+              </Link>
+              <AppSidebarMenuButton onClick={() => setMenuOpen((v) => !v)} />
+            </div>
             <div className="flex-1 min-w-0 overflow-hidden">
               <StatusesStrip
                 currentUserId={user?._id || user?.id}
@@ -276,7 +288,7 @@ function WallPageContent() {
                 currentUserName={user?.name}
               />
             </div>
-            <SearchButton />
+            <SearchButton className="hidden lg:flex" />
             <ProfileHeaderButton />
           </div>
         </div>
@@ -348,7 +360,7 @@ function WallPageContent() {
             </div>
           )}
 
-          {!loading && gridItems.length < total && (
+          {!loading && hasMore && gridItems.length < total && (
             <div ref={loadMoreSentinelRef} className="flex justify-center py-8 min-h-[80px]">
               {loadingMore ? (
                 <Loader2 className="h-8 w-8 text-sky-500 animate-spin" />
@@ -365,11 +377,11 @@ function WallPageContent() {
 
       <Link
         href="/messages"
-        className="fixed right-4 bottom-20 lg:bottom-6 z-40 flex items-center gap-2 px-4 py-3 rounded-full bg-sky-500 text-white shadow-lg hover:bg-sky-600 hover:shadow-xl transition-all font-semibold"
+        className="fixed right-4 bottom-[8.25rem] sm:bottom-36 lg:bottom-24 z-40 flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-4 py-2 sm:py-3 rounded-full bg-sky-500 text-white shadow-lg hover:bg-sky-600 hover:shadow-xl transition-all font-semibold"
         aria-label="Morongwa"
       >
-        <MessageSquare className="h-6 w-6 shrink-0" />
-        <span>Morongwa</span>
+        <MessageSquare className="h-4 w-4 sm:h-6 sm:w-6 shrink-0" />
+        <span className="text-xs sm:text-base">Morongwa</span>
       </Link>
 
       <CreatePostModal
