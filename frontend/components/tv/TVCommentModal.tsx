@@ -5,6 +5,29 @@ import { X, Send, Loader2, Mic } from 'lucide-react';
 import { tvAPI, getImageUrl } from '@/lib/api';
 import type { TVGridItem } from './TVGridTile';
 import { FollowButton } from '@/components/FollowButton';
+import { TranslateText } from '@/components/TranslateText';
+
+function formatTimeAgo(date: string) {
+  if (!date) return "";
+  const d = new Date(date);
+  if (Number.isNaN(d.getTime())) return "";
+  const now = new Date();
+  const diffMs = Math.max(0, now.getTime() - d.getTime());
+  const diffSec = Math.floor(diffMs / 1000);
+  const diffMin = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMs / 3600000);
+  const diffDays = Math.floor(diffMs / 86400000);
+  const diffMonths = Math.floor(diffDays / 30);
+  const diffYears = Math.floor(diffDays / 365);
+
+  if (diffSec < 60) return "Just now";
+  if (diffMin < 60) return `${diffMin} minute${diffMin === 1 ? "" : "s"} ago`;
+  if (diffHours < 2) return "An hour ago";
+  if (diffHours < 24) return `${diffHours} hours ago`;
+  if (diffDays < 30) return `${diffDays} day${diffDays === 1 ? "" : "s"} ago`;
+  if (diffMonths < 12) return `${diffMonths} month${diffMonths === 1 ? "" : "s"} ago`;
+  return `${diffYears} year${diffYears === 1 ? "" : "s"} ago`;
+}
 
 interface TVComment {
   _id: string;
@@ -119,7 +142,9 @@ export function TVCommentModal({ open, onClose, item, onCommentAdded, currentUse
                     )}
                   </div>
                   {item.caption && (
-                    <p className="text-sm text-slate-600 line-clamp-2 mt-0.5">{item.caption}</p>
+                    <p className="text-sm text-slate-600 line-clamp-2 mt-0.5">
+                      <TranslateText text={item.caption} as="span" compact />
+                    </p>
                   )}
                 </div>
               </div>
@@ -154,14 +179,18 @@ export function TVCommentModal({ open, onClose, item, onCommentAdded, currentUse
                           <FollowButton targetUserId={c.userId._id} currentUserId={currentUserId} className="!px-2 !py-1 !text-xs" />
                         )}
                       </div>
-                      {!!c.text && <p className="text-sm text-slate-600">{c.text}</p>}
+                      {!!c.text && (
+                        <p className="text-sm text-slate-600">
+                          <TranslateText text={c.text} as="span" compact />
+                        </p>
+                      )}
                       {!!c.audioUrl && (
                         <audio controls className="mt-1 w-full max-w-[260px]">
                           <source src={getImageUrl(c.audioUrl) || c.audioUrl} />
                         </audio>
                       )}
                       <p className="text-xs text-slate-400 mt-0.5">
-                        {new Date(c.createdAt).toLocaleDateString()}
+                        {formatTimeAgo(c.createdAt)}
                       </p>
                     </div>
                   </div>

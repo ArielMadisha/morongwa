@@ -17,6 +17,11 @@ function CheckoutReturnContent() {
       setStatus('not_found');
       return;
     }
+    // Music-only payment: reference is MUSIC-xxx, no Order record
+    if (orderId.startsWith('MUSIC-')) {
+      setStatus('paid');
+      return;
+    }
     checkoutAPI.getOrder(orderId).then((res) => {
       const order = res.data?.data ?? res.data;
       if (!order) {
@@ -39,8 +44,12 @@ function CheckoutReturnContent() {
         <>
           <CheckCircle className="h-16 w-16 text-emerald-500 mx-auto mb-6" />
           <h1 className="text-2xl font-bold text-slate-900 mb-2">Payment successful</h1>
-          <p className="text-slate-600 mb-6">Your order has been paid. We will process it shortly.</p>
-          <Link href={orderId ? `/checkout/order/${orderId}` : '/dashboard'} className="inline-flex items-center gap-2 bg-sky-600 text-white px-6 py-3 rounded-xl hover:bg-sky-700 font-medium">View order</Link>
+          <p className="text-slate-600 mb-6">
+            {orderId?.startsWith('MUSIC-') ? 'Your music purchase is complete. Downloads are available in your library.' : 'Your order has been paid. We will process it shortly.'}
+          </p>
+          <Link href={orderId && !orderId.startsWith('MUSIC-') ? `/checkout/order/${orderId}` : '/qwerty-music'} className="inline-flex items-center gap-2 bg-sky-600 text-white px-6 py-3 rounded-xl hover:bg-sky-700 font-medium">
+            {orderId?.startsWith('MUSIC-') ? 'Browse QwertyMusic' : 'View order'}
+          </Link>
         </>
       )}
       {status === 'pending' && (

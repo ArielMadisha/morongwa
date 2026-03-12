@@ -4,6 +4,20 @@ import { Advert, CartItem, Product, TVComment, TVPost, User, UserProfileStats, W
 
 let authToken: string | null = null;
 
+const API_BASE = MOBILE_API_URL.replace(/\/api\/?$/, "").replace(/\/$/, "");
+
+/** Normalize media URL and return absolute URL for Image/Video. Handles bare filenames (legacy). */
+export function toAbsoluteMediaUrl(url?: string): string {
+  if (!url) return "";
+  if (url.startsWith("http://") || url.startsWith("https://")) return url;
+  let path = url.trim();
+  if (path.startsWith("/uploads/")) return `${API_BASE}${path}`;
+  if (path.startsWith("/")) return `${API_BASE}${path}`;
+  // Bare filename (legacy): tv-* -> /uploads/tv/, else -> /uploads/
+  const prefix = path.startsWith("tv-") ? "/uploads/tv/" : "/uploads/";
+  return `${API_BASE}${prefix}${path}`;
+}
+
 export function setAuthToken(token: string | null) {
   authToken = token;
 }

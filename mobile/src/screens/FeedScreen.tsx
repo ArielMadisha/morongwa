@@ -22,12 +22,11 @@ import {
   View
 } from "react-native";
 import * as Clipboard from "expo-clipboard";
-import { MOBILE_API_URL } from "../config";
 import { ActionChip } from "../components/ActionChip";
 import { ModalCard } from "../components/ModalCard";
 import { usePersistentMap } from "../hooks/usePersistentMap";
 import { usePendingActionQueue } from "../hooks/usePendingActionQueue";
-import { advertsAPI, followsAPI, tvAPI, usersAPI } from "../lib/api";
+import { advertsAPI, followsAPI, toAbsoluteMediaUrl, tvAPI, usersAPI } from "../lib/api";
 import { Advert, TVComment, TVPost, User, UserProfileStats } from "../types";
 
 type FeedListItem =
@@ -154,16 +153,6 @@ const HAPTIC_MAP: Record<
   queue_retry_pending: { kind: "impact", value: Haptics.ImpactFeedbackStyle.Medium }
 };
 
-function toAbsoluteMediaUrl(url?: string) {
-  if (!url) return "";
-  if (url.startsWith("http://") || url.startsWith("https://")) return url;
-  const base = MOBILE_API_URL_BASE;
-  if (url.startsWith("/")) return `${base}${url}`;
-  return `${base}/${url}`;
-}
-
-const MOBILE_API_URL_BASE = MOBILE_API_URL.replace(/\/api\/?$/, "").replace(/\/$/, "");
-
 export function FeedScreen({ userName, currentUserId, savedOnly = false, onSavedCountChange }: FeedScreenProps) {
   const { width } = useWindowDimensions();
   const compactUI = width < 390;
@@ -245,6 +234,7 @@ export function FeedScreen({ userName, currentUserId, savedOnly = false, onSaved
   const [mediaViewerIndex, setMediaViewerIndex] = useState<number>(0);
   const [moreActionsPost, setMoreActionsPost] = useState<TVPost | null>(null);
   const [previewCreator, setPreviewCreator] = useState<{ id: string; name?: string; avatar?: string } | null>(null);
+  const [expandedPostIds, setExpandedPostIds] = useState<Set<string>>(() => new Set());
   const [toast, setToast] = useState<InteractionToast | null>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastLoadMoreAtRef = useRef(0);
@@ -1146,6 +1136,15 @@ export function FeedScreen({ userName, currentUserId, savedOnly = false, onSaved
     }
   };
 
+  const toggleExpandPost = useCallback((postId: string) => {
+    setExpandedPostIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(postId)) next.delete(postId);
+      else next.add(postId);
+      return next;
+    });
+  }, []);
+
   const openComments = async (post: TVPost) => {
     setCommentsLoadingById((prev) => ({ ...prev, [post._id]: true }));
     setCommentPost(post);
@@ -1262,14 +1261,24 @@ export function FeedScreen({ userName, currentUserId, savedOnly = false, onSaved
 
   const formatTimestamp = (value?: string) => {
     if (!value) return "";
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return "";
-    return date.toLocaleString(undefined, {
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit"
-    });
+    const created = new Date(value);
+    if (Number.isNaN(created.getTime())) return "";
+    const now = new Date();
+    const diffMs = Math.max(0, now.getTime() - created.getTime());
+    const diffSec = Math.floor(diffMs / 1000);
+    const diffMin = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+    const diffMonths = Math.floor(diffDays / 30);
+    const diffYears = Math.floor(diffDays / 365);
+
+    if (diffSec < 60) return "Just now";
+    if (diffMin < 60) return `${diffMin} minute${diffMin === 1 ? "" : "s"} ago`;
+    if (diffHours < 2) return "An hour ago";
+    if (diffHours < 24) return `${diffHours} hours ago`;
+    if (diffDays < 30) return `${diffDays} day${diffDays === 1 ? "" : "s"} ago`;
+    if (diffMonths < 12) return `${diffMonths} month${diffMonths === 1 ? "" : "s"} ago`;
+    return `${diffYears} year${diffYears === 1 ? "" : "s"} ago`;
   };
 
   const postDerivedById = useMemo(() => {
@@ -1366,7 +1375,54 @@ export function FeedScreen({ userName, currentUserId, savedOnly = false, onSaved
             {derived?.creatorName || "Unknown"} • {post.type}
           </Text>
         )}
-        <Text style={styles.postTitle}>{title}</Text>
+        {(() => {
+          const isTextPost = post.type === "text" || (!mediaUrl && (post.subject || post.caption));
+          const rawBody = post.subject || post.caption || "";
+          const firstLine = rawBody ? rawBody.split("\n")[0]?.trim().slice(0, 120) || "" : "";
+          const headline = post.heading || firstLine;
+          const body = post.heading ? rawBody : rawBody.split("\n").slice(1).join("\n").trim();
+          const hasBody = body.length > 0;
+          const isExpanded = expandedPostIds.has(post._id);
+          const TRUNCATE_LEN = 200;
+          const shouldTruncate = hasBody && body.length > TRUNCATE_LEN;
+          const showTruncated = shouldTruncate && !isExpanded;
+          const displayBody = showTruncated ? body.slice(0, TRUNCATE_LEN).trim() + "..." : body;
+
+          if (isTextPost && (headline || hasBody)) {
+            return (
+              <View style={styles.textPostContent}>
+                {headline ? (
+                  <Text style={styles.postHeadline} numberOfLines={3}>
+                    {headline}
+                  </Text>
+                ) : null}
+                {hasBody ? (
+                  <>
+                    <Text style={styles.postBody} selectable>
+                      {displayBody}
+                    </Text>
+                    {shouldTruncate ? (
+                      <Pressable
+                        onPress={() => toggleExpandPost(post._id)}
+                        style={styles.showMoreBtn}
+                        accessibilityRole="button"
+                        accessibilityLabel={isExpanded ? "Show less" : "Show more"}
+                      >
+                        <Text style={styles.showMoreText}>{isExpanded ? "SHOW LESS" : "SHOW MORE"}</Text>
+                      </Pressable>
+                    ) : null}
+                  </>
+                ) : headline ? null : (
+                  <Text style={styles.postTitle}>{title}</Text>
+                )}
+              </View>
+            );
+          }
+          if (mediaUrl && (post.heading || post.subject || post.caption)) {
+            return null;
+          }
+          return <Text style={styles.postTitle}>{title}</Text>;
+        })()}
         {mediaUrl ? (
           <Pressable
             onPress={() => handleMediaTap(post, mediaUrl)}
@@ -1379,7 +1435,7 @@ export function FeedScreen({ userName, currentUserId, savedOnly = false, onSaved
             accessibilityLabel={`Open media for post: ${title}`}
             accessibilityHint="Double tap quickly to like this post"
           >
-            <Image source={{ uri: mediaUrl }} style={[styles.heroImage, compactUI && styles.heroImageCompact]} resizeMode="cover" />
+            <Image source={{ uri: mediaUrl }} style={[styles.heroImage, compactUI && styles.heroImageCompact]} resizeMode="contain" />
             {showHeart ? (
               <Animated.View
                 pointerEvents="none"
@@ -1397,6 +1453,20 @@ export function FeedScreen({ userName, currentUserId, savedOnly = false, onSaved
               </Animated.View>
             ) : null}
           </Pressable>
+        ) : null}
+        {mediaUrl && (post.heading || post.subject || post.caption) ? (
+          <View style={styles.textPostContent}>
+            {post.heading ? (
+              <Text style={styles.postHeadline} numberOfLines={2}>
+                {post.heading}
+              </Text>
+            ) : null}
+            {(post.caption || post.subject) ? (
+              <Text style={styles.postBody} numberOfLines={4} selectable>
+                {post.caption || post.subject}
+              </Text>
+            ) : null}
+          </View>
         ) : null}
         {post.hashtags?.length ? <Text style={styles.hashes}>#{post.hashtags.join(" #")}</Text> : null}
         <View style={styles.statsRow}>
@@ -1446,6 +1516,7 @@ export function FeedScreen({ userName, currentUserId, savedOnly = false, onSaved
     );
   }, [
     compactUI,
+    expandedPostIds,
     getHeartOpacityValue,
     getHeartScaleValue,
     getLikeScaleValue,
@@ -1455,7 +1526,8 @@ export function FeedScreen({ userName, currentUserId, savedOnly = false, onSaved
     openProfile,
     postDerivedById,
     setMoreActionsPost,
-    setPreviewCreator
+    setPreviewCreator,
+    toggleExpandPost
   ]);
 
   const feedItemKeyExtractor = useCallback((item: FeedListItem) => item.id, []);
@@ -2403,6 +2475,35 @@ const styles = StyleSheet.create({
   postTitle: {
     color: "#f8fafc",
     fontSize: 15,
+    fontWeight: "600"
+  },
+  textPostContent: {
+    marginTop: 4,
+    marginBottom: 4,
+    paddingVertical: 2
+  },
+  postHeadline: {
+    color: "#f8fafc",
+    fontSize: 17,
+    fontWeight: "700",
+    marginBottom: 8,
+    lineHeight: 22
+  },
+  postBody: {
+    color: "#e2e8f0",
+    fontSize: 15,
+    lineHeight: 22,
+    marginBottom: 4
+  },
+  showMoreBtn: {
+    alignSelf: "flex-start",
+    paddingVertical: 4,
+    paddingHorizontal: 0,
+    marginTop: 2
+  },
+  showMoreText: {
+    color: "#93c5fd",
+    fontSize: 13,
     fontWeight: "600"
   },
   heroImage: {

@@ -51,14 +51,25 @@ function formatPrice(price: number, currency: string) {
 }
 
 function formatTimeAgo(date: string) {
+  if (!date) return "";
   const d = new Date(date);
+  if (Number.isNaN(d.getTime())) return "";
   const now = new Date();
-  const sec = Math.floor((now.getTime() - d.getTime()) / 1000);
-  if (sec < 60) return 'now';
-  if (sec < 3600) return `${Math.floor(sec / 60)}m`;
-  if (sec < 86400) return `${Math.floor(sec / 3600)}h`;
-  if (sec < 604800) return `${Math.floor(sec / 86400)}d`;
-  return d.toLocaleDateString();
+  const diffMs = Math.max(0, now.getTime() - d.getTime());
+  const diffSec = Math.floor(diffMs / 1000);
+  const diffMin = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMs / 3600000);
+  const diffDays = Math.floor(diffMs / 86400000);
+  const diffMonths = Math.floor(diffDays / 30);
+  const diffYears = Math.floor(diffDays / 365);
+
+  if (diffSec < 60) return "Just now";
+  if (diffMin < 60) return `${diffMin} minute${diffMin === 1 ? "" : "s"} ago`;
+  if (diffHours < 2) return "An hour ago";
+  if (diffHours < 24) return `${diffHours} hours ago`;
+  if (diffDays < 30) return `${diffDays} day${diffDays === 1 ? "" : "s"} ago`;
+  if (diffMonths < 12) return `${diffMonths} month${diffMonths === 1 ? "" : "s"} ago`;
+  return `${diffYears} year${diffYears === 1 ? "" : "s"} ago`;
 }
 
 interface TVPostCardProps {

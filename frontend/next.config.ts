@@ -18,11 +18,21 @@ const nextConfig: NextConfig = {
   // Add security headers with proper CSP
   async headers() {
     const isDevelopment = process.env.NODE_ENV !== 'production';
-    
+    const headers: { source: string; headers: { key: string; value: string }[] }[] = [];
+
+    // Allow embedding the pay/embed page (PayGate PayWeb3 style)
+    headers.push({
+      source: "/pay/embed",
+      headers: [
+        { key: "Content-Security-Policy", value: "frame-ancestors *; script-src 'self' 'wasm-unsafe-eval' 'inline-speculation-rules' https:; style-src 'self' 'unsafe-inline' https:; img-src 'self' data: https:; font-src 'self' data: https:; connect-src 'self' https:; frame-src 'self' https:;" },
+      ],
+    });
+
     if (isDevelopment) {
       // Permissive CSP in dev so app scripts and chunks (e.g. from localhost) load
       // even when a browser extension injects a stricter CSP
       return [
+        ...headers,
         {
           source: "/:path*",
           headers: [
@@ -36,6 +46,7 @@ const nextConfig: NextConfig = {
     }
     
     return [
+      ...headers,
       {
         source: "/:path*",
         headers: [

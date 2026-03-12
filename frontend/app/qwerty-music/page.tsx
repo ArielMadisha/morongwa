@@ -12,7 +12,7 @@ import { AppSidebar, AppSidebarMenuButton } from '@/components/AppSidebar';
 import { AdvertSlot } from '@/components/AdvertSlot';
 import { MobileBottomNav } from '@/components/MobileBottomNav';
 import { ProfileHeaderButton } from '@/components/ProfileHeaderButton';
-import { musicAPI, walletAPI, getImageUrl, API_BASE } from '@/lib/api';
+import { musicAPI, getImageUrl, API_BASE } from '@/lib/api';
 import type { SongRecord } from '@/lib/api';
 import toast from 'react-hot-toast';
 
@@ -48,7 +48,7 @@ export default function QwertyMusicPage() {
   const [downloadEnabled, setDownloadEnabled] = useState(false);
   const [downloadPrice, setDownloadPrice] = useState('10');
   const [purchasedIds, setPurchasedIds] = useState<Set<string>>(new Set());
-  const [buyingId, setBuyingId] = useState<string | null>(null);
+  const [addingId, setAddingId] = useState<string | null>(null);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -56,13 +56,16 @@ export default function QwertyMusicPage() {
     musicAPI.getGenres().then((r) => setGenres(r.data?.data ?? [])).catch(() => setGenres([]));
   }, []);
 
+  const filter = searchParams.get('filter') || 'songs';
+  const typeFilter = filter === 'albums' ? 'album' as const : 'song' as const;
+
   useEffect(() => {
     setLoadingSongs(true);
-    musicAPI.getSongs()
+    musicAPI.getSongs({ type: typeFilter })
       .then((r) => setSongs(r.data?.data ?? []))
       .catch(() => setSongs([]))
       .finally(() => setLoadingSongs(false));
-  }, [uploadOpen]);
+  }, [uploadOpen, typeFilter]);
 
   useEffect(() => {
     musicAPI.getMyPurchases()
@@ -72,32 +75,6 @@ export default function QwertyMusicPage() {
       })
       .catch(() => setPurchasedIds(new Set()));
   }, [songs.length]);
-
-  useEffect(() => {
-    const pendingMusic = searchParams.get('pendingMusic');
-    if (!pendingMusic) return;
-    const run = async () => {
-      try {
-        const raw = typeof window !== 'undefined' ? localStorage.getItem('pending_music_purchase') : null;
-        if (!raw) return;
-        const parsed = JSON.parse(raw) as { songId?: string; createdAt?: number };
-        if (!parsed?.songId || parsed.songId !== pendingMusic) return;
-        if (parsed.createdAt && Date.now() - parsed.createdAt > 30 * 60 * 1000) {
-          localStorage.removeItem('pending_music_purchase');
-          return;
-        }
-        await musicAPI.purchaseDownload(parsed.songId);
-        localStorage.removeItem('pending_music_purchase');
-        toast.success('Music purchase successful');
-        const next = new Set(purchasedIds);
-        next.add(parsed.songId);
-        setPurchasedIds(next);
-      } catch {
-        // wallet credit may still be pending webhook
-      }
-    };
-    void run();
-  }, [searchParams, purchasedIds]);
 
   const handleLogout = () => {
     logout();
@@ -216,32 +193,18 @@ export default function QwertyMusicPage() {
     }
   };
 
-  const handlePurchase = async (songId: string, price: number) => {
-    setBuyingId(songId);
+  const handleAddToCart = async (songId: string) => {
+    setAddingId(songId);
     try {
-      await musicAPI.purchaseDownload(songId);
-      const next = new Set(purchasedIds);
-      next.add(songId);
-      setPurchasedIds(next);
-      toast.success('Purchase successful');
+      const { cartAPI } = await import('@/lib/api');
+      const { invalidateCartStoresCache } = await import('@/lib/useCartAndStores');
+      await cartAPI.addMusic(songId, 1);
+      invalidateCartStoresCache();
+      toast.success('Added to cart');
     } catch (e: any) {
-      const msg = e?.response?.data?.message || 'Purchase failed';
-      if (/Insufficient wallet balance/i.test(msg)) {
-        try {
-          if (typeof window !== 'undefined') {
-            localStorage.setItem('pending_music_purchase', JSON.stringify({ songId, createdAt: Date.now() }));
-          }
-          const topUpRes = await walletAPI.topUp(Math.max(10, Math.ceil(price)), `/qwerty-music?pendingMusic=${songId}`);
-          const paymentUrl = topUpRes.data?.paymentUrl;
-          if (paymentUrl) {
-            window.location.href = paymentUrl;
-            return;
-          }
-        } catch {}
-      }
-      toast.error(msg);
+      toast.error(e?.response?.data?.message || 'Failed to add to cart');
     } finally {
-      setBuyingId(null);
+      setAddingId(null);
     }
   };
 
@@ -251,10 +214,11 @@ export default function QwertyMusicPage() {
       const res = await musicAPI.getDownloadLinks(songId);
       const data = res.data?.data;
       if (!data) return;
+      const toHref = (url: string) => (url?.startsWith('/uploads/') ? url : `${API_BASE || ''}${url || ''}`);
       if (data.type === 'album' && Array.isArray(data.tracks)) {
         data.tracks.forEach((t: any) => {
           const a = document.createElement('a');
-          a.href = `${API_BASE || ''}${t.url}`;
+          a.href = toHref(t.url);
           a.download = `${t.title || 'track'}.wav`;
           document.body.appendChild(a);
           a.click();
@@ -262,7 +226,7 @@ export default function QwertyMusicPage() {
         });
       } else if (data.url) {
         const a = document.createElement('a');
-        a.href = `${API_BASE || ''}${data.url}`;
+        a.href = toHref(data.url);
         a.download = `${data.title || 'song'}.wav`;
         document.body.appendChild(a);
         a.click();
@@ -276,8 +240,9 @@ export default function QwertyMusicPage() {
   };
 
   const getArtworkUrl = (url: string) => {
+    if (!url) return '';
     const path = getImageUrl(url) || url;
-    return path.startsWith('http') ? path : `${API_BASE || ''}${path}`;
+    return path || '';
   };
 
   return (
@@ -292,8 +257,11 @@ export default function QwertyMusicPage() {
               </Link>
               <AppSidebarMenuButton onClick={() => setMenuOpen((v) => !v)} />
               <div className="flex items-center gap-2 min-w-0 shrink-0">
-                <Music2 className="h-5 w-5 text-sky-600" />
-                <h1 className="text-base sm:text-lg font-semibold text-slate-900 truncate">QwertyMusic</h1>
+                <Music2 className="h-5 w-5 text-sky-600 shrink-0" />
+                <div className="min-w-0">
+                  <h1 className="text-base sm:text-lg font-semibold text-slate-900 truncate">QwertyMusic</h1>
+                  <p className="hidden sm:block text-[10px] sm:text-xs text-slate-500 truncate">Music streaming and discovery. Upload high-quality WAV, artwork, and metadata as a verified artist.</p>
+                </div>
               </div>
               <div className="flex-1 min-w-0" />
               <div className="flex items-center gap-2 shrink-0">
@@ -321,24 +289,13 @@ export default function QwertyMusicPage() {
           />
           <div className="flex-1 flex gap-0 min-h-0">
             <main className="flex-1 min-w-0 px-4 sm:px-6 lg:px-8 py-4 pb-24 lg:pb-6">
-              <div className="max-w-6xl mx-auto space-y-6">
-                <div className="rounded-2xl border border-white/60 bg-white/80 shadow-xl shadow-sky-50 backdrop-blur p-8 text-center">
-                  <Music2 className="h-16 w-16 text-sky-400 mx-auto mb-4" />
-                  <h2 className="text-2xl font-bold text-slate-900 mb-2">QwertyMusic</h2>
-                  <p className="text-slate-600 mb-4">
-                    Music streaming and discovery. Upload high-quality WAV, artwork, and metadata as a verified artist.
-                  </p>
-                  <p className="text-sm text-slate-500">
-                    <Link href="/morongwa-tv" className="text-sky-600 hover:text-sky-700 font-medium">QwertyTV</Link>
-                    {' · '}
-                    <Link href="/marketplace" className="text-sky-600 hover:text-sky-700 font-medium">QwertyHub</Link>
-                  </p>
-                </div>
-
+              <div className="max-w-6xl mx-auto">
                 {/* Songs & Albums Grid */}
                 <div>
                   <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-lg font-semibold text-slate-900">Songs & Albums</h3>
+                    <h2 className="text-xl sm:text-2xl font-bold text-slate-900">
+                      {filter === 'albums' ? 'Albums' : 'Songs'}
+                    </h2>
                     {artistStatus?.isVerified && (
                       <button
                         onClick={() => { resetUpload(); setUploadOpen(true); }}
@@ -360,17 +317,34 @@ export default function QwertyMusicPage() {
                       <p className="text-sm">Apply for artist verification to upload music.</p>
                     </div>
                   ) : (
-                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
                       {songs.map((s) => (
-                        <div key={s._id} className="rounded-xl border border-slate-200 bg-white/90 overflow-hidden shadow-sm hover:shadow-md transition">
-                          <div className="aspect-square bg-slate-100 relative">
-                            <img
-                              src={getArtworkUrl(s.artworkUrl)}
-                              alt={s.title}
-                              className="w-full h-full object-cover"
-                            />
+                        <div key={s._id} className="rounded-xl border border-slate-200 bg-white overflow-hidden shadow-sm hover:shadow-md transition flex flex-col">
+                          <div className="aspect-square bg-slate-100 relative flex items-center justify-center overflow-hidden">
+                            {getArtworkUrl(s.artworkUrl) ? (
+                              <>
+                                <img
+                                  src={getArtworkUrl(s.artworkUrl)}
+                                  alt={s.title}
+                                  className="w-full h-full object-contain"
+                                  onError={(e) => {
+                                    (e.target as HTMLImageElement).style.display = 'none';
+                                    const parent = (e.target as HTMLImageElement).parentElement;
+                                    const fallback = parent?.querySelector('.artwork-fallback');
+                                    if (fallback) (fallback as HTMLElement).classList.remove('hidden');
+                                  }}
+                                />
+                                <div className="artwork-fallback hidden absolute inset-0 flex items-center justify-center bg-slate-200">
+                                  <Music2 className="h-16 w-16 text-slate-400" />
+                                </div>
+                              </>
+                            ) : (
+                              <div className="absolute inset-0 flex items-center justify-center bg-slate-200">
+                                <Music2 className="h-16 w-16 text-slate-400" />
+                              </div>
+                            )}
                           </div>
-                          <div className="p-3">
+                          <div className="p-3 flex-1">
                             <p className="font-semibold text-slate-900 truncate" title={s.title}>{s.title}</p>
                             <p className="text-sm text-slate-600 truncate">{s.artist}</p>
                             <p className="text-xs text-slate-500">{s.genre}</p>
@@ -378,7 +352,9 @@ export default function QwertyMusicPage() {
                               <p className="text-xs text-emerald-700 font-medium mt-1">Download: R{Number(s.downloadPrice || 0).toFixed(0)}</p>
                             )}
                           </div>
-                          <audio src={`${API_BASE || ''}${s.audioUrl}`} controls className="w-full px-2 pb-2" />
+                          <div className="px-2 pb-2">
+                            <audio src={getImageUrl(s.audioUrl) || s.audioUrl} controls className="w-full h-9 [&::-webkit-media-controls-panel]:bg-transparent" />
+                          </div>
                           {s.downloadEnabled && (
                             <div className="px-2 pb-2">
                               {purchasedIds.has(String(s._id)) ? (
@@ -391,11 +367,11 @@ export default function QwertyMusicPage() {
                                 </button>
                               ) : (
                                 <button
-                                  onClick={() => handlePurchase(String(s._id), Number(s.downloadPrice || 10))}
-                                  disabled={buyingId === String(s._id)}
+                                  onClick={() => handleAddToCart(String(s._id))}
+                                  disabled={addingId === String(s._id)}
                                   className="w-full rounded-lg bg-sky-600 text-white text-xs font-semibold py-1.5 hover:bg-sky-700 disabled:opacity-50"
                                 >
-                                  {buyingId === String(s._id) ? 'Processing...' : `Buy download (R${Number(s.downloadPrice || 10).toFixed(0)})`}
+                                  {addingId === String(s._id) ? 'Adding...' : `Add to Cart R${Number(s.downloadPrice || 10).toFixed(0)}`}
                                 </button>
                               )}
                             </div>
@@ -405,76 +381,82 @@ export default function QwertyMusicPage() {
                     </div>
                   )}
                 </div>
-
-                {/* Artist verification */}
-                <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-                  <h3 className="text-lg font-semibold text-slate-900 mb-4">Artist verification</h3>
+              </div>
+            </main>
+            <AdvertSlot
+              belowHeader
+              scrollWithPage
+              bottomContent={
+                <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+                  <p className="text-[10px] uppercase tracking-wider text-slate-400 mb-2 font-semibold">Artist verification</p>
                   {artistStatus?.isVerified ? (
-                    <div className="flex items-center gap-3 p-4 rounded-xl bg-emerald-50 text-emerald-800">
-                      <CheckCircle className="h-8 w-8 shrink-0" />
+                    <div className="flex items-center gap-3 p-3 rounded-lg bg-emerald-50 text-emerald-800">
+                      <CheckCircle className="h-6 w-6 shrink-0" />
                       <div>
-                        <p className="font-medium">You are verified</p>
-                        <p className="text-sm">Upload songs with WAV audio, 3000×3000 artwork, and full metadata.</p>
+                        <p className="font-medium text-sm">You are verified</p>
+                        <p className="text-xs">Upload songs with WAV audio, 1200×1200 artwork, and full metadata.</p>
                       </div>
                     </div>
                   ) : artistStatus?.status === 'pending' ? (
-                    <div className="flex items-center gap-3 p-4 rounded-xl bg-amber-50 text-amber-800">
-                      <Clock className="h-8 w-8 shrink-0" />
+                    <div className="flex items-center gap-3 p-3 rounded-lg bg-amber-50 text-amber-800">
+                      <Clock className="h-6 w-6 shrink-0" />
                       <div>
-                        <p className="font-medium">Application pending</p>
-                        <p className="text-sm">We are reviewing your application. You will be notified when approved.</p>
+                        <p className="font-medium text-sm">Application pending</p>
+                        <p className="text-xs">We are reviewing your application.</p>
                       </div>
                     </div>
                   ) : !applyOpen ? (
                     <div>
-                      <p className="text-slate-600 mb-4">Apply to upload music. Verification can be electronic or manual.</p>
+                      <p className="text-slate-600 text-sm mb-3">Apply to upload music. Verification can be electronic or manual.</p>
                       <button
                         onClick={() => setApplyOpen(true)}
-                        className="px-4 py-2 rounded-xl bg-sky-500 text-white font-medium hover:bg-sky-600"
+                        className="w-full px-4 py-2 rounded-xl bg-sky-500 text-white text-sm font-medium hover:bg-sky-600"
                       >
                         Apply for verification
                       </button>
+                      <p className="mt-3 text-xs text-slate-500">
+                        Need help? <Link href="/support?category=music:upload" className="text-sky-600 hover:underline">Contact support</Link>
+                      </p>
                     </div>
                   ) : (
-                    <div className="space-y-4">
+                    <div className="space-y-3">
                       <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">Type</label>
-                        <select value={applyType} onChange={(e) => setApplyType(e.target.value as any)} className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm">
+                        <label className="block text-xs font-medium text-slate-700 mb-1">Type</label>
+                        <select value={applyType} onChange={(e) => setApplyType(e.target.value as any)} className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm">
                           <option value="artist">Artist</option>
                           <option value="company">Music company</option>
                           <option value="producer">Producer</option>
                         </select>
                       </div>
                       <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">Stage / artist name (optional)</label>
-                        <input type="text" value={stageName} onChange={(e) => setStageName(e.target.value)} placeholder="Stage name" className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm" />
+                        <label className="block text-xs font-medium text-slate-700 mb-1">Stage / artist name (optional)</label>
+                        <input type="text" value={stageName} onChange={(e) => setStageName(e.target.value)} placeholder="Stage name" className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm" />
                       </div>
                       <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">Label name (optional)</label>
-                        <input type="text" value={labelName} onChange={(e) => setLabelName(e.target.value)} placeholder="Label" className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm" />
+                        <label className="block text-xs font-medium text-slate-700 mb-1">Label name (optional)</label>
+                        <input type="text" value={labelName} onChange={(e) => setLabelName(e.target.value)} placeholder="Label" className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm" />
                       </div>
                       <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">Documents (ID, proof, etc.) *</label>
+                        <label className="block text-xs font-medium text-slate-700 mb-1">Documents (ID, proof, etc.) *</label>
                         <input
                           type="file"
                           accept=".pdf,image/*"
                           multiple
                           onChange={(e) => setDocFiles(Array.from(e.target.files || []))}
-                          className="w-full text-sm text-slate-600 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-sky-50 file:text-sky-700"
+                          className="w-full text-xs text-slate-600 file:mr-2 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:bg-sky-50 file:text-sky-700"
                         />
                       </div>
                       <div className="flex gap-2">
-                        <button onClick={() => setApplyOpen(false)} className="flex-1 px-4 py-2 rounded-xl border border-slate-200 text-slate-700 font-medium hover:bg-slate-50">Cancel</button>
-                        <button onClick={handleApply} disabled={applying} className="flex-1 px-4 py-2 rounded-xl bg-sky-500 text-white font-medium hover:bg-sky-600 disabled:opacity-50">
+                        <button onClick={() => setApplyOpen(false)} className="flex-1 px-3 py-2 rounded-lg border border-slate-200 text-slate-700 text-sm font-medium hover:bg-slate-50">Cancel</button>
+                        <button onClick={handleApply} disabled={applying} className="flex-1 px-3 py-2 rounded-lg bg-sky-500 text-white text-sm font-medium hover:bg-sky-600 disabled:opacity-50">
                           {applying ? 'Submitting…' : 'Submit'}
                         </button>
                       </div>
                     </div>
                   )}
                 </div>
-              </div>
-            </main>
-            <AdvertSlot belowHeader />
+              }
+            />
           </div>
         </div>
         <MobileBottomNav cartCount={cartCount} hasStore={hasStore} />
@@ -528,7 +510,7 @@ export default function QwertyMusicPage() {
                 {uploadStep === 2 && (
                   <div>
                     <h4 className="font-medium text-slate-900 mb-2">2. Upload artwork</h4>
-                    <p className="text-sm text-slate-600 mb-4">3000×3000 pixel square cover art (JPEG or PNG)</p>
+                    <p className="text-sm text-slate-600 mb-4">1200×1200 pixel square cover art (JPEG or PNG) — fits our display area</p>
                     <input
                       type="file"
                       accept="image/jpeg,image/jpg,image/png"

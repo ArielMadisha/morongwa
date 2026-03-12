@@ -11,7 +11,7 @@ import { AppSidebar, AppSidebarMenuButton } from '@/components/AppSidebar';
 import { SearchButton } from '@/components/SearchButton';
 import { TVGridTile } from '@/components/tv/TVGridTile';
 import type { TVGridItem } from '@/components/tv/TVGridTile';
-import { AdvertSlot } from '@/components/AdvertSlot';
+import { VideoSidebar } from '@/components/tv/VideoSidebar';
 import { MobileBottomNav } from '@/components/MobileBottomNav';
 import { tvAPI, productEnquiryAPI } from '@/lib/api';
 import toast from 'react-hot-toast';
@@ -24,6 +24,9 @@ export default function PostPage() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [item, setItem] = useState<TVGridItem | null>(null);
   const [loading, setLoading] = useState(true);
+  const [relatedVideos, setRelatedVideos] = useState<TVGridItem[]>([]);
+  const [relatedLoading, setRelatedLoading] = useState(true);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const [likedMap, setLikedMap] = useState<Record<string, boolean>>({});
   const [enquireOpen, setEnquireOpen] = useState(false);
   const [enquireProductId, setEnquireProductId] = useState<string | null>(null);
@@ -43,6 +46,24 @@ export default function PostPage() {
       .catch(() => setItem(null))
       .finally(() => setLoading(false));
   }, [postId]);
+
+  useEffect(() => {
+    setRelatedLoading(true);
+    tvAPI
+      .getFeed({ limit: 24, type: 'video', sort: 'newest' })
+      .then((res) => {
+        const data = res.data?.data ?? res.data ?? [];
+        setRelatedVideos(Array.isArray(data) ? data : []);
+      })
+      .catch(() => setRelatedVideos([]))
+      .finally(() => setRelatedLoading(false));
+  }, []);
+
+  useEffect(() => {
+    const onFullscreenChange = () => setIsFullscreen(!!document.fullscreenElement);
+    document.addEventListener('fullscreenchange', onFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', onFullscreenChange);
+  }, []);
 
   const handleLogout = () => {
     logout();
@@ -138,9 +159,9 @@ export default function PostPage() {
             hideLogo
             belowHeader
           />
-          <div className="flex-1 flex gap-0 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain">
-            <main className="flex-1 min-w-0 px-4 sm:px-6 lg:px-8 py-4 pb-24 lg:pb-6">
-              <div className="max-w-[600px] mx-auto">
+          <div className="flex-1 flex flex-col lg:flex-row gap-0 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain max-w-[1920px] mx-auto w-full scrollbar-thin">
+            <main className="flex-1 min-w-0 px-4 sm:px-6 lg:px-8 py-4 pb-24 lg:pb-6 min-h-0">
+              <div className="max-w-full">
                 {loading ? (
                   <div className="flex justify-center py-24">
                     <Loader2 className="h-12 w-12 text-sky-500 animate-spin" />
@@ -166,13 +187,22 @@ export default function PostPage() {
                     onRepost={item.type !== 'product_tile' ? handleRepost : undefined}
                     onEnquire={handleEnquire}
                     onCommentAdded={item.type !== 'product_tile' ? handleCommentAdded : undefined}
+                    onDelete={() => router.push('/wall')}
                     currentUserId={user?._id || user?.id}
                     isVisible
                   />
                 )}
               </div>
             </main>
-            <AdvertSlot belowHeader />
+            {!isFullscreen && (
+              <VideoSidebar
+                items={relatedVideos}
+                currentPostId={postId}
+                loading={relatedLoading}
+                creatorId={item?.creatorId ? (typeof item.creatorId === 'object' ? (item.creatorId as any)._id : item.creatorId) : undefined}
+                creatorName={item?.creatorId && typeof item.creatorId === 'object' ? (item.creatorId as any).name : undefined}
+              />
+            )}
           </div>
         </div>
         <MobileBottomNav cartCount={cartCount} hasStore={hasStore} />

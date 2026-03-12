@@ -5,6 +5,7 @@
   "main": "dist/server.js",
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only server.ts",
+    "dev:restart": "node scripts/start-dev.js",
     "build": "tsc",
     "start": "node dist/server.js",
     "test": "jest",
@@ -22,6 +23,7 @@
   "author": "Morongwa",
   "license": "MIT",
   "dependencies": {
+    "@vitalets/google-translate-api": "^9.2.1",
     "axios": "^1.6.2",
     "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",

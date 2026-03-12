@@ -60,6 +60,9 @@ export function CreatePostModal({
   const [artistVerified, setArtistVerified] = useState<boolean | null>(null);
   const [musicGenre, setMusicGenre] = useState('');
   const [musicTitle, setMusicTitle] = useState('');
+  const [artworkUrl, setArtworkUrl] = useState('');
+  const [selectedSongId, setSelectedSongId] = useState<string | null>(null);
+  const [mySongs, setMySongs] = useState<any[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const qwertzInputRef = useRef<HTMLInputElement>(null);
   const imagesInputRef = useRef<HTMLInputElement>(null);
@@ -97,6 +100,21 @@ export function CreatePostModal({
     }
   }, [audioStep, currentUserId]);
 
+  useEffect(() => {
+    if (audioStep === 'upload' && artistVerified && currentUserId) {
+      musicAPI.getSongs().then((r) => {
+        const all = r.data?.data ?? [];
+        const mine = all.filter((s: any) => {
+          const uid = s.userId?._id ?? s.userId;
+          return uid && String(uid) === String(currentUserId);
+        });
+        setMySongs(mine);
+      }).catch(() => setMySongs([]));
+    }
+  }, [audioStep, artistVerified, currentUserId]);
+
+  const artworkInputRef = useRef<HTMLInputElement>(null);
+
   const reset = () => {
     setStep('upload');
     setMediaUrls([]);
@@ -115,6 +133,8 @@ export function CreatePostModal({
     setArtistVerified(null);
     setMusicGenre('');
     setMusicTitle('');
+    setArtworkUrl('');
+    setSelectedSongId(null);
   };
 
   const handleClose = () => {
@@ -214,7 +234,7 @@ export function CreatePostModal({
       handleClose();
     } catch (err: any) {
       setSpinnerMode('off');
-      toast.error(err.response?.data?.message || 'Failed to create post');
+      toast.error(err.response?.data?.error || err.response?.data?.message || 'Failed to create post');
     }
   };
 
@@ -259,6 +279,22 @@ export function CreatePostModal({
     }
   };
 
+  const handleArtworkUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !file.type.startsWith('image/')) return;
+    setUploading(true);
+    try {
+      const res = await tvAPI.uploadMedia(file);
+      const url = res.data?.url ?? (res.data as any)?.url;
+      if (url) setArtworkUrl(url);
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'Artwork upload failed');
+    } finally {
+      setUploading(false);
+      if (artworkInputRef.current) artworkInputRef.current.value = '';
+    }
+  };
+
   const handleSubmit = async () => {
     if (!mediaUrls.length) return;
     setPosting(true);
@@ -266,6 +302,7 @@ export function CreatePostModal({
       const res = await tvAPI.createPost({
         type,
         mediaUrls,
+        heading: heading.trim() || undefined,
         caption: subject.trim() || undefined,
         filter: filter || undefined,
         genre: genre || undefined,
@@ -277,7 +314,7 @@ export function CreatePostModal({
       storeLatestPostForHome(created);
       onCreated(created);
     } catch (err: any) {
-      toast.error(err.response?.data?.message || 'Failed to create post');
+      toast.error(err.response?.data?.error || err.response?.data?.message || 'Failed to create post');
     } finally {
       setPosting(false);
     }
@@ -433,6 +470,36 @@ export function CreatePostModal({
                   </div>
                 ) : (
                   <div className="space-y-4">
+                    {mySongs.length > 0 && (
+                      <div>
+                        <p className="text-sm font-medium text-slate-700 mb-2">Or post from your QwertyMusic songs</p>
+                        <div className="max-h-32 overflow-y-auto space-y-1 border border-slate-200 rounded-lg p-2">
+                          {mySongs.map((s) => (
+                            <button
+                              key={s._id}
+                              type="button"
+                              onClick={() => {
+                                setSelectedSongId(s._id);
+                                setMediaUrls([s.audioUrl]);
+                                setArtworkUrl(s.artworkUrl || '');
+                                setMusicTitle(s.title || '');
+                                setType('audio' as any);
+                                setAudioStep('upload-details');
+                              }}
+                              className={`w-full flex items-center gap-2 p-2 rounded-lg text-left hover:bg-slate-50 ${selectedSongId === s._id ? 'bg-sky-50 border border-sky-200' : ''}`}
+                            >
+                              {s.artworkUrl ? (
+                                <img src={getImageUrl(s.artworkUrl)} alt="" className="h-10 w-10 rounded object-cover" />
+                              ) : (
+                                <Music2 className="h-10 w-10 text-sky-400" />
+                              )}
+                              <span className="text-sm font-medium truncate">{s.title} {s.artist ? `– ${s.artist}` : ''}</span>
+                              {s.downloadEnabled && <span className="text-xs text-emerald-600 ml-auto">Buy</span>}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                     <div>
                       <label className="block text-sm font-medium text-slate-700 mb-1">Song title</label>
                       <input
@@ -494,6 +561,23 @@ export function CreatePostModal({
                     <audio src={mediaUrls[0]} controls className="w-full mt-2 max-h-10" />
                   </div>
                 </div>
+                {audioStep === 'upload-details' && (
+                  <div>
+                    <p className="text-sm font-medium text-slate-700 mb-2">Cover art (required)</p>
+                    {artworkUrl ? (
+                      <div className="flex items-center gap-2">
+                        <img src={getImageUrl(artworkUrl)} alt="Artwork" className="h-16 w-16 rounded-lg object-cover" />
+                        <button type="button" onClick={() => setArtworkUrl('')} className="text-sm text-rose-600 hover:underline">Remove</button>
+                      </div>
+                    ) : (
+                      <label className="flex flex-col items-center justify-center gap-2 p-4 rounded-xl border-2 border-dashed border-slate-200 hover:border-sky-300 hover:bg-sky-50/50 cursor-pointer">
+                        <input ref={artworkInputRef} type="file" accept="image/*" onChange={handleArtworkUpload} className="hidden" />
+                        <Upload className="h-8 w-8 text-slate-400" />
+                        <span className="text-xs text-slate-600">Upload cover image</span>
+                      </label>
+                    )}
+                  </div>
+                )}
                 <div className="flex gap-3">
                   <button
                     onClick={() => { setAudioStep('choose'); setMediaUrls([]); }}
@@ -503,13 +587,20 @@ export function CreatePostModal({
                   </button>
                   <button
                     onClick={async () => {
-                      setPosting(true);
-                      try {
+                        if (audioStep === 'upload-details' && !artworkUrl && !selectedSongId) {
+                          toast.error('Please add cover art for your song');
+                          return;
+                        }
+                        setPosting(true);
+                        try {
                         const res = await tvAPI.createPost({
                           type: 'audio',
                           mediaUrls,
+                          heading: heading.trim() || musicTitle.trim() || undefined,
                           caption: subject.trim() || undefined,
                           genre: musicGenre || genre || undefined,
+                          artworkUrl: artworkUrl || undefined,
+                          songId: selectedSongId || undefined,
                         });
                         toast.success('Post created!');
                         handleClose();
@@ -517,7 +608,7 @@ export function CreatePostModal({
                         storeLatestPostForHome(created);
                         onCreated?.(created);
                       } catch (err: any) {
-                        toast.error(err.response?.data?.message || 'Failed to create post');
+                        toast.error(err.response?.data?.error || err.response?.data?.message || 'Failed to create post');
                       } finally {
                         setPosting(false);
                       }

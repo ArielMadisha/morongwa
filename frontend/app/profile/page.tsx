@@ -32,6 +32,9 @@ export default function ProfilePage() {
   const [editingUsername, setEditingUsername] = useState(false);
   const [usernameValue, setUsernameValue] = useState("");
   const [usernameSaving, setUsernameSaving] = useState(false);
+  const [editingPhone, setEditingPhone] = useState(false);
+  const [phoneValue, setPhoneValue] = useState("");
+  const [phoneSaving, setPhoneSaving] = useState(false);
   const { cartCount, hasStore } = useCartAndStores(!!user);
 
   useEffect(() => {
@@ -127,6 +130,34 @@ export default function ProfilePage() {
   const cancelEditUsername = () => {
     setEditingUsername(false);
     setUsernameValue("");
+  };
+
+  const formatPhoneDisplay = (p?: string) => {
+    if (!p) return "Not set";
+    const d = p.replace(/\D/g, "");
+    if (d.startsWith("27") && d.length >= 11) return `+27 ${d.slice(2, 4)} ${d.slice(4, 7)} ${d.slice(7)}`;
+    return p;
+  };
+
+  const savePhone = async () => {
+    const digits = phoneValue.replace(/\D/g, "");
+    if (digits.length < 10) {
+      toast.error("Enter a valid phone number (at least 10 digits)");
+      return;
+    }
+    if (!user?._id && !user?.id) return;
+    setPhoneSaving(true);
+    try {
+      await usersAPI.updateProfile(user._id || user.id!, { phone: digits });
+      toast.success("Phone number updated. Required for QR payments and money requests.");
+      setEditingPhone(false);
+      setPhoneValue("");
+      refreshUser?.();
+    } catch (e: any) {
+      toast.error(e.response?.data?.message || "Failed to update");
+    } finally {
+      setPhoneSaving(false);
+    }
   };
 
   const saveUsername = async () => {
@@ -276,6 +307,45 @@ export default function ProfilePage() {
                 </div>
               </div>
 
+              {/* Phone - required for QR payments & money requests */}
+              <div className="mt-6 pt-6 border-t border-slate-100">
+                <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Phone</p>
+                <p className="text-xs text-slate-500 mt-0.5">Required for QR payments at stores and money requests (WhatsApp/SMS).</p>
+                <div className="mt-2 flex items-center gap-2">
+                  {editingPhone ? (
+                    <div className="flex flex-col gap-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <input
+                          type="tel"
+                          value={phoneValue}
+                          onChange={(e) => setPhoneValue(e.target.value)}
+                          placeholder="+27 82 123 4567"
+                          className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm w-48 focus:ring-2 focus:ring-sky-500 focus:border-sky-500"
+                          autoFocus
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") savePhone();
+                            if (e.key === "Escape") { setEditingPhone(false); setPhoneValue(""); }
+                          }}
+                        />
+                        <button onClick={savePhone} disabled={phoneSaving} className="p-1.5 rounded-lg bg-sky-500 text-white hover:bg-sky-600 disabled:opacity-50">
+                          <Check className="h-4 w-4" />
+                        </button>
+                        <button onClick={() => { setEditingPhone(false); setPhoneValue(""); }} disabled={phoneSaving} className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50">
+                          <X className="h-4 w-4" />
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <span className="text-slate-700 text-sm">{formatPhoneDisplay((user as any).phone)}</span>
+                      <button onClick={() => { setEditingPhone(true); setPhoneValue((user as any).phone || ""); }} className="p-1 rounded text-slate-500 hover:text-sky-600 hover:bg-sky-50" title="Edit phone">
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+
               {/* Status row */}
               <div className="mt-6 pt-6 border-t border-slate-100 grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div>
@@ -401,7 +471,7 @@ export default function ProfilePage() {
                 </div>
               </Link>
               <Link
-                href="/support"
+                href="/support?category=general:account"
                 className="flex items-center gap-4 rounded-xl border border-slate-100 bg-white p-4 shadow-sm transition hover:border-blue-200 hover:shadow-md"
               >
                 <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-blue-100 text-blue-600">
@@ -420,7 +490,7 @@ export default function ProfilePage() {
             <p className="text-sm text-slate-600">
               <span className="font-medium text-slate-700">Stay secure:</span> Log out on shared devices.
               Spot something unusual?{" "}
-              <Link href="/support" className="font-medium text-blue-600 hover:text-blue-700">
+              <Link href="/support?category=general:account" className="font-medium text-blue-600 hover:text-blue-700">
                 Report an issue
               </Link>
             </p>

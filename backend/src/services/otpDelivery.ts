@@ -68,3 +68,33 @@ export async function sendOtpCode(params: {
   return { sent: true, provider: "twilio" as const, sid: msg.sid };
 }
 
+/** Send custom SMS (e.g. payment verification, money request). */
+export async function sendSms(params: { phone: string; text: string; channel?: "sms" | "whatsapp" }) {
+  const { phone, text, channel = "sms" } = params;
+  const client = getTwilioClient();
+  const to = toE164(phone);
+  if (!to) throw new Error("Invalid phone format");
+  if (!client) {
+    if (process.env.NODE_ENV !== "production") {
+      logger.warn(`[DEV SMS] ${to}: ${text}`);
+      return { sent: true, provider: "dev" as const };
+    }
+    throw new Error("Twilio is not configured.");
+  }
+  const smsFrom = process.env.TWILIO_SMS_FROM || "";
+  const whatsappFrom = process.env.TWILIO_WHATSAPP_FROM || "";
+  if (channel === "whatsapp" && whatsappFrom) {
+    const msg = await client.messages.create({
+      to: `whatsapp:${to}`,
+      from: whatsappFrom.startsWith("whatsapp:") ? whatsappFrom : `whatsapp:${whatsappFrom}`,
+      body: text,
+    });
+    return { sent: true, provider: "twilio" as const, sid: msg.sid };
+  }
+  if (smsFrom) {
+    const msg = await client.messages.create({ to, from: smsFrom, body: text });
+    return { sent: true, provider: "twilio" as const, sid: msg.sid };
+  }
+  throw new Error("TWILIO_SMS_FROM or TWILIO_WHATSAPP_FROM required.");
+}
+

@@ -235,6 +235,8 @@ export default function ProductPage() {
                 <Link href={user ? '/cart' : `/register?returnTo=${encodeURIComponent('/cart')}`} className="text-sky-600 hover:text-sky-700">View cart</Link>
                 {' · '}
                 <Link href="/marketplace" className="text-sky-600 hover:text-sky-700">Back to marketplace</Link>
+                {' · '}
+                <Link href="/support?category=products:marketplace" className="text-sky-600 hover:text-sky-700">Need help?</Link>
               </p>
             </div>
           </div>

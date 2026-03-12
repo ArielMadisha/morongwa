@@ -3,7 +3,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { LayoutGrid, Loader2, MessageSquare, Plus } from 'lucide-react';
+import Image from 'next/image';
+import { LayoutGrid, Loader2, Plus } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import ProtectedRoute from '@/components/ProtectedRoute';
 import { useCartAndStores } from '@/lib/useCartAndStores';
@@ -350,6 +351,7 @@ function WallPageContent() {
                       onRepost={(item as TVGridItem).type !== 'product_tile' ? handleRepost : undefined}
                       onEnquire={(item as TVGridItem).type === 'product_tile' ? undefined : handleEnquire}
                       onCommentAdded={(item as TVGridItem).type !== 'product_tile' ? handleCommentAdded : undefined}
+                      onDelete={(id) => setGridItems((prev) => prev.filter((i) => (i as TVGridItem)._id !== id))}
                       currentUserId={user?._id || user?.id}
                       onSetProfilePicFromUrl={handleSetProfilePicFromUrl}
                       onSetStripBackgroundFromUrl={handleSetStripBackgroundFromUrl}
@@ -377,11 +379,11 @@ function WallPageContent() {
 
       <Link
         href="/messages"
-        className="fixed right-4 bottom-[8.25rem] sm:bottom-36 lg:bottom-24 z-40 flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-4 py-2 sm:py-3 rounded-full bg-sky-500 text-white shadow-lg hover:bg-sky-600 hover:shadow-xl transition-all font-semibold"
+        className="fixed right-4 bottom-[8.25rem] sm:bottom-36 lg:bottom-24 z-40 flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-4 py-2 sm:py-3 rounded-full bg-white border border-slate-200 text-sky-600 shadow-lg hover:bg-slate-50 hover:border-slate-300 transition-all font-semibold"
         aria-label="Morongwa"
       >
-        <MessageSquare className="h-4 w-4 sm:h-6 sm:w-6 shrink-0" />
-        <span className="text-xs sm:text-base">Morongwa</span>
+        <Image src="/messages-icon.png" alt="" width={24} height={24} className="h-4 w-4 sm:h-6 sm:w-6 shrink-0 object-contain" />
+        <span className="text-xs sm:text-base text-sky-600">Morongwa</span>
       </Link>
 
       <CreatePostModal

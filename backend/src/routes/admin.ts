@@ -19,7 +19,7 @@ import Advert from "../data/models/Advert";
 import LandingBackground from "../data/models/LandingBackground";
 import ArtistVerification from "../data/models/ArtistVerification";
 import Song from "../data/models/Song";
-import AdminPermission, { AdminSection } from "../data/models/AdminPermission";
+import AdminPermission, { AdminSection, SUPPORT_CATEGORY_MAIN } from "../data/models/AdminPermission";
 import { musicUploadSong, musicUploadAlbum } from "../middleware/musicUpload";
 import { authenticate, AuthRequest, authorize } from "../middleware/auth";
 import { AppError } from "../middleware/errorHandler";
@@ -771,11 +771,14 @@ router.get("/music/songs", async (req: AuthRequest, res: Response, next) => {
   }
 });
 
-/** Admin: Upload song (bypass artist verification) */
+/** Admin: Upload song (bypass artist verification) - WAV only (Apple standard) */
 router.post(
   "/music/upload-song",
   (req: AuthRequest, res: Response, next) => {
-    musicUploadSong(req, res, (err) => (err ? next(err) : next()));
+    musicUploadSong(req, res, (err) => {
+      if (err) return next(new AppError(err.message || "Upload failed", 400));
+      next();
+    });
   },
   async (req: AuthRequest, res: Response, next) => {
     try {
@@ -787,8 +790,8 @@ router.post(
       const parsedDownloadPrice = Number(req.body?.downloadPrice);
       const downloadPrice = Number.isFinite(parsedDownloadPrice) ? parsedDownloadPrice : undefined;
       if (downloadEnabled) {
-        if (downloadPrice == null || downloadPrice < 10 || downloadPrice > 15) {
-          throw new AppError("Download price must be between R10 and R15", 400);
+        if (downloadPrice == null || downloadPrice < 10 || downloadPrice > 25) {
+          throw new AppError("Download price must be between R10 and R25", 400);
         }
       }
       const creatorId = userId ? (await User.findById(userId))?._id : req.user!._id;
@@ -797,8 +800,8 @@ router.post(
       const files = (req as any).files as { audio?: Express.Multer.File[]; artwork?: Express.Multer.File[] };
       const audioFile = files?.audio?.[0];
       const artworkFile = files?.artwork?.[0];
-      if (!audioFile) throw new AppError("No audio file uploaded. Use WAV (16-bit, 44.1 kHz or higher).", 400);
-      if (!artworkFile) throw new AppError("No artwork uploaded. Use 3000x3000 JPEG or PNG.", 400);
+      if (!audioFile) throw new AppError("No audio file uploaded. Use WAV: 16-bit or 24-bit, 44.1 kHz, Stereo.", 400);
+      if (!artworkFile) throw new AppError("No artwork uploaded. Use 1200×1200 JPEG or PNG.", 400);
 
       const audioUrl = `/uploads/music/${audioFile.filename}`;
       const artworkUrl = `/uploads/music/${artworkFile.filename}`;
@@ -852,8 +855,8 @@ router.post(
       const parsedDownloadPrice = Number(req.body?.downloadPrice);
       const downloadPrice = Number.isFinite(parsedDownloadPrice) ? parsedDownloadPrice : undefined;
       if (downloadEnabled) {
-        if (downloadPrice == null || downloadPrice < 10 || downloadPrice > 15) {
-          throw new AppError("Download price must be between R10 and R15", 400);
+        if (downloadPrice == null || downloadPrice < 10 || downloadPrice > 25) {
+          throw new AppError("Download price must be between R10 and R25", 400);
         }
       }
       const creatorId = userId ? (await User.findById(userId))?._id : req.user!._id;
@@ -1361,7 +1364,7 @@ router.delete("/landing-backgrounds/:id", async (req: AuthRequest, res: Response
 // ————— Super-admin only: create admins with section permissions —————
 router.post("/admins", requireSuperAdmin, async (req: AuthRequest, res: Response, next) => {
   try {
-    const { email, name, password, sections } = req.body;
+    const { email, name, password, sections, supportCategories } = req.body;
     if (!email?.trim() || !name?.trim() || !password?.trim()) {
       throw new AppError("email, name, and password required", 400);
     }
@@ -1379,9 +1382,13 @@ router.post("/admins", requireSuperAdmin, async (req: AuthRequest, res: Response
     const validSections: AdminSection[] = (sections || []).filter((s: string) =>
       ["tv_posts", "tv_comments", "tv_reports", "products", "suppliers", "users", "orders", "tasks", "support", "policies"].includes(s)
     );
+    const validSupportCategories: string[] = (supportCategories || []).filter((c: string) =>
+      SUPPORT_CATEGORY_MAIN.includes(c as any)
+    );
     await AdminPermission.create({
       userId: user._id,
       sections: validSections,
+      supportCategories: validSupportCategories,
       createdBy: req.user!._id,
     });
 
@@ -1389,7 +1396,7 @@ router.post("/admins", requireSuperAdmin, async (req: AuthRequest, res: Response
       action: "ADMIN_CREATED",
       user: req.user!._id,
       target: user._id,
-      meta: { email: user.email, sections: validSections },
+      meta: { email: user.email, sections: validSections, supportCategories: validSupportCategories },
     });
 
     res.status(201).json({
@@ -1398,6 +1405,7 @@ router.post("/admins", requireSuperAdmin, async (req: AuthRequest, res: Response
         email: user.email,
         name: user.name,
         sections: validSections,
+        supportCategories: validSupportCategories,
       },
     });
   } catch (err) {
@@ -1510,6 +1518,39 @@ router.get("/admins", requireSuperAdmin, async (req: AuthRequest, res: Response,
       .sort({ createdAt: -1 })
       .lean();
     res.json({ data: perms });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Update admin permissions (super-admin only) - sections and support categories
+router.patch("/admins/:id", requireSuperAdmin, async (req: AuthRequest, res: Response, next) => {
+  try {
+    const perm = await AdminPermission.findOne({ userId: req.params.id });
+    if (!perm) throw new AppError("Admin permission not found", 404);
+
+    const { sections, supportCategories } = req.body;
+    if (sections !== undefined) {
+      const validSections: AdminSection[] = (Array.isArray(sections) ? sections : []).filter((s: string) =>
+        ["tv_posts", "tv_comments", "tv_reports", "products", "suppliers", "users", "orders", "tasks", "support", "policies"].includes(s)
+      );
+      perm.sections = validSections;
+    }
+    if (supportCategories !== undefined) {
+      perm.supportCategories = (Array.isArray(supportCategories) ? supportCategories : []).filter((c: string) =>
+        SUPPORT_CATEGORY_MAIN.includes(c as any)
+      );
+    }
+    await perm.save();
+
+    await AuditLog.create({
+      action: "ADMIN_PERMISSION_UPDATED",
+      user: req.user!._id,
+      target: perm.userId,
+      meta: { sections: perm.sections, supportCategories: perm.supportCategories },
+    });
+
+    res.json({ data: perm });
   } catch (err) {
     next(err);
   }

@@ -46,12 +46,15 @@ export function useCartAndStores(isAuthenticated: boolean) {
     Promise.all([
       cartAPI.get().catch(() => ({ data: { data: { items: [] } } })),
       storesAPI.getMyStores().catch(() => ({ data: [] })),
-    ]).then(([cartRes, storesRes]) => {
+    ]    ).then(([cartRes, storesRes]) => {
       const cartData = (cartRes.data as any)?.data ?? cartRes.data ?? {};
       const items = Array.isArray(cartData?.items) ? cartData.items : [];
+      const musicItems = Array.isArray(cartData?.musicItems) ? cartData.musicItems : [];
       const list = (storesRes.data as any)?.data ?? storesRes.data ?? [];
       const storeList = Array.isArray(list) ? list : [];
-      const nextCartCount = items.reduce((sum: number, i: any) => sum + Number(i?.qty || 0), 0);
+      const productCount = items.reduce((sum: number, i: any) => sum + Number(i?.qty || 0), 0);
+      const musicCount = musicItems.reduce((sum: number, i: any) => sum + Number(i?.qty || 0), 0);
+      const nextCartCount = productCount + musicCount;
       const nextHasStore = storeList.length > 0;
       cache = {
         userKey,

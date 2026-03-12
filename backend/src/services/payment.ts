@@ -9,6 +9,10 @@ interface PaymentRequest {
   email: string;
   returnUrl: string;
   notifyUrl: string;
+  /** PayVault: request tokenization (VAULT=1) */
+  vault?: boolean;
+  /** PayVault: use existing token for payment (user enters CVV only) */
+  vaultId?: string;
 }
 
 interface PaymentResponse {
@@ -63,7 +67,7 @@ export const initiatePayment = async (request: PaymentRequest): Promise<PaymentR
       ? configuredUrl.replace("initiate.trans", "process.trans")
       : configuredUrl;
 
-    const data = {
+    const data: Record<string, string | number> = {
       PAYGATE_ID: paygateId,
       REFERENCE: request.reference,
       AMOUNT: Math.round(request.amount * 100), // Amount in cents
@@ -75,6 +79,8 @@ export const initiatePayment = async (request: PaymentRequest): Promise<PaymentR
       EMAIL: request.email,
       NOTIFY_URL: request.notifyUrl,
     };
+    if (request.vault) data.VAULT = "1";
+    if (request.vaultId) data.VAULT_ID = request.vaultId;
 
     const checksum = generateChecksum({ ...data, ENCRYPTION_KEY: paygateSecret });
     const payload = { ...data, CHECKSUM: checksum };
@@ -130,9 +136,19 @@ const generateChecksum = (data: Record<string, any>): string => {
   return crypto.createHash("md5").update(values).digest("hex");
 };
 
+export interface PaymentCallbackResult {
+  success: boolean;
+  reference: string;
+  status: string;
+  vaultId?: string;
+  payvaultData1?: string;
+  payvaultData2?: string;
+  payMethodDetail?: string;
+}
+
 export const processPaymentCallback = async (
   callbackData: Record<string, any>
-): Promise<{ success: boolean; reference: string; status: string }> => {
+): Promise<PaymentCallbackResult> => {
   try {
     const checksum = callbackData.CHECKSUM;
     delete callbackData.CHECKSUM;
@@ -148,11 +164,16 @@ export const processPaymentCallback = async (
       status,
     });
 
-    return {
+    const result: PaymentCallbackResult = {
       success: true,
       reference: callbackData.REFERENCE,
       status,
     };
+    if (callbackData.VAULT_ID) result.vaultId = callbackData.VAULT_ID;
+    if (callbackData.PAYVAULT_DATA_1) result.payvaultData1 = callbackData.PAYVAULT_DATA_1;
+    if (callbackData.PAYVAULT_DATA_2) result.payvaultData2 = callbackData.PAYVAULT_DATA_2;
+    if (callbackData.PAY_METHOD_DETAIL) result.payMethodDetail = callbackData.PAY_METHOD_DETAIL;
+    return result;
   } catch (error: any) {
     logger.error("Payment callback processing failed:", error);
     throw error;

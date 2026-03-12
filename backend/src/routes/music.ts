@@ -46,10 +46,12 @@ router.get("/genres", (_req, res: Response) => {
   res.json({ data: MUSIC_GENRES });
 });
 
-/** GET /api/music/songs - list songs and albums (public) */
-router.get("/songs", async (_req, res: Response, next) => {
+/** GET /api/music/songs - list songs and albums (public). Query: type=song|album */
+router.get("/songs", async (req, res: Response, next) => {
   try {
-    const songs = await Song.find()
+    const type = req.query.type as string | undefined;
+    const filter = type === "song" || type === "album" ? { type } : {};
+    const songs = await Song.find(filter)
       .sort({ createdAt: -1 })
       .populate("userId", "name")
       .lean();
@@ -93,7 +95,7 @@ router.post(
 );
 
 /** POST /api/music/upload-song - upload song/album (verified artists only)
- * Requires: WAV audio, JPEG/PNG artwork (3000x3000), metadata (title, artist, songwriters, producer, genre, lyrics)
+ * Requires: WAV audio, JPEG/PNG artwork (1200×1200), metadata (title, artist, songwriters, producer, genre, lyrics)
  */
 router.post(
   "/upload-song",
@@ -114,7 +116,7 @@ router.post(
       const audioFile = files?.audio?.[0];
       const artworkFile = files?.artwork?.[0];
       if (!audioFile) throw new AppError("No audio file uploaded. Use high-quality WAV (16-bit, 44.1 kHz or higher).", 400);
-      if (!artworkFile) throw new AppError("No artwork uploaded. Use 3000x3000 JPEG or PNG cover art.", 400);
+      if (!artworkFile) throw new AppError("No artwork uploaded. Use 1200×1200 JPEG or PNG cover art.", 400);
 
       const { title, artist, songwriters, producer, genre, lyrics } = req.body;
       if (!title?.trim()) throw new AppError("Song title is required", 400);
@@ -300,8 +302,8 @@ router.post("/:id/purchase", authenticate, async (req: AuthRequest, res: Respons
       return res.json({ message: "Already purchased", data: { reference: existing.reference } });
     }
 
-    const buyerWallet = await Wallet.findOne({ user: req.user!._id });
-    if (!buyerWallet) throw new AppError("Wallet not found", 404);
+    let buyerWallet = await Wallet.findOne({ user: req.user!._id });
+    if (!buyerWallet) buyerWallet = await Wallet.create({ user: req.user!._id });
     const amount = Number(song.downloadPrice);
     if (buyerWallet.balance < amount) {
       throw new AppError("Insufficient wallet balance", 400);

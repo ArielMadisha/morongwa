@@ -10,6 +10,10 @@ import { TrendingUp } from 'lucide-react';
 interface AdvertSlotProps {
   /** When true, slot sticks below fixed header */
   belowHeader?: boolean;
+  /** Optional content to render below Qwerty Users */
+  bottomContent?: React.ReactNode;
+  /** When true, sidebar flows with page content (no fixed height) so scroll works from anywhere */
+  scrollWithPage?: boolean;
 }
 
 /**
@@ -24,7 +28,7 @@ interface SuggestedUser {
   followerCount?: number;
 }
 
-export function AdvertSlot({ belowHeader }: AdvertSlotProps = {}) {
+export function AdvertSlot({ belowHeader, bottomContent, scrollWithPage }: AdvertSlotProps = {}) {
   const { user } = useAuth();
   const [trendingHashtags, setTrendingHashtags] = useState<{ tag: string; count: number }[]>([]);
   const [suggestedUsers, setSuggestedUsers] = useState<SuggestedUser[]>([]);
@@ -53,7 +57,9 @@ export function AdvertSlot({ belowHeader }: AdvertSlotProps = {}) {
   }, [user?._id, (user as { id?: string })?.id]);
 
   const headerOffset = belowHeader ? 'top-14' : 'top-0';
-  const asideHeight = belowHeader ? 'h-[calc(100vh-3.5rem)]' : 'h-screen';
+  const asideHeight = scrollWithPage ? '' : (belowHeader ? 'h-[calc(100vh-3.5rem)]' : 'h-screen');
+  const asideOverflow = scrollWithPage ? 'overflow-visible' : 'overflow-hidden';
+  const asideSticky = scrollWithPage ? '' : `sticky ${headerOffset} self-start`;
   return (
     <>
     {/* Mobile: horizontal trending strip - appears above feed when container is flex-col */}
@@ -75,7 +81,7 @@ export function AdvertSlot({ belowHeader }: AdvertSlotProps = {}) {
         </div>
       </div>
     )}
-    <aside className={`sticky ${headerOffset} self-start hidden lg:flex flex-col w-64 xl:w-80 shrink-0 gap-4 pt-0 pr-2 lg:pr-4 overflow-hidden ${asideHeight} order-3`}>
+    <aside className={`${asideSticky} hidden lg:flex flex-col w-64 xl:w-80 shrink-0 gap-4 pt-0 pr-2 lg:pr-4 ${asideOverflow} ${asideHeight} order-3`}>
       <div className="space-y-6">
         {trendingHashtags.length > 0 && (
           <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
@@ -133,6 +139,7 @@ export function AdvertSlot({ belowHeader }: AdvertSlotProps = {}) {
             </ul>
           </div>
         )}
+        {bottomContent}
       </div>
     </aside>
     </>

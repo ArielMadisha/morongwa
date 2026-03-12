@@ -7,12 +7,49 @@ import User from "../data/models/User";
 import Wallet from "../data/models/Wallet";
 import AuditLog from "../data/models/AuditLog";
 import { registerSchema, loginSchema, sendOtpSchema, verifyOtpSchema } from "../utils/validators";
-import { authLimiter } from "../middleware/rateLimit";
+import { authLimiter, otpSendLimiter } from "../middleware/rateLimit";
 import { AppError } from "../middleware/errorHandler";
 import { authenticate, AuthRequest } from "../middleware/auth";
 import { sendOtpCode } from "../services/otpDelivery";
+import { isValidForOtp, normalizePhone } from "../utils/phoneValidation";
 
 const router = express.Router();
+
+// Per-phone OTP limits (use Redis in production for multi-instance)
+const OTP_COOLDOWN_MS = 2 * 60 * 1000; // 2 min between requests per phone
+const OTP_DAILY_CAP = 5;
+const phoneLastSent = new Map<string, number>();
+const phoneDailyCount = new Map<string, { count: number; date: string }>();
+
+function getPhoneOtpLimits(normalized: string): { allowed: boolean; reason?: string } {
+  const now = Date.now();
+  const last = phoneLastSent.get(normalized);
+  if (last && now - last < OTP_COOLDOWN_MS) {
+    const waitSec = Math.ceil((OTP_COOLDOWN_MS - (now - last)) / 1000);
+    return { allowed: false, reason: `Please wait ${waitSec} seconds before requesting another code` };
+  }
+  const today = new Date().toISOString().slice(0, 10);
+  const entry = phoneDailyCount.get(normalized);
+  if (entry) {
+    if (entry.date !== today) {
+      phoneDailyCount.delete(normalized);
+    } else if (entry.count >= OTP_DAILY_CAP) {
+      return { allowed: false, reason: "Daily limit reached. Try again tomorrow." };
+    }
+  }
+  return { allowed: true };
+}
+
+function recordOtpSent(normalized: string): void {
+  phoneLastSent.set(normalized, Date.now());
+  const today = new Date().toISOString().slice(0, 10);
+  const entry = phoneDailyCount.get(normalized);
+  if (!entry || entry.date !== today) {
+    phoneDailyCount.set(normalized, { count: 1, date: today });
+  } else {
+    entry.count++;
+  }
+}
 
 /** Generate a URL-safe username from name. Returns unique by appending numbers if taken. */
 async function generateUniqueUsername(name: string): Promise<string> {
@@ -56,19 +93,26 @@ router.get("/otp-health", (_req: Request, res: Response) => {
 });
 
 // Send OTP via SMS or WhatsApp (Twilio)
-router.post("/send-otp", authLimiter, async (req: Request, res: Response, next) => {
+router.post("/send-otp", otpSendLimiter, async (req: Request, res: Response, next) => {
   try {
     const { error } = sendOtpSchema.validate(req.body);
     if (error) throw new AppError(error.details[0].message, 400);
     const { phone, channel = "whatsapp" } = req.body;
-    const normalized = phone.replace(/\D/g, "");
+    const normalized = normalizePhone(phone);
     if (normalized.length < 10) throw new AppError("Invalid phone number", 400);
+
+    const phoneCheck = isValidForOtp(phone);
+    if (!phoneCheck.valid) throw new AppError(phoneCheck.reason || "Invalid phone", 400);
+
+    const limitCheck = getPhoneOtpLimits(normalized);
+    if (!limitCheck.allowed) throw new AppError(limitCheck.reason || "Too many requests", 429);
 
     const otp = crypto.randomInt(100000, 999999).toString();
     const otpHash = crypto.createHmac("sha256", OTP_SECRET).update(otp).digest("hex");
     otpStore.set(normalized, { otpHash, expiresAt: Date.now() + OTP_EXPIRY_MS });
 
     await sendOtpCode({ phone: normalized, channel, otp });
+    recordOtpSent(normalized);
 
     const channelLabel = channel === "sms" ? "SMS" : "WhatsApp";
     res.json({ message: `OTP sent via ${channelLabel}`, sent: true });

@@ -10,6 +10,7 @@ import TVComment from "../data/models/TVComment";
 import TVInteraction from "../data/models/TVInteraction";
 import TVReport from "../data/models/TVReport";
 import Product from "../data/models/Product";
+import Song from "../data/models/Song";
 import { authenticate, AuthRequest } from "../middleware/auth";
 import { tvUploadSingle, tvUploadMultiple } from "../middleware/tvUpload";
 import { AppError } from "../middleware/errorHandler";
@@ -203,7 +204,8 @@ router.get("/", async (req: express.Request, res: Response, next) => {
 
     let query = TVPost.find(match)
       .populate("creatorId", "name avatar")
-      .populate({ path: "productId", populate: { path: "supplierId", select: "userId" } });
+      .populate({ path: "productId", populate: { path: "supplierId", select: "userId" } })
+      .populate("songId", "title artist artworkUrl downloadEnabled downloadPrice");
 
     if (sort === "trending") {
       query = query.sort({ likeCount: -1, commentCount: -1, createdAt: -1 });
@@ -243,13 +245,47 @@ router.get("/", async (req: express.Request, res: Response, next) => {
           },
         },
         { $unwind: { path: "$productId", preserveNullAndEmptyArrays: true } },
+        {
+          $lookup: {
+            from: "songs",
+            localField: "songId",
+            foreignField: "_id",
+            as: "songId",
+            pipeline: [{ $project: { title: 1, artist: 1, artworkUrl: 1, downloadEnabled: 1, downloadPrice: 1 } }],
+          },
+        },
+        { $unwind: { path: "$songId", preserveNullAndEmptyArrays: true } },
       ]);
+      // Enrich audio posts missing artwork: lookup Song by audioUrl
+      const enriched = await Promise.all(
+        posts.map(async (p: any) => {
+          if (p.type !== "audio" || (p.artworkUrl || (p.songId && p.songId.artworkUrl))) return p;
+          const audioUrl = p.mediaUrls?.[0];
+          if (!audioUrl) return p;
+          const song = await Song.findOne({ audioUrl }).select("_id artworkUrl title artist downloadEnabled downloadPrice").lean();
+          if (song) return { ...p, artworkUrl: song.artworkUrl, songId: p.songId || song };
+          return p;
+        })
+      );
       const total = await TVPost.countDocuments(match);
-      return res.json({ data: posts, total, page: 1, limit });
+      return res.json({ data: enriched, total, page: 1, limit });
     }
 
     const skip = (page - 1) * limit;
-    const posts = await query.sort({ createdAt: -1 }).skip(skip).limit(limit).lean();
+    let posts = await query.sort({ createdAt: -1 }).skip(skip).limit(limit).lean();
+    // Enrich audio posts: if missing artworkUrl, try to find Song by matching audioUrl
+    posts = await Promise.all(
+      posts.map(async (p: any) => {
+        if (p.type !== "audio" || (p.artworkUrl || (p.songId && p.songId.artworkUrl))) return p;
+        const audioUrl = p.mediaUrls?.[0];
+        if (!audioUrl || typeof audioUrl !== "string") return p;
+        const song = await Song.findOne({ audioUrl }).select("_id artworkUrl title artist downloadEnabled downloadPrice").lean();
+        if (song) {
+          return { ...p, artworkUrl: p.artworkUrl || song.artworkUrl, songId: p.songId || song };
+        }
+        return p;
+      })
+    );
     const total = await TVPost.countDocuments(match);
     res.json({ data: posts, total, page, limit });
   } catch (err) {
@@ -338,7 +374,7 @@ router.get("/products/featured", async (_req, res: Response, next) => {
 // POST /api/tv - create post
 router.post("/", authenticate, async (req: AuthRequest, res: Response, next) => {
   try {
-    const { type, mediaUrls, caption, heading, subject, hashtags, productId, filter, genre } = req.body;
+    const { type, mediaUrls, caption, heading, subject, hashtags, productId, filter, genre, artworkUrl, songId } = req.body;
     if (!type) throw new AppError("type required", 400);
     if (!["video", "image", "carousel", "product", "text", "audio"].includes(type)) throw new AppError("Invalid type", 400);
     const isTextPost = type === "text";
@@ -368,10 +404,12 @@ router.post("/", authenticate, async (req: AuthRequest, res: Response, next) => 
       type,
       mediaUrls: isTextPost ? [] : (Array.isArray(mediaUrls) ? mediaUrls : [mediaUrls]),
       caption: caption?.trim(),
-      heading: isTextPost ? heading?.trim() : undefined,
+      heading: heading?.trim(),
       subject: isTextPost ? subject?.trim() : undefined,
       hashtags: isTextPost && Array.isArray(hashtags) ? hashtags.filter((t: string) => typeof t === "string" && t.trim()).map((t: string) => t.trim().replace(/^#/, "")) : undefined,
       productId: productId || undefined,
+      artworkUrl: isAudioPost && artworkUrl ? String(artworkUrl).trim() : undefined,
+      songId: isAudioPost && songId ? songId : undefined,
       filter: filter || undefined,
       genre: genre || undefined,
       hasWatermark: true,
@@ -380,6 +418,7 @@ router.post("/", authenticate, async (req: AuthRequest, res: Response, next) => 
     const populated = await TVPost.findById(post._id)
       .populate("creatorId", "name avatar")
       .populate("productId", "title price discountPrice images currency allowResell")
+      .populate("songId", "title artist artworkUrl downloadEnabled downloadPrice")
       .lean();
     res.status(201).json({ data: populated });
   } catch (err) {
@@ -402,6 +441,8 @@ router.post("/:id/repost", authenticate, async (req: AuthRequest, res: Response,
       subject: original.subject,
       hashtags: original.hashtags,
       productId: original.productId,
+      artworkUrl: (original as any).artworkUrl,
+      songId: (original as any).songId,
       filter: original.filter,
       hasWatermark: true,
       originalPostId: original._id,
@@ -472,6 +513,20 @@ router.post("/:id/report", authenticate, async (req: AuthRequest, res: Response,
   }
 });
 
+// DELETE /api/tv/:id - delete own post (creator only)
+router.delete("/:id", authenticate, async (req: AuthRequest, res: Response, next: express.NextFunction) => {
+  try {
+    const post = await TVPost.findById(req.params.id);
+    if (!post) throw new AppError("Post not found", 404);
+    const creatorId = typeof post.creatorId === "object" ? (post.creatorId as any)?._id : post.creatorId;
+    if (String(creatorId) !== String(req.user!._id)) throw new AppError("You can only delete your own posts", 403);
+    await TVPost.deleteOne({ _id: post._id });
+    res.json({ message: "Post deleted" });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // GET /api/tv/:id/comments
 router.get("/:id/comments", async (req: express.Request, res: Response, next) => {
   try {
@@ -511,11 +566,29 @@ router.post("/:id/comments", authenticate, async (req: AuthRequest, res: Respons
 // GET /api/tv/:id - single post (for share links) - must be after /:id/liked, /:id/comments, etc.
 router.get("/:id", async (req: express.Request, res: Response, next) => {
   try {
-    const post = await TVPost.findOne({ _id: req.params.id, status: "approved" })
+    let post = await TVPost.findOne({ _id: req.params.id, status: "approved" })
       .populate("creatorId", "name avatar")
       .populate({ path: "productId", populate: { path: "supplierId", select: "userId" } })
+      .populate("songId", "title artist artworkUrl downloadEnabled downloadPrice")
       .lean();
     if (!post) throw new AppError("Post not found", 404);
+    // Enrich audio post: if missing artwork, lookup Song by audioUrl
+    if ((post as any).type === "audio" && !(post as any).artworkUrl && !((post as any).songId && (post as any).songId.artworkUrl)) {
+      const audioUrl = (post as any).mediaUrls?.[0];
+      if (audioUrl) {
+        const song = await Song.findOne({ audioUrl }).select("_id artworkUrl title artist downloadEnabled downloadPrice").lean();
+        if (song) {
+          (post as any).artworkUrl = song.artworkUrl;
+          if (!(post as any).songId) (post as any).songId = song;
+        }
+      }
+    }
+    // Increment view count for video/carousel posts
+    const isVideo = (post as any).type === "video" || ((post as any).type === "carousel" && (post as any).mediaUrls?.[0]?.match(/\.(mp4|webm)$/i));
+    if (isVideo) {
+      await TVPost.findByIdAndUpdate(req.params.id, { $inc: { viewCount: 1 } });
+      (post as any).viewCount = ((post as any).viewCount ?? 0) + 1;
+    }
     res.json({ data: post });
   } catch (err) {
     next(err);

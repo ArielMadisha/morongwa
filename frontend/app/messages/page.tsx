@@ -4,6 +4,7 @@ import { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
+import Image from 'next/image';
 import { Send, Loader2, MessageCircle, Plus, X, Video, Search } from 'lucide-react';
 import { SearchButton } from '@/components/SearchButton';
 import { useAuth } from '@/contexts/AuthContext';
@@ -276,7 +277,7 @@ function MessagesPageContent() {
             </Link>
             <AppSidebarMenuButton onClick={() => setMenuOpen((v) => !v)} />
             <div className="flex items-center gap-2 min-w-0 shrink-0">
-              <MessageCircle className="h-5 w-5 text-brand-600" />
+              <Image src="/messages-icon.png" alt="" width={20} height={20} className="h-5 w-5 object-contain shrink-0" />
               <h1 className="text-base sm:text-lg font-semibold text-slate-900 truncate">Morongwa</h1>
             </div>
             <div className="flex-1 min-w-0" />
@@ -351,6 +352,9 @@ function MessagesPageContent() {
                   <div className="py-8 text-center text-slate-600">
                     <MessageCircle className="mx-auto mb-2 h-8 w-8 text-slate-300" />
                     <p className="text-sm">No conversations yet</p>
+                    <p className="mt-2 text-xs text-slate-500">
+                      Need help? <Link href="/support?category=general:messages" className="text-sky-600 hover:underline">Contact support</Link>
+                    </p>
                   </div>
                 ) : (
                   filteredConversations.map((conv) => (

@@ -3,18 +3,23 @@
 import { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
 import {
+  Eye,
   Heart,
   MessageCircle,
   Share2,
   Repeat2,
   Send,
   Flag,
+  Bookmark,
   MoreHorizontal,
   Package,
   ShoppingCart,
+  Download,
   X,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
   Star,
   ExternalLink,
   Link2,
@@ -23,6 +28,7 @@ import {
   HeartHandshake,
   Music2,
   Maximize2,
+  Trash2,
 } from 'lucide-react';
 import { tvAPI, followsAPI, walletAPI, getImageUrl, getEffectivePrice } from '@/lib/api';
 import type { Product } from '@/lib/types';
@@ -30,6 +36,8 @@ import toast from 'react-hot-toast';
 import { TVCommentModal } from './TVCommentModal';
 import { FollowButton } from '@/components/FollowButton';
 import { SetPictureOptionsModal } from '@/components/SetPictureOptionsModal';
+import { VideoSidebar } from './VideoSidebar';
+import { TranslateText } from '@/components/TranslateText';
 
 const WATERMARK_IMG = '/watermark-qwertymates.svg';
 const WATERMARK_DURATION = 3; // seconds at start and end
@@ -43,10 +51,89 @@ function formatPrice(price: number, currency: string) {
   }).format(price);
 }
 
+/** Add to Cart / Download for songs with purchase enabled */
+function AudioPurchaseDownload({ songId, price, currentUserId }: { songId: string; price: number; currentUserId?: string }) {
+  const [purchased, setPurchased] = useState(false);
+  const [adding, setAdding] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+
+  useEffect(() => {
+    if (!currentUserId) return;
+    import('@/lib/api').then(({ musicAPI }) => {
+      musicAPI.getMyPurchases().then((r) => {
+        const ids = new Set((r.data?.data ?? []).map((x: any) => String(x.songId)));
+        setPurchased(ids.has(songId));
+      }).catch(() => {});
+    });
+  }, [songId, currentUserId]);
+
+  const handleAddToCart = async () => {
+    if (!currentUserId) {
+      toast.error('Sign in to add to cart');
+      return;
+    }
+    setAdding(true);
+    try {
+      const { cartAPI } = await import('@/lib/api');
+      const { invalidateCartStoresCache } = await import('@/lib/useCartAndStores');
+      await cartAPI.addMusic(songId, 1);
+      invalidateCartStoresCache();
+      toast.success('Added to cart');
+    } catch (e: any) {
+      toast.error(e.response?.data?.error || e.response?.data?.message || e.message || 'Failed to add to cart');
+    } finally {
+      setAdding(false);
+    }
+  };
+
+  const handleDownload = async () => {
+    if (!currentUserId) {
+      toast.error('Sign in to download');
+      return;
+    }
+    setDownloading(true);
+    try {
+      const { musicAPI, getImageUrl, API_BASE } = await import('@/lib/api');
+      const res = await musicAPI.getDownloadLinks(songId);
+      const data = res.data?.data ?? res.data;
+      const links = data?.links ?? data?.wavUrl ? [{ url: data.wavUrl, title: data.title || 'song' }] : [];
+      if (links.length === 0) {
+        toast.error('No download links');
+        return;
+      }
+      for (const l of links) {
+        const url = (l.url || l).startsWith('http') ? (l.url || l) : `${API_BASE || ''}${l.url || l}`;
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = (l.title || l.filename || 'song') + '.wav';
+        a.click();
+      }
+      toast.success('Download started');
+    } catch (e: any) {
+      toast.error(e.response?.data?.error || e.response?.data?.message || 'Download failed');
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  if (!currentUserId) return null;
+  return (
+    <button
+      onClick={(e) => { e.stopPropagation(); purchased ? handleDownload() : handleAddToCart(); }}
+      disabled={adding || downloading}
+      className="px-3 py-1.5 rounded-lg bg-sky-500 text-white text-sm font-semibold hover:bg-sky-600 disabled:opacity-50 shadow-lg"
+    >
+      {adding ? 'Adding...' : downloading ? 'Preparing...' : purchased ? 'Download' : `Add to Cart ${formatPrice(price, 'ZAR')}`}
+    </button>
+  );
+}
+
 export interface TVGridItem {
   _id: string;
   type: 'video' | 'image' | 'carousel' | 'product' | 'product_tile' | 'text' | 'audio';
   mediaUrls?: string[];
+  artworkUrl?: string;
+  songId?: { _id: string; title?: string; artist?: string; artworkUrl?: string; downloadEnabled?: boolean; downloadPrice?: number } | null;
   caption?: string;
   heading?: string;
   subject?: string;
@@ -57,6 +144,7 @@ export interface TVGridItem {
   likeCount: number;
   commentCount: number;
   shareCount: number;
+  viewCount?: number;
   creatorId?: { _id: string; name?: string; avatar?: string };
   createdAt?: string;
   // product tile
@@ -70,53 +158,26 @@ export interface TVGridItem {
   allowResell?: boolean;
 }
 
-function toWord(num: number) {
-  const words = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve"];
-  return words[num] || String(num);
-}
-
 function formatPostPeriod(createdAt?: string) {
   if (!createdAt) return "";
   const created = new Date(createdAt);
   if (Number.isNaN(created.getTime())) return "";
   const now = new Date();
-  const diffMs = now.getTime() - created.getTime();
-  const dayMs = 24 * 60 * 60 * 1000;
-  const days = Math.floor(diffMs / dayMs);
+  const diffMs = Math.max(0, now.getTime() - created.getTime());
+  const diffSec = Math.floor(diffMs / 1000);
+  const diffMin = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMs / 3600000);
+  const diffDays = Math.floor(diffMs / 86400000);
+  const diffMonths = Math.floor(diffDays / 30);
+  const diffYears = Math.floor(diffDays / 365);
 
-  if (days < 7) {
-    const monthNames = [
-      "Jan",
-      "Feb",
-      "March",
-      "April",
-      "May",
-      "June",
-      "July",
-      "Aug",
-      "Sept",
-      "Oct",
-      "Nov",
-      "Dec",
-    ];
-    const day = created.getDate();
-    const month = monthNames[created.getMonth()] || "";
-    const year = created.getFullYear();
-    return `${day} ${month} ${year}`;
-  }
-  if (days < 30) {
-    const weeks = Math.max(1, Math.floor(days / 7));
-    if (weeks === 1) return "a week ago";
-    return `${toWord(weeks)} weeks ago`;
-  }
-  if (days < 365) {
-    const months = Math.max(1, Math.floor(days / 30));
-    if (months === 1) return "a month ago";
-    return `${toWord(months)} months ago`;
-  }
-  const years = Math.max(1, Math.floor(days / 365));
-  if (years === 1) return "1 year ago";
-  return `${toWord(years)} years ago`;
+  if (diffSec < 60) return "Just now";
+  if (diffMin < 60) return `${diffMin} minute${diffMin === 1 ? "" : "s"} ago`;
+  if (diffHours < 2) return "An hour ago";
+  if (diffHours < 24) return `${diffHours} hours ago`;
+  if (diffDays < 30) return `${diffDays} day${diffDays === 1 ? "" : "s"} ago`;
+  if (diffMonths < 12) return `${diffMonths} month${diffMonths === 1 ? "" : "s"} ago`;
+  return `${diffYears} year${diffYears === 1 ? "" : "s"} ago`;
 }
 
 interface TVGridTileProps {
@@ -126,15 +187,18 @@ interface TVGridTileProps {
   onRepost?: (id: string) => void;
   onEnquire?: (productId: string) => void;
   onCommentAdded?: (id: string) => void;
+  onDelete?: (id: string) => void;
   isVisible?: boolean;
   currentUserId?: string;
   onSetProfilePicFromUrl?: (url: string) => Promise<void>;
   onSetStripBackgroundFromUrl?: (url: string) => Promise<void>;
   /** When 'grid', shows action icons overlay on media (for clipped tiles). When 'feed', icons are below media. */
   variant?: 'feed' | 'grid';
+  /** Related videos to show in sidebar when video is expanded (grid view) */
+  relatedVideos?: TVGridItem[];
 }
 
-export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, onCommentAdded, isVisible = true, currentUserId, onSetProfilePicFromUrl, onSetStripBackgroundFromUrl, variant = 'feed' }: TVGridTileProps) {
+export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, onCommentAdded, onDelete, isVisible = true, currentUserId, onSetProfilePicFromUrl, onSetStripBackgroundFromUrl, variant = 'feed', relatedVideos }: TVGridTileProps) {
   const [watermarkPhase, setWatermarkPhase] = useState<'start' | 'middle' | 'end'>('start');
   const [reportOpen, setReportOpen] = useState(false);
   const [reportReason, setReportReason] = useState('');
@@ -142,9 +206,11 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
   const [carouselIndex, setCarouselIndex] = useState(0);
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [videoExpandOpen, setVideoExpandOpen] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const expandedVideoRef = useRef<HTMLVideoElement>(null);
   const [pictureOptionsOpen, setPictureOptionsOpen] = useState(false);
   const [captionExpanded, setCaptionExpanded] = useState(false);
+  const [textPostExpanded, setTextPostExpanded] = useState(false);
   const [postMenuOpen, setPostMenuOpen] = useState(false);
   const [donateModalOpen, setDonateModalOpen] = useState(false);
   const [donateAmount, setDonateAmount] = useState('');
@@ -152,6 +218,7 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
   const [donateBalance, setDonateBalance] = useState<number | null>(null);
   const [donateBalanceLoading, setDonateBalanceLoading] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const audioRef = useRef<HTMLAudioElement>(null);
 
   const creatorName = item.creatorId?.name || 'Creator';
   const postPeriod = formatPostPeriod(item.createdAt);
@@ -217,7 +284,18 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
     return () => window.removeEventListener('keydown', onEscape);
   }, [videoExpandOpen]);
 
-  // Autoplay when visible
+  // Hide sidebar when video is fullscreen (YouTube-style)
+  useEffect(() => {
+    if (!videoExpandOpen || !expandedVideoRef.current) return;
+    const el = expandedVideoRef.current;
+    const onFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+    document.addEventListener('fullscreenchange', onFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', onFullscreenChange);
+  }, [videoExpandOpen]);
+
+  // Autoplay video when visible
   useEffect(() => {
     if (!videoRef.current || !isVisible) return;
     if (isVisible) {
@@ -226,6 +304,16 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
       videoRef.current.pause();
     }
   }, [isVisible, isVideo]);
+
+  // Autoplay audio when visible (mobile scroll)
+  useEffect(() => {
+    if (!isAudioPost || !audioRef.current) return;
+    if (isVisible) {
+      audioRef.current.play().catch(() => {});
+    } else {
+      audioRef.current.pause();
+    }
+  }, [isVisible, isAudioPost]);
 
   const handleReport = () => {
     if (!reportReason.trim() || item.type === 'product_tile') return;
@@ -316,36 +404,98 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
 
   return (
     <div className="rounded-lg overflow-hidden bg-white border border-slate-100 shadow-sm flex flex-col">
-      {/* Media container - smaller max for grid so icon bar fits below */}
-      <div className={`relative aspect-square w-full mx-auto bg-slate-900 ${variant === 'grid' ? 'max-h-[min(260px,42vw)]' : 'max-h-[min(580px,62vh)]'}`}>
+      {/* Media container - smaller max for grid so icon bar fits below. Text posts use auto height. */}
+      <div className={`relative w-full mx-auto bg-slate-900 ${isTextPost ? 'aspect-auto min-h-[200px]' : `aspect-square ${variant === 'grid' ? 'max-h-[min(260px,42vw)]' : 'max-h-[min(580px,62vh)]'}`}`}>
       {/* Media */}
       {isAudioPost ? (
-        <div className="w-full h-full flex flex-col items-center justify-center p-6 bg-slate-900">
-          <Music2 className="h-16 w-16 text-sky-400 mb-4" />
-          <audio src={mediaUrl} controls className="w-full max-w-full" />
-          {item.caption && (
-            <p className="text-slate-300 text-sm mt-3 text-center max-w-full truncate px-2">{item.caption}</p>
+        <div className="relative w-full h-full bg-slate-900 overflow-hidden">
+          {/* Album art - full bleed, fills entire area */}
+          <div className="absolute inset-0">
+            {(item.artworkUrl || (item.songId as any)?.artworkUrl) ? (
+              <img
+                src={getImageUrl(item.artworkUrl || (item.songId as any)?.artworkUrl)}
+                alt={item.caption || item.heading || (item.songId as any)?.title || 'Song'}
+                className="w-full h-full object-contain"
+              />
+            ) : (
+              <div className="w-full h-full flex items-center justify-center bg-slate-800">
+                <Music2 className="h-20 w-20 text-sky-400" />
+              </div>
+            )}
+          </div>
+          {/* Audio player - compact bar at bottom edge, overlaid. Autoplay when visible (mobile scroll). */}
+          <div className="absolute inset-x-0 bottom-0 z-10 bg-black/60 backdrop-blur-sm px-3 py-2" onClick={(e) => e.stopPropagation()}>
+            <audio
+              ref={audioRef}
+              src={getImageUrl(mediaUrl) || mediaUrl}
+              controls
+              playsInline
+              className="w-full max-w-full h-9 [&::-webkit-media-controls-panel]:bg-transparent"
+            />
+          </div>
+          {/* Buy button - bottom right corner of album art, above audio player bar */}
+          {isAudioPost && (item.songId as any)?.downloadEnabled && (item.songId as any)?._id && (
+            <div className="absolute bottom-11 right-3 z-10" onClick={(e) => e.stopPropagation()}>
+              <AudioPurchaseDownload
+                songId={(item.songId as any)._id}
+                price={(item.songId as any).downloadPrice ?? 10}
+                currentUserId={currentUserId}
+              />
+            </div>
           )}
         </div>
       ) : isTextPost ? (
-        <div className="w-full h-full flex flex-col items-center justify-center p-6 bg-gradient-to-b from-sky-50 to-slate-100 gap-3">
-          <div className="text-center max-w-md">
-            {(item.heading || item.subject || item.caption) && (
-              <>
-                {item.heading && (
-                  <h3 className="text-xl sm:text-2xl font-bold text-slate-900 mb-2">{item.heading}</h3>
-                )}
-                {(item.subject || item.caption) && (
-                  <p className="text-slate-700 text-sm sm:text-base leading-relaxed whitespace-pre-wrap">
-                    {item.subject || item.caption}
-                  </p>
-                )}
-              </>
-            )}
-            {!item.heading && !item.subject && !item.caption && (
-              <p className="text-slate-500 text-sm">Text post</p>
-            )}
-          </div>
+        <div className="w-full min-h-full flex flex-col pt-14 px-5 pb-5 sm:pt-16 sm:px-6 sm:pb-6 bg-white text-left">
+          {(item.heading || item.subject || item.caption) && (
+            <div className="flex flex-col gap-3">
+              {(() => {
+                const rawBody = item.subject || item.caption || '';
+                const firstLine = rawBody ? rawBody.split('\n')[0]?.trim().slice(0, 120) || '' : '';
+                const headline = item.heading || firstLine;
+                const body = item.heading ? rawBody : rawBody.split('\n').slice(1).join('\n').trim();
+                const hasBody = body.length > 0;
+                const TRUNCATE_LEN = 280;
+                const shouldTruncate = hasBody && body.length > TRUNCATE_LEN;
+                const showTruncated = shouldTruncate && !textPostExpanded;
+                const displayBody = showTruncated ? body.slice(0, TRUNCATE_LEN).trim() + '...' : body;
+                return (
+                  <>
+                    {headline && (
+                      <h3 className="text-base sm:text-lg font-bold text-slate-900 uppercase tracking-tight leading-snug">
+                        {headline}
+                      </h3>
+                    )}
+                    {hasBody && (
+                      <>
+                        <p className="text-slate-700 text-[15px] leading-[1.6] whitespace-pre-wrap">
+                          {displayBody}
+                        </p>
+                        {shouldTruncate && (
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); setTextPostExpanded((v) => !v); }}
+                            className="self-center flex items-center gap-1 text-pink-500 hover:text-pink-600 font-semibold text-sm mt-1"
+                          >
+                            {textPostExpanded ? (
+                              <>SHOW LESS <ChevronUp className="h-4 w-4" /></>
+                            ) : (
+                              <>SHOW MORE <ChevronDown className="h-4 w-4" /></>
+                            )}
+                          </button>
+                        )}
+                      </>
+                    )}
+                    {!headline && !hasBody && (
+                      <p className="text-slate-500 text-sm">Text post</p>
+                    )}
+                  </>
+                );
+              })()}
+            </div>
+          )}
+          {!item.heading && !item.subject && !item.caption && (
+            <p className="text-slate-500 text-sm">Text post</p>
+          )}
         </div>
       ) : isProductTile ? (
         <div className="relative w-full h-full">
@@ -430,8 +580,8 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
             {getImageUrl(mediaUrl) ? (
               <img
                 src={getImageUrl(mediaUrl)}
-                alt={item.caption || 'Post'}
-                className={`w-full h-full object-cover ${filterClass}`}
+                alt={item.caption || item.heading || 'Post'}
+                className={`w-full h-full object-contain ${filterClass}`}
               />
             ) : (
               <div className="w-full h-full flex items-center justify-center bg-slate-800">
@@ -487,16 +637,13 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
               {item.creatorId?.avatar ? (
                 <img src={getImageUrl(item.creatorId.avatar)} alt="" className="w-full h-full object-cover" />
               ) : (
-                <span className="flex items-center justify-center w-full h-full text-white text-xs font-bold">
-                  {creatorName.charAt(0).toUpperCase()}
+                <span className="flex items-center justify-center w-full h-full text-white">
+                  <User className="h-4 w-4" />
                 </span>
               )}
             </div>
             <div className="min-w-0">
               <p className="text-white text-sm font-semibold truncate">{isProductTile ? item.title : creatorName}</p>
-              {!isProductTile && !isOwnPost && (
-                <p className="text-white/80 text-xs">Suggested for you</p>
-              )}
             </div>
           </Link>
         </div>
@@ -524,6 +671,24 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
                     >
                       <Flag className="h-4 w-4" /> Report
                     </button>
+                    {isOwnPost && (
+                      <button
+                        onClick={async () => {
+                          setPostMenuOpen(false);
+                          if (!confirm('Delete this post? This cannot be undone.')) return;
+                          try {
+                            await tvAPI.deletePost(item._id);
+                            toast.success('Post deleted');
+                            onDelete?.(item._id);
+                          } catch (e: any) {
+                            toast.error(e.response?.data?.message || 'Failed to delete post');
+                          }
+                        }}
+                        className="w-full px-4 py-2.5 text-left text-sm text-rose-600 hover:bg-rose-50 flex items-center gap-2"
+                      >
+                        <Trash2 className="h-4 w-4" /> Delete post
+                      </button>
+                    )}
                     {!isOwnPost && item.creatorId?._id && currentUserId && (
                       <button
                         onClick={async () => {
@@ -660,6 +825,12 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
       {/* QwertyTV grid: action icons below each video - flex-shrink-0 so never clipped */}
       {!isProductTile && variant === 'grid' && (
         <div className="flex-shrink-0 min-h-[44px] px-2 py-1.5 border-t border-slate-100 flex items-center justify-start gap-2 sm:gap-3 flex-wrap bg-white">
+          {isVideo && (
+            <span className="flex items-center gap-1 min-h-[36px] min-w-[36px] justify-center py-1 px-1 text-slate-600" title="Views">
+              <Eye className="h-4 w-4 sm:h-5 sm:w-5" />
+              <span className="text-xs font-medium">{(item.viewCount ?? 0) >= 1000 ? `${((item.viewCount ?? 0) / 1000).toFixed(1)}K` : item.viewCount ?? 0}</span>
+            </span>
+          )}
           <button
             onClick={(e) => { e.stopPropagation(); onLike?.(item._id, !liked); }}
             className={`flex items-center gap-1 min-h-[36px] min-w-[36px] justify-center py-1 px-1 rounded-lg transition-colors cursor-pointer touch-manipulation ${
@@ -709,6 +880,13 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
               <HeartHandshake className="h-4 w-4 sm:h-5 sm:w-5" />
             </button>
           )}
+          <button
+            onClick={(e) => { e.stopPropagation(); toast.success('Saved'); }}
+            className="min-h-[36px] min-w-[36px] flex items-center justify-center py-1 rounded-lg text-slate-600 hover:text-slate-900 transition-colors cursor-pointer touch-manipulation"
+            title="Save"
+          >
+            <Bookmark className="h-4 w-4 sm:h-5 sm:w-5" />
+          </button>
         </div>
       )}
 
@@ -730,8 +908,14 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
             </div>
           )}
           <div className="flex items-center justify-between gap-2">
-            {/* Action icons - bottom left (homepage only) */}
+            {/* Action icons - bottom left (homepage only). View count: videos only */}
             <div className="flex items-center gap-1.5 sm:gap-3 flex-wrap">
+              {isVideo && (
+                <span className="flex items-center gap-1 min-h-[36px] min-w-[36px] sm:min-h-0 sm:min-w-0 justify-center py-1 px-1 sm:px-0 text-slate-600" title="Views">
+                  <Eye className="h-4 w-4 sm:h-5 sm:w-5" />
+                  <span className="text-xs sm:text-sm font-medium">{(item.viewCount ?? 0) >= 1000 ? `${((item.viewCount ?? 0) / 1000).toFixed(1)}K` : item.viewCount ?? 0}</span>
+                </span>
+              )}
               <button
                 onClick={(e) => { e.stopPropagation(); onLike?.(item._id, !liked); }}
                 className={`flex items-center gap-1 min-h-[36px] min-w-[36px] sm:min-h-0 sm:min-w-0 justify-center py-1 px-1 sm:px-0 rounded-lg transition-colors cursor-pointer touch-manipulation ${
@@ -780,6 +964,13 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
                   <HeartHandshake className="h-4 w-4 sm:h-5 sm:w-5" />
                 </button>
               )}
+              <button
+                onClick={(e) => { e.stopPropagation(); toast.success('Saved'); }}
+                className="min-h-[36px] min-w-[36px] sm:min-h-0 sm:min-w-0 flex items-center justify-center py-1 rounded-lg text-slate-600 hover:text-slate-900 transition-colors cursor-pointer touch-manipulation"
+                title="Save"
+              >
+                <Bookmark className="h-4 w-4 sm:h-5 sm:w-5" />
+              </button>
             </div>
             {/* Report flag - bottom right */}
             <div className="relative shrink-0">
@@ -830,33 +1021,39 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
         </div>
       )}
 
-      {/* Below icons: story/caption and comments - hidden in grid */}
+      {/* Below icons: heading, story/caption and comments - hidden in grid */}
       {!isProductTile && variant !== 'grid' && (
         <div className="p-2 bg-white">
+          {(item.heading || item.subject || item.caption) && !isTextPost && (
+            <>
+              {item.heading && (
+                <h3 className="text-base font-bold text-slate-900 mb-1.5">{item.heading}</h3>
+              )}
+              {(item.caption || item.subject) && (
+                <p className="text-sm text-slate-800">
+                  <TranslateText
+                    text={captionExpanded ? (item.caption || item.subject || '') : (item.caption || item.subject || '').length > 80 ? `${(item.caption || item.subject || '').slice(0, 80)}...` : (item.caption || item.subject || '')}
+                    as="span"
+                    compact
+                  />
+                  {!captionExpanded && (item.caption || item.subject || '').length > 80 && (
+                    <button
+                      type="button"
+                      onClick={() => setCaptionExpanded(true)}
+                      className="text-slate-500 hover:text-slate-700 font-medium ml-0.5"
+                    >
+                      more
+                    </button>
+                  )}
+                </p>
+              )}
+            </>
+          )}
           {(item.likeCount ?? 0) > 0 && (
-            <p className="text-sm font-semibold text-slate-900 mb-1">
+            <p className="text-sm font-semibold text-slate-900 mb-1 mt-1">
               {(item.likeCount ?? 0) >= 1000
                 ? `Liked by ${((item.likeCount ?? 0) / 1000).toFixed(1)}K others`
                 : `Liked by ${item.likeCount} ${(item.likeCount ?? 0) !== 1 ? 'others' : 'other'}`}
-            </p>
-          )}
-          {item.caption && (
-            <p className="text-sm text-slate-800">
-              <Link href={isOwnPost ? '/store' : (item.creatorId?._id || item.creatorId) ? `/morongwa-tv/user/${item.creatorId?._id ?? item.creatorId}` : '/morongwa-tv'} className="font-semibold mr-1.5">
-                {creatorName}
-              </Link>
-              <span>
-                {captionExpanded ? item.caption : item.caption.length > 80 ? `${item.caption.slice(0, 80)}...` : item.caption}
-              </span>
-              {!captionExpanded && item.caption.length > 80 && (
-                <button
-                  type="button"
-                  onClick={() => setCaptionExpanded(true)}
-                  className="text-slate-500 hover:text-slate-700 font-medium ml-0.5"
-                >
-                  more
-                </button>
-              )}
             </p>
           )}
           {(item.commentCount ?? 0) > 0 && (
@@ -914,10 +1111,10 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
         </>
       )}
 
-      {/* Video expand modal - click to expand for viewing */}
+      {/* Video expand modal - YouTube-style: video left, sidebar right; fullscreen hides sidebar */}
       {!isProductTile && isVideo && videoExpandOpen && (
         <div
-          className="fixed inset-0 z-50 bg-black/95 flex items-center justify-center"
+          className={`fixed inset-0 z-50 flex ${relatedVideos?.length && !isFullscreen ? 'bg-white flex-col lg:flex-row' : 'bg-black/95 flex-col items-center justify-center'}`}
           onClick={() => {
             setVideoExpandOpen(false);
             expandedVideoRef.current?.pause();
@@ -925,7 +1122,7 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
         >
           <button
             type="button"
-            className="absolute top-4 right-4 p-2 text-white/80 hover:text-white z-10"
+            className={`absolute top-4 right-4 p-2 z-10 ${relatedVideos?.length && !isFullscreen ? 'text-slate-600 hover:text-slate-900' : 'text-white/80 hover:text-white'}`}
             onClick={() => {
               setVideoExpandOpen(false);
               expandedVideoRef.current?.pause();
@@ -936,7 +1133,7 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
           </button>
           <button
             type="button"
-            className="absolute top-4 right-16 p-2 text-white/80 hover:text-white z-10"
+            className={`absolute top-4 right-16 p-2 z-10 ${relatedVideos?.length && !isFullscreen ? 'text-slate-600 hover:text-slate-900' : 'text-white/80 hover:text-white'}`}
             onClick={(e) => {
               e.stopPropagation();
               const el = expandedVideoRef.current;
@@ -953,7 +1150,7 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
             <Maximize2 className="h-8 w-8" />
           </button>
           <div
-            className="relative max-w-[90vw] max-h-[90vh] w-full flex items-center justify-center"
+            className={`relative flex flex-col flex-1 min-h-0 ${relatedVideos?.length && !isFullscreen ? 'w-full lg:w-auto lg:min-w-0 lg:flex-1 items-start justify-center px-4 lg:px-6' : 'w-full max-w-[90vw] items-center justify-center'}`}
             onClick={(e) => e.stopPropagation()}
           >
             <video
@@ -963,10 +1160,82 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
               autoPlay
               loop
               playsInline
-              className="max-w-full max-h-[90vh] object-contain"
+              className={`w-full max-w-full object-contain ${relatedVideos?.length && !isFullscreen ? 'max-h-[60vh] lg:max-h-[85vh]' : 'max-h-[70vh]'}`}
               onClick={(e) => e.stopPropagation()}
             />
+            {/* Action icons - visible below video when not fullscreen. View count: videos only */}
+            <div className={`flex-shrink-0 mt-4 px-4 py-3 flex items-center justify-center gap-4 sm:gap-6 flex-wrap rounded-xl ${relatedVideos?.length && !isFullscreen ? 'bg-slate-100' : 'bg-white/10 backdrop-blur-sm'}`}>
+              {isVideo && (
+                <span className={`flex items-center gap-1.5 min-h-[40px] min-w-[40px] justify-center ${relatedVideos?.length && !isFullscreen ? 'text-slate-600' : 'text-white/90'}`} title="Views">
+                  <Eye className="h-5 w-5 sm:h-6 sm:w-6" />
+                  <span className="text-sm font-medium">{(item.viewCount ?? 0) >= 1000 ? `${((item.viewCount ?? 0) / 1000).toFixed(1)}K` : item.viewCount ?? 0}</span>
+                </span>
+              )}
+              <button
+                onClick={(e) => { e.stopPropagation(); onLike?.(item._id, !liked); }}
+                className={`flex items-center gap-1.5 min-h-[40px] min-w-[40px] justify-center rounded-lg transition-colors cursor-pointer touch-manipulation ${
+                  relatedVideos?.length && !isFullscreen
+                    ? (liked ? 'text-rose-500' : 'text-slate-600 hover:text-slate-900')
+                    : (liked ? 'text-rose-400' : 'text-white/90 hover:text-white')
+                }`}
+              >
+                <Heart className={`h-5 w-5 sm:h-6 sm:w-6 ${liked ? 'fill-current' : ''}`} />
+                <span className="text-sm font-medium">{(item.likeCount ?? 0) >= 1000 ? `${((item.likeCount ?? 0) / 1000).toFixed(1)}K` : item.likeCount ?? 0}</span>
+              </button>
+              <button
+                onClick={(e) => { e.stopPropagation(); setCommentModalOpen(true); }}
+                className={`flex items-center gap-1.5 min-h-[40px] min-w-[40px] justify-center rounded-lg transition-colors cursor-pointer touch-manipulation ${relatedVideos?.length && !isFullscreen ? 'text-slate-600 hover:text-slate-900' : 'text-white/90 hover:text-white'}`}
+                title="Comments"
+              >
+                <MessageCircle className="h-5 w-5 sm:h-6 sm:w-6" />
+                <span className="text-sm font-medium">{item.commentCount ?? 0}</span>
+              </button>
+              <button
+                onClick={(e) => { e.stopPropagation(); handleShare(); }}
+                className={`min-h-[40px] min-w-[40px] flex items-center justify-center rounded-lg transition-colors cursor-pointer touch-manipulation ${relatedVideos?.length && !isFullscreen ? 'text-slate-600 hover:text-slate-900' : 'text-white/90 hover:text-white'}`}
+                title="Share"
+              >
+                <Share2 className="h-5 w-5 sm:h-6 sm:w-6" />
+              </button>
+              {onRepost && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); onRepost(item._id); }}
+                  className={`min-h-[40px] min-w-[40px] flex items-center justify-center rounded-lg transition-colors cursor-pointer touch-manipulation ${relatedVideos?.length && !isFullscreen ? 'text-slate-600 hover:text-slate-900' : 'text-white/90 hover:text-white'}`}
+                  title="Repost"
+                >
+                  <Repeat2 className="h-5 w-5 sm:h-6 sm:w-6" />
+                </button>
+              )}
+              <Link
+                href="/messages"
+                className={`min-h-[40px] min-w-[40px] flex items-center justify-center rounded-lg transition-colors cursor-pointer touch-manipulation ${relatedVideos?.length && !isFullscreen ? 'text-slate-600 hover:text-slate-900' : 'text-white/90 hover:text-white'}`}
+                title="Send"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <Send className="h-5 w-5 sm:h-6 sm:w-6" />
+              </Link>
+              {!isOwnPost && creatorIdResolved && currentUserId && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); setDonateModalOpen(true); }}
+                  className={`min-h-[40px] min-w-[40px] flex items-center justify-center rounded-lg transition-colors cursor-pointer touch-manipulation ${relatedVideos?.length && !isFullscreen ? 'text-slate-600 hover:text-slate-900' : 'text-white/90 hover:text-white'}`}
+                  title="Donate"
+                >
+                  <HeartHandshake className="h-5 w-5 sm:h-6 sm:w-6" />
+                </button>
+              )}
+            </div>
           </div>
+          {relatedVideos && relatedVideos.length > 0 && !isFullscreen && (
+            <div className="flex flex-col w-full lg:w-[320px] xl:w-[360px] flex-shrink-0 min-h-0 overflow-y-auto lg:border-l lg:border-slate-200 max-h-[40vh] lg:max-h-none" onClick={(e) => e.stopPropagation()}>
+              <VideoSidebar
+                items={relatedVideos}
+                currentPostId={item._id}
+                creatorId={creatorIdResolved ?? undefined}
+                creatorName={creatorName !== 'Creator' ? creatorName : undefined}
+                embedded
+              />
+            </div>
+          )}
         </div>
       )}
 

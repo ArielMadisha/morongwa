@@ -9,6 +9,12 @@ export interface IOrderItem {
   commissionValue?: number;
 }
 
+export interface IOrderMusicItem {
+  songId: mongoose.Types.ObjectId;
+  qty: number;
+  price: number;
+}
+
 export interface IOrderAmounts {
   subtotal: number;
   shipping: number;
@@ -46,6 +52,8 @@ export interface IOrder extends Document {
   supplierId?: mongoose.Types.ObjectId; // first product's supplier for simplicity
   status: OrderStatus;
   items: IOrderItem[];
+  /** Music items included in same checkout (for card payment webhook) */
+  musicItems?: IOrderMusicItem[];
   amounts: IOrderAmounts;
   /** Stored breakdown for wallet transaction list and invoice */
   paymentBreakdown?: IOrderPaymentBreakdown;
@@ -56,6 +64,11 @@ export interface IOrder extends Document {
   createdAt: Date;
   updatedAt: Date;
 }
+
+const OrderMusicItemSchema = new Schema(
+  { songId: { type: Schema.Types.ObjectId, ref: "Song", required: true }, qty: { type: Number, required: true, min: 1 }, price: { type: Number, required: true } },
+  { _id: false }
+);
 
 const OrderItemSchema = new Schema<IOrderItem>(
   {
@@ -79,6 +92,7 @@ const OrderSchema = new Schema<IOrder>(
       default: "pending_payment",
     },
     items: { type: [OrderItemSchema], required: true },
+    musicItems: { type: [OrderMusicItemSchema], default: [] },
     amounts: {
       subtotal: { type: Number, required: true },
       shipping: { type: Number, default: 0 },

@@ -70,7 +70,11 @@ export default function CheckoutPage() {
     checkoutAPI.pay(paymentMethod, deliveryAddress || undefined, fulfillmentMethod).then((res) => {
       const d = res.data?.data ?? res.data;
       if (d?.paymentUrl) { window.location.href = d.paymentUrl; return; }
-      if (d?.status === 'paid') { toast.success('Order paid with wallet'); window.location.href = `/checkout/order/${d.orderId}`; }
+      if (d?.status === 'paid') {
+        toast.success(d?.message || 'Payment complete');
+        if (d?.orderId) window.location.href = `/checkout/order/${d.orderId}`;
+        else window.location.href = '/cart';
+      }
     }).catch((err) => {
       const status = Number(err?.response?.status || 0);
       const backendMessage = err?.response?.data?.error || err?.response?.data?.message;

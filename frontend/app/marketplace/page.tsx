@@ -251,6 +251,9 @@ function MarketplacePageContent() {
               <Link href={supplierLink} className="text-sm font-medium text-sky-600 hover:underline">Become a supplier →</Link>
             </div>
           </div>
+          <p className="mt-6 text-center text-sm text-slate-500">
+            Need help? <Link href="/support?category=products:marketplace" className="text-sky-600 hover:underline">Contact support</Link>
+          </p>
         </div>
       </main>
         <AdvertSlot belowHeader />

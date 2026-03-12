@@ -71,7 +71,7 @@ export const musicUploadWav = multer({
   limits: { fileSize: 100 * 1024 * 1024 }, // 100MB for WAV
 });
 
-/** JPEG/PNG cover art - 3000x3000 pixel square recommended */
+/** JPEG/PNG cover art - 1200x1200 pixel square recommended (fits display area) */
 const ARTWORK_MIMETYPES = ["image/jpeg", "image/jpg", "image/png"];
 const artworkFileFilter = (
   _req: Express.Request,
@@ -79,7 +79,7 @@ const artworkFileFilter = (
   cb: multer.FileFilterCallback
 ) => {
   if (ARTWORK_MIMETYPES.includes(file.mimetype)) cb(null, true);
-  else cb(new Error("Invalid file type. Only JPEG or PNG allowed (3000x3000 square recommended)."));
+  else cb(new Error("Invalid file type. Only JPEG or PNG allowed (1200×1200 square recommended)."));
 };
 
 const artworkStorage = multer.diskStorage({
@@ -105,10 +105,10 @@ const songUploadFileFilter = (
 ) => {
   if (file.fieldname === "audio") {
     if (WAV_MIMETYPES.includes(file.mimetype)) cb(null, true);
-    else cb(new Error("Audio must be WAV (16-bit, 44.1 kHz or higher)."));
+    else cb(new Error("Audio must be WAV: 16-bit or 24-bit, 44.1 kHz, Stereo."));
   } else if (file.fieldname === "artwork") {
     if (ARTWORK_MIMETYPES.includes(file.mimetype)) cb(null, true);
-    else cb(new Error("Artwork must be JPEG or PNG (3000x3000 square recommended)."));
+    else cb(new Error("Artwork must be JPEG or PNG (1200×1200 square recommended)."));
   } else {
     cb(new Error("Invalid field"));
   }
@@ -144,7 +144,7 @@ const albumUploadFileFilter = (
     else cb(new Error("Album tracks must be WAV (16-bit, 44.1 kHz or higher)."));
   } else if (file.fieldname === "artwork") {
     if (ARTWORK_MIMETYPES.includes(file.mimetype)) cb(null, true);
-    else cb(new Error("Artwork must be JPEG or PNG (3000x3000 square recommended)."));
+    else cb(new Error("Artwork must be JPEG or PNG (1200×1200 square recommended)."));
   } else {
     cb(new Error("Invalid field"));
   }

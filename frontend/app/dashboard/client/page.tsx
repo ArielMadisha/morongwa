@@ -105,8 +105,11 @@ function ClientDashboard() {
     try {
       const { data } = await walletAPI.getBalance();
       setWalletBalance(data.balance || 0);
-    } catch (error) {
-      console.error('Wallet fetch error:', error);
+    } catch (error: any) {
+      const status = error?.response?.status;
+      if (status === 503) {
+        toast.error('Service temporarily unavailable. Please try again in a moment.', { duration: 5000 });
+      }
       setWalletBalance(0);
     }
   };

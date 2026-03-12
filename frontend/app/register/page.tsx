@@ -301,7 +301,7 @@ export default function RegisterPage() {
                     Or register with email →
                   </button>
                   <a
-                    href={`https://wa.me/${process.env.NEXT_PUBLIC_WHATSAPP_NUMBER || '27821234567'}?text=${encodeURIComponent('Hi, I want to register for Qwertymates')}`}
+                    href={`https://wa.me/${process.env.NEXT_PUBLIC_WHATSAPP_NUMBER || '27815826899'}?text=${encodeURIComponent('Hi, I want to register for Morongwa')}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="block w-full py-2 px-4 rounded-lg border-2 border-emerald-500 text-emerald-600 hover:bg-emerald-50 font-semibold text-center transition-colors"
@@ -489,7 +489,7 @@ export default function RegisterPage() {
                     ← Register with phone (SMS/WhatsApp) instead
                   </button>
                   <a
-                    href={`https://wa.me/${process.env.NEXT_PUBLIC_WHATSAPP_NUMBER || '27821234567'}?text=${encodeURIComponent('Hi, I want to register for Qwertymates')}`}
+                    href={`https://wa.me/${process.env.NEXT_PUBLIC_WHATSAPP_NUMBER || '27815826899'}?text=${encodeURIComponent('Hi, I want to register for Morongwa')}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="block w-full py-2 px-4 rounded-lg border-2 border-emerald-500 text-emerald-600 hover:bg-emerald-50 font-semibold text-center"

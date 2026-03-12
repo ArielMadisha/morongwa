@@ -429,6 +429,9 @@ export default function SupplierProductsPage() {
               </button>
               <Link href="/store" className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Back to MyStore</Link>
             </div>
+            <p className="mt-4 text-sm text-slate-500">
+              Need help listing products? <Link href="/support?category=products:listing" className="text-sky-600 hover:underline">Contact support</Link>
+            </p>
           </form>
             </div>
           </main>

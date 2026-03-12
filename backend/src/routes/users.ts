@@ -62,9 +62,13 @@ router.put("/:id", authenticate, async (req: AuthRequest, res: Response, next) =
       throw new AppError("Unauthorized", 403);
     }
 
-    const { name, username, isPrivate, avatar, stripBackgroundPic } = req.body;
+    const { name, username, phone, isPrivate, avatar, stripBackgroundPic } = req.body;
     const updates: any = {};
     if (name) updates.name = name;
+    if (typeof phone === "string") {
+      const digits = phone.replace(/\D/g, "");
+      updates.phone = digits.length >= 10 ? digits : null;
+    }
     if (typeof username === "string" && username.trim()) {
       const uname = username.toLowerCase().trim().replace(/[^a-z0-9_]/g, "").slice(0, 30);
       if (uname.length >= 2) {

@@ -145,6 +145,7 @@ function UserFeedContent() {
                     onLike={handleLike}
                     onRepost={item.type !== 'product_tile' ? handleRepost : undefined}
                     onCommentAdded={item.type !== 'product_tile' ? handleCommentAdded : undefined}
+                    onDelete={(id) => setItems((prev) => prev.filter((i) => i._id !== id))}
                     currentUserId={user?._id || user?.id}
                     isVisible={true}
                   />

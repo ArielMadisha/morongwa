@@ -310,7 +310,8 @@ function AdminDashboard() {
               { href: '/admin/escrows', icon: DollarSign, title: 'View escrow & ledger', desc: 'Escrow list, full ledger, release, refund', color: 'orange' },
               { href: '/admin/payouts', icon: Wallet, title: 'FNB payouts', desc: 'Initiate payouts, poll status, view balance', color: 'orange' },
               { href: '/admin/audit', icon: FileText, title: 'Audit log', desc: 'Role-based actions & audit trail', color: 'indigo' },
-              { href: '/admin/pricing', icon: Settings, title: 'Pricing config', desc: 'Manage fees & FX rates', color: 'cyan' }
+              { href: '/admin/pricing', icon: Settings, title: 'Pricing config', desc: 'Manage fees & FX rates', color: 'cyan' },
+              { href: '/admin/support', icon: Mail, title: 'Support tickets', desc: 'View and respond to user support requests', color: 'sky' }
             ].map((action) => {
               const IconComponent = action.icon;
               const colorMap: any = { 

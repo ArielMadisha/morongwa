@@ -432,6 +432,11 @@ function UserProfileContent() {
               liked={likedMap[viewingPost._id]}
               onLike={handleLike}
               onCommentAdded={handleCommentAdded}
+              onDelete={(id) => {
+                setViewingPost(null);
+                setItems((prev) => prev.filter((i) => i._id !== id));
+              }}
+              currentUserId={user?._id || user?.id}
               isVisible
             />
           </div>

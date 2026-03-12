@@ -12,7 +12,7 @@ export interface ISong extends Document {
   lyrics?: string;
   /** WAV audio file URL */
   audioUrl: string;
-  /** 3000x3000 cover art (JPEG/PNG) */
+  /** 1200×1200 cover art (JPEG/PNG) - fits display area */
   artworkUrl: string;
   /** Uploading artist */
   userId: mongoose.Types.ObjectId;

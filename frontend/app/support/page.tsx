@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import toast from 'react-hot-toast';
 import {
   Send,
@@ -15,9 +16,12 @@ import {
 import { useAuth } from '@/contexts/AuthContext';
 import ProtectedRoute from '@/components/ProtectedRoute';
 import SiteHeader from '@/components/SiteHeader';
+import { supportAPI } from '@/lib/api';
+import { SUPPORT_CATEGORIES } from '@/lib/supportCategories';
 
 function SupportPage() {
   const { user } = useAuth();
+  const searchParams = useSearchParams();
   const [tickets, setTickets] = useState<any[]>([]);
   const [selectedTicket, setSelectedTicket] = useState<any>(null);
   const [messages, setMessages] = useState<any[]>([]);
@@ -28,9 +32,20 @@ function SupportPage() {
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [formData, setFormData] = useState({
     subject: '',
-    category: 'general',
+    category: 'general:other',
     description: '',
   });
+
+  useEffect(() => {
+    const category = searchParams.get('category');
+    if (category) {
+      const isValid = Object.values(SUPPORT_CATEGORIES).some((c) =>
+        c.subcategories.some((s) => s.value === category)
+      );
+      setFormData((f) => ({ ...f, category: isValid ? category : 'general:other' }));
+      setShowCreateForm(true);
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     fetchTickets();
@@ -39,59 +54,31 @@ function SupportPage() {
   const fetchTickets = async () => {
     try {
       setLoading(true);
-      // Mock tickets data
-      setTickets([
-        {
-          _id: '1',
-          subject: 'Issue with task payment',
-          category: 'billing',
-          status: 'open',
-          priority: 'high',
-          createdAt: new Date(Date.now() - 86400000),
-          messages: [],
-        },
-        {
-          _id: '2',
-          subject: 'Account verification help',
-          category: 'account',
-          status: 'resolved',
-          priority: 'medium',
-          createdAt: new Date(Date.now() - 172800000),
-          messages: [],
-        },
-        {
-          _id: '3',
-          subject: 'Feature request',
-          category: 'general',
-          status: 'pending',
-          priority: 'low',
-          createdAt: new Date(Date.now() - 259200000),
-          messages: [],
-        },
-      ]);
+      const res = await supportAPI.getMyTickets();
+      const data = res.data as { tickets?: any[] };
+      setTickets(Array.isArray(data?.tickets) ? data.tickets : []);
     } catch (error) {
       toast.error('Failed to load support tickets');
+      setTickets([]);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleSelectTicket = (ticket: any) => {
+  const handleSelectTicket = async (ticket: any) => {
     setSelectedTicket(ticket);
-    setMessages([
-      {
-        _id: '1',
-        sender: 'support',
-        text: 'Thank you for contacting us. We are looking into your issue.',
-        createdAt: new Date(Date.now() - 3600000),
-      },
-      {
-        _id: '2',
-        sender: user?._id,
-        text: 'Thank you, I appreciate the help!',
-        createdAt: new Date(Date.now() - 1800000),
-      },
-    ]);
+    try {
+      const res = await supportAPI.getById(ticket._id);
+      const t = (res.data as any)?.ticket;
+      setMessages(t?.messages?.map((m: any) => ({
+        _id: m._id?.toString() || Math.random(),
+        sender: m.sender?._id ?? m.sender,
+        text: m.message,
+        createdAt: m.createdAt,
+      })) ?? []);
+    } catch {
+      setMessages([]);
+    }
   };
 
   const handleCreateTicket = async () => {
@@ -102,20 +89,17 @@ function SupportPage() {
 
     setSending(true);
     try {
-      const newTicket = {
-        _id: Date.now().toString(),
-        ...formData,
-        status: 'pending',
-        priority: 'medium',
-        createdAt: new Date(),
-        messages: [],
-      };
-      setTickets([newTicket, ...tickets]);
+      await supportAPI.create({
+        title: formData.subject.trim(),
+        description: formData.description.trim(),
+        category: formData.category,
+      });
       toast.success('Support ticket created');
-      setFormData({ subject: '', category: 'general', description: '' });
+      setFormData({ subject: '', category: 'general:other', description: '' });
       setShowCreateForm(false);
-    } catch (error) {
-      toast.error('Failed to create ticket');
+      fetchTickets();
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || error.response?.data?.message || 'Failed to create ticket');
     } finally {
       setSending(false);
     }
@@ -126,19 +110,20 @@ function SupportPage() {
 
     setSending(true);
     try {
+      await supportAPI.addMessage(selectedTicket._id, message.trim());
       setMessages([
         ...messages,
         {
           _id: Date.now().toString(),
           sender: user?._id,
           text: message,
-          createdAt: new Date(),
+          createdAt: new Date().toISOString(),
         },
       ]);
       setMessage('');
       toast.success('Message sent');
-    } catch (error) {
-      toast.error('Failed to send message');
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || error.response?.data?.message || 'Failed to send message');
     } finally {
       setSending(false);
     }
@@ -146,8 +131,8 @@ function SupportPage() {
 
   const filteredTickets = tickets.filter(
     (ticket) =>
-      ticket.subject.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      ticket.category.toLowerCase().includes(searchQuery.toLowerCase())
+      (ticket.title || ticket.subject || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (ticket.category || '').toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   const getStatusBadge = (status: string) => {
@@ -237,10 +222,13 @@ function SupportPage() {
                       onChange={(e) => setFormData({ ...formData, category: e.target.value })}
                       className="w-full rounded-lg border border-slate-200 bg-white/80 px-3 py-2 text-sm text-slate-900 transition focus:border-sky-300 focus:outline-none focus:ring-2 focus:ring-sky-100"
                     >
-                      <option value="general">General</option>
-                      <option value="billing">Billing</option>
-                      <option value="account">Account</option>
-                      <option value="technical">Technical</option>
+                      {Object.entries(SUPPORT_CATEGORIES).map(([key, cat]) => (
+                        <optgroup key={key} label={cat.label}>
+                          {cat.subcategories.map((sub) => (
+                            <option key={sub.value} value={sub.value}>{sub.label}</option>
+                          ))}
+                        </optgroup>
+                      ))}
                     </select>
                   </div>
                   <div>
@@ -286,7 +274,7 @@ function SupportPage() {
                       <div className="flex items-start justify-between gap-2">
                         <div className="flex-1 min-w-0">
                           <p className="font-semibold text-slate-900 truncate text-sm">
-                            {ticket.subject}
+                            {ticket.title || ticket.subject}
                           </p>
                           <p className="text-xs text-slate-600 capitalize">{ticket.category}</p>
                         </div>
@@ -307,7 +295,7 @@ function SupportPage() {
                     <div className="flex items-start justify-between">
                       <div>
                         <h2 className="text-lg font-semibold text-slate-900">
-                          {selectedTicket.subject}
+                          {selectedTicket.title || selectedTicket.subject}
                         </h2>
                         <p className="text-xs text-slate-600">
                           {selectedTicket.category.toUpperCase()} • {new Date(selectedTicket.createdAt).toLocaleDateString()}

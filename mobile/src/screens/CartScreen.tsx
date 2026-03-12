@@ -1,16 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, FlatList, Image, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
-import { MOBILE_API_URL } from "../config";
-import { cartAPI } from "../lib/api";
+import { cartAPI, toAbsoluteMediaUrl } from "../lib/api";
 import { CartItem } from "../types";
-
-function toAbsoluteMediaUrl(url?: string) {
-  if (!url) return "";
-  if (url.startsWith("http://") || url.startsWith("https://")) return url;
-  const base = MOBILE_API_URL.replace(/\/api\/?$/, "").replace(/\/$/, "");
-  if (url.startsWith("/")) return `${base}${url}`;
-  return `${base}/${url}`;
-}
 
 function formatPrice(price: number, currency = "ZAR") {
   return new Intl.NumberFormat("en-ZA", {

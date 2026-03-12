@@ -287,6 +287,9 @@ function MorongwaTVPageContent() {
                 <Plus className="h-5 w-5" />
                 Create post
               </button>
+              <p className="mt-6 text-sm text-slate-500">
+                Need help? <Link href="/support?category=videos:morongwa_tv" className="text-sky-600 hover:underline">Contact support</Link>
+              </p>
             </div>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 w-full">
@@ -300,7 +303,9 @@ function MorongwaTVPageContent() {
                     currentUserId={user?._id || user?.id}
                     onEnquire={handleEnquire}
                     onCommentAdded={item.type !== 'product_tile' ? handleCommentAdded : undefined}
+                    onDelete={(id) => setGridItems((prev) => prev.filter((i) => i._id !== id))}
                     variant="grid"
+                    relatedVideos={allItems}
                   />
                 </div>
               ))}

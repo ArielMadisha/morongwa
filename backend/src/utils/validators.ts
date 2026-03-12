@@ -91,6 +91,44 @@ export const donateSchema = Joi.object({
   amount: Joi.number().min(1).max(50000).required(),
 });
 
+export const qrPaymentFromScanSchema = Joi.object({
+  fromUserId: Joi.string().required(),
+  amount: Joi.number().min(0.01).max(50000).required(),
+  merchantName: Joi.string().max(100).optional(),
+});
+
+export const confirmQrPaymentSchema = Joi.object({
+  paymentRequestId: Joi.string().required(),
+  otp: Joi.string().length(6).pattern(/^\d+$/).required(),
+});
+
+export const requestMoneySchema = Joi.object({
+  toUserId: Joi.string().optional(),
+  toUsername: Joi.string().min(2).max(30).optional(),
+  amount: Joi.number().min(0.01).max(50000).required(),
+  message: Joi.string().max(200).optional(),
+  notifyChannel: Joi.string().valid("sms", "whatsapp", "both").default("whatsapp"),
+}).or("toUserId", "toUsername");
+
+export const payMoneyRequestSchema = Joi.object({
+  requestId: Joi.string().required(),
+});
+
+export const payWithCardSchema = Joi.object({
+  paymentRequestId: Joi.string().required(),
+  cardId: Joi.string().required(),
+});
+
+export const checkoutPaySchema = Joi.object({
+  merchantId: Joi.string().required(),
+  amount: Joi.number().min(0.01).max(50000).required(),
+  reference: Joi.string().max(120).required(),
+  returnUrl: Joi.string().max(500).required(),
+  cancelUrl: Joi.string().max(500).optional(),
+  method: Joi.string().valid("wallet", "card").required(),
+  cardId: Joi.string().when("method", { is: "card", then: Joi.required(), otherwise: Joi.optional() }),
+});
+
 export const supportTicketSchema = Joi.object({
   title: Joi.string().min(5).max(200).required(),
   description: Joi.string().min(10).max(2000).required(),

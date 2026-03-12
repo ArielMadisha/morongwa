@@ -27,6 +27,11 @@ export function getImageUrl(url: string | undefined): string {
   const uploadsMatch = normalized.match(/\/uploads\/.+$/);
   if (uploadsMatch) return uploadsMatch[0];
   if (normalized.startsWith('/uploads/')) return normalized;
+  // Bare filename (legacy data): tv-* -> /uploads/tv/, else -> /uploads/
+  if (!normalized.includes('/') && !normalized.startsWith('http')) {
+    const prefix = normalized.startsWith('tv-') ? '/uploads/tv/' : '/uploads/';
+    return prefix + normalized;
+  }
   return normalized;
 }
 
@@ -134,6 +139,33 @@ export const walletAPI = {
   topUp: (amount: number, returnPath?: string) => api.post('/wallet/topup', { amount, returnPath }),
   withdraw: (amount: number) => api.post('/wallet/payout', { amount }),
   donate: (amount: number, recipientId: string) => api.post('/wallet/donate', { amount, recipientId }),
+  getQrPayload: () => api.get<{ payload: string; userId: string; displayName: string }>('/wallet/qr-payload'),
+  paymentFromScan: (fromUserId: string, amount: number, merchantName?: string) =>
+    api.post('/wallet/payment-from-scan', { fromUserId, amount, merchantName }),
+  confirmPayment: (paymentRequestId: string, otp: string) =>
+    api.post('/wallet/confirm-payment', { paymentRequestId, otp }),
+  requestMoney: (params: { toUserId?: string; toUsername?: string; amount: number; message?: string; notifyChannel?: 'sms' | 'whatsapp' | 'both' }) =>
+    api.post('/wallet/request-money', params),
+  payRequest: (requestId: string) => api.post('/wallet/pay-request', { requestId }),
+  getMoneyRequests: () => api.get('/wallet/money-requests'),
+  // Stored cards (PayGate PayVault)
+  addCard: () => api.post<{ paymentUrl: string; reference: string }>('/wallet/add-card'),
+  getCards: () => api.get<Array<{ _id: string; last4: string; brand: string; expiryMonth: number; expiryYear: number; isDefault: boolean }>>('/wallet/cards'),
+  deleteCard: (cardId: string) => api.delete(`/wallet/cards/${cardId}`),
+  setDefaultCard: (cardId: string) => api.patch(`/wallet/cards/${cardId}/default`),
+  payWithCard: (paymentRequestId: string, cardId: string) =>
+    api.post<{ paymentUrl: string; reference: string }>('/wallet/pay-with-card', { paymentRequestId, cardId }),
+  payPendingWithWallet: (paymentRequestId: string) =>
+    api.post('/wallet/pay-pending-with-wallet', { paymentRequestId }),
+  getPendingPayment: (id: string) =>
+    api.get<{ _id: string; amount: number; merchantName: string; expiresAt: string }>(`/wallet/pending-payment/${id}`),
+  // E-commerce checkout
+  getCheckoutDetails: (params: { merchantId: string; amount: number; reference: string; name?: string }) =>
+    api.get<{ merchantId: string; amount: number; reference: string; merchantName: string }>('/wallet/checkout/details', { params }),
+  checkoutPay: (data: { merchantId: string; amount: number; reference: string; returnUrl: string; cancelUrl?: string; method: 'wallet' | 'card'; cardId?: string }) =>
+    api.post<{ success: boolean; redirectUrl?: string; paymentUrl?: string }>('/wallet/checkout/pay', data),
+  getCheckoutSession: (sessionId: string) =>
+    api.get<{ status: string; returnUrl: string; reference: string; amount: number }>(`/wallet/checkout/session/${sessionId}`),
 };
 
 export const paymentsAPI = {
@@ -294,7 +326,7 @@ export const adminAPI = {
   resolveTVReport: (id: string) => api.post(`/admin/tv/reports/${id}/resolve`),
 
   // Super-admin: create admins
-  createAdmin: (data: { email: string; name: string; password: string; sections?: string[] }) =>
+  createAdmin: (data: { email: string; name: string; password: string; sections?: string[]; supportCategories?: string[] }) =>
     api.post('/admin/admins', data),
   getAdmins: () => api.get('/admin/admins'),
 
@@ -347,9 +379,13 @@ export const supportAPI = {
   create: (data: { title: string; description: string; category: string; priority?: string }) =>
     api.post('/support', data),
   getMyTickets: (params?: any) => api.get('/support/my-tickets', { params }),
+  getAllTickets: (params?: { page?: number; limit?: number; status?: string; category?: string; priority?: string }) =>
+    api.get('/support', { params }),
   getById: (id: string) => api.get(`/support/${id}`),
   addMessage: (id: string, message: string) =>
     api.post(`/support/${id}/messages`, { message }),
+  updateStatus: (id: string, status: string) =>
+    api.put(`/support/${id}/status`, { status }),
 };
 
 export const analyticsAPI = {
@@ -365,7 +401,7 @@ export const usersAPI = {
   getProfile: (id: string) => api.get(`/users/${id}`),
   getProfileStats: (id: string) =>
     api.get<{ user: any; postCount: number; imageCount: number; videoCount: number; musicCount: number; followerCount: number; followingCount: number }>(`/users/${id}/profile-stats`),
-  updateProfile: (id: string, data: { name?: string; username?: string; isPrivate?: boolean; avatar?: string; stripBackgroundPic?: string }) =>
+  updateProfile: (id: string, data: { name?: string; username?: string; phone?: string; isPrivate?: boolean; avatar?: string; stripBackgroundPic?: string }) =>
     api.put(`/users/${id}`, data),
   toggleLive: (id: string) => api.patch(`/users/${id}/live`),
   uploadAvatar: (id: string, file: File) => {
@@ -446,9 +482,12 @@ export const cartAPI = {
   get: () => api.get('/cart'),
   add: (productId: string, qty?: number, resellerId?: string) =>
     api.post('/cart', { productId, qty: qty ?? 1, resellerId }),
+  addMusic: (songId: string, qty?: number) =>
+    api.post('/cart', { type: 'music', songId, qty: qty ?? 1 }),
   updateItem: (productId: string, qty: number) =>
     api.put(`/cart/item/${productId}`, { qty }),
   removeItem: (productId: string) => api.delete(`/cart/item/${productId}`),
+  removeMusicItem: (songId: string) => api.delete(`/cart/music/${songId}`),
 };
 
 export const checkoutAPI = {
@@ -531,11 +570,14 @@ export const tvAPI = {
     productId?: string;
     filter?: string;
     genre?: string;
+    artworkUrl?: string;
+    songId?: string;
   }) => api.post('/tv', data),
   repost: (id: string) => api.post(`/tv/${id}/repost`),
   like: (id: string) => api.post(`/tv/${id}/like`),
   getLiked: (id: string) => api.get<{ data: { liked: boolean } }>(`/tv/${id}/liked`),
   report: (id: string, reason: string) => api.post(`/tv/${id}/report`, { reason }),
+  deletePost: (id: string) => api.delete(`/tv/${id}`),
   getComments: (id: string) => api.get(`/tv/${id}/comments`),
   uploadCommentAudio: (file: File) => {
     const formData = new FormData();
@@ -548,6 +590,13 @@ export const tvAPI = {
   },
   getWatermark: () => api.get<{ data: { watermark: string } }>('/tv/watermark'),
   getFeaturedProducts: () => api.get('/tv/products/featured'),
+};
+
+export const translateAPI = {
+  translate: (text: string, target: string = 'en', source: string = 'auto') =>
+    api.get<{ translatedText: string; detectedLanguage?: string }>('/translate', {
+      params: { text, target, source },
+    }),
 };
 
 export interface SongRecord {
@@ -571,7 +620,7 @@ export interface SongRecord {
 export const musicAPI = {
   getGenres: () => api.get<{ data: { id: string; label: string }[] }>('/music/genres'),
   getArtistStatus: () => api.get<{ data: { isVerified: boolean; status: string | null; type: string | null } }>('/music/artist-status'),
-  getSongs: () => api.get<{ data: SongRecord[] }>('/music/songs'),
+  getSongs: (params?: { type?: 'song' | 'album' }) => api.get<{ data: SongRecord[] }>('/music/songs', { params }),
   uploadAudio: (file: File) => {
     const formData = new FormData();
     formData.append('audio', file);
@@ -585,7 +634,7 @@ export const musicAPI = {
     (documents || []).forEach((f) => formData.append('documents', f, f.name));
     return api.post('/music/artist-apply', formData);
   },
-  /** Upload song: WAV audio, JPEG/PNG artwork (3000x3000), metadata */
+  /** Upload song: WAV audio, JPEG/PNG artwork (1200×1200), metadata */
   uploadSong: (audio: File, artwork: File, metadata: { title: string; artist: string; songwriters?: string; producer?: string; genre: string; lyrics?: string }) => {
     const formData = new FormData();
     formData.append('audio', audio);

@@ -11,17 +11,8 @@ import {
   TextInput,
   View
 } from "react-native";
-import { MOBILE_API_URL } from "../config";
-import { cartAPI, productsAPI } from "../lib/api";
+import { cartAPI, productsAPI, toAbsoluteMediaUrl } from "../lib/api";
 import { Product } from "../types";
-
-function toAbsoluteMediaUrl(url?: string) {
-  if (!url) return "";
-  if (url.startsWith("http://") || url.startsWith("https://")) return url;
-  const base = MOBILE_API_URL.replace(/\/api\/?$/, "").replace(/\/$/, "");
-  if (url.startsWith("/")) return `${base}${url}`;
-  return `${base}/${url}`;
-}
 
 function formatPrice(price: number, currency = "ZAR") {
   return new Intl.NumberFormat("en-ZA", {

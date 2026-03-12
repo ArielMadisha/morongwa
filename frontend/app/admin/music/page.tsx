@@ -1,11 +1,17 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
-import { adminAPI, getImageUrl, API_BASE } from '@/lib/api';
+import { adminAPI, getImageUrl, API_BASE, usersAPI } from '@/lib/api';
 import Link from 'next/link';
 import { ArrowLeft, Music2, Loader2, Plus, Upload, X } from 'lucide-react';
 import toast from 'react-hot-toast';
+
+const MUSIC_GENRES = [
+  'Pop', 'Hip Hop', 'R&B', 'Afrobeats', 'Amapiano', 'Gospel', 'Jazz', 'Rock',
+  'Electronic', 'Reggae', 'Classical', 'Country', 'Folk', 'Soul', 'House',
+  'Kwaito', 'Gqom', 'Maskandi', 'Traditional', 'Other',
+];
 
 interface SongRecord {
   _id: string;
@@ -42,6 +48,45 @@ function MusicManagement() {
     downloadEnabled: false,
     downloadPrice: '10',
   });
+  const [userSearch, setUserSearch] = useState('');
+  const [userResults, setUserResults] = useState<{ _id: string; name?: string; email?: string; username?: string }[]>([]);
+  const [userSearching, setUserSearching] = useState(false);
+  const [showUserDropdown, setShowUserDropdown] = useState(false);
+  const [selectedUserName, setSelectedUserName] = useState('');
+  const userSearchRef = useRef<HTMLDivElement>(null);
+
+  const searchUsers = useCallback(async (q: string) => {
+    if (!q.trim()) {
+      setUserResults([]);
+      return;
+    }
+    setUserSearching(true);
+    try {
+      const res = await usersAPI.list({ q: q.trim(), limit: 15 });
+      const users = (res.data as any)?.users ?? [];
+      setUserResults(users);
+      setShowUserDropdown(true);
+    } catch {
+      setUserResults([]);
+    } finally {
+      setUserSearching(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    const t = setTimeout(() => searchUsers(userSearch), 200);
+    return () => clearTimeout(t);
+  }, [userSearch, searchUsers]);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (userSearchRef.current && !userSearchRef.current.contains(e.target as Node)) {
+        setShowUserDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   useEffect(() => {
     fetchSongs();
@@ -66,6 +111,10 @@ function MusicManagement() {
     setArtworkFile(null);
     setUploadType('song');
     setForm({ title: '', artist: '', songwriters: '', producer: '', genre: '', lyrics: '', userId: '', downloadEnabled: false, downloadPrice: '10' });
+    setUserSearch('');
+    setUserResults([]);
+    setShowUserDropdown(false);
+    setSelectedUserName('');
     setUploadOpen(false);
   };
 
@@ -87,8 +136,8 @@ function MusicManagement() {
       toast.error('Title, artist, and genre are required');
       return;
     }
-    if (form.downloadEnabled && (Number(form.downloadPrice) < 10 || Number(form.downloadPrice) > 15)) {
-      toast.error('Download price must be between R10 and R15');
+    if (form.downloadEnabled && (Number(form.downloadPrice) < 10 || Number(form.downloadPrice) > 25)) {
+      toast.error('Download price must be between R10 and R25');
       return;
     }
     setUploading(true);
@@ -123,15 +172,19 @@ function MusicManagement() {
       resetUpload();
       fetchSongs();
     } catch (err: any) {
-      toast.error(err.response?.data?.message || 'Upload failed');
+      const isNetworkError = err.code === 'ERR_NETWORK' || err.message?.includes('Network Error') || !err.response;
+      const msg = isNetworkError
+        ? 'Connection failed. Check that the backend is running and try again.'
+        : (err.response?.data?.error || err.response?.data?.message || err.message || 'Upload failed');
+      toast.error(msg);
     } finally {
       setUploading(false);
     }
   };
 
   const getArtworkUrl = (url: string) => {
-    const path = getImageUrl(url) || url;
-    return path.startsWith('http') ? path : `${API_BASE || ''}${path}`;
+    if (!url) return '';
+    return getImageUrl(url) || url;
   };
 
   return (
@@ -255,29 +308,78 @@ function MusicManagement() {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">Genre *</label>
-                  <input
-                    type="text"
+                  <select
                     value={form.genre}
                     onChange={(e) => setForm((f) => ({ ...f, genre: e.target.value }))}
-                    placeholder="e.g. Pop, Amapiano"
                     className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm"
                     required
-                  />
+                  >
+                    <option value="">Select genre</option>
+                    {MUSIC_GENRES.map((g) => (
+                      <option key={g} value={g}>{g}</option>
+                    ))}
+                  </select>
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">User ID (optional)</label>
-                  <input
-                    type="text"
-                    value={form.userId}
-                    onChange={(e) => setForm((f) => ({ ...f, userId: e.target.value }))}
-                    placeholder="Assign to user (leave empty = admin)"
-                    className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm"
-                  />
+                <div ref={userSearchRef} className="relative">
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Assign to user (optional)</label>
+                  {form.userId ? (
+                    <div className="flex items-center gap-2 px-3 py-2 rounded-xl border border-slate-200 bg-slate-50">
+                      <span className="text-sm text-slate-800 flex-1">Selected: {selectedUserName || 'User'}</span>
+                      <button
+                        type="button"
+                        onClick={() => { setForm((f) => ({ ...f, userId: '' })); setSelectedUserName(''); setUserSearch(''); setUserResults([]); }}
+                        className="text-slate-500 hover:text-slate-700 text-sm"
+                      >
+                        Clear
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <input
+                        type="text"
+                        value={userSearch}
+                        onChange={(e) => { setUserSearch(e.target.value); setShowUserDropdown(true); }}
+                        onFocus={() => setShowUserDropdown(true)}
+                        placeholder="Search by name (e.g. type O, Ob...)"
+                        className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm"
+                      />
+                      {showUserDropdown && (
+                        <div className="absolute z-10 mt-1 w-full rounded-xl border border-slate-200 bg-white shadow-lg max-h-48 overflow-y-auto">
+                          {userSearching ? (
+                            <div className="px-3 py-4 text-center text-slate-500 text-sm">Searching…</div>
+                          ) : !userSearch.trim() ? (
+                            <div className="px-3 py-4 text-center text-slate-500 text-sm">Type to search users</div>
+                          ) : userResults.length === 0 ? (
+                            <div className="px-3 py-4 text-center text-slate-500 text-sm">No users found</div>
+                          ) : (
+                            userResults.map((u) => (
+                              <button
+                                key={u._id}
+                                type="button"
+                                onClick={() => {
+                                  setForm((f) => ({ ...f, userId: u._id }));
+                                  setSelectedUserName(u.name || u.username || u.email || 'User');
+                                  setUserSearch('');
+                                  setUserResults([]);
+                                  setShowUserDropdown(false);
+                                }}
+                                className="w-full px-3 py-2 text-left text-sm hover:bg-sky-50 flex flex-col"
+                              >
+                                <span className="font-medium text-slate-800">{u.name || u.username || 'Unknown'}</span>
+                                {u.email && <span className="text-xs text-slate-500">{u.email}</span>}
+                              </button>
+                            ))
+                          )}
+                        </div>
+                      )}
+                    </>
+                  )}
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">
                     {uploadType === 'album' ? 'Album tracks (WAV) *' : 'Audio (WAV) *'}
                   </label>
+                  <p className="text-xs text-slate-500 mb-1">16-bit or 24-bit, 44.1 kHz, Stereo</p>
                   <input
                     type="file"
                     multiple={uploadType === 'album'}
@@ -293,7 +395,7 @@ function MusicManagement() {
                     : (audioFile && <p className="mt-1 text-sm text-emerald-600">✓ {audioFile.name}</p>)}
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Artwork (JPEG/PNG 3000×3000) *</label>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Artwork (JPEG/PNG 1200×1200) *</label>
                   <input
                     type="file"
                     accept="image/jpeg,image/jpg,image/png"
@@ -313,11 +415,11 @@ function MusicManagement() {
                   </label>
                   {form.downloadEnabled && (
                     <div className="mt-2">
-                      <label className="block text-sm text-slate-700 mb-1">Download price (R10-R15)</label>
+                      <label className="block text-sm text-slate-700 mb-1">Download price (R10-R25)</label>
                       <input
                         type="number"
                         min={10}
-                        max={15}
+                        max={25}
                         step={1}
                         value={form.downloadPrice}
                         onChange={(e) => setForm((f) => ({ ...f, downloadPrice: e.target.value }))}
@@ -339,13 +441,19 @@ function MusicManagement() {
                       !form.title.trim() ||
                       !form.artist.trim() ||
                       !form.genre.trim() ||
-                      (form.downloadEnabled && (Number(form.downloadPrice) < 10 || Number(form.downloadPrice) > 15))
+                      (form.downloadEnabled && (Number(form.downloadPrice) < 10 || Number(form.downloadPrice) > 25))
                     }
                     className="flex-1 px-4 py-2 rounded-xl bg-sky-500 text-white font-medium hover:bg-sky-600 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {uploading ? <><Loader2 className="inline h-4 w-4 animate-spin mr-2" />Uploading…</> : uploadType === 'album' ? 'Upload album' : 'Upload song'}
                   </button>
                 </div>
+                <p className="pt-4 text-center text-sm text-slate-500">
+                  Struggling to upload?{' '}
+                  <Link href="/support?category=music:upload" className="text-sky-600 hover:underline font-medium">
+                    Raise a support ticket
+                  </Link>
+                </p>
               </form>
             </div>
           </div>
