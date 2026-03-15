@@ -56,8 +56,8 @@ export function AdvertSlot({ belowHeader, bottomContent, scrollWithPage }: Adver
       .catch(() => setSuggestedUsers([]));
   }, [user?._id, (user as { id?: string })?.id]);
 
-  const headerOffset = belowHeader ? 'top-14' : 'top-0';
-  const asideHeight = scrollWithPage ? '' : (belowHeader ? 'h-[calc(100vh-3.5rem)]' : 'h-screen');
+  const headerOffset = 'top-0';
+  const asideHeight = scrollWithPage ? '' : (belowHeader ? 'h-[calc(100vh-2.5rem)]' : 'h-screen');
   const asideOverflow = scrollWithPage ? 'overflow-visible' : 'overflow-hidden';
   const asideSticky = scrollWithPage ? '' : `sticky ${headerOffset} self-start`;
   return (

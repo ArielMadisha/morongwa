@@ -4,13 +4,14 @@ import { useState, useEffect, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Search, Package, Loader2, ShoppingCart, User, Video, Wrench, Music } from 'lucide-react';
-import { productsAPI, usersAPI, tvAPI, musicAPI, followsAPI, getImageUrl } from '@/lib/api';
+import { productsAPI, usersAPI, tvAPI, musicAPI, followsAPI, macgyverAPI, getImageUrl } from '@/lib/api';
 import type { Product } from '@/lib/types';
 import { useAuth } from '@/contexts/AuthContext';
 import { useCartAndStores } from '@/lib/useCartAndStores';
 import { AppSidebar, AppSidebarMenuButton } from '@/components/AppSidebar';
 import { AdvertSlot } from '@/components/AdvertSlot';
 import { MobileBottomNav } from '@/components/MobileBottomNav';
+import { ProfileHeaderButton } from '@/components/ProfileHeaderButton';
 
 function formatPrice(price: number, currency: string) {
   return new Intl.NumberFormat('en-ZA', {
@@ -35,10 +36,20 @@ function SearchContent() {
   const [musicResults, setMusicResults] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [macgyverOpen, setMacgyverOpen] = useState(false);
+  const [macgyverQuery, setMacgyverQuery] = useState('');
+  const [macgyverResponse, setMacgyverResponse] = useState<string | null>(null);
+  const [macgyverLoading, setMacgyverLoading] = useState(false);
 
   useEffect(() => {
     setQ(qParam);
   }, [qParam]);
+
+  useEffect(() => {
+    if (searchParams.get('macgyver') === '1') {
+      setMacgyverQuery(qParam || '');
+      setMacgyverOpen(true);
+    }
+  }, [searchParams, qParam]);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -180,14 +191,10 @@ function SearchContent() {
                 placeholder="Ask MacGyver"
                 className="flex-1 min-w-0 px-3 py-2 rounded-lg border border-slate-200 bg-white text-slate-900 placeholder-slate-400 focus:ring-2 focus:ring-sky-500 focus:border-sky-500"
               />
-              <button
-                type="submit"
-                className="shrink-0 p-2 rounded-lg bg-sky-500 text-white hover:bg-sky-600 transition-colors"
-                aria-label="Search"
-              >
-                <Search className="h-5 w-5" />
-              </button>
             </form>
+            <div className="shrink-0 flex items-center gap-2">
+              <ProfileHeaderButton />
+            </div>
           </div>
         </div>
       </header>
@@ -214,13 +221,7 @@ function SearchContent() {
               <div className="rounded-2xl border border-slate-200 bg-white/90 p-12 text-center">
                 <Search className="h-16 w-16 text-slate-300 mx-auto mb-4" />
                 <h2 className="text-xl font-semibold text-slate-700 mb-2">Ask MacGyver Anything</h2>
-                <p className="text-slate-600 mb-6">Search users, products, TV posts/videos, songs, albums, and more on Qwertymates.</p>
-                <Link
-                  href="/marketplace"
-                  className="inline-flex items-center gap-2 text-sky-600 hover:text-sky-700 font-medium"
-                >
-                  Browse marketplace
-                </Link>
+                <p className="text-slate-600 mb-6">Before Internet… there was MacGyver.</p>
               </div>
             ) : loading ? (
               <div className="flex justify-center py-16">
@@ -232,7 +233,7 @@ function SearchContent() {
                 <h2 className="text-xl font-semibold text-slate-700 mb-2">No results for &quot;{q}&quot;</h2>
                 <p className="text-slate-600 mb-6">Try different keywords or ask MacGyver for help finding what you need.</p>
                 <button
-                  onClick={() => setMacgyverOpen(true)}
+                  onClick={() => { setMacgyverQuery(q); setMacgyverOpen(true); }}
                   className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-500 text-white font-medium hover:bg-amber-600 transition-colors"
                 >
                   <Wrench className="h-5 w-5" />
@@ -397,7 +398,7 @@ function SearchContent() {
                   <div className="mt-8 p-4 rounded-xl bg-amber-50 border border-amber-200">
                     <p className="text-sm text-amber-800 mb-2">Still can&apos;t find what you need?</p>
                     <button
-                      onClick={() => setMacgyverOpen(true)}
+                      onClick={() => { setMacgyverQuery(q); setMacgyverOpen(true); }}
                       className="inline-flex items-center gap-2 text-amber-700 font-medium hover:text-amber-900"
                     >
                       <Wrench className="h-4 w-4" /> Ask MacGyver for help
@@ -412,26 +413,70 @@ function SearchContent() {
       </div>
       {user && <MobileBottomNav cartCount={cartCount} hasStore={hasStore} />}
 
-      {/* MacGyver AI panel (placeholder - full implementation coming) */}
+      {/* MacGyver AI panel */}
       {macgyverOpen && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center sm:justify-center p-4">
-          <div className="absolute inset-0 bg-black/40" onClick={() => setMacgyverOpen(false)} aria-hidden="true" />
-          <div className="relative bg-white rounded-2xl shadow-2xl max-w-md w-full max-h-[80vh] overflow-hidden">
-            <div className="p-4 border-b border-slate-100 flex items-center justify-between">
+          <div className="absolute inset-0 bg-black/40" onClick={() => { setMacgyverOpen(false); setMacgyverResponse(null); setMacgyverQuery(''); }} aria-hidden="true" />
+          <div className="relative bg-white rounded-2xl shadow-2xl max-w-md w-full max-h-[80vh] overflow-hidden flex flex-col">
+            <div className="p-4 border-b border-slate-100 flex items-center justify-between shrink-0">
               <h3 className="font-semibold text-slate-900 flex items-center gap-2">
                 <Wrench className="h-5 w-5 text-amber-500" /> Ask MacGyver
               </h3>
-              <button onClick={() => setMacgyverOpen(false)} className="p-2 rounded-lg hover:bg-slate-100 text-slate-600">
+              <button onClick={() => { setMacgyverOpen(false); setMacgyverResponse(null); setMacgyverQuery(''); }} className="p-2 rounded-lg hover:bg-slate-100 text-slate-600">
                 ×
               </button>
             </div>
-            <div className="p-6 text-slate-600">
-              <p className="mb-4">
-                MacGyver is your AI assistant for Qwertymates. When you can&apos;t find a product, user, or content on the site, MacGyver will guide you.
-              </p>
-              <p className="text-sm text-slate-500">
-                Full chat capabilities are coming soon. MacGyver will help you discover alternatives, suggest where to look, and answer questions about the platform.
-              </p>
+            <div className="flex-1 overflow-y-auto p-4 min-h-0">
+              {!user ? (
+                <p className="text-slate-600">
+                  <Link href="/login" className="text-sky-600 hover:underline font-medium">Sign in</Link> to use Ask MacGyver – your AI assistant for Qwertymates and beyond.
+                </p>
+              ) : (
+                <>
+                  <p className="text-sm text-slate-500 mb-4">
+                    When there's no solution… MacGyver makes one.
+                  </p>
+                  {macgyverResponse !== null && (
+                    <div className="mb-4 p-4 rounded-xl bg-slate-50 border border-slate-100 text-slate-700 whitespace-pre-wrap text-sm leading-relaxed">
+                      {macgyverResponse}
+                    </div>
+                  )}
+                  <form
+                    onSubmit={async (e) => {
+                      e.preventDefault();
+                      const query = macgyverQuery.trim();
+                      if (!query || macgyverLoading) return;
+                      setMacgyverLoading(true);
+                      setMacgyverResponse(null);
+                      try {
+                        const res = await macgyverAPI.ask(query);
+                        setMacgyverResponse(res.data?.data?.text ?? 'No response.');
+                      } catch (err: any) {
+                        setMacgyverResponse(err.response?.data?.message || err.message || 'Something went wrong. Try again.');
+                      } finally {
+                        setMacgyverLoading(false);
+                      }
+                    }}
+                    className="flex gap-2"
+                  >
+                    <input
+                      type="text"
+                      value={macgyverQuery}
+                      onChange={(e) => setMacgyverQuery(e.target.value)}
+                      placeholder="Ask anything..."
+                      disabled={macgyverLoading}
+                      className="flex-1 px-3 py-2 rounded-lg border border-slate-200 text-slate-900 placeholder-slate-400 focus:ring-2 focus:ring-amber-500 focus:border-amber-500 disabled:opacity-60"
+                    />
+                    <button
+                      type="submit"
+                      disabled={macgyverLoading || !macgyverQuery.trim()}
+                      className="px-4 py-2 rounded-lg bg-amber-500 text-white font-medium hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
+                    >
+                      {macgyverLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : 'Ask'}
+                    </button>
+                  </form>
+                </>
+              )}
             </div>
           </div>
         </div>

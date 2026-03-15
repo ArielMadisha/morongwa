@@ -272,14 +272,35 @@ router.post(
   }
 );
 
-/** GET /api/music/purchases/me - list purchased songs/albums for current user */
+/** GET /api/music/purchases/me - list purchased songs/albums for current user with song details */
 router.get("/purchases/me", authenticate, async (req: AuthRequest, res: Response, next) => {
   try {
     const purchases = await MusicPurchase.find({ buyerId: req.user!._id })
       .select("songId reference amount createdAt")
       .sort({ createdAt: -1 })
       .lean();
-    res.json({ data: purchases });
+    const songIds = purchases.map((p) => p.songId);
+    const songs = await Song.find({ _id: { $in: songIds } })
+      .select("title artist artworkUrl audioUrl type downloadPrice tracks")
+      .lean();
+    const songMap = new Map(songs.map((s) => [s._id.toString(), s]));
+    const data = purchases.map((p) => {
+      const song = songMap.get((p.songId as any).toString());
+      return {
+        ...p,
+        song: song ? {
+          _id: song._id,
+          title: (song as any).title,
+          artist: (song as any).artist,
+          artworkUrl: (song as any).artworkUrl,
+          audioUrl: (song as any).audioUrl,
+          type: (song as any).type,
+          downloadPrice: (song as any).downloadPrice,
+          tracks: (song as any).tracks,
+        } : null,
+      };
+    });
+    res.json({ data });
   } catch (err) {
     next(err);
   }

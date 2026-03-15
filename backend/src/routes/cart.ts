@@ -2,6 +2,7 @@ import express, { Response } from "express";
 import Cart from "../data/models/Cart";
 import Product from "../data/models/Product";
 import Song from "../data/models/Song";
+import MusicPurchase from "../data/models/MusicPurchase";
 import ResellerWall from "../data/models/ResellerWall";
 import { authenticate, AuthRequest } from "../middleware/auth";
 import { AppError } from "../middleware/errorHandler";
@@ -126,6 +127,10 @@ router.post("/", authenticate, async (req: AuthRequest, res: Response, next) => 
       if (String(song.userId) === String(req.user!._id)) {
         throw new AppError("You cannot add your own song to cart", 400);
       }
+      const alreadyPurchased = await MusicPurchase.findOne({ songId: song._id, buyerId: req.user!._id });
+      if (alreadyPurchased) {
+        throw new AppError("You already own this song. Check your Downloads in profile.", 400);
+      }
 
       let cart = await Cart.findOne({ user: req.user!._id });
       if (!cart) cart = await Cart.create({ user: req.user!._id, items: [], musicItems: [] });
@@ -133,9 +138,9 @@ router.post("/", authenticate, async (req: AuthRequest, res: Response, next) => 
 
       const existing = cart.musicItems.find((i) => (i.songId as any).toString() === songId.toString());
       if (existing) {
-        existing.qty += qty;
+        existing.qty = 1;
       } else {
-        cart.musicItems.push({ songId: song._id, qty });
+        cart.musicItems.push({ songId: song._id, qty: 1 });
       }
       await cart.save();
       return res.json({ message: "Music added to cart", data: { items: cart.items, musicItems: cart.musicItems, updatedAt: cart.updatedAt } });

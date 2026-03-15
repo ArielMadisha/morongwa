@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { Music2, CheckCircle, Clock, Upload, Loader2, X } from 'lucide-react';
 import { SearchButton } from '@/components/SearchButton';
 import { useAuth } from '@/contexts/AuthContext';
@@ -19,7 +19,6 @@ import toast from 'react-hot-toast';
 export default function QwertyMusicPage() {
   const { user, logout } = useAuth();
   const router = useRouter();
-  const searchParams = useSearchParams();
   const [menuOpen, setMenuOpen] = useState(false);
   const { cartCount, hasStore } = useCartAndStores(!!user);
   const [artistStatus, setArtistStatus] = useState<{ isVerified: boolean; status: string | null } | null>(null);
@@ -43,29 +42,36 @@ export default function QwertyMusicPage() {
   const [genre, setGenre] = useState('');
   const [lyrics, setLyrics] = useState('');
   const [uploading, setUploading] = useState(false);
-  const [uploadType, setUploadType] = useState<'song' | 'album'>('song');
-  const [albumTracks, setAlbumTracks] = useState<File[]>([]);
   const [downloadEnabled, setDownloadEnabled] = useState(false);
   const [downloadPrice, setDownloadPrice] = useState('10');
   const [purchasedIds, setPurchasedIds] = useState<Set<string>>(new Set());
   const [addingId, setAddingId] = useState<string | null>(null);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const [playingId, setPlayingId] = useState<string | null>(null);
+
+  const handleAudioPlay = (songId: string, currentAudio: HTMLAudioElement) => {
+    setPlayingId(songId);
+    document.querySelectorAll('audio').forEach((el) => {
+      if (el !== currentAudio) el.pause();
+    });
+  };
+
+  const handleAudioPause = (songId: string) => {
+    setPlayingId((prev) => (prev === songId ? null : prev));
+  };
 
   useEffect(() => {
     musicAPI.getArtistStatus().then((r) => setArtistStatus(r.data?.data ?? null)).catch(() => setArtistStatus(null));
     musicAPI.getGenres().then((r) => setGenres(r.data?.data ?? [])).catch(() => setGenres([]));
   }, []);
 
-  const filter = searchParams.get('filter') || 'songs';
-  const typeFilter = filter === 'albums' ? 'album' as const : 'song' as const;
-
   useEffect(() => {
     setLoadingSongs(true);
-    musicAPI.getSongs({ type: typeFilter })
+    musicAPI.getSongs({ type: 'song' })
       .then((r) => setSongs(r.data?.data ?? []))
       .catch(() => setSongs([]))
       .finally(() => setLoadingSongs(false));
-  }, [uploadOpen, typeFilter]);
+  }, [uploadOpen]);
 
   useEffect(() => {
     musicAPI.getMyPurchases()
@@ -110,8 +116,6 @@ export default function QwertyMusicPage() {
     setProducer('');
     setGenre('');
     setLyrics('');
-    setUploadType('song');
-    setAlbumTracks([]);
     setDownloadEnabled(false);
     setDownloadPrice('10');
   };
@@ -150,44 +154,6 @@ export default function QwertyMusicPage() {
       musicAPI.getArtistStatus().then((r) => setArtistStatus(r.data?.data ?? null));
     } catch (e: any) {
       toast.error(e.response?.data?.message || 'Upload failed');
-    } finally {
-      setUploading(false);
-    }
-  };
-
-  const handleUploadAlbum = async () => {
-    if (!artworkFile || albumTracks.length === 0) {
-      toast.error('Please upload artwork and at least one WAV track');
-      return;
-    }
-    if (!title.trim() || !artist.trim() || !genre.trim()) {
-      toast.error('Title, artist, and genre are required');
-      return;
-    }
-    setUploading(true);
-    try {
-      const res = await musicAPI.uploadAlbum(albumTracks, artworkFile, {
-        title: title.trim(),
-        artist: artist.trim(),
-        songwriters: songwriters.trim() || undefined,
-        producer: producer.trim() || undefined,
-        genre: genre.trim(),
-        lyrics: lyrics.trim() || undefined,
-        downloadEnabled,
-        downloadPrice: downloadEnabled ? Number(downloadPrice) : undefined,
-      });
-      const post = (res.data as any)?.post;
-      if (post?._id && typeof sessionStorage !== 'undefined') {
-        try {
-          sessionStorage.setItem('qwerty_latest_post', JSON.stringify(post));
-        } catch (_) {}
-      }
-      toast.success('Album uploaded successfully');
-      resetUpload();
-      setUploadOpen(false);
-      musicAPI.getSongs().then((r) => setSongs(r.data?.data ?? []));
-    } catch (e: any) {
-      toast.error(e.response?.data?.message || 'Album upload failed');
     } finally {
       setUploading(false);
     }
@@ -290,12 +256,10 @@ export default function QwertyMusicPage() {
           <div className="flex-1 flex gap-0 min-h-0">
             <main className="flex-1 min-w-0 px-4 sm:px-6 lg:px-8 py-4 pb-24 lg:pb-6">
               <div className="max-w-6xl mx-auto">
-                {/* Songs & Albums Grid */}
+                {/* Songs Grid */}
                 <div>
                   <div className="flex items-center justify-between mb-4">
-                    <h2 className="text-xl sm:text-2xl font-bold text-slate-900">
-                      {filter === 'albums' ? 'Albums' : 'Songs'}
-                    </h2>
+                    <h2 className="text-xl sm:text-2xl font-bold text-slate-900">Songs</h2>
                     {artistStatus?.isVerified && (
                       <button
                         onClick={() => { resetUpload(); setUploadOpen(true); }}
@@ -319,8 +283,14 @@ export default function QwertyMusicPage() {
                   ) : (
                     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
                       {songs.map((s) => (
-                        <div key={s._id} className="rounded-xl border border-slate-200 bg-white overflow-hidden shadow-sm hover:shadow-md transition flex flex-col">
+                        <div key={s._id} data-song-id={s._id} className={`rounded-xl border overflow-hidden shadow-sm hover:shadow-md transition flex flex-col ${playingId === s._id ? 'border-sky-500 ring-2 ring-sky-500/30' : 'border-slate-200 bg-white'}`}>
                           <div className="aspect-square bg-slate-100 relative flex items-center justify-center overflow-hidden">
+                            {playingId === s._id && (
+                              <div className="absolute top-2 left-2 z-10 px-2 py-1 rounded-md bg-sky-500 text-white text-xs font-semibold flex items-center gap-1">
+                                <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+                                Now playing
+                              </div>
+                            )}
                             {getArtworkUrl(s.artworkUrl) ? (
                               <>
                                 <img
@@ -353,7 +323,14 @@ export default function QwertyMusicPage() {
                             )}
                           </div>
                           <div className="px-2 pb-2">
-                            <audio src={getImageUrl(s.audioUrl) || s.audioUrl} controls className="w-full h-9 [&::-webkit-media-controls-panel]:bg-transparent" />
+                            <audio
+                              src={getImageUrl(s.audioUrl) || s.audioUrl}
+                              controls
+                              className="w-full h-9 [&::-webkit-media-controls-panel]:bg-transparent"
+                              onPlay={(e) => handleAudioPlay(s._id, e.currentTarget)}
+                              onPause={() => handleAudioPause(s._id)}
+                              onEnded={() => handleAudioPause(s._id)}
+                            />
                           </div>
                           {s.downloadEnabled && (
                             <div className="px-2 pb-2">
@@ -363,7 +340,7 @@ export default function QwertyMusicPage() {
                                   disabled={downloadingId === String(s._id)}
                                   className="w-full rounded-lg bg-emerald-600 text-white text-xs font-semibold py-1.5 hover:bg-emerald-700 disabled:opacity-50"
                                 >
-                                  {downloadingId === String(s._id) ? 'Preparing...' : (s.type === 'album' ? 'Download album' : 'Download song')}
+                                  {downloadingId === String(s._id) ? 'Preparing...' : 'Download song'}
                                 </button>
                               ) : (
                                 <button
@@ -476,33 +453,17 @@ export default function QwertyMusicPage() {
                 {uploadStep === 1 && (
                   <div>
                     <h4 className="font-medium text-slate-900 mb-2">1. Upload audio</h4>
-                    <p className="text-sm text-slate-600 mb-4">High-quality WAV files (16-bit, 44.1 kHz or higher)</p>
-                    <div className="mb-3">
-                      <label className="text-sm text-slate-700 mr-3">Upload type</label>
-                      <select value={uploadType} onChange={(e) => setUploadType(e.target.value as 'song' | 'album')} className="px-3 py-2 rounded-lg border border-slate-200 text-sm">
-                        <option value="song">Song</option>
-                        <option value="album">Album</option>
-                      </select>
-                    </div>
+                    <p className="text-sm text-slate-600 mb-4">High-quality WAV file (16-bit, 44.1 kHz or higher)</p>
                     <input
                       type="file"
                       accept=".wav,audio/wav,audio/wave,audio/x-wav"
-                      multiple={uploadType === 'album'}
                       onChange={(e) => {
-                        if (uploadType === 'album') {
-                          const files = Array.from(e.target.files || []);
-                          setAlbumTracks(files);
-                          if (files.length) setUploadStep(2);
-                        } else {
-                          setAudioFile(e.target.files?.[0] || null);
-                          if (e.target.files?.[0]) setUploadStep(2);
-                        }
+                        setAudioFile(e.target.files?.[0] || null);
+                        if (e.target.files?.[0]) setUploadStep(2);
                       }}
                       className="w-full text-sm text-slate-600 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-sky-50 file:text-sky-700"
                     />
-                    {uploadType === 'album'
-                      ? (albumTracks.length > 0 && <p className="mt-2 text-sm text-emerald-600">✓ {albumTracks.length} track(s) selected</p>)
-                      : (audioFile && <p className="mt-2 text-sm text-emerald-600">✓ {audioFile.name}</p>)}
+                    {audioFile && <p className="mt-2 text-sm text-emerald-600">✓ {audioFile.name}</p>}
                   </div>
                 )}
 
@@ -570,11 +531,11 @@ export default function QwertyMusicPage() {
                     <div className="flex gap-2 pt-2">
                       <button onClick={() => setUploadStep(2)} className="px-4 py-2 rounded-xl border border-slate-200 text-slate-700 font-medium hover:bg-slate-50">← Back</button>
                       <button
-                        onClick={uploadType === 'album' ? handleUploadAlbum : handleUploadSong}
+                        onClick={handleUploadSong}
                         disabled={uploading || !title.trim() || !artist.trim() || !genre || (downloadEnabled && (Number(downloadPrice) < 10 || Number(downloadPrice) > 15))}
                         className="flex-1 px-4 py-2 rounded-xl bg-sky-500 text-white font-medium hover:bg-sky-600 disabled:opacity-50"
                       >
-                        {uploading ? <><Loader2 className="inline h-4 w-4 animate-spin mr-2" />Uploading…</> : (uploadType === 'album' ? 'Upload album' : 'Upload song')}
+                        {uploading ? <><Loader2 className="inline h-4 w-4 animate-spin mr-2" />Uploading…</> : 'Upload song'}
                       </button>
                     </div>
                   </div>

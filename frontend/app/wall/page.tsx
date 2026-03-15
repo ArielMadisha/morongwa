@@ -269,16 +269,16 @@ function WallPageContent() {
     <div className="min-h-screen flex flex-col bg-gradient-to-br from-sky-50 via-blue-50 to-white text-slate-900">
       {/* Full-width frozen header - logo at top-left */}
       <header className="sticky top-0 z-40 w-full bg-white/95 backdrop-blur-md border-b border-slate-100 shadow-sm flex-shrink-0">
-        <div className="px-3 sm:px-6 lg:px-8 py-2 sm:py-3">
-          <div className="flex items-center justify-between gap-2 sm:gap-4 min-w-0 overflow-hidden">
+        <div className="px-3 sm:px-6 lg:px-8 py-1">
+          <div className="flex items-center gap-2 sm:gap-3 w-full">
             <div className="shrink-0 flex items-center gap-1 sm:gap-2">
               <Link href="/wall" className="shrink-0 flex items-center" aria-label="Home">
-                <img src="/qwertymates-logo-icon.png" alt="Qwertymates" className="h-9 w-9 sm:h-10 sm:w-10 object-contain lg:hidden" />
-                <img src="/qwertymates-logo.png" alt="Qwertymates" className="h-7 sm:h-9 w-auto max-w-[112px] sm:max-w-none object-contain hidden lg:block" />
+                <img src="/qwertymates-logo-icon.png" alt="Qwertymates" className="h-8 w-8 object-contain lg:hidden" />
+                <img src="/qwertymates-logo.png" alt="Qwertymates" className="h-7 w-auto max-w-[112px] sm:max-w-none object-contain hidden lg:block" />
               </Link>
               <AppSidebarMenuButton onClick={() => setMenuOpen((v) => !v)} />
             </div>
-            <div className="flex-1 min-w-0 overflow-hidden">
+            <div className="flex-1 min-w-0 overflow-x-auto overflow-y-hidden scrollbar-thin">
               <StatusesStrip
                 currentUserId={user?._id || user?.id}
                 userAvatar={(user as any)?.avatar}
@@ -289,8 +289,10 @@ function WallPageContent() {
                 currentUserName={user?.name}
               />
             </div>
-            <SearchButton className="hidden lg:flex" />
-            <ProfileHeaderButton />
+            <div className="shrink-0 flex items-center gap-2">
+              <SearchButton />
+              <ProfileHeaderButton />
+            </div>
           </div>
         </div>
       </header>

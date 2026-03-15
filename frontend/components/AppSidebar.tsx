@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { usePathname, useSearchParams } from 'next/navigation';
+import { usePathname } from 'next/navigation';
 import Link from 'next/link';
 import {
   Package,
@@ -48,11 +48,6 @@ const errandsSubItems = [
   { href: '/dashboard/runner', label: 'Runners', customIcon: '/runner-icon.png' },
 ];
 
-const qwertyMusicSubItems = [
-  { href: '/qwerty-music?filter=songs', label: 'Songs' },
-  { href: '/qwerty-music?filter=albums', label: 'Albums' },
-];
-
 export function AppSidebar({
   variant,
   userId,
@@ -66,25 +61,13 @@ export function AppSidebar({
   allowPageScroll = true,
 }: AppSidebarProps) {
   const pathname = usePathname();
-  const searchParams = useSearchParams();
   const [errandsExpanded, setErrandsExpanded] = useState(false);
-  const [qwertyMusicExpanded, setQwertyMusicExpanded] = useState(false);
   const isActive = (href: string) => pathname === href || (href !== '/' && pathname.startsWith(href));
-  const isMusicPage = pathname === '/qwerty-music' || pathname.startsWith('/qwerty-music');
-  const musicFilter = searchParams?.get('filter') || 'songs';
   const isErrandsActive = errandsSubItems.some((s) => isActive(s.href));
-  const isQwertyMusicActive = isMusicPage;
-  const isMusicSubActive = (subHref: string) => {
-    if (!isMusicPage) return false;
-    const match = subHref.match(/\?filter=(\w+)/);
-    const subFilter = match?.[1] || 'songs';
-    return subFilter === musicFilter;
-  };
 
   const navItems: Array<
     | { href: string; label: string; icon: any; showChevron: boolean; customIcon?: string; badge?: number; transparentBg?: string }
     | { type: 'errands' }
-    | { type: 'qwertyMusic' }
   > = [
     { href: '/marketplace', label: 'QwertyHub', icon: Package, showChevron: false, customIcon: '/qwertyhub-icon.png' },
     ...(hasStore ? [{ href: '/store', label: 'MyStore', icon: Store, showChevron: false, customIcon: '/mystore-icon.png' }] : []),
@@ -93,7 +76,7 @@ export function AppSidebar({
     { href: '/wallet', label: 'ACBPayWallet', icon: Wallet, showChevron: false, customIcon: '/wallet-icon.png' },
     { href: '/morongwa-tv', label: 'QwertyTV', icon: Tv, showChevron: false, customIcon: '/qwertytv-icon.png' },
     { href: '/messages', label: 'Morongwa', icon: HelpCircle, showChevron: false, customIcon: '/messages-icon.png' },
-    { type: 'qwertyMusic' },
+    { href: '/qwerty-music', label: 'QwertyMusic', icon: Music2, showChevron: false, customIcon: '/music-icon.png' },
   ];
 
   const footerNav = [
@@ -102,17 +85,16 @@ export function AppSidebar({
   ];
 
   const sidebar = (
-    <div className={`sticky self-start flex flex-col bg-white border-r border-slate-100 w-64 shrink-0 shadow-xs ${belowHeader ? 'top-14 h-[calc(100vh-3.5rem)]' : 'top-0 h-screen'}`}>
-      <div className="p-4 border-b border-slate-100 flex items-center justify-center gap-3">
-        {!hideLogo && (
+    <div className={`sticky self-start flex flex-col bg-white border-r border-slate-100 w-64 shrink-0 shadow-xs top-0 ${belowHeader ? 'h-[calc(100vh-2.5rem)]' : 'h-screen'}`}>
+      {!hideLogo && (
+        <div className="p-4 border-b border-slate-100 flex items-center justify-center gap-3">
           <Link href="/wall" className="block shrink-0" onClick={() => setMenuOpen?.(false)}>
             <img src="/qwertymates-logo.png" alt="Qwertymates" className="h-9 w-auto max-w-full object-contain" />
           </Link>
-        )}
-        {hideLogo && null}
-      </div>
+        </div>
+      )}
 
-      <nav className={`flex-1 p-3 space-y-0 min-h-0 ${allowPageScroll ? 'overflow-visible' : 'overflow-y-auto'} ${hideLogo ? 'pt-4' : ''}`}>
+      <nav className={`flex-1 px-3 pb-3 pt-0 space-y-0 min-h-0 ${allowPageScroll ? 'overflow-visible' : 'overflow-y-auto'}`}>
         {navItems.map((item, idx) => {
           if ('type' in item && item.type === 'errands') {
             return (
@@ -166,59 +148,6 @@ export function AppSidebar({
                       <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-transparent overflow-hidden flex-shrink-0">
                         <img src={sub.customIcon} alt="" className="h-6 w-6 object-contain" />
                       </div>
-                      <span>{sub.label}</span>
-                    </Link>
-                  ))}
-                </div>
-              </div>
-            );
-          }
-          if ('type' in item && item.type === 'qwertyMusic') {
-            return (
-              <div key="qwertyMusic" className="relative group/qwertyMusic">
-                <button
-                  type="button"
-                  onClick={() => setQwertyMusicExpanded((v) => !v)}
-                  className={`lg:pointer-events-none lg:cursor-default w-full flex items-center gap-3 px-3 py-1.5 rounded-md text-sm font-medium transition-colors text-left ${
-                    isQwertyMusicActive ? 'bg-sky-50 text-sky-700' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-800'
-                  }`}
-                  aria-expanded={qwertyMusicExpanded}
-                  aria-haspopup="true"
-                >
-                  <div className="flex items-center gap-2.5 flex-1 min-w-0">
-                    <div className="flex items-center justify-center w-11 h-11 rounded-lg bg-transparent overflow-hidden flex-shrink-0">
-                      <img src="/music-icon.png" alt="" className="h-8 w-8 object-contain mix-blend-darken" />
-                    </div>
-                    <span className={`font-bold truncate ${isQwertyMusicActive ? 'text-sky-700' : 'text-slate-800'}`}>QwertyMusic</span>
-                  </div>
-                  <ChevronRight className={`h-4 w-4 text-slate-400 flex-shrink-0 transition-transform lg:rotate-0 ${qwertyMusicExpanded ? 'rotate-90' : ''}`} />
-                </button>
-                {/* Mobile: inline sub-items when expanded */}
-                <div className={`lg:hidden ${qwertyMusicExpanded ? 'block' : 'hidden'}`}>
-                  {qwertyMusicSubItems.map((sub) => (
-                    <Link
-                      key={sub.href}
-                      href={sub.href}
-                      onClick={() => { setMenuOpen?.(false); setQwertyMusicExpanded(false); }}
-                      className={`flex items-center gap-2.5 pl-12 pr-3 py-2 rounded-md text-sm font-medium transition-colors ${
-                        isMusicSubActive(sub.href) ? 'bg-sky-50 text-sky-700' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-800'
-                      }`}
-                    >
-                      <span>{sub.label}</span>
-                    </Link>
-                  ))}
-                </div>
-                {/* Desktop: dropdown linked to QwertyMusic, opens to the right */}
-                <div className="hidden lg:block absolute left-full top-0 ml-0.5 w-[120px] py-1.5 bg-white rounded-lg border border-slate-200 shadow-xl z-[9999] opacity-0 invisible group-hover/qwertyMusic:opacity-100 group-hover/qwertyMusic:visible transition-all duration-150 [&:hover]:opacity-100 [&:hover]:visible">
-                  {qwertyMusicSubItems.map((sub) => (
-                    <Link
-                      key={sub.href}
-                      href={sub.href}
-                      onClick={() => setMenuOpen?.(false)}
-                      className={`flex items-center gap-2.5 px-3 py-2 mx-1 rounded-md text-sm font-medium transition-colors ${
-                        isMusicSubActive(sub.href) ? 'bg-sky-50 text-sky-700' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-800'
-                      }`}
-                    >
                       <span>{sub.label}</span>
                     </Link>
                   ))}

@@ -357,11 +357,11 @@ function WalletDashboard() {
   return (
     <div className="min-h-screen flex flex-col bg-gradient-to-br from-sky-50 via-blue-50 to-white text-slate-900">
       <header className="sticky top-0 z-40 w-full bg-white/95 backdrop-blur-md border-b border-slate-100 shadow-sm flex-shrink-0">
-        <div className="px-4 sm:px-6 lg:px-8 py-2 sm:py-3">
-          <div className="flex items-center gap-2 sm:gap-4 min-w-0">
+        <div className="px-3 sm:px-6 lg:px-8 py-1">
+          <div className="flex items-center gap-2 sm:gap-3 w-full">
             <Link href="/wall" className="shrink-0 flex items-center" aria-label="Home">
               <img src="/qwertymates-logo-icon.png" alt="Qwertymates" className="h-8 w-8 object-contain lg:hidden" />
-              <img src="/qwertymates-logo.png" alt="Qwertymates" className="h-8 w-auto object-contain hidden lg:block" />
+              <img src="/qwertymates-logo.png" alt="Qwertymates" className="h-7 w-auto object-contain hidden lg:block" />
             </Link>
             <AppSidebarMenuButton onClick={() => setMenuOpen((v) => !v)} />
             <div className="flex items-center gap-2 min-w-0 shrink-0">
@@ -369,7 +369,7 @@ function WalletDashboard() {
               <h1 className="text-base sm:text-lg font-semibold text-slate-900 truncate">ACBPayWallet</h1>
             </div>
             <div className="flex-1 min-w-0" />
-            <div className="flex items-center gap-2 shrink-0">
+            <div className="shrink-0 flex items-center gap-2">
               <SearchButton />
               <ProfileHeaderButton />
             </div>
@@ -393,16 +393,16 @@ function WalletDashboard() {
           allowPageScroll
         />
         <div className="flex-1 flex gap-0 min-w-0 min-h-0 shrink-0">
-          <main className="flex-1 min-w-0 px-4 sm:px-6 lg:px-8 py-4 pb-24 lg:pb-6">
+          <main className="flex-1 min-w-0 px-4 sm:px-6 lg:px-8 pt-0 pb-24 lg:pb-6">
           <div className="max-w-6xl mx-auto">
           {loading ? (
             <div className="flex min-h-[400px] items-center justify-center">
               <Loader2 className="h-8 w-8 animate-spin text-sky-600" />
             </div>
           ) : (
-          <div className="grid gap-6 lg:grid-cols-1">
+          <div className="grid gap-3 lg:grid-cols-1">
             {pendingPayment && (
-              <div className="lg:col-span-3 rounded-xl border-2 border-sky-200 bg-sky-50 p-4">
+              <div className="lg:col-span-3 rounded-xl border-2 border-sky-200 bg-sky-50 p-3">
                 <p className="font-semibold text-sky-900">Pay R{pendingPayment.amount.toFixed(2)} at {pendingPayment.merchantName}</p>
                 <p className="text-sm text-sky-700 mt-1">Choose how to pay:</p>
                 <div className="mt-3 flex flex-wrap gap-2">
@@ -453,7 +453,7 @@ function WalletDashboard() {
               </div>
             )}
             {!(user as any)?.phone && (
-              <div className="lg:col-span-3 rounded-xl border-2 border-amber-200 bg-amber-50 p-4 flex items-center justify-between gap-4">
+              <div className="lg:col-span-3 rounded-xl border-2 border-amber-200 bg-amber-50 p-3 flex items-center justify-between gap-3">
                 <p className="text-amber-800 text-sm font-medium">
                   Add your phone number to use QR payments and request money. You&apos;ll receive SMS/WhatsApp verification codes.
                 </p>
@@ -462,15 +462,15 @@ function WalletDashboard() {
                 </Link>
               </div>
             )}
-            <div className="space-y-6">
-              <div className="rounded-2xl border border-white/60 bg-gradient-to-br from-sky-500 via-cyan-500 to-teal-500 p-8 text-white shadow-xl shadow-sky-200">
+            <div className="space-y-3">
+              <div className="rounded-2xl border border-white/60 bg-gradient-to-br from-sky-500 via-cyan-500 to-teal-500 p-5 sm:p-6 text-white shadow-xl shadow-sky-200">
                 <p className="text-xs uppercase tracking-[0.3em] opacity-90">Current balance</p>
                 <h2 className="mt-2 text-5xl font-bold">R{balance.toFixed(2)}</h2>
                 <p className="mt-3 text-sm opacity-80">Keep it topped up for seamless task payouts.</p>
               </div>
 
               {/* QR code - pay at store */}
-              <div className={`rounded-2xl border border-white/60 bg-white/80 p-6 shadow-xl shadow-sky-50 backdrop-blur ${!(user as any)?.phone ? 'opacity-75' : ''}`}>
+              <div className={`rounded-2xl border border-white/60 bg-white/80 p-4 sm:p-5 shadow-xl shadow-sky-50 backdrop-blur ${!(user as any)?.phone ? 'opacity-75' : ''}`}>
                 <div className="mb-4 flex items-center gap-2">
                   <QrCode className="h-5 w-5 text-sky-600" />
                   <div>
@@ -522,7 +522,7 @@ function WalletDashboard() {
               </div>
 
               {/* Request & Receive money */}
-              <div className="rounded-2xl border border-white/60 bg-white/80 p-6 shadow-xl shadow-sky-50 backdrop-blur">
+              <div className="rounded-2xl border border-white/60 bg-white/80 p-4 sm:p-5 shadow-xl shadow-sky-50 backdrop-blur">
                 <div className="mb-4 flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <MessageCircle className="h-5 w-5 text-sky-600" />
@@ -567,7 +567,7 @@ function WalletDashboard() {
               </div>
 
               {/* Accept payment (merchant) */}
-              <div className="rounded-2xl border border-white/60 bg-white/80 p-6 shadow-xl shadow-sky-50 backdrop-blur">
+              <div className="rounded-2xl border border-white/60 bg-white/80 p-4 sm:p-5 shadow-xl shadow-sky-50 backdrop-blur">
                 <div className="mb-4 flex items-center gap-2">
                   <ScanLine className="h-5 w-5 text-sky-600" />
                   <div>
@@ -641,7 +641,7 @@ function WalletDashboard() {
               </div>
 
               {/* Cards - PayGate PayVault */}
-              <div className="rounded-2xl border border-white/60 bg-white/80 p-6 shadow-xl shadow-sky-50 backdrop-blur">
+              <div className="rounded-2xl border border-white/60 bg-white/80 p-4 sm:p-5 shadow-xl shadow-sky-50 backdrop-blur">
                 <div className="mb-4 flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <CreditCard className="h-5 w-5 text-sky-600" />
@@ -672,7 +672,7 @@ function WalletDashboard() {
                 </div>
                 <p className="text-sm text-slate-600 mb-4">Store Visa/Mastercard securely. Pay at stores by scanning your QR—select a card and authorize. Like Apple Pay.</p>
                 {cards.length === 0 ? (
-                  <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/50 p-6 text-center">
+                  <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/50 p-4 text-center">
                     <CreditCard className="h-10 w-10 text-slate-300 mx-auto mb-2" />
                     <p className="text-sm text-slate-600">No cards yet</p>
                     <p className="text-xs text-slate-500 mt-1">Add a card to pay at stores with one tap</p>
@@ -733,7 +733,7 @@ function WalletDashboard() {
                 )}
               </div>
 
-              <div className="rounded-2xl border border-white/60 bg-white/80 p-6 shadow-xl shadow-sky-50 backdrop-blur">
+              <div className="rounded-2xl border border-white/60 bg-white/80 p-4 sm:p-5 shadow-xl shadow-sky-50 backdrop-blur">
                 <div className="mb-6">
                   <p className="text-xs uppercase tracking-[0.2em] text-sky-600">Quick topup</p>
                   <h3 className="mt-1 text-2xl font-semibold text-slate-900">Add funds now</h3>
@@ -771,7 +771,7 @@ function WalletDashboard() {
                 </div>
               </div>
 
-              <div className="rounded-2xl border border-white/60 bg-white/80 p-6 shadow-xl shadow-sky-50 backdrop-blur">
+              <div className="rounded-2xl border border-white/60 bg-white/80 p-4 sm:p-5 shadow-xl shadow-sky-50 backdrop-blur">
                 <div className="mb-6">
                   <p className="text-xs uppercase tracking-[0.2em] text-sky-600">Withdraw</p>
                   <h3 className="mt-1 text-2xl font-semibold text-slate-900">Withdraw to bank</h3>
@@ -811,7 +811,7 @@ function WalletDashboard() {
                 </div>
               </div>
 
-              <div className="rounded-2xl border border-white/60 bg-white/80 p-6 shadow-xl shadow-sky-50 backdrop-blur">
+              <div className="rounded-2xl border border-white/60 bg-white/80 p-4 sm:p-5 shadow-xl shadow-sky-50 backdrop-blur">
                 <div className="mb-6 flex items-center justify-between">
                   <div>
                     <p className="text-xs uppercase tracking-[0.2em] text-sky-600">History</p>

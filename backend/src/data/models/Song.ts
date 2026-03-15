@@ -20,7 +20,7 @@ export interface ISong extends Document {
   tracks?: { title: string; audioUrl: string; duration?: number }[];
   /** Optional paid download setting (streaming remains default). */
   downloadEnabled?: boolean;
-  /** Download price in ZAR when enabled (R10-R15). */
+  /** Download price in ZAR when enabled (R10-R25). */
   downloadPrice?: number;
   createdAt: Date;
   updatedAt: Date;
@@ -46,7 +46,7 @@ const SongSchema = new Schema<ISong>(
       },
     ],
     downloadEnabled: { type: Boolean, default: false },
-    downloadPrice: { type: Number, min: 10, max: 15 },
+    downloadPrice: { type: Number, min: 10, max: 25 },
   },
   { timestamps: true }
 );

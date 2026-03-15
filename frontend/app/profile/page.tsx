@@ -2,16 +2,15 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { ArrowLeft, LayoutDashboard, Wallet, ClipboardList, HelpCircle, ShieldCheck, Lock, Radio, UserCheck, Camera, Pencil, Check, X } from "lucide-react";
+import { ArrowLeft, LayoutDashboard, Wallet, ClipboardList, HelpCircle, ShieldCheck, Lock, Radio, UserCheck, Camera, Pencil, Check, X, Download, Music2 } from "lucide-react";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import { useAuth } from "@/contexts/AuthContext";
-import { usersAPI, followsAPI } from "@/lib/api";
+import { usersAPI, followsAPI, musicAPI, getImageUrl, API_BASE } from "@/lib/api";
 import { AppSidebar, AppSidebarMenuButton } from "@/components/AppSidebar";
 import { SearchButton } from "@/components/SearchButton";
 import { MobileBottomNav } from "@/components/MobileBottomNav";
 import { SetPictureOptionsModal } from "@/components/SetPictureOptionsModal";
 import { useCartAndStores } from "@/lib/useCartAndStores";
-import { getImageUrl } from "@/lib/api";
 import toast from "react-hot-toast";
 
 function initials(name: string) {
@@ -35,6 +34,8 @@ export default function ProfilePage() {
   const [editingPhone, setEditingPhone] = useState(false);
   const [phoneValue, setPhoneValue] = useState("");
   const [phoneSaving, setPhoneSaving] = useState(false);
+  const [downloads, setDownloads] = useState<Array<{ songId: string; song?: { _id: string; title?: string; artist?: string; artworkUrl?: string; type?: string; tracks?: { title: string; audioUrl: string }[] }; amount: number; createdAt: string }>>([]);
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const { cartCount, hasStore } = useCartAndStores(!!user);
 
   useEffect(() => {
@@ -45,8 +46,44 @@ export default function ProfilePage() {
         const data = res.data?.data ?? res.data ?? [];
         setPendingRequests(Array.isArray(data) ? data : []);
       }).catch(() => setPendingRequests([]));
+      musicAPI.getMyPurchases().then((res) => {
+        const data = res.data?.data ?? res.data ?? [];
+        setDownloads(Array.isArray(data) ? data : []);
+      }).catch(() => setDownloads([]));
     }
   }, [user]);
+
+  const handleDownload = async (songId: string) => {
+    setDownloadingId(songId);
+    try {
+      const res = await musicAPI.getDownloadLinks(songId);
+      const data = res.data?.data ?? res.data;
+      if (!data) return;
+      const toHref = (url: string) => (url?.startsWith('/uploads/') ? url : `${API_BASE || ''}${url || ''}`);
+      if (data.type === 'album' && Array.isArray(data.tracks)) {
+        data.tracks.forEach((t: any) => {
+          const a = document.createElement('a');
+          a.href = toHref(t.url);
+          a.download = `${t.title || 'track'}.wav`;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+        });
+      } else if (data.url) {
+        const a = document.createElement('a');
+        a.href = toHref(data.url);
+        a.download = `${data.title || 'song'}.wav`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      }
+      toast.success('Download started');
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || 'Download failed');
+    } finally {
+      setDownloadingId(null);
+    }
+  };
 
   const handleTogglePrivate = async () => {
     if (!user?._id && !user?.id) return;
@@ -428,6 +465,57 @@ export default function ProfilePage() {
                 </div>
               )}
             </div>
+          </div>
+
+          {/* Downloads - purchased songs & videos */}
+          <div className="mt-6">
+            <h3 className="text-sm font-semibold text-slate-700 mb-4 flex items-center gap-2">
+              <Download className="h-4 w-4" /> Downloads
+            </h3>
+            {downloads.length === 0 ? (
+              <div className="rounded-xl border border-slate-100 bg-white p-6 text-center text-slate-500">
+                <Music2 className="h-12 w-12 mx-auto mb-2 text-slate-300" />
+                <p className="text-sm">No downloads yet</p>
+                <p className="text-xs mt-1">Songs and albums you purchase appear here. Download anytime.</p>
+                <Link href="/qwerty-music" className="mt-3 inline-block text-sm font-medium text-sky-600 hover:text-sky-700">Browse QwertyMusic</Link>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+                {downloads.map((d) => (
+                  <div key={d.songId} className="rounded-xl border border-slate-100 bg-white overflow-hidden shadow-sm hover:shadow-md transition">
+                    <div className="aspect-square bg-slate-100 flex items-center justify-center overflow-hidden">
+                      {d.song?.artworkUrl ? (
+                        <img src={getImageUrl(d.song.artworkUrl)} alt="" className="w-full h-full object-cover" />
+                      ) : (
+                        <Music2 className="h-12 w-12 text-slate-400" />
+                      )}
+                    </div>
+                    <div className="p-2">
+                      <p className="font-medium text-slate-900 text-sm truncate" title={d.song?.title}>{d.song?.title || 'Song'}</p>
+                      {d.song?.artist && <p className="text-xs text-slate-600 truncate">{d.song.artist}</p>}
+                      {d.song?.type === 'album' && Array.isArray(d.song?.tracks) && d.song.tracks.length > 0 && (
+                        <div className="mt-1.5 pt-1.5 border-t border-slate-100">
+                          <p className="text-[10px] uppercase tracking-wide text-slate-400 font-medium mb-0.5">Tracks</p>
+                          <ol className="space-y-0.5 text-[11px] text-slate-600 max-h-16 overflow-y-auto">
+                            {d.song.tracks.map((t, i) => (
+                              <li key={i} className="truncate" title={t.title}>{i + 1}. {t.title}</li>
+                            ))}
+                          </ol>
+                        </div>
+                      )}
+                      <button
+                        onClick={() => handleDownload(d.songId)}
+                        disabled={downloadingId === d.songId}
+                        className="mt-1.5 w-full py-1.5 rounded-lg bg-sky-500 text-white text-xs font-medium hover:bg-sky-600 disabled:opacity-50 flex items-center justify-center gap-1"
+                      >
+                        <Download className="h-3.5 w-3.5" />
+                        {downloadingId === d.songId ? 'Preparing...' : (d.song?.type === 'album' ? 'Download album' : 'Download')}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Quick links */}

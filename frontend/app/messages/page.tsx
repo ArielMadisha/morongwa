@@ -13,6 +13,7 @@ import { useCartAndStores } from '@/lib/useCartAndStores';
 import { AppSidebar, AppSidebarMenuButton } from '@/components/AppSidebar';
 import { AdvertSlot } from '@/components/AdvertSlot';
 import { MobileBottomNav } from '@/components/MobileBottomNav';
+import { ProfileHeaderButton } from '@/components/ProfileHeaderButton';
 import { VideoCallView } from '@/components/VideoCallView';
 import { useWebRTC } from '@/hooks/useWebRTC';
 import { messengerAPI, productEnquiryAPI } from '@/lib/api';
@@ -269,11 +270,11 @@ function MessagesPageContent() {
   return (
     <div className="min-h-screen flex flex-col bg-gradient-to-br from-sky-50 via-blue-50 to-white text-slate-900">
       <header className="sticky top-0 z-40 w-full bg-white/95 backdrop-blur-md border-b border-slate-100 shadow-sm flex-shrink-0">
-        <div className="px-4 sm:px-6 lg:px-8 py-3 sm:py-4">
-          <div className="flex items-center justify-between gap-3 sm:gap-4 min-w-0">
+        <div className="px-3 sm:px-6 lg:px-8 py-1">
+          <div className="flex items-center gap-2 sm:gap-3 w-full">
             <Link href="/wall" className="shrink-0 flex items-center" aria-label="Home">
-              <img src="/qwertymates-logo-icon.png" alt="Qwertymates" className="h-9 w-9 object-contain lg:hidden" />
-              <img src="/qwertymates-logo.png" alt="Qwertymates" className="h-9 w-auto object-contain hidden lg:block" />
+              <img src="/qwertymates-logo-icon.png" alt="Qwertymates" className="h-8 w-8 object-contain lg:hidden" />
+              <img src="/qwertymates-logo.png" alt="Qwertymates" className="h-7 w-auto object-contain hidden lg:block" />
             </Link>
             <AppSidebarMenuButton onClick={() => setMenuOpen((v) => !v)} />
             <div className="flex items-center gap-2 min-w-0 shrink-0">
@@ -281,7 +282,10 @@ function MessagesPageContent() {
               <h1 className="text-base sm:text-lg font-semibold text-slate-900 truncate">Morongwa</h1>
             </div>
             <div className="flex-1 min-w-0" />
-            <SearchButton />
+            <div className="shrink-0 flex items-center gap-2">
+              <SearchButton />
+              <ProfileHeaderButton />
+            </div>
           </div>
         </div>
       </header>

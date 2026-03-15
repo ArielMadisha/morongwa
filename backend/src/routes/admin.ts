@@ -1,4 +1,5 @@
 // Admin routes for platform management
+import path from "path";
 import express, { Response } from "express";
 import bcrypt from "bcryptjs";
 import User from "../data/models/User";
@@ -19,6 +20,7 @@ import Advert from "../data/models/Advert";
 import LandingBackground from "../data/models/LandingBackground";
 import ArtistVerification from "../data/models/ArtistVerification";
 import Song from "../data/models/Song";
+import Cart from "../data/models/Cart";
 import AdminPermission, { AdminSection, SUPPORT_CATEGORY_MAIN } from "../data/models/AdminPermission";
 import { musicUploadSong, musicUploadAlbum } from "../middleware/musicUpload";
 import { authenticate, AuthRequest, authorize } from "../middleware/auth";
@@ -907,6 +909,30 @@ router.post(
     }
   }
 );
+
+/** Admin: Delete song or album */
+router.delete("/music/songs/:id", async (req: AuthRequest, res: Response, next) => {
+  try {
+    const song = await Song.findById(req.params.id);
+    if (!song) throw new AppError("Song not found", 404);
+
+    const audioUrls = [song.audioUrl];
+    if (song.type === "album" && Array.isArray((song as any).tracks)) {
+      (song as any).tracks.forEach((t: { audioUrl: string }) => audioUrls.push(t.audioUrl));
+    }
+
+    await Song.deleteOne({ _id: song._id });
+    await TVPost.deleteMany({ type: "audio", mediaUrls: { $in: audioUrls } });
+    await Cart.updateMany(
+      { "musicItems.songId": song._id },
+      { $pull: { musicItems: { songId: song._id } } }
+    );
+    await AuditLog.create({ action: "SONG_DELETED_BY_ADMIN", user: req.user!._id, target: song._id, meta: { title: song.title, artist: song.artist } });
+    res.json({ message: "Song deleted" });
+  } catch (err) {
+    next(err);
+  }
+});
 
 // List marketplace orders (checkout orders)
 router.get("/orders", async (req: AuthRequest, res: Response, next) => {

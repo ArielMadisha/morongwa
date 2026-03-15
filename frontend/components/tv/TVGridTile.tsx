@@ -15,6 +15,7 @@ import {
   Package,
   ShoppingCart,
   Download,
+  Check,
   X,
   ChevronDown,
   ChevronLeft,
@@ -56,6 +57,7 @@ function AudioPurchaseDownload({ songId, price, currentUserId }: { songId: strin
   const [purchased, setPurchased] = useState(false);
   const [adding, setAdding] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [addedFeedback, setAddedFeedback] = useState(false);
 
   useEffect(() => {
     if (!currentUserId) return;
@@ -78,6 +80,7 @@ function AudioPurchaseDownload({ songId, price, currentUserId }: { songId: strin
       const { invalidateCartStoresCache } = await import('@/lib/useCartAndStores');
       await cartAPI.addMusic(songId, 1);
       invalidateCartStoresCache();
+      setAddedFeedback(true);
       toast.success('Added to cart');
     } catch (e: any) {
       toast.error(e.response?.data?.error || e.response?.data?.message || e.message || 'Failed to add to cart');
@@ -117,14 +120,51 @@ function AudioPurchaseDownload({ songId, price, currentUserId }: { songId: strin
   };
 
   if (!currentUserId) return null;
+  const priceStr = formatPrice(price, 'ZAR');
+  const showDownload = purchased;
+  const showAdded = addedFeedback && !purchased;
   return (
-    <button
-      onClick={(e) => { e.stopPropagation(); purchased ? handleDownload() : handleAddToCart(); }}
-      disabled={adding || downloading}
-      className="px-3 py-1.5 rounded-lg bg-sky-500 text-white text-sm font-semibold hover:bg-sky-600 disabled:opacity-50 shadow-lg"
-    >
-      {adding ? 'Adding...' : downloading ? 'Preparing...' : purchased ? 'Download' : `Add to Cart ${formatPrice(price, 'ZAR')}`}
-    </button>
+    <div className="relative group">
+      <button
+        onClick={(e) => { e.stopPropagation(); showDownload ? handleDownload() : handleAddToCart(); }}
+        disabled={adding || downloading}
+        className={`p-2.5 rounded-full shadow-lg transition-all ${
+          showAdded || showDownload ? 'bg-emerald-500 text-white hover:bg-emerald-600' : 'bg-sky-500 text-white hover:bg-sky-600'
+        } disabled:opacity-50`}
+        title={showDownload ? 'Download' : showAdded ? 'Added to cart' : `${priceStr} · Add to cart`}
+        aria-label={showDownload ? 'Download' : showAdded ? 'Added to cart' : `Add to cart ${priceStr}`}
+      >
+        {adding ? (
+          <span className="text-xs font-medium">...</span>
+        ) : downloading ? (
+          <Download className="h-5 w-5" />
+        ) : showDownload ? (
+          <Download className="h-5 w-5" />
+        ) : showAdded ? (
+          <Check className="h-5 w-5" />
+        ) : (
+          <ShoppingCart className="h-5 w-5" />
+        )}
+      </button>
+      {/* Hover tooltip: price + add to cart */}
+      {!purchased && !adding && !downloading && !addedFeedback && (
+        <div className="absolute bottom-full right-0 mb-1.5 px-2.5 py-1.5 rounded-lg bg-black/85 text-white text-xs font-medium whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none shadow-xl z-20">
+          {priceStr} · Add to cart
+        </div>
+      )}
+      {/* Hover tooltip: Added to cart */}
+      {showAdded && (
+        <div className="absolute bottom-full right-0 mb-1.5 px-2.5 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-medium whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none shadow-xl z-20">
+          Added to cart
+        </div>
+      )}
+      {/* Hover tooltip: Download */}
+      {showDownload && (
+        <div className="absolute bottom-full right-0 mb-1.5 px-2.5 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-medium whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none shadow-xl z-20">
+          Download
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -147,6 +187,8 @@ export interface TVGridItem {
   viewCount?: number;
   creatorId?: { _id: string; name?: string; avatar?: string };
   createdAt?: string;
+  /** When true, media is blurred until user clicks to reveal */
+  sensitive?: boolean;
   // product tile
   title?: string;
   images?: string[];
@@ -217,6 +259,8 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
   const [donateSending, setDonateSending] = useState(false);
   const [donateBalance, setDonateBalance] = useState<number | null>(null);
   const [donateBalanceLoading, setDonateBalanceLoading] = useState(false);
+  const [isAudioPlaying, setIsAudioPlaying] = useState(false);
+  const [sensitiveRevealed, setSensitiveRevealed] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
 
@@ -425,12 +469,26 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
           </div>
           {/* Audio player - compact bar at bottom edge, overlaid. Autoplay when visible (mobile scroll). */}
           <div className="absolute inset-x-0 bottom-0 z-10 bg-black/60 backdrop-blur-sm px-3 py-2" onClick={(e) => e.stopPropagation()}>
+            {isAudioPlaying && (
+              <p className="text-[10px] text-white/90 font-medium mb-1 truncate flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-sky-400 animate-pulse shrink-0" />
+                Now playing: {(item.songId as any)?.title || item.caption || item.heading || 'Track'}
+              </p>
+            )}
             <audio
               ref={audioRef}
               src={getImageUrl(mediaUrl) || mediaUrl}
               controls
               playsInline
               className="w-full max-w-full h-9 [&::-webkit-media-controls-panel]:bg-transparent"
+              onPlay={(e) => {
+                setIsAudioPlaying(true);
+                document.querySelectorAll('audio').forEach((el) => {
+                  if (el !== e.currentTarget) el.pause();
+                });
+              }}
+              onPause={() => setIsAudioPlaying(false)}
+              onEnded={() => setIsAudioPlaying(false)}
             />
           </div>
           {/* Buy button - bottom right corner of album art, above audio player bar */}
@@ -548,10 +606,14 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
       ) : isVideo ? (
         <button
           type="button"
-          className="relative w-full h-full cursor-pointer block focus:outline-none group"
+          className="relative w-full h-full cursor-pointer block focus:outline-none group overflow-hidden"
           onClick={(e) => {
             e.stopPropagation();
-            setVideoExpandOpen(true);
+            if (item.sensitive && !sensitiveRevealed) {
+              setSensitiveRevealed(true);
+            } else {
+              setVideoExpandOpen(true);
+            }
           }}
         >
           <video
@@ -560,32 +622,60 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
             playsInline
             loop
             muted
-            className={`w-full h-full object-cover ${filterClass}`}
+            className={`w-full h-full object-cover ${filterClass} ${item.sensitive && !sensitiveRevealed ? 'blur-2xl scale-110' : ''}`}
           />
-          {/* Fullscreen [ ] icon overlay - visible on hover */}
-          <div className="absolute bottom-2 left-2 p-2 rounded-lg bg-black/50 text-white/90 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
-            <Maximize2 className="h-5 w-5" aria-label="Expand / Fullscreen" />
-          </div>
+          {item.sensitive && !sensitiveRevealed ? (
+            <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 z-20">
+              <p className="text-white/90 text-sm font-medium mb-3 px-4 text-center">This content may be sensitive</p>
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); setSensitiveRevealed(true); }}
+                className="px-4 py-2 rounded-lg bg-white/20 hover:bg-white/30 text-white font-medium text-sm"
+              >
+                Click to reveal
+              </button>
+            </div>
+          ) : (
+            <div className="absolute bottom-2 left-2 p-2 rounded-lg bg-black/50 text-white/90 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
+              <Maximize2 className="h-5 w-5" aria-label="Expand / Fullscreen" />
+            </div>
+          )}
         </button>
       ) : (
-        <div className="relative w-full h-full">
+        <div className="relative w-full h-full overflow-hidden">
           <button
             type="button"
             className="relative w-full h-full cursor-pointer block focus:outline-none"
             onClick={(e) => {
               e.stopPropagation();
-              setLightboxOpen(true);
+              if (item.sensitive && !sensitiveRevealed) {
+                setSensitiveRevealed(true);
+              } else {
+                setLightboxOpen(true);
+              }
             }}
           >
             {getImageUrl(mediaUrl) ? (
               <img
                 src={getImageUrl(mediaUrl)}
                 alt={item.caption || item.heading || 'Post'}
-                className={`w-full h-full object-contain ${filterClass}`}
+                className={`w-full h-full object-contain ${filterClass} ${item.sensitive && !sensitiveRevealed ? 'blur-2xl scale-110' : ''}`}
               />
             ) : (
               <div className="w-full h-full flex items-center justify-center bg-slate-800">
                 <Package className="h-16 w-16 text-slate-500" />
+              </div>
+            )}
+            {item.sensitive && !sensitiveRevealed && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/50 z-20">
+                <p className="text-white/90 text-sm font-medium mb-3 px-4 text-center">This content may be sensitive</p>
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); setSensitiveRevealed(true); }}
+                  className="px-4 py-2 rounded-lg bg-white/20 hover:bg-white/30 text-white font-medium text-sm"
+                >
+                  Click to reveal
+                </button>
               </div>
             )}
           </button>

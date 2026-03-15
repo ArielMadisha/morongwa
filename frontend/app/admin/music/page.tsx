@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { adminAPI, getImageUrl, API_BASE, usersAPI } from '@/lib/api';
 import Link from 'next/link';
-import { ArrowLeft, Music2, Loader2, Plus, Upload, X } from 'lucide-react';
+import { ArrowLeft, Music2, Loader2, Plus, Upload, X, Trash2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 const MUSIC_GENRES = [
@@ -53,7 +53,20 @@ function MusicManagement() {
   const [userSearching, setUserSearching] = useState(false);
   const [showUserDropdown, setShowUserDropdown] = useState(false);
   const [selectedUserName, setSelectedUserName] = useState('');
+  const [playingId, setPlayingId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const userSearchRef = useRef<HTMLDivElement>(null);
+
+  const handleAudioPlay = (songId: string, currentAudio: HTMLAudioElement) => {
+    setPlayingId(songId);
+    document.querySelectorAll('audio').forEach((el) => {
+      if (el !== currentAudio) el.pause();
+    });
+  };
+
+  const handleAudioPause = (songId: string) => {
+    setPlayingId((prev) => (prev === songId ? null : prev));
+  };
 
   const searchUsers = useCallback(async (q: string) => {
     if (!q.trim()) {
@@ -116,6 +129,16 @@ function MusicManagement() {
     setShowUserDropdown(false);
     setSelectedUserName('');
     setUploadOpen(false);
+  };
+
+  const openUploadSong = () => {
+    setUploadType('song');
+    setUploadOpen(true);
+  };
+
+  const openUploadAlbum = () => {
+    setUploadType('album');
+    setUploadOpen(true);
   };
 
   const handleUpload = async (e: React.FormEvent) => {
@@ -187,6 +210,20 @@ function MusicManagement() {
     return getImageUrl(url) || url;
   };
 
+  const handleDelete = async (songId: string) => {
+    if (!confirm('Delete this song/album? This cannot be undone.')) return;
+    setDeletingId(songId);
+    try {
+      await adminAPI.deleteMusicSong(songId);
+      toast.success('Deleted');
+      setSongs((prev) => prev.filter((s) => s._id !== songId));
+    } catch (err: any) {
+      toast.error(err.response?.data?.error || err.response?.data?.message || 'Delete failed');
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
   return (
     <ProtectedRoute allowedRoles={['admin', 'superadmin']}>
       <div className="min-h-screen bg-gradient-to-br from-sky-50 via-white to-sky-100 text-slate-800">
@@ -197,13 +234,20 @@ function MusicManagement() {
               <h1 className="mt-1 text-3xl font-semibold text-slate-900">QwertyMusic</h1>
               <p className="mt-1 text-sm text-slate-600">Load songs/albums. Admin uploads bypass artist verification.</p>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <button
-                onClick={() => setUploadOpen(true)}
+                onClick={openUploadSong}
                 className="inline-flex items-center gap-2 rounded-full bg-sky-600 px-4 py-2 text-sm font-semibold text-white shadow-lg hover:bg-sky-700"
               >
                 <Plus className="h-4 w-4" />
                 Upload song
+              </button>
+              <button
+                onClick={openUploadAlbum}
+                className="inline-flex items-center gap-2 rounded-full bg-violet-600 px-4 py-2 text-sm font-semibold text-white shadow-lg hover:bg-violet-700"
+              >
+                <Plus className="h-4 w-4" />
+                Upload album
               </button>
               <Link
                 href="/admin"
@@ -225,20 +269,44 @@ function MusicManagement() {
             ) : songs.length === 0 ? (
               <div className="py-16 text-center">
                 <Music2 className="mx-auto h-16 w-16 text-slate-300" />
-                <p className="mt-4 text-slate-600">No songs yet. Upload a song to get started.</p>
-                <button
-                  onClick={() => setUploadOpen(true)}
-                  className="mt-4 inline-flex items-center gap-2 rounded-xl bg-sky-500 px-4 py-2 text-white font-medium hover:bg-sky-600"
-                >
-                  <Upload className="h-4 w-4" />
-                  Upload song
-                </button>
+                <p className="mt-4 text-slate-600">No songs or albums yet. Upload to get started.</p>
+                <div className="mt-4 flex justify-center gap-2 flex-wrap">
+                  <button
+                    onClick={openUploadSong}
+                    className="inline-flex items-center gap-2 rounded-xl bg-sky-500 px-4 py-2 text-white font-medium hover:bg-sky-600"
+                  >
+                    <Upload className="h-4 w-4" />
+                    Upload song
+                  </button>
+                  <button
+                    onClick={openUploadAlbum}
+                    className="inline-flex items-center gap-2 rounded-xl bg-violet-500 px-4 py-2 text-white font-medium hover:bg-violet-600"
+                  >
+                    <Upload className="h-4 w-4" />
+                    Upload album
+                  </button>
+                </div>
               </div>
             ) : (
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
                 {songs.map((s) => (
-                  <div key={s._id} className="rounded-xl border border-slate-200 bg-white/90 overflow-hidden shadow-sm hover:shadow-md transition">
+                  <div key={s._id} className={`rounded-xl border overflow-hidden shadow-sm hover:shadow-md transition ${playingId === s._id ? 'border-sky-500 ring-2 ring-sky-500/30 bg-white' : 'border-slate-200 bg-white/90'}`}>
                     <div className="aspect-square bg-slate-100 relative">
+                      {playingId === s._id && (
+                        <div className="absolute top-2 left-2 z-10 px-2 py-1 rounded-md bg-sky-500 text-white text-xs font-semibold flex items-center gap-1">
+                          <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+                          Now playing
+                        </div>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => handleDelete(s._id)}
+                        disabled={deletingId === s._id}
+                        className="absolute top-2 right-2 z-10 p-1.5 rounded-lg bg-red-500/90 text-white hover:bg-red-600 disabled:opacity-50 transition"
+                        title="Delete song/album"
+                      >
+                        {deletingId === s._id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                      </button>
                       <img
                         src={getArtworkUrl(s.artworkUrl)}
                         alt={s.title}
@@ -249,13 +317,30 @@ function MusicManagement() {
                       <p className="font-semibold text-slate-900 truncate" title={s.title}>{s.title}</p>
                       <p className="text-sm text-slate-600 truncate">{s.artist}</p>
                       <p className="text-xs text-slate-500">{s.genre}</p>
-                      {s.type === 'album' && <p className="text-xs text-violet-600 mt-1">Album · {s.tracks?.length || 0} tracks</p>}
+                      {s.type === 'album' && Array.isArray(s.tracks) && s.tracks.length > 0 && (
+                        <div className="mt-2 pt-2 border-t border-slate-100">
+                          <p className="text-[10px] uppercase tracking-wide text-slate-400 font-medium mb-1">Tracks</p>
+                          <ol className="space-y-0.5 text-xs text-slate-600 max-h-20 overflow-y-auto">
+                            {s.tracks.map((t, i) => (
+                              <li key={i} className="truncate" title={t.title}>{i + 1}. {t.title}</li>
+                            ))}
+                          </ol>
+                        </div>
+                      )}
+                      {s.type === 'album' && (!s.tracks?.length) && <p className="text-xs text-violet-600 mt-1">Album · {s.tracks?.length || 0} tracks</p>}
                       {s.downloadEnabled && <p className="text-xs text-emerald-700 mt-1">Downloads: R{Number(s.downloadPrice || 0).toFixed(0)}</p>}
                       {s.userId && (
                         <p className="text-xs text-slate-400 mt-1 truncate">{(s.userId as any).name || (s.userId as any).email}</p>
                       )}
                     </div>
-                    <audio src={`${API_BASE || ''}${s.audioUrl}`} controls className="w-full px-2 pb-2" />
+                    <audio
+                      src={`${API_BASE || ''}${s.audioUrl}`}
+                      controls
+                      className="w-full px-2 pb-2"
+                      onPlay={(e) => handleAudioPlay(s._id, e.currentTarget)}
+                      onPause={() => handleAudioPause(s._id)}
+                      onEnded={() => handleAudioPause(s._id)}
+                    />
                   </div>
                 ))}
               </div>
@@ -267,7 +352,7 @@ function MusicManagement() {
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
             <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
               <div className="sticky top-0 bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between">
-                <h3 className="text-lg font-semibold text-slate-900">Upload song</h3>
+                <h3 className="text-lg font-semibold text-slate-900">{uploadType === 'album' ? 'Upload album' : 'Upload song'}</h3>
                 <button onClick={resetUpload} className="p-2 rounded-lg hover:bg-slate-100">
                   <X className="h-5 w-5" />
                 </button>
@@ -285,12 +370,12 @@ function MusicManagement() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Song title *</label>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">{uploadType === 'album' ? 'Album title *' : 'Song title *'}</label>
                   <input
                     type="text"
                     value={form.title}
                     onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
-                    placeholder="Song title"
+                    placeholder={uploadType === 'album' ? 'Album title' : 'Song title'}
                     className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm"
                     required
                   />

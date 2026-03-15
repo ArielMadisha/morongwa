@@ -200,22 +200,21 @@ function MorongwaTVPageContent() {
     <div className="min-h-screen flex flex-col bg-gradient-to-br from-sky-50 via-blue-50 to-white text-slate-900">
       {/* Full-width frozen header - logo, QwertyTV title, Live now strip, actions */}
       <header className="sticky top-0 z-40 w-full bg-white/95 backdrop-blur-md border-b border-slate-100 shadow-sm flex-shrink-0">
-        <div className="px-4 sm:px-6 lg:px-8 py-2 sm:py-3">
-          <div className="flex items-center gap-2 sm:gap-4 min-w-0">
+        <div className="px-3 sm:px-6 lg:px-8 py-1">
+          <div className="flex items-center gap-2 sm:gap-3 w-full">
             <Link href="/wall" className="shrink-0 flex items-center" aria-label="Home">
               <img src="/qwertymates-logo-icon.png" alt="Qwertymates" className="h-8 w-8 object-contain lg:hidden" />
-              <img src="/qwertymates-logo.png" alt="Qwertymates" className="h-8 w-auto object-contain hidden lg:block" />
+              <img src="/qwertymates-logo.png" alt="Qwertymates" className="h-7 w-auto object-contain hidden lg:block" />
             </Link>
             <AppSidebarMenuButton onClick={() => setMenuOpen((v) => !v)} />
             <button
               onClick={() => setCreateOpen(true)}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-brand-500 text-white font-medium hover:bg-brand-600 transition-colors shrink-0"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand-500 text-white font-medium hover:bg-brand-600 transition-colors shrink-0"
             >
               <Plus className="h-4 w-4" />
               <span className="text-sm">Create</span>
             </button>
-            {/* Live now strip - in top bar */}
-            <div className="flex-1 min-w-0 overflow-x-auto scrollbar-thin flex items-center gap-2 py-1">
+            <div className="flex-1 min-w-0 overflow-x-auto scrollbar-thin flex items-center gap-2">
               {liveUsers.length > 0 && (
                 <>
                   <span className="flex items-center gap-1.5 shrink-0 text-xs font-medium text-slate-600">
@@ -226,17 +225,17 @@ function MorongwaTVPageContent() {
                     <Link
                       key={u.userId}
                       href={`/morongwa-tv/user/${u.userId}`}
-                      className="flex-shrink-0 flex items-center gap-2 px-2 py-1.5 rounded-lg bg-red-50 border border-red-200 hover:border-red-400 transition-colors"
+                      className="flex-shrink-0 flex items-center gap-2 px-2 py-1 rounded-lg bg-red-50 border border-red-200 hover:border-red-400 transition-colors"
                     >
                       <div className="relative">
-                        <div className="h-7 w-7 rounded-full bg-sky-100 border-2 border-red-300 flex items-center justify-center overflow-hidden">
+                        <div className="h-6 w-6 rounded-full bg-sky-100 border-2 border-red-300 flex items-center justify-center overflow-hidden">
                           {u.avatar ? (
                             <img src={u.avatar} alt="" className="h-full w-full object-cover" />
                           ) : (
-                            <User className="h-4 w-4 text-sky-600" />
+                            <User className="h-3 w-3 text-sky-600" />
                           )}
                         </div>
-                        <span className="absolute -bottom-0.5 -right-0.5 inline-flex h-2 w-2 rounded-full bg-red-500" />
+                        <span className="absolute -bottom-0.5 -right-0.5 inline-flex h-1.5 w-1.5 rounded-full bg-red-500" />
                       </div>
                       <span className="text-xs font-medium text-slate-800 truncate max-w-[60px] sm:max-w-[80px]">{u.name || 'User'}</span>
                     </Link>
@@ -244,7 +243,7 @@ function MorongwaTVPageContent() {
                 </>
               )}
             </div>
-            <div className="flex items-center gap-2 shrink-0">
+            <div className="shrink-0 flex items-center gap-2">
               <QwertyTVWithGenres selectedGenre={genre} onGenreSelect={setGenre} />
               <SearchButton />
               <ProfileHeaderButton />
@@ -270,7 +269,7 @@ function MorongwaTVPageContent() {
           allowPageScroll
         />
         <div className="flex-1 flex flex-col lg:flex-row gap-0 min-h-0">
-        <main className="flex-1 min-w-0 px-4 sm:px-6 lg:px-8 py-4 pb-24 lg:pb-6 order-2 lg:order-none">
+        <main className="flex-1 min-w-0 px-4 sm:px-6 lg:px-8 pt-0 pb-24 lg:pb-6 order-2 lg:order-none">
           {loading && allItems.length === 0 ? (
             <div className="flex justify-center py-24">
               <Loader2 className="h-12 w-12 text-sky-500 animate-spin" />
@@ -293,8 +292,10 @@ function MorongwaTVPageContent() {
             </div>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 w-full">
-              {allItems.map((item) => (
-                <div key={item._id} className="w-full min-h-[300px] flex flex-col rounded-xl bg-white border border-slate-100 shadow-sm overflow-hidden">
+              {allItems
+                .filter((item, i, arr) => arr.findIndex((x) => x._id === item._id) === i)
+                .map((item, idx) => (
+                <div key={`${item._id}-${idx}`} className="w-full min-h-[300px] flex flex-col rounded-xl bg-white border border-slate-100 shadow-sm overflow-hidden">
                   <TVGridTileWithObserver
                     item={item}
                     liked={likedMap[item._id]}
@@ -308,7 +309,7 @@ function MorongwaTVPageContent() {
                     relatedVideos={allItems}
                   />
                 </div>
-              ))}
+                ))}
             </div>
           )}
 

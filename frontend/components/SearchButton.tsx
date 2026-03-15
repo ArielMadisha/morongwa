@@ -7,7 +7,7 @@ import { Search } from 'lucide-react';
 export function SearchButton({ className = '' }: { className?: string }) {
   return (
     <Link
-      href="/search"
+      href="/search?macgyver=1"
       className={`flex items-center gap-2 shrink-0 px-4 py-2.5 rounded-full border border-slate-200 bg-white text-slate-400 hover:border-sky-300 hover:bg-sky-50/30 hover:text-slate-500 transition-colors min-w-0 max-w-[200px] sm:max-w-[240px] ${className}`}
       aria-label="Ask MacGyver - Search"
       title="Ask MacGyver - Search"

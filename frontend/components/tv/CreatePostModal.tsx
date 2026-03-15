@@ -48,7 +48,7 @@ export function CreatePostModal({
   const [type, setType] = useState<'video' | 'image' | 'carousel' | 'audio'>('image');
   const [caption, setCaption] = useState('');
   const [filter, setFilter] = useState<string>('');
-  const [genre, setGenre] = useState<string>('qwertz');
+  const [genre, setGenre] = useState<string>('comedy');
   const [productId, setProductId] = useState<string>('');
   const [uploading, setUploading] = useState(false);
   const [posting, setPosting] = useState(false);
@@ -63,6 +63,7 @@ export function CreatePostModal({
   const [artworkUrl, setArtworkUrl] = useState('');
   const [selectedSongId, setSelectedSongId] = useState<string | null>(null);
   const [mySongs, setMySongs] = useState<any[]>([]);
+  const [mediaSensitive, setMediaSensitive] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const qwertzInputRef = useRef<HTMLInputElement>(null);
   const imagesInputRef = useRef<HTMLInputElement>(null);
@@ -121,7 +122,7 @@ export function CreatePostModal({
     setType('image');
     setCaption('');
     setFilter('');
-    setGenre('qwertz');
+    setGenre('comedy');
     setProductId('');
     setUploading(false);
     setPosting(false);
@@ -135,6 +136,7 @@ export function CreatePostModal({
     setMusicTitle('');
     setArtworkUrl('');
     setSelectedSongId(null);
+    setMediaSensitive(false);
   };
 
   const handleClose = () => {
@@ -152,9 +154,11 @@ export function CreatePostModal({
         const isVideo = file.type.startsWith('video/');
         const res = await tvAPI.uploadMedia(file);
         const url = res.data?.url ?? (res.data as any)?.url;
+        const sensitive = res.data?.sensitive ?? (res.data as any)?.sensitive ?? false;
         if (url) {
           setMediaUrls([url]);
           setType(isVideo ? 'video' : 'image');
+          setMediaSensitive(sensitive);
           setStep('details');
         }
       } else {
@@ -165,9 +169,11 @@ export function CreatePostModal({
         }
         const res = await tvAPI.uploadImages(imageFiles.slice(0, MAX_CAROUSEL_IMAGES));
         const urls = res.data?.urls ?? (res.data as any)?.urls ?? (res.data as any)?.data?.urls ?? [];
+        const sensitive = res.data?.sensitive ?? (res.data as any)?.sensitive ?? false;
         if (urls.length) {
           setMediaUrls(urls);
           setType('carousel');
+          setMediaSensitive(sensitive);
           setStep('details');
         } else {
           toast.error('No images could be uploaded. Try again or use smaller images.');
@@ -194,10 +200,12 @@ export function CreatePostModal({
       await validateQwertzVideoDuration(file);
       const res = await tvAPI.uploadMedia(file);
       const url = res.data?.url ?? (res.data as any)?.url;
+      const sensitive = res.data?.sensitive ?? (res.data as any)?.sensitive ?? false;
       if (url) {
         setMediaUrls([url]);
         setType('video');
-        setGenre('qwertz');
+        setGenre('comedy');
+        setMediaSensitive(sensitive);
         setStep('details');
       }
     } catch (err: any) {
@@ -268,7 +276,7 @@ export function CreatePostModal({
       if (url) {
         setMediaUrls([url]);
         setType('audio' as any);
-        setGenre(musicGenre || 'qwertz');
+        setGenre(musicGenre || 'comedy');
         setAudioStep('upload-details');
       }
     } catch (err: any) {
@@ -307,6 +315,7 @@ export function CreatePostModal({
         filter: filter || undefined,
         genre: genre || undefined,
         productId: productId || undefined,
+        sensitive: mediaSensitive,
       });
       toast.success('Post created!');
       handleClose();
@@ -634,6 +643,7 @@ export function CreatePostModal({
                   ref={fileInputRef}
                   type="file"
                   accept="video/*,image/*"
+                  capture="environment"
                   onChange={handleFileSelect}
                   disabled={uploading}
                   className="hidden"
@@ -655,6 +665,7 @@ export function CreatePostModal({
                   ref={qwertzInputRef}
                   type="file"
                   accept="video/*"
+                  capture="environment"
                   onChange={handleQwertzSelect}
                   disabled={uploading}
                   className="hidden"
@@ -667,6 +678,7 @@ export function CreatePostModal({
                   ref={imagesInputRef}
                   type="file"
                   accept="image/*"
+                  capture
                   multiple
                   onChange={handleFileSelect}
                   disabled={uploading}

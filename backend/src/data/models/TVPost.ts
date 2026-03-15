@@ -33,6 +33,8 @@ export interface ITVPost extends Document {
   repostedBy?: mongoose.Types.ObjectId;
   status: "pending" | "approved" | "rejected";
   aiModerated?: boolean;
+  /** When true, media is blurred until user clicks to reveal */
+  sensitive?: boolean;
   likeCount: number;
   commentCount: number;
   shareCount: number;
@@ -60,6 +62,7 @@ const TVPostSchema = new Schema<ITVPost>(
     repostedBy: { type: Schema.Types.ObjectId, ref: "User" },
     status: { type: String, enum: ["pending", "approved", "rejected"], default: "approved" },
     aiModerated: { type: Boolean },
+    sensitive: { type: Boolean },
     likeCount: { type: Number, default: 0 },
     commentCount: { type: Number, default: 0 },
     shareCount: { type: Number, default: 0 },

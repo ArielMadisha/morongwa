@@ -4,10 +4,10 @@ import { useState, useRef, useEffect } from 'react';
 import { ChevronDown, Tv } from 'lucide-react';
 
 export const GENRES = [
-  { id: 'qwertz', label: 'Qwertz', desc: 'Short-form, vertical, full-screen video for entertaining, fast-paced content, often set to music or trending audio' },
   { id: 'comedy', label: 'Comedy', desc: 'Sitcoms, sketches, dark comedy, mockumentary' },
-  { id: 'action', label: 'Action/Adventure', desc: 'Superhero, spy, or high-stakes action' },
   { id: 'drama', label: 'Drama', desc: 'Emotional, character-driven storytelling' },
+  { id: 'qwertz', label: 'Qwertz', desc: 'Short-form, vertical, full-screen video for entertaining, fast-paced content, often set to music or trending audio' },
+  { id: 'action', label: 'Action/Adventure', desc: 'Superhero, spy, or high-stakes action' },
   { id: 'scifi', label: 'Science Fiction & Fantasy', desc: 'Dystopian, space opera, magical, or supernatural' },
   { id: 'thriller', label: 'Thriller & Mystery', desc: 'True crime, detective, or suspenseful shows' },
   { id: 'reality', label: 'Reality TV', desc: 'Competition, lifestyle, or documentary-style' },

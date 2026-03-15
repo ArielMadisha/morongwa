@@ -332,6 +332,7 @@ export const adminAPI = {
 
   // Music (admin: load songs)
   getMusicSongs: () => api.get('/admin/music/songs'),
+  deleteMusicSong: (id: string) => api.delete(`/admin/music/songs/${id}`),
   uploadMusicSong: (audio: File, artwork: File, metadata: { userId?: string; title: string; artist: string; songwriters?: string; producer?: string; genre: string; lyrics?: string; downloadEnabled?: boolean; downloadPrice?: number }) => {
     const formData = new FormData();
     formData.append('audio', audio);
@@ -692,4 +693,8 @@ export const suppliersAPI = {
   }) => api.post('/suppliers/apply', data),
   getMe: () => api.get('/suppliers/me'),
   getMyProducts: () => api.get('/suppliers/me/products'),
+};
+
+export const macgyverAPI = {
+  ask: (query: string) => api.post<{ data: { text: string; error?: string } }>('/macgyver/ask', { query }),
 };

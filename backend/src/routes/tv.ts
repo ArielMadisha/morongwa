@@ -16,6 +16,7 @@ import { tvUploadSingle, tvUploadMultiple } from "../middleware/tvUpload";
 import { AppError } from "../middleware/errorHandler";
 import { TV_WATERMARK } from "../data/models/TVPost";
 import { moderateMedia } from "../services/contentModeration";
+import AuditLog from "../data/models/AuditLog";
 
 const router = express.Router();
 const execFileAsync = promisify(execFile);
@@ -305,10 +306,20 @@ router.post("/upload", authenticate, tvUploadSingle.single("media"), async (req:
       } catch (e) {
         /* ignore */
       }
+      await AuditLog.create({
+        action: "CONTENT_MODERATION_BLOCKED",
+        user: req.user!._id,
+        meta: {
+          fileName: req.file.originalname,
+          mimeType: req.file.mimetype,
+          reason: result.reason,
+          categories: result.categories,
+        },
+      });
       throw new AppError(result.reason || "Content violates community guidelines", 400);
     }
     const url = mediaUrl(req.file.filename);
-    res.json({ url });
+    res.json({ url, sensitive: result.sensitive ?? false });
   } catch (err) {
     next(err);
   }
@@ -320,6 +331,7 @@ router.post("/upload-images", authenticate, tvUploadMultiple.array("images", 20)
     const files = (req as any).files as Express.Multer.File[];
     if (!files?.length) throw new AppError("No images uploaded", 400);
     const uploadDir = path.join(__dirname, "../../uploads/tv");
+    let anySensitive = false;
     for (const f of files) {
       const filePath = (f as any).path || path.join(uploadDir, f.filename);
       const result = await moderateMedia(filePath, f.mimetype);
@@ -331,11 +343,22 @@ router.post("/upload-images", authenticate, tvUploadMultiple.array("images", 20)
             /* ignore */
           }
         });
+        await AuditLog.create({
+          action: "CONTENT_MODERATION_BLOCKED",
+          user: req.user!._id,
+          meta: {
+            fileName: f.originalname,
+            mimeType: f.mimetype,
+            reason: result.reason,
+            categories: result.categories,
+          },
+        });
         throw new AppError(result.reason || "Content violates community guidelines", 400);
       }
+      if (result.sensitive) anySensitive = true;
     }
     const urls = files.map((f) => mediaUrl(f.filename));
-    res.json({ urls });
+    res.json({ urls, sensitive: anySensitive });
   } catch (err) {
     next(err);
   }
@@ -374,7 +397,7 @@ router.get("/products/featured", async (_req, res: Response, next) => {
 // POST /api/tv - create post
 router.post("/", authenticate, async (req: AuthRequest, res: Response, next) => {
   try {
-    const { type, mediaUrls, caption, heading, subject, hashtags, productId, filter, genre, artworkUrl, songId } = req.body;
+    const { type, mediaUrls, caption, heading, subject, hashtags, productId, filter, genre, artworkUrl, songId, sensitive } = req.body;
     if (!type) throw new AppError("type required", 400);
     if (!["video", "image", "carousel", "product", "text", "audio"].includes(type)) throw new AppError("Invalid type", 400);
     const isTextPost = type === "text";
@@ -414,6 +437,7 @@ router.post("/", authenticate, async (req: AuthRequest, res: Response, next) => 
       genre: genre || undefined,
       hasWatermark: true,
       status: "approved",
+      sensitive: !!sensitive,
     });
     const populated = await TVPost.findById(post._id)
       .populate("creatorId", "name avatar")
@@ -448,6 +472,7 @@ router.post("/:id/repost", authenticate, async (req: AuthRequest, res: Response,
       originalPostId: original._id,
       repostedBy: req.user!._id,
       status: "approved",
+      sensitive: (original as any).sensitive,
     });
     await TVPost.findByIdAndUpdate(original._id, { $inc: { shareCount: 1 } });
     await TVInteraction.create({ postId: original._id, userId: req.user!._id, type: "repost", repostId: repost._id });
