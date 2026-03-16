@@ -14,6 +14,29 @@ const MAX_PRODUCTS = 3;
 const MAX_USERS = 3;
 const MAX_SONGS = 3;
 
+/** Minimum query length for search (1 char for users, 2 for products/TV/songs) */
+const MIN_SEARCH_LEN = 1;
+
+/**
+ * Check if platform has any results for the query. Used to decide: show search or fall back to AI.
+ */
+export async function searchPlatformHasResults(query: string): Promise<boolean> {
+  const q = (query || "").trim();
+  if (!q || q.length < MIN_SEARCH_LEN) return false;
+
+  const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const regex = new RegExp(escaped, "i");
+
+  const [tvPosts, products, users, songs] = await Promise.all([
+    searchTVPosts(regex, 1),
+    searchProducts(regex, 1),
+    searchUsers(regex, 1),
+    searchSongs(regex, 1),
+  ]);
+
+  return tvPosts.length > 0 || products.length > 0 || users.length > 0 || songs.length > 0;
+}
+
 /**
  * Search platform for mentions of the query. Returns a summary for LLM context.
  */

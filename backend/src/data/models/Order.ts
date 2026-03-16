@@ -35,7 +35,13 @@ export interface IOrderPaymentBreakdown {
 export interface IOrderDelivery {
   method?: "runner" | "courier" | "collection";
   address?: string;
+  /** ISO country code for courier routing (e.g. "ZA", "US") */
+  countryCode?: string;
   trackingNo?: string;
+  /** Tracking URL from supplier (CJ/Spocket/EPROLO) */
+  trackingUrl?: string;
+  /** Carrier name (e.g. "DHL", "Aramex") */
+  carrier?: string;
 }
 
 export type OrderStatus =
@@ -50,6 +56,10 @@ export type OrderStatus =
 export interface IOrder extends Document {
   buyerId: mongoose.Types.ObjectId;
   supplierId?: mongoose.Types.ObjectId; // first product's supplier for simplicity
+  /** Supplier's order ID (CJ/Spocket/EPROLO) when fulfilled externally */
+  externalOrderId?: string;
+  /** Reference to ExternalSupplier when order is fulfilled by CJ/Spocket/EPROLO */
+  externalSupplierId?: mongoose.Types.ObjectId;
   status: OrderStatus;
   items: IOrderItem[];
   /** Music items included in same checkout (for card payment webhook) */
@@ -86,6 +96,8 @@ const OrderSchema = new Schema<IOrder>(
   {
     buyerId: { type: Schema.Types.ObjectId, ref: "User", required: true },
     supplierId: { type: Schema.Types.ObjectId, ref: "Supplier" },
+    externalOrderId: { type: String },
+    externalSupplierId: { type: Schema.Types.ObjectId, ref: "ExternalSupplier" },
     status: {
       type: String,
       enum: ["pending_payment", "paid", "processing", "shipped", "delivered", "cancelled", "refunded"],
@@ -109,7 +121,10 @@ const OrderSchema = new Schema<IOrder>(
     delivery: {
       method: { type: String, enum: ["runner", "courier", "collection"] },
       address: { type: String },
+      countryCode: { type: String },
       trackingNo: { type: String },
+      trackingUrl: { type: String },
+      carrier: { type: String },
     },
     paymentMethod: { type: String, enum: ["wallet", "card"], required: true },
     paymentReference: { type: String },

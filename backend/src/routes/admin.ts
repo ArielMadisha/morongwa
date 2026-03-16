@@ -30,6 +30,7 @@ import { upload } from "../middleware/upload";
 import { sendNotification } from "../services/notification";
 import payoutService from "../services/payoutService";
 import fnbService from "../services/fnbService";
+import { importProductFromCJ, searchAndImportFromCJ } from "../services/productImportService";
 
 const router = express.Router();
 
@@ -1177,6 +1178,30 @@ router.post("/products", async (req: AuthRequest, res: Response, next) => {
     });
     await AuditLog.create({ action: "PRODUCT_CREATED_BY_ADMIN", user: req.user!._id, target: product._id, meta: { supplierId } });
     res.status(201).json({ message: "Product created", data: product });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** Import product from CJ by product ID */
+router.post("/dropship/import-cj/:cjProductId", requireSuperAdmin, async (req: AuthRequest, res: Response, next) => {
+  try {
+    const { cjProductId } = req.params;
+    const forceUpdate = req.query.forceUpdate === "true";
+    const result = await importProductFromCJ(cjProductId, { forceUpdate });
+    if (!result) throw new AppError("CJ product not found or import failed", 404);
+    res.json({ message: result.created ? "Product imported" : "Product updated", data: result.product, created: result.created });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** Search CJ and import products by keyword */
+router.post("/dropship/search-import-cj", requireSuperAdmin, async (req: AuthRequest, res: Response, next) => {
+  try {
+    const { query, limit } = req.body as { query?: string; limit?: number };
+    const results = await searchAndImportFromCJ(query || "hoodie", limit ?? 5);
+    res.json({ message: "Import complete", imported: results.filter(Boolean).length, data: results });
   } catch (err) {
     next(err);
   }

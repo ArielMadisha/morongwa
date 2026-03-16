@@ -47,9 +47,14 @@ function SearchContent() {
   useEffect(() => {
     if (searchParams.get('macgyver') === '1') {
       setMacgyverQuery(qParam || '');
+      setQ(qParam || '');
       setMacgyverOpen(true);
     }
   }, [searchParams, qParam]);
+
+  useEffect(() => {
+    if (macgyverOpen) setMacgyverQuery(q);
+  }, [q, macgyverOpen]);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -450,7 +455,14 @@ function SearchContent() {
                       setMacgyverResponse(null);
                       try {
                         const res = await macgyverAPI.ask(query);
-                        setMacgyverResponse(res.data?.data?.text ?? 'No response.');
+                        const data = res.data?.data;
+                        if (data?.type === 'search' && data?.query) {
+                          setQ(data.query);
+                          router.push(`/search?q=${encodeURIComponent(data.query)}`);
+                          setMacgyverOpen(false);
+                        } else {
+                          setMacgyverResponse(data?.text ?? 'No response.');
+                        }
                       } catch (err: any) {
                         setMacgyverResponse(err.response?.data?.message || err.message || 'Something went wrong. Try again.');
                       } finally {
@@ -462,8 +474,13 @@ function SearchContent() {
                     <input
                       type="text"
                       value={macgyverQuery}
-                      onChange={(e) => setMacgyverQuery(e.target.value)}
-                      placeholder="Ask anything..."
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setMacgyverQuery(v);
+                        setQ(v);
+                        router.replace(`/search?q=${encodeURIComponent(v)}${macgyverOpen ? '&macgyver=1' : ''}`);
+                      }}
+                      placeholder="Search or ask anything..."
                       disabled={macgyverLoading}
                       className="flex-1 px-3 py-2 rounded-lg border border-slate-200 text-slate-900 placeholder-slate-400 focus:ring-2 focus:ring-amber-500 focus:border-amber-500 disabled:opacity-60"
                     />
@@ -475,6 +492,96 @@ function SearchContent() {
                       {macgyverLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : 'Ask'}
                     </button>
                   </form>
+                  {macgyverQuery.trim().length >= 1 && loading && (
+                    <div className="mt-4 flex justify-center py-4">
+                      <Loader2 className="h-6 w-6 text-amber-500 animate-spin" />
+                    </div>
+                  )}
+                  {macgyverQuery.trim().length >= 1 && !loading && hasResults && (
+                    <div className="mt-4 space-y-4 max-h-64 overflow-y-auto">
+                      <p className="text-sm font-medium text-slate-600">Results for &quot;{macgyverQuery.trim()}&quot;</p>
+                      {users.length > 0 && (
+                        <div>
+                          <p className="text-xs text-slate-500 mb-2">Users</p>
+                          <div className="space-y-1">
+                            {users.slice(0, 5).map((u) => (
+                              <Link
+                                key={u._id}
+                                href={`/user/${u._id}`}
+                                onClick={() => setMacgyverOpen(false)}
+                                className="flex items-center gap-3 p-2 rounded-lg hover:bg-slate-50 transition-colors"
+                              >
+                                <div className="h-10 w-10 rounded-full bg-slate-200 overflow-hidden flex-shrink-0">
+                                  {u.avatar ? (
+                                    <img src={getImageUrl(u.avatar)} alt="" className="w-full h-full object-cover" />
+                                  ) : (
+                                    <div className="w-full h-full flex items-center justify-center text-slate-600 font-bold text-sm">
+                                      {(u.name || '?')[0]}
+                                    </div>
+                                  )}
+                                </div>
+                                <div>
+                                  <p className="font-medium text-slate-900 text-sm">{u.name || 'Unknown'}</p>
+                                  {u.username && <p className="text-xs text-slate-500">@{u.username}</p>}
+                                </div>
+                              </Link>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {products.length > 0 && (
+                        <div>
+                          <p className="text-xs text-slate-500 mb-2">Products</p>
+                          <div className="space-y-2">
+                            {products.slice(0, 3).map((p) => (
+                              <Link
+                                key={p._id}
+                                href={`/marketplace/product/${p._id}`}
+                                onClick={() => setMacgyverOpen(false)}
+                                className="block p-2 rounded-lg hover:bg-slate-50 transition-colors text-sm font-medium text-slate-700 truncate"
+                              >
+                                {p.title}
+                              </Link>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {tvPosts.length > 0 && (
+                        <div>
+                          <p className="text-xs text-slate-500 mb-2">TV Posts</p>
+                          <div className="space-y-2">
+                            {tvPosts.slice(0, 3).map((v) => (
+                              <Link
+                                key={v._id}
+                                href="/morongwa-tv"
+                                onClick={() => setMacgyverOpen(false)}
+                                className="block p-2 rounded-lg hover:bg-slate-50 transition-colors text-sm text-slate-700 truncate"
+                              >
+                                {v.caption || 'Video'}
+                              </Link>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {musicResults.length > 0 && (
+                        <div>
+                          <p className="text-xs text-slate-500 mb-2">Music</p>
+                          <div className="space-y-2">
+                            {musicResults.slice(0, 3).map((m) => (
+                              <Link
+                                key={m._id}
+                                href="/qwerty-music"
+                                onClick={() => setMacgyverOpen(false)}
+                                className="block p-2 rounded-lg hover:bg-slate-50 transition-colors text-sm text-slate-700 truncate"
+                              >
+                                {m.title} – {m.artist}
+                              </Link>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </>
               )}
             </div>

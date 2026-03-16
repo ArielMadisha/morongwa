@@ -80,6 +80,7 @@ export function AppSidebar({
   ];
 
   const footerNav = [
+    { href: '/about', label: 'About', icon: BookOpen },
     { href: '/pricing', label: 'Pricing', icon: Receipt },
     { href: '/support', label: 'Support', icon: HelpCircle },
   ];

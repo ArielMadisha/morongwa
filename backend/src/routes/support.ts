@@ -11,8 +11,12 @@ import { sendNotification } from "../services/notification";
 
 const router = express.Router();
 
-const isSuperAdmin = (req: AuthRequest) =>
-  (Array.isArray(req.user?.role) ? req.user?.role : [req.user?.role]).includes("superadmin");
+const isSuperAdmin = (req: AuthRequest): boolean => {
+  const r = req.user?.role;
+  if (!r) return false;
+  const roles = Array.isArray(r) ? r : [r];
+  return (roles as string[]).includes("superadmin");
+};
 
 // Create support ticket
 router.post("/", authenticate, async (req: AuthRequest, res: Response, next) => {

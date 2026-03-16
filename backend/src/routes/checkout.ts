@@ -14,6 +14,7 @@ import { AppError } from "../middleware/errorHandler";
 import { initiatePayment } from "../services/payment";
 import { ADMIN_PRODUCT_COMMISSION_PCT } from "../config/fees.config";
 import { notifyOrderPaid } from "../services/orderNotification";
+import { forwardOrderToExternalSupplier } from "../services/orderForwardingService";
 
 const MUSIC_PLATFORM_COMMISSION_PCT = 30;
 const MUSIC_OWNER_SHARE_PCT = 70;
@@ -21,6 +22,7 @@ const MUSIC_OWNER_SHARE_PCT = 70;
 const router = express.Router();
 
 const DEFAULT_SHIPPING_PER_SUPPLIER = 100; // flat ZAR per supplier when not set
+const DEFAULT_EXTERNAL_SHIPPING = 150; // ZAR per external dropship supplier
 
 function getEffectivePrice(product: { price: number; discountPrice?: number }): number {
   const p = product as any;
@@ -67,11 +69,18 @@ router.post("/quote", authenticate, async (req: AuthRequest, res: Response, next
     const productMap = new Map(products.map((p) => [p._id.toString(), p]));
 
     const uniqueSupplierIds = new Set<string>();
+    const uniqueExternalSupplierIds = new Set<string>();
     for (const item of cart.items || []) {
       const product = productMap.get((item.productId as any).toString());
       if (product) {
-        const sid = (product as any).supplierId?._id ?? (product as any).supplierId;
-        if (sid) uniqueSupplierIds.add(sid.toString());
+        const src = (product as any).supplierSource;
+        if (src && src !== "internal") {
+          const extId = (product as any).externalSupplierId?.toString();
+          if (extId) uniqueExternalSupplierIds.add(extId);
+        } else {
+          const sid = (product as any).supplierId?._id ?? (product as any).supplierId;
+          if (sid) uniqueSupplierIds.add(sid.toString());
+        }
       }
     }
 
@@ -81,11 +90,13 @@ router.post("/quote", authenticate, async (req: AuthRequest, res: Response, next
       : [];
     const supplierMap = new Map(suppliers.map((s) => [s._id.toString(), s]));
     let shipping = 0;
-    const DEFAULT_SHIPPING_PER_SUPPLIER = 100;
-    if (fulfillmentMethod === "delivery" && supplierIds.length > 0) {
+    if (fulfillmentMethod === "delivery") {
       for (const sid of supplierIds) {
         const s = supplierMap.get(sid);
         shipping += (s as any)?.shippingCost ?? DEFAULT_SHIPPING_PER_SUPPLIER;
+      }
+      for (const _ of uniqueExternalSupplierIds) {
+        shipping += DEFAULT_EXTERNAL_SHIPPING;
       }
     }
 
@@ -132,11 +143,18 @@ router.post("/quote", authenticate, async (req: AuthRequest, res: Response, next
 
     const total = subtotal + shipping;
 
-    const shippingBreakdown = supplierIds.map((sid) => {
-      const s = supplierMap.get(sid);
-      const shippingCost = fulfillmentMethod === "collection" ? 0 : (s as any)?.shippingCost ?? DEFAULT_SHIPPING_PER_SUPPLIER;
-      return { supplierId: sid, storeName: (s as any)?.storeName ?? "Supplier", shippingCost };
-    });
+    const shippingBreakdown = [
+      ...supplierIds.map((sid) => {
+        const s = supplierMap.get(sid);
+        const shippingCost = fulfillmentMethod === "collection" ? 0 : (s as any)?.shippingCost ?? DEFAULT_SHIPPING_PER_SUPPLIER;
+        return { supplierId: sid, storeName: (s as any)?.storeName ?? "Supplier", shippingCost };
+      }),
+      ...Array.from(uniqueExternalSupplierIds).map(() => ({
+        supplierId: "external",
+        storeName: "Dropship",
+        shippingCost: fulfillmentMethod === "collection" ? 0 : DEFAULT_EXTERNAL_SHIPPING,
+      })),
+    ];
 
     res.json({
       data: {
@@ -159,7 +177,7 @@ router.post("/quote", authenticate, async (req: AuthRequest, res: Response, next
 // Create order and pay (wallet or card)
 router.post("/pay", authenticate, async (req: AuthRequest, res: Response, next) => {
   try {
-    const { paymentMethod, deliveryAddress, fulfillmentMethod: rawFulfillmentMethod } = req.body;
+    const { paymentMethod, deliveryAddress, deliveryCountry, fulfillmentMethod: rawFulfillmentMethod } = req.body;
     let fulfillmentMethod = rawFulfillmentMethod === "collection" ? "collection" : "delivery";
     if (!paymentMethod || !["wallet", "card"].includes(paymentMethod)) {
       throw new AppError("paymentMethod must be 'wallet' or 'card'", 400);
@@ -186,11 +204,18 @@ router.post("/pay", authenticate, async (req: AuthRequest, res: Response, next) 
     const productMap = new Map(products.map((p) => [p._id.toString(), p]));
 
     const uniqueSupplierIds = new Set<string>();
+    const uniqueExternalSupplierIdsPay = new Set<string>();
     for (const item of cart.items || []) {
       const product = productMap.get((item.productId as any).toString());
       if (product) {
-        const sid = (product as any).supplierId?._id ?? (product as any).supplierId;
-        if (sid) uniqueSupplierIds.add(sid.toString());
+        const src = (product as any).supplierSource;
+        if (src && src !== "internal") {
+          const extId = (product as any).externalSupplierId?.toString();
+          if (extId) uniqueExternalSupplierIdsPay.add(extId);
+        } else {
+          const sid = (product as any).supplierId?._id ?? (product as any).supplierId;
+          if (sid) uniqueSupplierIds.add(sid.toString());
+        }
       }
     }
     const suppliers = uniqueSupplierIds.size > 0
@@ -198,10 +223,13 @@ router.post("/pay", authenticate, async (req: AuthRequest, res: Response, next) 
       : [];
     const supplierMap = new Map(suppliers.map((s) => [s._id.toString(), s]));
     let shipping = 0;
-    if (fulfillmentMethod === "delivery" && uniqueSupplierIds.size > 0) {
+    if (fulfillmentMethod === "delivery") {
       for (const sid of uniqueSupplierIds) {
         const s = supplierMap.get(sid);
         shipping += (s as any)?.shippingCost ?? DEFAULT_SHIPPING_PER_SUPPLIER;
+      }
+      for (const _ of uniqueExternalSupplierIdsPay) {
+        shipping += DEFAULT_EXTERNAL_SHIPPING;
       }
     }
 
@@ -220,13 +248,16 @@ router.post("/pay", authenticate, async (req: AuthRequest, res: Response, next) 
     for (const item of cart.items || []) {
       const product = productMap.get((item.productId as any).toString());
       if (!product) throw new AppError(`Product not found: ${item.productId}`, 400);
-      if ((product as any).outOfStock) {
-        throw new AppError(`Product ${(product as any).title} is out of stock`, 400);
+      const supplierSource = (product as any).supplierSource;
+      if (supplierSource === "internal" || !supplierSource) {
+        if ((product as any).outOfStock) {
+          throw new AppError(`Product ${(product as any).title} is out of stock`, 400);
+        }
+        if ((product as any).stock < item.qty) {
+          throw new AppError(`Insufficient stock for ${(product as any).title}`, 400);
+        }
       }
-      if ((product as any).stock < item.qty) {
-        throw new AppError(`Insufficient stock for ${(product as any).title}`, 400);
-      }
-      if (!supplierId) supplierId = (product as any).supplierId?._id ?? (product as any).supplierId;
+      if (!supplierId) supplierId = (product as any).supplierId?._id ?? (product as any).supplierId ?? (product as any).externalSupplierId;
       let price = getProductPriceForQty(product as any, item.qty);
       let commissionPct: number | undefined;
       if (item.resellerId && (product as any).allowResell) {
@@ -270,11 +301,17 @@ router.post("/pay", authenticate, async (req: AuthRequest, res: Response, next) 
 
     const total = subtotal + musicSubtotal + shipping;
 
-    const shippingBreakdownForOrder = Array.from(uniqueSupplierIds).map((sid) => {
-      const s = supplierMap.get(sid);
-      const shippingCost = fulfillmentMethod === "collection" ? 0 : (s as any)?.shippingCost ?? DEFAULT_SHIPPING_PER_SUPPLIER;
-      return { storeName: (s as any)?.storeName ?? "Supplier", shippingCost };
-    });
+    const shippingBreakdownForOrder = [
+      ...Array.from(uniqueSupplierIds).map((sid) => {
+        const s = supplierMap.get(sid);
+        const shippingCost = fulfillmentMethod === "collection" ? 0 : (s as any)?.shippingCost ?? DEFAULT_SHIPPING_PER_SUPPLIER;
+        return { storeName: (s as any)?.storeName ?? "Supplier", shippingCost };
+      }),
+      ...Array.from(uniqueExternalSupplierIdsPay).map(() => ({
+        storeName: "Dropship",
+        shippingCost: fulfillmentMethod === "collection" ? 0 : DEFAULT_EXTERNAL_SHIPPING,
+      })),
+    ];
 
     const paymentBreakdownForOrder = {
       items: orderItems.map((oi) => {
@@ -309,6 +346,7 @@ router.post("/pay", authenticate, async (req: AuthRequest, res: Response, next) 
       delivery: {
         method: fulfillmentMethod === "collection" ? "collection" : "courier",
         address: fulfillmentMethod === "delivery" ? deliveryAddress || "" : "",
+        countryCode: deliveryCountry || "ZA",
       },
       paymentMethod,
     });
@@ -339,11 +377,14 @@ router.post("/pay", authenticate, async (req: AuthRequest, res: Response, next) 
         await notifyOrderPaid({
           orderId: order._id.toString(),
           buyerId: req.user!._id.toString(),
-          items: order.items.map((it) => ({
+          items: order.items.map((it: { productId: unknown; qty: number }) => ({
             productId: (it.productId as any).toString(),
             qty: it.qty,
           })),
         });
+        forwardOrderToExternalSupplier(order._id.toString()).catch((err) =>
+          console.error("Order forward to external supplier failed:", err)
+        );
       }
 
       for (const m of musicPurchaseItems) {

@@ -2,6 +2,18 @@
 import { Server as SocketServer } from "socket.io";
 import { logger } from "./monitoring";
 
+/** WebRTC types (DOM lib may not be available in Node) */
+interface RTCSessionDescriptionLike {
+  type?: RTCSdpType;
+  sdp?: string;
+}
+interface RTCIceCandidateLike {
+  candidate?: string;
+  sdpMLineIndex?: number | null;
+  sdpMid?: string | null;
+}
+type RTCSdpType = "offer" | "answer" | "pranswer" | "rollback";
+
 export const initializeWebRTCSignaling = (socketServer: SocketServer): void => {
   const webrtcNs = socketServer.of("/webrtc");
 
@@ -54,19 +66,19 @@ export const initializeWebRTCSignaling = (socketServer: SocketServer): void => {
       socket.to(roomId).emit("call-cancel", { callerId, socketId: socket.id });
     });
 
-    socket.on("webrtc-offer", (data: { roomId: string; toUserId: string; offer: RTCSessionDescriptionInit }) => {
+    socket.on("webrtc-offer", (data: { roomId: string; toUserId: string; offer: RTCSessionDescriptionLike }) => {
       const { roomId, toUserId, offer } = data;
       if (!roomId || !offer || !toUserId) return;
       webrtcNs.to(`user-${toUserId}`).emit("webrtc-offer", { fromUserId: (socket as any).userId, toUserId, offer });
     });
 
-    socket.on("webrtc-answer", (data: { roomId: string; toUserId: string; answer: RTCSessionDescriptionInit }) => {
+    socket.on("webrtc-answer", (data: { roomId: string; toUserId: string; answer: RTCSessionDescriptionLike }) => {
       const { roomId, toUserId, answer } = data;
       if (!roomId || !answer || !toUserId) return;
       webrtcNs.to(`user-${toUserId}`).emit("webrtc-answer", { fromUserId: (socket as any).userId, toUserId, answer });
     });
 
-    socket.on("webrtc-ice-candidate", (data: { roomId: string; toUserId: string; candidate: RTCIceCandidateInit }) => {
+    socket.on("webrtc-ice-candidate", (data: { roomId: string; toUserId: string; candidate: RTCIceCandidateLike }) => {
       const { roomId, toUserId, candidate } = data;
       if (!roomId || !candidate || !toUserId) return;
       webrtcNs.to(`user-${toUserId}`).emit("webrtc-ice-candidate", {

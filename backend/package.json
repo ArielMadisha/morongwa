@@ -13,7 +13,10 @@
     "lint": "eslint src/**/*.ts",
     "create-admin": "ts-node-dev scripts/createAdmin.ts",
     "seed-admin": "ts-node-dev scripts/seedAdmin.ts",
-    "seed-superadmin": "ts-node-dev scripts/seedSuperAdmin.ts"
+    "seed-superadmin": "ts-node-dev scripts/seedSuperAdmin.ts",
+    "migrate:product-supplier-source": "ts-node-dev scripts/migrateProductSupplierSource.ts",
+    "seed:courier-rules": "ts-node-dev scripts/seedCourierRules.ts",
+    "seed:external-suppliers": "ts-node-dev scripts/seedExternalSuppliers.ts"
   },
   "keywords": [
     "marketplace",

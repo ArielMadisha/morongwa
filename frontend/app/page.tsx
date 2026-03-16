@@ -177,6 +177,7 @@ export default function Home() {
             <div>
               <h4 className="font-semibold text-slate-900 mb-4 text-sm">Resources</h4>
               <ul className="space-y-2 text-sm">
+                <li><Link href="/about" className="text-slate-600 hover:text-brand-600">About Qwertymates</Link></li>
                 <li><Link href="/policies" className="text-slate-600 hover:text-brand-600">All Policies</Link></li>
                 <li><Link href="/policies/security-vulnerability" className="text-slate-600 hover:text-brand-600">Security</Link></li>
                 <li><Link href="/policies/consumer-complaints" className="text-slate-600 hover:text-brand-600">Support</Link></li>

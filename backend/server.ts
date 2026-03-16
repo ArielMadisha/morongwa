@@ -48,6 +48,7 @@ import followsRoutes from "./src/routes/follows";
 import musicRoutes from "./src/routes/music";
 import translateRoutes from "./src/routes/translate";
 import macgyverRoutes from "./src/routes/macgyver";
+import webhookRoutes from "./src/routes/webhooks";
 import { getCardPaymentConfigIssues } from "./src/services/payment";
 import { ensureDefaultPolicies } from "./src/services/policyService";
 import { seedPricingConfig } from "./src/services/pricingConfig";
@@ -150,6 +151,7 @@ const routePairs: [string, express.RequestHandler | undefined][] = [
   ["/api/music", musicRoutes],
   ["/api/translate", translateRoutes],
   ["/api/macgyver", macgyverRoutes],
+  ["/api/webhooks", webhookRoutes],
 ];
 for (const [path, handler] of routePairs) {
   if (handler == null) {

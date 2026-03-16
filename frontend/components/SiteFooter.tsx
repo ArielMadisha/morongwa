@@ -1,7 +1,8 @@
 import Link from 'next/link';
-import { Receipt, BookOpen, HelpCircle } from 'lucide-react';
+import { Receipt, BookOpen, HelpCircle, Info } from 'lucide-react';
 
 const footerLinks = [
+  { href: '/about', label: 'About Qwertymates', icon: Info },
   { href: '/pricing', label: 'Pricing', icon: Receipt },
   { href: '/policies', label: 'Policies & Legal', icon: BookOpen },
   { href: '/support', label: 'Support', icon: HelpCircle },

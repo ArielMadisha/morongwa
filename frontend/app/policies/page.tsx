@@ -3,9 +3,13 @@
 import { useEffect, useState } from 'react';
 import { policiesAPI } from '@/lib/policiesApi';
 import Link from 'next/link';
-import { BookOpen, Download, Eye, Archive, Tag, MapPin } from 'lucide-react';
+import { BookOpen, Download, Eye, Archive, Tag, MapPin, Info } from 'lucide-react';
 import toast from 'react-hot-toast';
-import SiteHeader from '@/components/SiteHeader';
+import { useAuth } from '@/contexts/AuthContext';
+import { useCartAndStores } from '@/lib/useCartAndStores';
+import { AppSidebar, AppSidebarMenuButton } from '@/components/AppSidebar';
+import { SearchButton } from '@/components/SearchButton';
+import { ProfileHeaderButton } from '@/components/ProfileHeaderButton';
 
 interface Policy {
   slug: string;
@@ -19,6 +23,9 @@ interface Policy {
 }
 
 export default function PoliciesPage() {
+  const { user } = useAuth();
+  const { cartCount, hasStore } = useCartAndStores(!!user);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [policies, setPolicies] = useState<Policy[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('');
@@ -60,8 +67,38 @@ export default function PoliciesPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-sky-50 to-white">
-      <SiteHeader />
+    <div className="min-h-screen flex flex-col bg-gradient-to-br from-sky-50 to-white text-slate-900">
+      <header className="sticky top-0 z-40 w-full bg-white/95 backdrop-blur-md border-b border-slate-100 shadow-sm flex-shrink-0">
+        <div className="px-4 sm:px-6 lg:px-8 py-3">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <Link href={user ? '/wall' : '/'} className="shrink-0 flex items-center" aria-label="Home">
+                <img src="/qwertymates-logo-icon.png" alt="Qwertymates" className="h-9 w-9 object-contain lg:hidden" />
+                <img src="/qwertymates-logo.png" alt="Qwertymates" className="h-9 w-auto object-contain hidden lg:block" />
+              </Link>
+              {user && <AppSidebarMenuButton onClick={() => setMenuOpen((v) => !v)} />}
+            </div>
+            <div className="flex-1 min-w-0" />
+            <div className="flex items-center gap-2 shrink-0">
+              <SearchButton className="max-w-[200px] sm:max-w-[280px]" />
+              <ProfileHeaderButton />
+            </div>
+          </div>
+        </div>
+      </header>
+      <div className="flex flex-1 min-h-0">
+        {user && (
+          <AppSidebar
+            variant="wall"
+            cartCount={cartCount}
+            hasStore={hasStore}
+            menuOpen={menuOpen}
+            setMenuOpen={setMenuOpen}
+            hideLogo
+            belowHeader
+          />
+        )}
+      <div className="flex-1 min-w-0 overflow-y-auto">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="mb-8">
           <div className="flex items-center gap-3 mb-2">
@@ -70,6 +107,22 @@ export default function PoliciesPage() {
           </div>
           <p className="text-slate-600">Review our policies, terms, and compliance documentation</p>
         </div>
+
+        {/* About Qwertymates */}
+        <Link
+          href="/about"
+          className="mb-8 flex items-center gap-4 p-4 rounded-xl bg-sky-50 border border-sky-100 hover:bg-sky-100/80 hover:border-sky-200 transition-colors group"
+        >
+          <div className="flex-shrink-0 w-12 h-12 rounded-lg bg-sky-100 flex items-center justify-center group-hover:bg-sky-200 transition-colors">
+            <Info className="h-6 w-6 text-sky-600" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <h2 className="font-semibold text-slate-900 group-hover:text-sky-700">About Qwertymates</h2>
+            <p className="text-sm text-slate-600">Learn what Qwertymates is and how it works – marketplace, Errands, ACBPayWallet, Morongwa, QwertyTV, QwertyMusic, and more.</p>
+          </div>
+          <span className="text-sky-600 font-medium text-sm shrink-0">Read more →</span>
+        </Link>
+
         {/* Search & Filters */}
         <div className="mb-8 space-y-4">
           <input
@@ -172,6 +225,8 @@ export default function PoliciesPage() {
             ))
           )}
         </div>
+      </div>
+      </div>
       </div>
     </div>
   );

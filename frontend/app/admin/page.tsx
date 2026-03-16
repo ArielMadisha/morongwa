@@ -42,20 +42,19 @@ function isAdmin(user: { role?: string | string[] } | null): boolean {
 
 /** Admin sign-in form shown at /admin when not logged in */
 function AdminLoginForm() {
-  const [email, setEmail] = useState('');
+  const [emailOrUsername, setEmailOrUsername] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<{ email?: string; password?: string }>({});
   const { login } = useAuth();
   const router = useRouter();
 
-  const validateEmail = (e: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
+  const isEmail = (s: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const newErrors: { email?: string; password?: string } = {};
-    if (!email.trim()) newErrors.email = 'Email is required';
-    else if (!validateEmail(email)) newErrors.email = 'Please enter a valid email';
+    if (!emailOrUsername.trim()) newErrors.email = 'Email or username is required';
     if (!password) newErrors.password = 'Password is required';
     if (Object.keys(newErrors).length > 0) {
       setErrors(newErrors);
@@ -65,14 +64,15 @@ function AdminLoginForm() {
     setErrors({});
     setLoading(true);
     try {
-      await login(email.trim().toLowerCase(), password);
+      const useUsername = !isEmail(emailOrUsername.trim());
+      await login(emailOrUsername.trim().toLowerCase(), password, false, useUsername);
       toast.success('Signed in');
       router.push('/admin');
       router.refresh();
     } catch (err: any) {
       const msg = err.response?.data?.message || err.message || 'Login failed';
       toast.error(msg);
-      if (msg.toLowerCase().includes('email') || msg.toLowerCase().includes('user')) setErrors({ email: 'No account found with this email' });
+      if (msg.toLowerCase().includes('email') || msg.toLowerCase().includes('user')) setErrors({ email: 'No account found with this email or username' });
       else if (msg.toLowerCase().includes('password')) setErrors({ password: 'Incorrect password' });
     } finally {
       setLoading(false);
@@ -97,19 +97,19 @@ function AdminLoginForm() {
         <div className="bg-white rounded-2xl border border-slate-200 shadow-xl p-8">
           <form onSubmit={handleSubmit} className="space-y-5">
             <div>
-              <label htmlFor="admin-email" className="block text-sm font-medium text-slate-700 mb-1">Email</label>
+              <label htmlFor="admin-email" className="block text-sm font-medium text-slate-700 mb-1">Email or username</label>
               <div className="relative">
                 <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-400" />
                 <input
                   id="admin-email"
-                  type="email"
-                  autoComplete="email"
-                  value={email}
-                  onChange={(e) => { setEmail(e.target.value); setErrors((e2) => ({ ...e2, email: undefined })); }}
+                  type="text"
+                  autoComplete="username"
+                  value={emailOrUsername}
+                  onChange={(e) => { setEmailOrUsername(e.target.value); setErrors((e2) => ({ ...e2, email: undefined })); }}
                   className={`block w-full pl-10 pr-3 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500 ${
                     errors.email ? 'border-red-300 bg-red-50' : 'border-slate-200'
                   }`}
-                  placeholder="admin@qwertymates.com"
+                  placeholder="superadmin@qwertymates.com or superadmin"
                 />
               </div>
               {errors.email && (

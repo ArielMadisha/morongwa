@@ -20,6 +20,7 @@ import fnbService from "../services/fnbService";
 import logger from "../utils/logger";
 import { generateReference } from "../utils/helpers";
 import { notifyOrderPaid } from "../services/orderNotification";
+import { forwardOrderToExternalSupplier } from "../services/orderForwardingService";
 import MusicPurchase from "../data/models/MusicPurchase";
 import Song from "../data/models/Song";
 import Cart from "../data/models/Cart";
@@ -241,6 +242,9 @@ router.post("/webhook", async (req: Request, res: Response, next) => {
               qty: it.qty,
             })),
           });
+          forwardOrderToExternalSupplier(order._id.toString()).catch((err) =>
+            console.error("Order forward to external supplier failed:", err)
+          );
           const musicItems = (order as any).musicItems;
           if (Array.isArray(musicItems) && musicItems.length > 0) {
             await processMusicPurchases(musicItems, order.buyerId);
