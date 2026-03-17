@@ -74,6 +74,19 @@ export interface TrackingInfo {
 
 export type ExternalSupplierSource = "cj" | "spocket" | "eprolo";
 
+export interface FreightQuoteRequest {
+  startCountryCode: string;
+  endCountryCode: string;
+  products: Array<{ vid: string; quantity: number }>;
+  zip?: string;
+}
+
+export interface FreightQuoteResult {
+  logisticPrice: number; // USD
+  logisticName?: string;
+  logisticAging?: string;
+}
+
 export interface SupplierAdapter {
   id: string;
   source: ExternalSupplierSource;
@@ -81,4 +94,8 @@ export interface SupplierAdapter {
   searchProducts(query: string, filters?: { page?: number; size?: number }): Promise<SupplierProduct[]>;
   createOrder(order: SupplierOrderRequest): Promise<SupplierOrderResponse>;
   getTracking(trackNumber: string): Promise<TrackingInfo | null>;
+  /** Get freight quote in USD (CJ only; others return null) */
+  getFreightQuote?(req: FreightQuoteRequest): Promise<FreightQuoteResult | null>;
+  /** Get stock quantity by variant ID (CJ only; others return null) */
+  getStockByVid?(vid: string): Promise<number | null>;
 }

@@ -4,9 +4,10 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Package, ArrowRight, ShoppingBag, Store, Building2, ShoppingCart } from 'lucide-react';
-import { productsAPI, getImageUrl } from '@/lib/api';
+import { productsAPI, tvAPI, getImageUrl, getEffectivePrice } from '@/lib/api';
 import type { Product } from '@/lib/types';
 import { useAuth } from '@/contexts/AuthContext';
+import { useCurrency } from '@/contexts/CurrencyContext';
 import { useCartAndStores } from '@/lib/useCartAndStores';
 import { AppSidebar, AppSidebarMenuButton } from '@/components/AppSidebar';
 import { SearchButton } from '@/components/SearchButton';
@@ -14,7 +15,7 @@ import { ProfileHeaderButton } from '@/components/ProfileHeaderButton';
 import { AdvertSlot } from '@/components/AdvertSlot';
 import { MobileBottomNav } from '@/components/MobileBottomNav';
 
-function formatPrice(price: number, currency: string) {
+function formatPriceLocal(price: number, currency: string) {
   return new Intl.NumberFormat('en-ZA', {
     style: 'currency',
     currency: currency || 'ZAR',
@@ -29,8 +30,10 @@ function authHref(path: string) {
 
 function MarketplacePageContent() {
   const { user, logout } = useAuth();
+  const { formatPrice: formatInLocal } = useCurrency();
   const router = useRouter();
   const [products, setProducts] = useState<Product[]>([]);
+  const [resoldProducts, setResoldProducts] = useState<Array<{ _id: string; productId: any; creatorId?: { _id: string; name?: string }; caption?: string; resellerCommissionPct?: number }>>([]);
   const [loading, setLoading] = useState(true);
   const [menuOpen, setMenuOpen] = useState(false);
   const { cartCount, hasStore } = useCartAndStores(!!user);
@@ -46,6 +49,19 @@ function MarketplacePageContent() {
       .finally(() => setLoading(false));
   }, []);
 
+  useEffect(() => {
+    tvAPI
+      .getFeed({ type: 'product', limit: 24, sort: 'newest' })
+      .then((res) => {
+        const posts = res.data?.data ?? res.data ?? [];
+        const valid = (Array.isArray(posts) ? posts : []).filter(
+          (p: any) => p?.productId?._id && p?.creatorId?._id
+        );
+        setResoldProducts(valid);
+      })
+      .catch(() => setResoldProducts([]));
+  }, []);
+
   const handleLogout = () => {
     logout();
     router.push('/');
@@ -58,9 +74,9 @@ function MarketplacePageContent() {
   const homeLink = isGuest ? '/' : '/wall';
 
   return (
-    <div className="min-h-screen flex flex-col bg-gradient-to-br from-sky-50 via-blue-50 to-white text-slate-900">
-      {/* Full-width frozen header */}
-      <header className="sticky top-0 z-40 w-full bg-white/95 backdrop-blur-md border-b border-slate-100 shadow-sm flex-shrink-0">
+    <div className="h-screen flex flex-col overflow-hidden bg-gradient-to-br from-sky-50 via-blue-50 to-white text-slate-900">
+      {/* Fixed header - stays visible when scrolling */}
+      <header className="flex-shrink-0 z-40 w-full bg-white/95 backdrop-blur-md border-b border-slate-100 shadow-sm">
         <div className="px-4 sm:px-6 lg:px-8 py-3 sm:py-4">
           <div className="flex items-center justify-between gap-3 sm:gap-4 min-w-0">
             <Link href={homeLink} className="shrink-0 flex items-center" aria-label="Home">
@@ -72,7 +88,7 @@ function MarketplacePageContent() {
               <div className="h-8 w-8 rounded-lg bg-brand-50 flex items-center justify-center shrink-0">
                 <ShoppingBag className="h-4 w-4 text-brand-600" />
               </div>
-              <h1 className="text-base sm:text-lg font-semibold text-slate-900 truncate">QwertyHub</h1>
+              <h1 className="font-semibold text-slate-900 truncate text-base sm:text-lg">QwertyHub</h1>
             </div>
             <div className="flex-1 min-w-0" />
             <div className="flex items-center gap-2 sm:gap-3 shrink-0">
@@ -100,7 +116,7 @@ function MarketplacePageContent() {
           </div>
         </div>
       </header>
-      <div className="flex flex-1 min-h-0">
+      <div className="flex flex-1 min-h-0 overflow-hidden">
         {!isGuest && (
           <AppSidebar
             variant="wall"
@@ -135,7 +151,7 @@ function MarketplacePageContent() {
               </div>
             ))}
           </div>
-        ) : products.length === 0 ? (
+        ) : products.length === 0 && resoldProducts.length === 0 ? (
           <div className="bg-white/90 backdrop-blur rounded-2xl border border-slate-100 p-12 text-center">
             <Package className="h-16 w-16 text-slate-300 mx-auto mb-4" />
             <h2 className="text-xl font-semibold text-slate-700 mb-2">No products yet</h2>
@@ -150,6 +166,53 @@ function MarketplacePageContent() {
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+            {resoldProducts.map((post) => {
+              const p = post.productId;
+              const resellerId = post.creatorId?._id;
+              let displayPrice = getEffectivePrice({ price: p?.price ?? 0, discountPrice: p?.discountPrice });
+              const resellerPct = post.resellerCommissionPct;
+              if (resellerPct != null) {
+                displayPrice = Math.round(displayPrice * (1 + resellerPct / 100) * 100) / 100;
+              }
+              const cartHref = `/marketplace/product/${p?._id}${resellerId ? `?resellerId=${resellerId}` : ''}`;
+              return (
+                <div
+                  key={`resold-${post._id}-${p?._id}`}
+                  className="group relative bg-white/90 backdrop-blur rounded-2xl border border-slate-100 overflow-hidden shadow-sm hover:shadow-lg hover:border-sky-200 transition-all"
+                >
+                  <Link href={cartHref} className="block">
+                    <div className="aspect-square bg-slate-100 flex items-center justify-center">
+                      {p?.images?.[0] ? (
+                        <img src={getImageUrl(p.images[0])} alt={p?.title} className="w-full h-full object-cover" />
+                      ) : (
+                        <Package className="h-16 w-16 text-slate-300" />
+                      )}
+                    </div>
+                    <h3 className="px-4 pt-4 font-semibold text-slate-900 group-hover:text-sky-700 truncate">
+                      {p?.title || post.caption}
+                    </h3>
+                  </Link>
+                  <div className="px-4 pb-4 flex items-center justify-between gap-2">
+                    <div>
+                      <span className="text-lg font-bold text-sky-600">
+                        {p?.currency === 'USD'
+                          ? formatInLocal(displayPrice)
+                          : formatPriceLocal(displayPrice, p?.currency || 'ZAR')}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-3 shrink-0">
+                      <Link
+                        href={cartHref}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-sky-500 text-white text-sm font-medium hover:bg-sky-600"
+                      >
+                        <ShoppingCart className="h-4 w-4" />
+                        Buy
+                      </Link>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
             {products.map((p) => {
               const outOfStock = (p as any).outOfStock || (p.stock != null && p.stock < 1);
               const allowResell = (p as any).allowResell ?? false;
@@ -181,13 +244,24 @@ function MarketplacePageContent() {
                   </Link>
                   <div className="px-4 pb-4 flex items-center justify-between gap-2">
                     <div>
-                      {p.discountPrice != null && p.discountPrice < p.price ? (
-                        <>
-                          <span className="text-lg font-bold text-sky-600">{formatPrice(p.discountPrice, p.currency)}</span>
-                          <span className="ml-2 text-sm text-slate-400 line-through">{formatPrice(p.price, p.currency)}</span>
-                        </>
+                      {p.currency === 'USD' ? (
+                        p.discountPrice != null && p.discountPrice < p.price ? (
+                          <>
+                            <span className="text-lg font-bold text-sky-600">{formatInLocal(p.discountPrice)}</span>
+                            <span className="ml-2 text-sm text-slate-400 line-through">{formatInLocal(p.price)}</span>
+                          </>
+                        ) : (
+                          <span className="text-lg font-bold text-sky-600">{formatInLocal(p.price)}</span>
+                        )
                       ) : (
-                        <span className="text-lg font-bold text-sky-600">{formatPrice(p.price, p.currency)}</span>
+                        p.discountPrice != null && p.discountPrice < p.price ? (
+                          <>
+                            <span className="text-lg font-bold text-sky-600">{formatPriceLocal(p.discountPrice, p.currency)}</span>
+                            <span className="ml-2 text-sm text-slate-400 line-through">{formatPriceLocal(p.price, p.currency)}</span>
+                          </>
+                        ) : (
+                          <span className="text-lg font-bold text-sky-600">{formatPriceLocal(p.price, p.currency)}</span>
+                        )
                       )}
                     </div>
                     <div className="flex items-center gap-3 shrink-0">

@@ -5,10 +5,11 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { ShoppingCart, Minus, Plus, Trash2, ArrowRight, Package, Music2 } from 'lucide-react';
 import { SearchButton } from '@/components/SearchButton';
-import { cartAPI, getImageUrl } from '@/lib/api';
+import { cartAPI, checkoutAPI, getImageUrl } from '@/lib/api';
 import { invalidateCartStoresCache, useCartAndStores } from '@/lib/useCartAndStores';
 import ProtectedRoute from '@/components/ProtectedRoute';
 import { useAuth } from '@/contexts/AuthContext';
+import { useCurrency } from '@/contexts/CurrencyContext';
 import { AppSidebar, AppSidebarMenuButton } from '@/components/AppSidebar';
 import { AdvertSlot } from '@/components/AdvertSlot';
 import { MobileBottomNav } from '@/components/MobileBottomNav';
@@ -44,7 +45,7 @@ interface CartMusicItem {
   lineTotal: number;
 }
 
-function formatPrice(price: number, currency: string) {
+function formatPriceLocal(price: number, currency: string) {
   return new Intl.NumberFormat('en-ZA', {
     style: 'currency',
     currency: currency || 'ZAR',
@@ -55,12 +56,15 @@ function formatPrice(price: number, currency: string) {
 
 function CartPageContent() {
   const { user, logout } = useAuth();
+  const { formatPrice: formatInLocal } = useCurrency();
   const router = useRouter();
   const [items, setItems] = useState<CartItem[]>([]);
   const [musicItems, setMusicItems] = useState<CartMusicItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [quote, setQuote] = useState<{ subtotal: number; shipping: number; total: number; shippingBreakdown?: Array<{ storeName?: string; shippingCost: number }> } | null>(null);
+  const [quoteLoading, setQuoteLoading] = useState(false);
   const { cartCount, hasStore } = useCartAndStores(!!user);
 
   const handleLogout = () => {
@@ -87,6 +91,23 @@ function CartPageContent() {
     invalidateCartStoresCache();
     loadCart();
   }, []);
+
+  useEffect(() => {
+    if (items.length === 0 && musicItems.length === 0) {
+      setQuote(null);
+      return;
+    }
+    setQuoteLoading(true);
+    checkoutAPI
+      .quote({ deliveryCountry: 'ZA' })
+      .then((res) => {
+        const d = res.data?.data ?? res.data;
+        if (d) setQuote({ subtotal: d.subtotal ?? 0, shipping: d.shipping ?? 0, total: d.total ?? 0, shippingBreakdown: d.shippingBreakdown });
+        else setQuote(null);
+      })
+      .catch(() => setQuote(null))
+      .finally(() => setQuoteLoading(false));
+  }, [items.length, musicItems.length, items, musicItems]);
 
   const updateQty = (productId: string, newQty: number) => {
     if (newQty < 1) return;
@@ -209,7 +230,7 @@ function CartPageContent() {
                       >
                         {item.product?.title ?? 'Product'}
                       </Link>
-                      <p className="text-sky-600 font-medium">{formatPrice(item.product?.price ?? 0, item.product?.currency ?? 'ZAR')} each</p>
+                      <p className="text-sky-600 font-medium">{(item.product?.currency === 'USD' ? formatInLocal(item.product?.price ?? 0) : formatPriceLocal(item.product?.price ?? 0, item.product?.currency ?? 'ZAR'))} each</p>
                     </div>
                     <div className="flex items-center gap-2">
                       <button
@@ -231,7 +252,7 @@ function CartPageContent() {
                       </button>
                     </div>
                     <p className="font-semibold text-slate-900 w-24 text-right">
-                      {formatPrice(item.lineTotal, item.product?.currency ?? 'ZAR')}
+                      {item.product?.currency === 'USD' ? formatInLocal(item.lineTotal) : formatPriceLocal(item.lineTotal, item.product?.currency ?? 'ZAR')}
                     </p>
                     <button
                       type="button"
@@ -259,10 +280,10 @@ function CartPageContent() {
                     <div className="flex-1 min-w-0">
                       <p className="font-semibold text-slate-900 truncate">{item.song?.title ?? 'Song'}</p>
                       {item.song?.artist && <p className="text-sm text-slate-600 truncate">{item.song.artist}</p>}
-                      <p className="text-sky-600 font-medium">{formatPrice(item.song?.price ?? 0, 'ZAR')} each</p>
+                      <p className="text-sky-600 font-medium">{formatPriceLocal(item.song?.price ?? 0, 'ZAR')} each</p>
                     </div>
                     <p className="font-semibold text-slate-900 w-24 text-right">
-                      {formatPrice(item.lineTotal, 'ZAR')}
+                      {formatPriceLocal(item.lineTotal, 'ZAR')}
                     </p>
                     <button
                       type="button"
@@ -276,11 +297,34 @@ function CartPageContent() {
                   </div>
                 ))}
               </div>
-              <div className="bg-white/90 backdrop-blur rounded-2xl border border-slate-100 p-6 flex flex-col sm:flex-row justify-between items-center gap-4">
-                <p className="text-slate-600">
-                  Subtotal ({items.length + musicItems.length} item{(items.length + musicItems.length) !== 1 ? 's' : ''}):{' '}
-                  <span className="font-bold text-slate-900">{formatPrice(subtotal, 'ZAR')}</span>
-                </p>
+              <div className="bg-white/90 backdrop-blur rounded-2xl border border-slate-100 p-6">
+                <div className="flex flex-col gap-2 mb-4">
+                  <div className="flex justify-between text-slate-600">
+                    <span>Subtotal ({items.length + musicItems.length} item{(items.length + musicItems.length) !== 1 ? 's' : ''})</span>
+                    <span className="font-medium text-slate-900">
+                      {items.some((i) => i.product?.currency === 'USD') ? formatInLocal(subtotal) : formatPriceLocal(subtotal, 'ZAR')}
+                    </span>
+                  </div>
+                  {quoteLoading ? (
+                    <div className="flex justify-between text-slate-500 text-sm">Calculating shipping...</div>
+                  ) : quote && quote.shipping > 0 ? (
+                    <div className="flex justify-between text-slate-600">
+                      <span>Shipping</span>
+                      <span className="font-medium text-slate-900">{formatPriceLocal(quote.shipping, 'ZAR')}</span>
+                    </div>
+                  ) : quote && quote.shipping === 0 ? (
+                    <div className="flex justify-between text-slate-600">
+                      <span>Shipping</span>
+                      <span className="font-medium text-slate-900">R 0</span>
+                    </div>
+                  ) : null}
+                  {quote && (
+                    <div className="flex justify-between text-base font-bold text-slate-900 pt-2 border-t border-slate-200">
+                      <span>Total</span>
+                      <span>{formatPriceLocal(quote.total, 'ZAR')}</span>
+                    </div>
+                  )}
+                </div>
                 <div className="flex flex-col sm:flex-row gap-2 items-center">
                   <Link
                     href="/checkout"

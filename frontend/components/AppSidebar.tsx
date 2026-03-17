@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { usePathname } from 'next/navigation';
+import { useAuth } from '@/contexts/AuthContext';
 import Link from 'next/link';
 import {
   Package,
@@ -61,6 +62,7 @@ export function AppSidebar({
   allowPageScroll = true,
 }: AppSidebarProps) {
   const pathname = usePathname();
+  const { user } = useAuth();
   const [errandsExpanded, setErrandsExpanded] = useState(false);
   const isActive = (href: string) => pathname === href || (href !== '/' && pathname.startsWith(href));
   const isErrandsActive = errandsSubItems.some((s) => isActive(s.href));
@@ -189,6 +191,15 @@ export function AppSidebar({
           );
         })}
       </nav>
+
+      {user && (
+        <div className="px-3 py-3 border-t border-slate-100">
+          <p className="font-semibold text-slate-900 truncate" title={user.name || ''}>{user.name || 'User'}</p>
+          <p className="text-sm text-slate-500 truncate" title={(user as any).username ? `@${(user as any).username}` : ''}>
+            {(user as any).username ? `@${(user as any).username}` : '—'}
+          </p>
+        </div>
+      )}
 
       <div className="p-3 border-t border-slate-100 space-y-0">
         <div className="px-3 py-2">

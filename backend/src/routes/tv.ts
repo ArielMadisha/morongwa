@@ -7,11 +7,12 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import TVPost from "../data/models/TVPost";
 import TVComment from "../data/models/TVComment";
+import ResellerWall from "../data/models/ResellerWall";
 import TVInteraction from "../data/models/TVInteraction";
 import TVReport from "../data/models/TVReport";
 import Product from "../data/models/Product";
 import Song from "../data/models/Song";
-import { authenticate, AuthRequest } from "../middleware/auth";
+import { authenticate, authenticateOptional, AuthRequest } from "../middleware/auth";
 import { tvUploadSingle, tvUploadMultiple } from "../middleware/tvUpload";
 import { AppError } from "../middleware/errorHandler";
 import { TV_WATERMARK } from "../data/models/TVPost";
@@ -170,7 +171,7 @@ router.get("/hashtags/trending", async (_req: express.Request, res: Response, ne
 });
 
 // GET /api/tv - list posts (feed, scroll). sort=newest|trending|random, type=video|image|carousel|product
-router.get("/", async (req: express.Request, res: Response, next) => {
+router.get("/", authenticateOptional, async (req: AuthRequest, res: Response, next) => {
   try {
     const page = Math.max(1, parseInt(req.query.page as string) || 1);
     const limit = Math.min(50, parseInt(req.query.limit as string) || 20);
@@ -178,11 +179,25 @@ router.get("/", async (req: express.Request, res: Response, next) => {
     const type = req.query.type as string; // optional: video, image, carousel, product
 
     const match: Record<string, unknown> = { status: "approved" };
+
+    // Respect content preferences: hide product posts when user opted out
+    const hideProducts =
+      (req.user && (req.user as any).contentPreferences?.showProducts === false) ||
+      req.query.hideProducts === "1" ||
+      req.query.hideProducts === "true";
     if (type) {
       if (type === "images") {
         (match as any).type = { $in: ["image", "carousel"] };
       } else if (["video", "image", "carousel", "product", "audio", "text"].includes(type)) {
         match.type = type;
+      }
+    }
+    if (hideProducts) {
+      if (type === "product") {
+        return res.json({ data: [], total: 0, page: 1, limit });
+      }
+      if (!(match as any).type) {
+        (match as any).type = { $ne: "product" };
       }
     }
     const genreParam = (req.query.genre as string)?.trim();
@@ -231,7 +246,7 @@ router.get("/", async (req: express.Request, res: Response, next) => {
             foreignField: "_id",
             as: "productId",
             pipeline: [
-              { $project: { title: 1, price: 1, discountPrice: 1, images: 1, currency: 1, supplierId: 1 } },
+              { $project: { title: 1, description: 1, price: 1, discountPrice: 1, images: 1, currency: 1, supplierId: 1 } },
               {
                 $lookup: {
                   from: "suppliers",
@@ -258,7 +273,7 @@ router.get("/", async (req: express.Request, res: Response, next) => {
         { $unwind: { path: "$songId", preserveNullAndEmptyArrays: true } },
       ]);
       // Enrich audio posts missing artwork: lookup Song by audioUrl
-      const enriched = await Promise.all(
+      let enriched = await Promise.all(
         posts.map(async (p: any) => {
           if (p.type !== "audio" || (p.artworkUrl || (p.songId && p.songId.artworkUrl))) return p;
           const audioUrl = p.mediaUrls?.[0];
@@ -268,6 +283,20 @@ router.get("/", async (req: express.Request, res: Response, next) => {
           return p;
         })
       );
+      // Enrich product posts: attach resellerCommissionPct when post has productId + creatorId
+      const productIdsRandom = enriched
+        .filter((p: any) => p.productId)
+        .map((p: any) => ({ post: p, productId: (p.productId as any)?._id?.toString?.() ?? p.productId?.toString?.(), creatorId: (p.creatorId as any)?._id?.toString?.() ?? p.creatorId?.toString?.() }))
+        .filter((x) => x.productId && x.creatorId);
+      if (productIdsRandom.length > 0) {
+        const walls = await ResellerWall.find({ resellerId: { $in: [...new Set(productIdsRandom.map((x) => x.creatorId))] } }).lean();
+        const wallMap = new Map(walls.map((w: any) => [w.resellerId?.toString(), w]));
+        for (const { post, productId, creatorId } of productIdsRandom) {
+          const wall = wallMap.get(creatorId);
+          const wp = (wall?.products as any[])?.find((p) => (p.productId as any)?.toString?.() === productId);
+          if (wp?.resellerCommissionPct != null) (post as any).resellerCommissionPct = wp.resellerCommissionPct;
+        }
+      }
       const total = await TVPost.countDocuments(match);
       return res.json({ data: enriched, total, page: 1, limit });
     }
@@ -287,6 +316,22 @@ router.get("/", async (req: express.Request, res: Response, next) => {
         return p;
       })
     );
+    // Enrich product posts: attach resellerCommissionPct when post has productId + creatorId (reseller wall)
+    const productIds = posts
+      .filter((p: any) => p.productId)
+      .map((p: any) => ({ post: p, productId: (p.productId as any)?._id?.toString?.() ?? p.productId?.toString?.(), creatorId: (p.creatorId as any)?._id?.toString?.() ?? p.creatorId?.toString?.() }))
+      .filter((x) => x.productId && x.creatorId);
+    if (productIds.length > 0) {
+      const walls = await ResellerWall.find({ resellerId: { $in: [...new Set(productIds.map((x) => x.creatorId))] } }).lean();
+      const wallMap = new Map(walls.map((w: any) => [w.resellerId?.toString(), w]));
+      for (const { post, productId, creatorId } of productIds) {
+        const wall = wallMap.get(creatorId);
+        const wp = (wall?.products as any[])?.find((p) => (p.productId as any)?.toString?.() === productId);
+        if (wp?.resellerCommissionPct != null) {
+          (post as any).resellerCommissionPct = wp.resellerCommissionPct;
+        }
+      }
+    }
     const total = await TVPost.countDocuments(match);
     res.json({ data: posts, total, page, limit });
   } catch (err) {
@@ -381,10 +426,17 @@ router.get("/watermark", (_req, res) => {
 });
 
 // GET /api/tv/products/featured - must be before /:id
-router.get("/products/featured", async (_req, res: Response, next) => {
+router.get("/products/featured", authenticateOptional, async (req: AuthRequest, res: Response, next) => {
   try {
+    const hideProducts =
+      (req.user && (req.user as any).contentPreferences?.showProducts === false) ||
+      req.query.hideProducts === "1" ||
+      req.query.hideProducts === "true";
+    if (hideProducts) {
+      return res.json({ data: [] });
+    }
     const products = await Product.find({ active: true })
-      .select("title price discountPrice images currency slug allowResell")
+      .select("title description price discountPrice images currency slug allowResell")
       .populate("supplierId", "userId")
       .limit(12)
       .lean();
@@ -441,7 +493,7 @@ router.post("/", authenticate, async (req: AuthRequest, res: Response, next) => 
     });
     const populated = await TVPost.findById(post._id)
       .populate("creatorId", "name avatar")
-      .populate("productId", "title price discountPrice images currency allowResell")
+      .populate("productId", "title description price discountPrice images currency allowResell")
       .populate("songId", "title artist artworkUrl downloadEnabled downloadPrice")
       .lean();
     res.status(201).json({ data: populated });
@@ -479,7 +531,7 @@ router.post("/:id/repost", authenticate, async (req: AuthRequest, res: Response,
 
     const populated = await TVPost.findById(repost._id)
       .populate("creatorId", "name avatar")
-      .populate("productId", "title price discountPrice images currency allowResell")
+      .populate("productId", "title description price discountPrice images currency allowResell")
       .populate("originalPostId", "creatorId")
       .lean();
     res.status(201).json({ data: populated });

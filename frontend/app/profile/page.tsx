@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { ArrowLeft, LayoutDashboard, Wallet, ClipboardList, HelpCircle, ShieldCheck, Lock, Radio, UserCheck, Camera, Pencil, Check, X, Download, Music2 } from "lucide-react";
+import { ArrowLeft, LayoutDashboard, Wallet, ClipboardList, HelpCircle, ShieldCheck, Lock, Radio, UserCheck, Camera, Pencil, Check, X, Download, Music2, LayoutGrid } from "lucide-react";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import { useAuth } from "@/contexts/AuthContext";
 import { usersAPI, followsAPI, musicAPI, getImageUrl, API_BASE } from "@/lib/api";
@@ -10,6 +10,7 @@ import { AppSidebar, AppSidebarMenuButton } from "@/components/AppSidebar";
 import { SearchButton } from "@/components/SearchButton";
 import { MobileBottomNav } from "@/components/MobileBottomNav";
 import { SetPictureOptionsModal } from "@/components/SetPictureOptionsModal";
+import { ContentPreferencesModal } from "@/components/ContentPreferencesModal";
 import { useCartAndStores } from "@/lib/useCartAndStores";
 import toast from "react-hot-toast";
 
@@ -36,6 +37,7 @@ export default function ProfilePage() {
   const [phoneSaving, setPhoneSaving] = useState(false);
   const [downloads, setDownloads] = useState<Array<{ songId: string; song?: { _id: string; title?: string; artist?: string; artworkUrl?: string; type?: string; tracks?: { title: string; audioUrl: string }[] }; amount: number; createdAt: string }>>([]);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const [contentPrefsOpen, setContentPrefsOpen] = useState(false);
   const { cartCount, hasStore } = useCartAndStores(!!user);
 
   useEffect(() => {
@@ -419,6 +421,17 @@ export default function ProfilePage() {
                   />
                 </label>
                 <p className="text-xs text-slate-500">When private, others must request to follow. You approve each request.</p>
+                <button
+                  type="button"
+                  onClick={() => setContentPrefsOpen(true)}
+                  className="flex items-center justify-between gap-4 w-full px-4 py-3 rounded-xl border border-slate-200 hover:border-sky-200 hover:bg-sky-50/50 text-left transition-colors"
+                >
+                  <span className="flex items-center gap-2 text-sm text-slate-700">
+                    <LayoutGrid className="h-4 w-4 text-slate-500" />
+                    Customize feed
+                  </span>
+                  <span className="text-xs text-slate-500">Products, content</span>
+                </button>
                 <label className="flex items-center justify-between gap-4 cursor-pointer">
                   <span className="flex items-center gap-2 text-sm text-slate-700">
                     <Radio className="h-4 w-4 text-red-500" />
@@ -595,6 +608,14 @@ export default function ProfilePage() {
         imagePreview={selectedPictureFile ?? undefined}
         onSetProfilePic={handleSetProfilePic}
         onSetStripBackground={handleSetStripBackground}
+      />
+      <ContentPreferencesModal
+        open={contentPrefsOpen}
+        onClose={() => setContentPrefsOpen(false)}
+        user={user}
+        onSaved={() => {
+          refreshUser?.();
+        }}
       />
     </ProtectedRoute>
   );

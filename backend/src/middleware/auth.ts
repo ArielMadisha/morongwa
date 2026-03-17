@@ -37,6 +37,30 @@ export const authenticate = async (
   }
 };
 
+/** Optional auth: populates req.user if valid token present, does not fail if no token */
+export const authenticateOptional = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const token = req.headers.authorization?.replace("Bearer ", "");
+    if (!token) {
+      next();
+      return;
+    }
+    const jwtSecret = process.env.JWT_SECRET || "default-secret-change-me";
+    const decoded = jwt.verify(token, jwtSecret) as { userId: string };
+    const user = await User.findById(decoded.userId);
+    if (user && user.active && !user.suspended && !user.locked) {
+      req.user = user;
+    }
+    next();
+  } catch {
+    next();
+  }
+};
+
 export const authorize = (...allowedRoles: string[]) => {
   return (req: AuthRequest, res: Response, next: NextFunction): void => {
     if (!req.user) {

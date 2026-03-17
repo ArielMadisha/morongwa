@@ -99,6 +99,39 @@ router.put("/:id", authenticate, async (req: AuthRequest, res: Response, next) =
   }
 });
 
+// Update content preferences (feed: show products, etc.)
+router.patch("/:id/content-preferences", authenticate, async (req: AuthRequest, res: Response, next) => {
+  try {
+    if (req.user?._id.toString() !== req.params.id) {
+      throw new AppError("Unauthorized", 403);
+    }
+    const { showProducts, preferencesAskedAt } = req.body;
+    const updates: any = {};
+    if (typeof showProducts === "boolean") {
+      updates["contentPreferences.showProducts"] = showProducts;
+      updates["contentPreferences.preferencesSetAt"] = new Date();
+    }
+    if (preferencesAskedAt) {
+      const d = new Date(preferencesAskedAt);
+      if (!isNaN(d.getTime())) updates["contentPreferences.preferencesAskedAt"] = d;
+    }
+    if (Object.keys(updates).length === 0) {
+      const user = await User.findById(req.params.id).select("-passwordHash").lean();
+      if (!user) throw new AppError("User not found", 404);
+      return res.json({ user, contentPreferences: (user as any).contentPreferences });
+    }
+    const user = await User.findByIdAndUpdate(
+      req.params.id,
+      { $set: updates },
+      { new: true }
+    ).select("-passwordHash");
+    if (!user) throw new AppError("User not found", 404);
+    res.json({ message: "Content preferences updated", user, contentPreferences: (user as any).contentPreferences });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // Go live / end live (toggle isLive)
 router.patch("/:id/live", authenticate, async (req: AuthRequest, res: Response, next) => {
   try {

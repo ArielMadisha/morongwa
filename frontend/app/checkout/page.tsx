@@ -39,7 +39,7 @@ export default function CheckoutPage() {
   } | null>(null);
   const [walletBalance, setWalletBalance] = useState<number | null>(null);
   const [deliveryAddress, setDeliveryAddress] = useState('');
-  const [fulfillmentMethod, setFulfillmentMethod] = useState<'delivery' | 'collection'>('delivery');
+  const [deliveryCountry, setDeliveryCountry] = useState('ZA');
   const [paymentMethod, setPaymentMethod] = useState<'wallet' | 'card'>('wallet');
   const [loading, setLoading] = useState(true);
   const [paying, setPaying] = useState(false);
@@ -51,9 +51,9 @@ export default function CheckoutPage() {
 
   useEffect(() => {
     setLoading(true);
-    checkoutAPI.quote(fulfillmentMethod).then((res) => { const d = res.data?.data ?? res.data; setQuote(d ?? null); }).catch(() => setQuote(null)).finally(() => setLoading(false));
+    checkoutAPI.quote({ deliveryAddress, deliveryCountry }).then((res) => { const d = res.data?.data ?? res.data; setQuote(d ?? null); }).catch(() => setQuote(null)).finally(() => setLoading(false));
     walletAPI.getBalance().then((res) => { const b = res.data?.balance ?? res.data ?? 0; setWalletBalance(typeof b === 'number' ? b : 0); }).catch(() => setWalletBalance(0));
-  }, [fulfillmentMethod]);
+  }, [deliveryAddress, deliveryCountry]);
 
   useEffect(() => {
     const pm = searchParams.get('pm');
@@ -62,12 +62,12 @@ export default function CheckoutPage() {
 
   const handlePay = () => {
     if (!quote) return;
-    if (fulfillmentMethod === 'delivery' && !deliveryAddress.trim()) {
+    if (!deliveryAddress.trim()) {
       toast.error('Delivery address is required');
       return;
     }
     setPaying(true);
-    checkoutAPI.pay(paymentMethod, deliveryAddress || undefined, fulfillmentMethod).then((res) => {
+    checkoutAPI.pay(paymentMethod, deliveryAddress, deliveryCountry).then((res) => {
       const d = res.data?.data ?? res.data;
       if (d?.paymentUrl) { window.location.href = d.paymentUrl; return; }
       if (d?.status === 'paid') {
@@ -147,26 +147,21 @@ export default function CheckoutPage() {
           <h1 className="text-2xl font-bold text-slate-900 mb-6">Checkout</h1>
           <div className="space-y-6 mb-8">
             <div>
-              <p className="text-sm font-medium text-slate-700 mb-3">Receive order</p>
-              <label className="flex items-center gap-3 p-4 rounded-xl border-2 cursor-pointer mb-3" style={{ borderColor: fulfillmentMethod === 'delivery' ? 'rgb(2 132 199)' : 'rgb(226 232 240)' }}>
-                <input type="radio" name="fulfillment" checked={fulfillmentMethod === 'delivery'} onChange={() => setFulfillmentMethod('delivery')} className="text-sky-600" />
-                <MapPin className="h-5 w-5 text-sky-600" /><span className="font-medium">Delivery</span>
-              </label>
-              <label className="flex items-center gap-3 p-4 rounded-xl border-2 cursor-pointer" style={{ borderColor: fulfillmentMethod === 'collection' ? 'rgb(2 132 199)' : 'rgb(226 232 240)' }}>
-                <input type="radio" name="fulfillment" checked={fulfillmentMethod === 'collection'} onChange={() => setFulfillmentMethod('collection')} className="text-sky-600" />
-                <ShoppingBag className="h-5 w-5 text-sky-600" /><span className="font-medium">Collect at store (shipping R0)</span>
-              </label>
+              <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-2"><MapPin className="h-4 w-4" /> Delivery address</label>
+              <div className="mb-3">
+                <label className="block text-xs text-slate-500 mb-1">Country</label>
+                <select value={deliveryCountry} onChange={(e) => setDeliveryCountry(e.target.value)} className="w-full rounded-xl border border-slate-200 px-4 py-3 text-slate-900 focus:ring-2 focus:ring-sky-500 focus:border-sky-500">
+                  <option value="ZA">South Africa</option>
+                  <option value="BW">Botswana</option>
+                  <option value="NA">Namibia</option>
+                  <option value="LS">Lesotho</option>
+                  <option value="SZ">Eswatini</option>
+                  <option value="ZW">Zimbabwe</option>
+                  <option value="ZM">Zambia</option>
+                </select>
+              </div>
+              <textarea value={deliveryAddress} onChange={(e) => setDeliveryAddress(e.target.value)} placeholder="Street, suburb, city, postal code" rows={3} className="w-full rounded-xl border border-slate-200 px-4 py-3 text-slate-900 placeholder-slate-400 focus:ring-2 focus:ring-sky-500 focus:border-sky-500" />
             </div>
-            {fulfillmentMethod === 'delivery' ? (
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-2"><MapPin className="h-4 w-4" /> Delivery address</label>
-                <textarea value={deliveryAddress} onChange={(e) => setDeliveryAddress(e.target.value)} placeholder="Street, suburb, city, postal code" rows={3} className="w-full rounded-xl border border-slate-200 px-4 py-3 text-slate-900 placeholder-slate-400 focus:ring-2 focus:ring-sky-500 focus:border-sky-500" />
-              </div>
-            ) : (
-              <div className="rounded-xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-                You selected collection at store. Shipping fee is zero and sellers will be notified via Morongwa messenger.
-              </div>
-            )}
             <div>
               <p className="text-sm font-medium text-slate-700 mb-3">Payment method</p>
               <label className="flex items-center gap-3 p-4 rounded-xl border-2 cursor-pointer mb-3" style={{ borderColor: paymentMethod === 'wallet' ? 'rgb(2 132 199)' : 'rgb(226 232 240)' }}>
@@ -202,7 +197,7 @@ export default function CheckoutPage() {
                 </div>
               ) : (
                 <div className="flex justify-between text-slate-600">
-                  <span>{fulfillmentMethod === 'collection' ? 'Collection (store pickup)' : 'Shipping Fee'}</span>
+                  <span>Shipping Fee</span>
                   <span>{formatPrice(quote.shipping)}</span>
                 </div>
               )}

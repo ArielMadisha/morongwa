@@ -39,6 +39,7 @@ import { FollowButton } from '@/components/FollowButton';
 import { SetPictureOptionsModal } from '@/components/SetPictureOptionsModal';
 import { VideoSidebar } from './VideoSidebar';
 import { TranslateText } from '@/components/TranslateText';
+import { useCurrency } from '@/contexts/CurrencyContext';
 
 const WATERMARK_IMG = '/watermark-qwertymates.svg';
 const WATERMARK_DURATION = 3; // seconds at start and end
@@ -191,6 +192,7 @@ export interface TVGridItem {
   sensitive?: boolean;
   // product tile
   title?: string;
+  description?: string;
   images?: string[];
   price?: number;
   discountPrice?: number;
@@ -198,6 +200,8 @@ export interface TVGridItem {
   slug?: string;
   supplierId?: { userId?: string } | string;
   allowResell?: boolean;
+  /** Reseller commission % when post is from reseller wall (3–7) */
+  resellerCommissionPct?: number;
 }
 
 function formatPostPeriod(createdAt?: string) {
@@ -240,7 +244,17 @@ interface TVGridTileProps {
   relatedVideos?: TVGridItem[];
 }
 
+function formatPriceLocal(price: number, currency: string) {
+  return new Intl.NumberFormat('en-ZA', {
+    style: 'currency',
+    currency: currency || 'ZAR',
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  }).format(price);
+}
+
 export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, onCommentAdded, onDelete, isVisible = true, currentUserId, onSetProfilePicFromUrl, onSetStripBackgroundFromUrl, variant = 'feed', relatedVideos }: TVGridTileProps) {
+  const { formatPrice: formatInLocal } = useCurrency();
   const [watermarkPhase, setWatermarkPhase] = useState<'start' | 'middle' | 'end'>('start');
   const [reportOpen, setReportOpen] = useState(false);
   const [reportReason, setReportReason] = useState('');
@@ -275,12 +289,15 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
   const isOwnPost = creatorIdResolved && currentUserId && creatorIdResolved === String(currentUserId);
 
   const isProductTile = item.type === 'product_tile';
+  const isProductPost = isProductTile || !!item.productId;
   const isTextPost = item.type === 'text';
   const isAudioPost = item.type === 'audio';
   const isVideo = !isProductTile && !isTextPost && !isAudioPost && (item.type === 'video' || (item.mediaUrls?.[0]?.match(/\.(mp4|webm)$/i)));
   const isCarousel = !isProductTile && !isTextPost && !isAudioPost && !isVideo && (item.mediaUrls?.length ?? 0) > 1;
   const isProductCarousel = isProductTile && (item.images?.length ?? 0) > 1;
-  const mediaUrl = isProductTile ? (item.images?.[0] || '') : (item.mediaUrls?.[carouselIndex] || item.mediaUrls?.[0] || '');
+  const mediaUrl = isProductTile
+    ? (item.images?.[0] || '')
+    : (item.mediaUrls?.[carouselIndex] || item.mediaUrls?.[0] || (item.productId as any)?.images?.[0] || '');
 
   // TikTok-style watermark: show at start (first 3s) and end (last 3s)
   useEffect(() => {
@@ -643,42 +660,73 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
         </button>
       ) : (
         <div className="relative w-full h-full overflow-hidden">
-          <button
-            type="button"
-            className="relative w-full h-full cursor-pointer block focus:outline-none"
-            onClick={(e) => {
-              e.stopPropagation();
-              if (item.sensitive && !sensitiveRevealed) {
-                setSensitiveRevealed(true);
-              } else {
-                setLightboxOpen(true);
-              }
-            }}
-          >
-            {getImageUrl(mediaUrl) ? (
-              <img
-                src={getImageUrl(mediaUrl)}
-                alt={item.caption || item.heading || 'Post'}
-                className={`w-full h-full object-contain ${filterClass} ${item.sensitive && !sensitiveRevealed ? 'blur-2xl scale-110' : ''}`}
-              />
-            ) : (
-              <div className="w-full h-full flex items-center justify-center bg-slate-800">
-                <Package className="h-16 w-16 text-slate-500" />
-              </div>
-            )}
-            {item.sensitive && !sensitiveRevealed && (
-              <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/50 z-20">
-                <p className="text-white/90 text-sm font-medium mb-3 px-4 text-center">This content may be sensitive</p>
-                <button
-                  type="button"
-                  onClick={(e) => { e.stopPropagation(); setSensitiveRevealed(true); }}
-                  className="px-4 py-2 rounded-lg bg-white/20 hover:bg-white/30 text-white font-medium text-sm"
-                >
-                  Click to reveal
-                </button>
-              </div>
-            )}
-          </button>
+          {productId ? (
+            <Link
+              href={`/marketplace/product/${productId}${creatorIdResolved ? `?resellerId=${creatorIdResolved}` : ''}`}
+              className="relative w-full h-full cursor-pointer block focus:outline-none"
+            >
+              {getImageUrl(mediaUrl) ? (
+                <img
+                  src={getImageUrl(mediaUrl)}
+                  alt={item.caption || (item.productId as any)?.title || 'Product'}
+                  className={`w-full h-full object-contain ${filterClass} ${item.sensitive && !sensitiveRevealed ? 'blur-2xl scale-110' : ''}`}
+                />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center bg-slate-800">
+                  <Package className="h-16 w-16 text-slate-500" />
+                </div>
+              )}
+              {item.sensitive && !sensitiveRevealed && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/50 z-20">
+                  <p className="text-white/90 text-sm font-medium mb-3 px-4 text-center">This content may be sensitive</p>
+                  <button
+                    type="button"
+                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); setSensitiveRevealed(true); }}
+                    className="px-4 py-2 rounded-lg bg-white/20 hover:bg-white/30 text-white font-medium text-sm"
+                  >
+                    Click to reveal
+                  </button>
+                </div>
+              )}
+            </Link>
+          ) : (
+            <button
+              type="button"
+              className="relative w-full h-full cursor-pointer block focus:outline-none"
+              onClick={(e) => {
+                e.stopPropagation();
+                if (item.sensitive && !sensitiveRevealed) {
+                  setSensitiveRevealed(true);
+                } else {
+                  setLightboxOpen(true);
+                }
+              }}
+            >
+              {getImageUrl(mediaUrl) ? (
+                <img
+                  src={getImageUrl(mediaUrl)}
+                  alt={item.caption || item.heading || 'Post'}
+                  className={`w-full h-full object-contain ${filterClass} ${item.sensitive && !sensitiveRevealed ? 'blur-2xl scale-110' : ''}`}
+                />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center bg-slate-800">
+                  <Package className="h-16 w-16 text-slate-500" />
+                </div>
+              )}
+              {item.sensitive && !sensitiveRevealed && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/50 z-20">
+                  <p className="text-white/90 text-sm font-medium mb-3 px-4 text-center">This content may be sensitive</p>
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); setSensitiveRevealed(true); }}
+                    className="px-4 py-2 rounded-lg bg-white/20 hover:bg-white/30 text-white font-medium text-sm"
+                  >
+                    Click to reveal
+                  </button>
+                </div>
+              )}
+            </button>
+          )}
           {isCarousel && (item.mediaUrls?.length ?? 0) > 1 && (
             <>
               <button
@@ -860,9 +908,10 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
       </div>
 
       {/* Product actions overlay (Resell, Buy, Enquire - keep on media for product tiles) */}
+      {/* Resell only on original library products (product_tile); hide when from reseller's post */}
       {(isProductTile || productId) && (
         <div className="absolute inset-x-0 bottom-0 p-3 bg-gradient-to-t from-black/60 to-transparent flex flex-wrap gap-1.5 z-10">
-          {((item as any).allowResell || (item.productId as any)?.allowResell) && (
+          {isProductTile && ((item as any).allowResell || (item.productId as any)?.allowResell) && (
             <Link
               href={`/marketplace/product/${productId || item._id}?view=resell`}
               className="inline-flex items-center justify-center px-2 py-1 rounded-lg bg-white/20 text-white text-xs font-medium hover:bg-white/30"
@@ -871,7 +920,7 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
             </Link>
           )}
           <Link
-            href={`/marketplace/product/${productId || item._id}`}
+            href={`/marketplace/product/${productId || item._id}${!isProductTile && creatorIdResolved ? `?resellerId=${creatorIdResolved}` : ''}`}
             className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-sky-500 text-white text-xs font-medium hover:bg-sky-600"
           >
             <ShoppingCart className="h-4 w-4" />
@@ -912,8 +961,8 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
       )}
       </div>
 
-      {/* QwertyTV grid: action icons below each video - flex-shrink-0 so never clipped */}
-      {!isProductTile && variant === 'grid' && (
+      {/* QwertyTV grid: action icons below each video - hidden for product posts */}
+      {!isProductPost && variant === 'grid' && (
         <div className="flex-shrink-0 min-h-[44px] px-2 py-1.5 border-t border-slate-100 flex items-center justify-start gap-2 sm:gap-3 flex-wrap bg-white">
           {isVideo && (
             <span className="flex items-center gap-1 min-h-[36px] min-w-[36px] justify-center py-1 px-1 text-slate-600" title="Views">
@@ -980,8 +1029,8 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
         </div>
       )}
 
-      {/* Below picture: hashtags, action icons (left), report (right) - homepage only */}
-      {!isProductTile && variant !== 'grid' && (
+      {/* Below picture: hashtags, action icons (left), report (right) - hidden for product posts */}
+      {!isProductPost && variant !== 'grid' && (
         <div className="px-2 py-1.5 border-b border-slate-100">
           {item.hashtags && item.hashtags.length > 0 && (
             <div className="flex flex-wrap gap-2 mb-2">
@@ -1111,8 +1160,8 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
         </div>
       )}
 
-      {/* Below icons: heading, story/caption and comments - hidden in grid */}
-      {!isProductTile && variant !== 'grid' && (
+      {/* Below icons: heading, story/caption and comments - hidden for product posts and grid */}
+      {!isProductPost && variant !== 'grid' && (
         <div className="p-2 bg-white">
           {(item.heading || item.subject || item.caption) && !isTextPost && (
             <>
@@ -1157,12 +1206,29 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
           )}
         </div>
       )}
-      {isProductTile && (
-        <div className="p-2 bg-white border-t border-slate-100">
+      {(isProductTile || (productId && (item.productId as any))) && (
+        <Link
+          href={`/marketplace/product/${productId || item._id}${!isProductTile && creatorIdResolved ? `?resellerId=${creatorIdResolved}` : ''}`}
+          className="block p-2 bg-white border-t border-slate-100 hover:bg-slate-50 transition-colors"
+        >
+          {(() => {
+            const name = isProductTile ? (item as any).title : (item.productId as any)?.title;
+            return name ? (
+              <p className="text-xs text-slate-900 font-bold line-clamp-2 mb-1" title={name}>{name}</p>
+            ) : null;
+          })()}
           <p className="text-sm font-semibold text-slate-900">
-            {formatPrice(getEffectivePrice({ price: item.price || 0, discountPrice: item.discountPrice }), item.currency || 'ZAR')}
+            {(() => {
+              const prod = isProductTile ? { price: item.price || 0, discountPrice: item.discountPrice, currency: item.currency || 'ZAR' } : { price: (item.productId as any)?.price ?? 0, discountPrice: (item.productId as any)?.discountPrice, currency: (item.productId as any)?.currency || 'ZAR' };
+              let displayPrice = getEffectivePrice({ price: prod.price, discountPrice: prod.discountPrice });
+              const resellerPct = item.resellerCommissionPct ?? (item as any).resellerCommissionPct;
+              if (resellerPct != null && creatorIdResolved) {
+                displayPrice = Math.round(displayPrice * (1 + resellerPct / 100) * 100) / 100;
+              }
+              return prod.currency === 'USD' ? formatInLocal(displayPrice) : formatPriceLocal(displayPrice, prod.currency);
+            })()}
           </p>
-        </div>
+        </Link>
       )}
 
       {/* Report modal for grid variant (below-section hidden when grid) */}

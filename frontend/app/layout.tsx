@@ -3,6 +3,7 @@ import { Inter } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { TranslationProvider } from "@/contexts/TranslationContext";
+import { CurrencyProvider } from "@/contexts/CurrencyContext";
 import { Toaster } from "react-hot-toast";
 import ErrorBoundary from "@/components/ErrorBoundary";
 
@@ -30,6 +31,7 @@ export default function RootLayout({
       <body className={inter.className}>
         <ErrorBoundary>
           <AuthProvider>
+            <CurrencyProvider>
             <TranslationProvider>
               <div className="min-h-screen flex flex-col">
                 <div className="flex-1">{children}</div>
@@ -59,6 +61,7 @@ export default function RootLayout({
               }}
               />
             </TranslationProvider>
+            </CurrencyProvider>
           </AuthProvider>
         </ErrorBoundary>
       </body>

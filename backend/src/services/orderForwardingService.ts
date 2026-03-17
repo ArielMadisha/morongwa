@@ -43,12 +43,14 @@ export async function forwardOrderToExternalSupplier(orderId: string): Promise<F
     const sku = firstVariant?.variantSku || product.sku;
 
     const arr = bySupplier.get(extId) || [];
+    // CJ expects unitPrice in USD (supplier cost). Order stores ZAR; use product.supplierCost for CJ.
+    const unitPriceUsd = product.supplierCost ?? item.price;
     arr.push({
       productId: product._id.toString(),
       vid,
       sku,
       qty: item.qty,
-      price: item.price,
+      price: unitPriceUsd,
     });
     bySupplier.set(extId, arr);
   }

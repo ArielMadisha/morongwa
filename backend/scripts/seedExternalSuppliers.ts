@@ -23,18 +23,24 @@ const SUPPLIERS = [
     name: "CJ Dropshipping",
     apiKeyEnv: "CJ_API_KEY",
     webhookEnv: "CJ_WEBHOOK_SECRET",
+    shippingEnv: "CJ_SHIPPING_COST",
+    defaultShipping: 150,
   },
   {
     source: "spocket" as const,
     name: "Spocket",
     apiKeyEnv: "SPOCKET_API_KEY",
     webhookEnv: "SPOCKET_WEBHOOK_SECRET",
+    shippingEnv: "SPOCKET_SHIPPING_COST",
+    defaultShipping: 150,
   },
   {
     source: "eprolo" as const,
     name: "EPROLO",
     apiKeyEnv: "EPROLO_API_KEY",
     webhookEnv: "EPROLO_WEBHOOK_SECRET",
+    shippingEnv: "EPROLO_SHIPPING_COST",
+    defaultShipping: 150,
   },
 ];
 
@@ -56,6 +62,8 @@ async function run() {
     }
 
     const webhookSecret = process.env[s.webhookEnv]?.trim() || undefined;
+    const shippingCostRaw = (s as any).shippingEnv ? process.env[(s as any).shippingEnv] : undefined;
+    const shippingCost = shippingCostRaw != null && shippingCostRaw !== "" ? parseInt(shippingCostRaw, 10) : (s as any).defaultShipping ?? 150;
 
     await ExternalSupplier.findOneAndUpdate(
       { source: s.source },
@@ -66,6 +74,7 @@ async function run() {
           webhookSecret,
           status: "active",
           defaultMarkupPct: 25,
+          shippingCost: Number.isNaN(shippingCost) ? 150 : shippingCost,
         },
       },
       { upsert: true, new: true }

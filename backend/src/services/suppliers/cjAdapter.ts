@@ -3,7 +3,7 @@
  * Docs: https://developers.cjdropshipping.com/
  */
 
-import type { SupplierAdapter, SupplierProduct, SupplierOrderRequest, SupplierOrderResponse, TrackingInfo } from "./types";
+import type { SupplierAdapter, SupplierProduct, SupplierOrderRequest, SupplierOrderResponse, TrackingInfo, FreightQuoteRequest, FreightQuoteResult } from "./types";
 
 const CJ_BASE = "https://developers.cjdropshipping.com/api2.0/v1";
 
@@ -196,6 +196,38 @@ export function createCJAdapter(apiKey: string, externalSupplierId: string): Sup
           status: first.trackingStatus,
           deliveredAt: first.deliveryTime,
         };
+      } catch {
+        return null;
+      }
+    },
+
+    async getFreightQuote(req: FreightQuoteRequest): Promise<FreightQuoteResult | null> {
+      try {
+        const body = {
+          startCountryCode: req.startCountryCode,
+          endCountryCode: req.endCountryCode,
+          products: req.products.map((p) => ({ vid: p.vid, quantity: p.quantity })),
+          ...(req.zip ? { zip: req.zip } : {}),
+        };
+        const data = await cjPost<any[]>("/logistic/freightCalculate", body);
+        const first = Array.isArray(data) ? data[0] : data;
+        if (!first || typeof first.logisticPrice !== "number") return null;
+        return {
+          logisticPrice: first.logisticPrice,
+          logisticName: first.logisticName,
+          logisticAging: first.logisticAging,
+        };
+      } catch {
+        return null;
+      }
+    },
+
+    async getStockByVid(vid: string): Promise<number | null> {
+      try {
+        const data = await cjGet<any[]>("/product/stock/queryByVid", { vid });
+        const warehouses = Array.isArray(data) ? data : [];
+        const total = warehouses.reduce((sum: number, w: any) => sum + (Number(w.totalInventoryNum) || 0), 0);
+        return total;
       } catch {
         return null;
       }

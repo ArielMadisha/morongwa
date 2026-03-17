@@ -13,6 +13,8 @@ export interface IExternalSupplier extends Document {
   status: ExternalSupplierStatus;
   /** Default platform markup % applied to imported products (e.g. 25 = 25%) */
   defaultMarkupPct?: number;
+  /** Shipping cost in ZAR per order (non-CJ only). CJ uses freight API; no flat fallback. */
+  shippingCost?: number;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -26,6 +28,7 @@ const ExternalSupplierSchema = new Schema<IExternalSupplier>(
     webhookSecret: { type: String },
     status: { type: String, enum: ["active", "paused", "disabled"], default: "active" },
     defaultMarkupPct: { type: Number },
+    shippingCost: { type: Number },
   },
   { timestamps: true }
 );

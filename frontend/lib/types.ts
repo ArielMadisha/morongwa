@@ -25,6 +25,12 @@ export interface User {
   }>;
   /** Runner: admin has verified PDP + all vehicles */
   runnerVerified?: boolean;
+  /** Feed content preferences */
+  contentPreferences?: {
+    showProducts?: boolean;
+    preferencesAskedAt?: string;
+    preferencesSetAt?: string;
+  };
 }
 
 export interface Task {

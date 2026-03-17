@@ -21,6 +21,11 @@ import { AdvertTile } from '@/components/AdvertTile';
 import { tvAPI, productEnquiryAPI, advertsAPI, usersAPI } from '@/lib/api';
 import type { Product } from '@/lib/types';
 import toast from 'react-hot-toast';
+import {
+  ContentPreferencesModal,
+  shouldShowPreferencesModal,
+  getHideProducts,
+} from '@/components/ContentPreferencesModal';
 
 function WallPageContent() {
   const { user, logout, refreshUser } = useAuth();
@@ -42,17 +47,25 @@ function WallPageContent() {
   const [enquireMessage, setEnquireMessage] = useState('');
   const [enquireSending, setEnquireSending] = useState(false);
   const [likedMap, setLikedMap] = useState<Record<string, boolean>>({});
+  const [prefsModalOpen, setPrefsModalOpen] = useState(false);
+  const hideProducts = getHideProducts(user);
   const { cartCount, hasStore } = useCartAndStores(!!user);
   const containerRef = useRef<HTMLDivElement>(null);
   const loadMoreSentinelRef = useRef<HTMLDivElement>(null);
   const limit = 24;
 
-  const loadFeed = useCallback(async (pageNum = 1, append = false) => {
-    if (pageNum === 1) setLoading(true);
-    else setLoadingMore(true);
-    if (pageNum === 1) setHasMore(true);
-    try {
-      const res = await tvAPI.getFeed({ page: pageNum, limit, q: searchQ || undefined });
+  const loadFeed = useCallback(
+    async (pageNum = 1, append = false) => {
+      if (pageNum === 1) setLoading(true);
+      else setLoadingMore(true);
+      if (pageNum === 1) setHasMore(true);
+      try {
+        const res = await tvAPI.getFeed({
+          page: pageNum,
+          limit,
+          q: searchQ || undefined,
+          hideProducts: !user ? hideProducts : undefined,
+        });
       const data = res.data?.data ?? res.data ?? [];
       const posts = Array.isArray(data) ? data : [];
       const fetchedTotal = Number(res.data?.total ?? posts.length);
@@ -71,7 +84,9 @@ function WallPageContent() {
       setLoading(false);
       setLoadingMore(false);
     }
-  }, [searchQ, limit]);
+  },
+    [searchQ, limit, user, hideProducts]
+  );
 
   const [productTiles, setProductTiles] = useState<TVGridItem[]>([]);
   const [featuredProducts, setFeaturedProducts] = useState<(Product & { _id: string })[]>([]);
@@ -79,7 +94,7 @@ function WallPageContent() {
 
   const loadFeaturedProducts = useCallback(() => {
     tvAPI
-      .getFeaturedProducts()
+      .getFeaturedProducts(!user ? hideProducts : undefined)
       .then((res) => {
         const list = res.data?.data ?? res.data ?? [];
         const products = Array.isArray(list) ? list : [];
@@ -89,6 +104,7 @@ function WallPageContent() {
             _id: p._id,
             type: 'product_tile' as const,
             title: p.title,
+            description: p.description,
             images: p.images,
             price: p.price,
             discountPrice: p.discountPrice,
@@ -105,7 +121,7 @@ function WallPageContent() {
         setProductTiles([]);
         setFeaturedProducts([]);
       });
-  }, []);
+  }, [user, hideProducts]);
 
   // Read post created on another page (e.g. QwertyTV) so it appears on Home
   useEffect(() => {
@@ -122,7 +138,14 @@ function WallPageContent() {
   useEffect(() => {
     loadFeed(1);
     loadFeaturedProducts();
-  }, [loadFeed]);
+  }, [loadFeed, loadFeaturedProducts]);
+
+  // Show content preferences modal (first visit or every 30 days)
+  useEffect(() => {
+    if (!loading && user !== undefined && shouldShowPreferencesModal(user)) {
+      setPrefsModalOpen(true);
+    }
+  }, [loading, user]);
   useEffect(() => {
     advertsAPI.getAdverts().then((res) => {
       const data = res.data?.data ?? res.data ?? [];
@@ -387,6 +410,17 @@ function WallPageContent() {
         <Image src="/messages-icon.png" alt="" width={24} height={24} className="h-4 w-4 sm:h-6 sm:w-6 shrink-0 object-contain" />
         <span className="text-xs sm:text-base text-sky-600">Morongwa</span>
       </Link>
+
+      <ContentPreferencesModal
+        open={prefsModalOpen}
+        onClose={() => setPrefsModalOpen(false)}
+        user={user}
+        onSaved={() => {
+          refreshUser?.();
+          loadFeed(1);
+          loadFeaturedProducts();
+        }}
+      />
 
       <CreatePostModal
         open={createOpen}

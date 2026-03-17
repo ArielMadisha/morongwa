@@ -46,6 +46,15 @@ export interface IUser extends Document {
     orderSms?: boolean;
     orderWhatsapp?: boolean;
   };
+  /** Feed content preferences – hide products, etc. */
+  contentPreferences?: {
+    /** When false, product posts and product tiles are hidden from feed */
+    showProducts?: boolean;
+    /** When we last showed the preferences pop-up (for re-asking periodically) */
+    preferencesAskedAt?: Date;
+    /** When user explicitly set preferences */
+    preferencesSetAt?: Date;
+  };
   createdAt: Date;
   updatedAt: Date;
 }
@@ -106,6 +115,11 @@ const UserSchema = new Schema<IUser>(
       orderEmail: { type: Boolean, default: true },
       orderSms: { type: Boolean, default: false },
       orderWhatsapp: { type: Boolean, default: false },
+    },
+    contentPreferences: {
+      showProducts: { type: Boolean, default: true },
+      preferencesAskedAt: { type: Date },
+      preferencesSetAt: { type: Date },
     },
     isVerified: { type: Boolean, default: false },
     active: { type: Boolean, default: true },

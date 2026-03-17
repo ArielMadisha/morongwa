@@ -23,7 +23,6 @@ type QuoteData = {
   shipping: number;
   total: number;
   currency?: string;
-  fulfillmentMethod: "delivery" | "collection";
 };
 
 function formatPrice(price: number, currency = "ZAR") {
@@ -47,7 +46,7 @@ export function CheckoutScreen({ onBack, onPaid }: CheckoutScreenProps) {
   const loadQuote = useCallback(async () => {
     setErrorText("");
     try {
-      const res = await checkoutAPI.quote(fulfillment);
+      const res = await checkoutAPI.quote({ deliveryCountry });
       const data = res.data?.data;
       if (!data) {
         setQuote(null);
@@ -62,29 +61,21 @@ export function CheckoutScreen({ onBack, onPaid }: CheckoutScreenProps) {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [fulfillment]);
+  }, [deliveryCountry]);
 
   useEffect(() => {
     void loadQuote();
   }, [loadQuote]);
 
   const pay = async (method: "wallet" | "card") => {
-    if (method === "wallet" && fulfillment === "delivery" && !deliveryAddress.trim()) {
-      Alert.alert("Address required", "Please enter delivery address.");
-      return;
-    }
-    if (method === "card" && fulfillment === "delivery" && !deliveryAddress.trim()) {
+    if (!deliveryAddress.trim()) {
       Alert.alert("Address required", "Please enter delivery address.");
       return;
     }
     setPayingMethod(method);
     setErrorText("");
     try {
-      const res = await checkoutAPI.pay(
-        method,
-        fulfillment === "delivery" ? deliveryAddress.trim() : undefined,
-        fulfillment
-      );
+      const res = await checkoutAPI.pay(method, deliveryAddress.trim(), deliveryCountry);
       const data = res.data?.data;
       if (data?.paymentUrl) {
         await Linking.openURL(data.paymentUrl);
@@ -133,36 +124,14 @@ export function CheckoutScreen({ onBack, onPaid }: CheckoutScreenProps) {
         </Pressable>
       </View>
       <View style={styles.card}>
-        <Text style={styles.sectionTitle}>Fulfillment</Text>
-        <View style={styles.segmentRow}>
-          <Pressable
-            style={[styles.segmentBtn, fulfillment === "delivery" && styles.segmentBtnActive]}
-            onPress={() => setFulfillment("delivery")}
-          >
-            <Text style={[styles.segmentText, fulfillment === "delivery" && styles.segmentTextActive]}>
-              Delivery
-            </Text>
-          </Pressable>
-          <Pressable
-            style={[styles.segmentBtn, fulfillment === "collection" && styles.segmentBtnActive]}
-            onPress={() => setFulfillment("collection")}
-          >
-            <Text style={[styles.segmentText, fulfillment === "collection" && styles.segmentTextActive]}>
-              Collection at store
-            </Text>
-          </Pressable>
-        </View>
-        {fulfillment === "delivery" ? (
-          <TextInput
-            value={deliveryAddress}
-            onChangeText={setDeliveryAddress}
-            placeholder="Delivery address"
-            placeholderTextColor="#64748b"
-            style={styles.input}
-          />
-        ) : (
-          <Text style={styles.collectionText}>Shipping fee will be R0 for collection.</Text>
-        )}
+        <Text style={styles.sectionTitle}>Delivery</Text>
+        <TextInput
+          value={deliveryAddress}
+          onChangeText={setDeliveryAddress}
+          placeholder="Delivery address (street, suburb, city, postal code)"
+          placeholderTextColor="#64748b"
+          style={styles.input}
+        />
       </View>
       <View style={styles.card}>
         <Text style={styles.sectionTitle}>Order summary</Text>

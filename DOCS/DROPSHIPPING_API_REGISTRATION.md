@@ -77,6 +77,18 @@ EPROLO API documentation may be provided upon request. Strengths: branding, priv
 
 ---
 
+## USD → ZAR Conversion (Dropship Imports)
+
+CJ prices are in USD. Add to `.env`:
+
+```
+USD_ZAR_RATE=18.50
+```
+
+Update this regularly (typical range 18–19). Products are converted to ZAR on import. See `docs/TWO_TIER_PRICING_STEP_BY_STEP.md`.
+
+---
+
 ## Environment Variables Summary
 
 Add to `backend/.env`:
@@ -85,6 +97,9 @@ Add to `backend/.env`:
 # CJ Dropshipping
 CJ_API_KEY=
 CJ_WEBHOOK_SECRET=
+
+# USD→ZAR for dropship imports (update regularly)
+USD_ZAR_RATE=18.50
 
 # Spocket
 SPOCKET_API_KEY=

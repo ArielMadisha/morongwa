@@ -15,14 +15,14 @@ import { initiatePayment } from "../services/payment";
 import { ADMIN_PRODUCT_COMMISSION_PCT } from "../config/fees.config";
 import { notifyOrderPaid } from "../services/orderNotification";
 import { forwardOrderToExternalSupplier } from "../services/orderForwardingService";
+import { getFxRates, convertUsdTo } from "../services/fxService";
 
 const MUSIC_PLATFORM_COMMISSION_PCT = 30;
 const MUSIC_OWNER_SHARE_PCT = 70;
 
 const router = express.Router();
 
-const DEFAULT_SHIPPING_PER_SUPPLIER = 100; // flat ZAR per supplier when not set
-const DEFAULT_EXTERNAL_SHIPPING = 150; // ZAR per external dropship supplier
+const DEFAULT_SHIPPING_PER_SUPPLIER = 100; // R100 flat rate for South African (internal) suppliers only
 
 function getEffectivePrice(product: { price: number; discountPrice?: number }): number {
   const p = product as any;
@@ -41,6 +41,16 @@ function getProductPriceForQty(product: any, qty: number): number {
   return getEffectivePrice(product);
 }
 
+/** Convert product price to ZAR for checkout. ACBPayWallet/PayGate require ZAR. */
+async function toZAR(amount: number, currency: string): Promise<number> {
+  if (!currency || currency === "ZAR") return amount;
+  if (currency === "USD") {
+    const { rates } = await getFxRates();
+    return convertUsdTo(amount, "ZAR", rates);
+  }
+  return amount;
+}
+
 // Get reseller commission for a product from wall (3-7%)
 async function getResellerCommissionPct(resellerId: string, productId: string): Promise<number | null> {
   const wall = await ResellerWall.findOne({ resellerId });
@@ -49,10 +59,27 @@ async function getResellerCommissionPct(resellerId: string, productId: string): 
   return wp?.resellerCommissionPct ?? null;
 }
 
+/** Normalize country to ISO code (e.g. "South Africa" -> "ZA"). */
+function toCountryCode(v: string | undefined): string {
+  if (!v || typeof v !== "string") return "ZA";
+  const u = v.trim().toUpperCase();
+  if (u.length === 2) return u;
+  const map: Record<string, string> = {
+    "SOUTH AFRICA": "ZA", ZA: "ZA",
+    "BOTSWANA": "BW", BW: "BW",
+    "NAMIBIA": "NA", NA: "NA",
+    "LESOTHO": "LS", LS: "LS",
+    "ESWATINI": "SZ", "SWAZILAND": "SZ", SZ: "SZ",
+    "ZIMBABWE": "ZW", ZW: "ZW",
+    "ZAMBIA": "ZM", ZM: "ZM",
+  };
+  return map[u] ?? map[v.trim()] ?? "ZA";
+}
+
 // Get checkout quote from current cart (products + music)
 router.post("/quote", authenticate, async (req: AuthRequest, res: Response, next) => {
   try {
-    const fulfillmentMethod = req.body?.fulfillmentMethod === "collection" ? "collection" : "delivery";
+    const deliveryCountry = toCountryCode(req.body?.deliveryCountry);
     const cart = await Cart.findOne({ user: req.user!._id });
     const hasProducts = cart && cart.items && cart.items.length > 0;
     const hasMusic = cart && cart.musicItems && cart.musicItems.length > 0;
@@ -89,15 +116,59 @@ router.post("/quote", authenticate, async (req: AuthRequest, res: Response, next
       ? await Supplier.find({ _id: { $in: supplierIds } }).select("shippingCost storeName").lean()
       : [];
     const supplierMap = new Map(suppliers.map((s) => [s._id.toString(), s]));
+    const externalSuppliers = uniqueExternalSupplierIds.size > 0
+      ? await (await import("../data/models/ExternalSupplier")).default
+          .find({ _id: { $in: Array.from(uniqueExternalSupplierIds) } })
+          .select("shippingCost source")
+          .lean()
+      : [];
+    const externalSupplierMap = new Map(externalSuppliers.map((s: any) => [s._id.toString(), s]));
+
+    // CJ products: get real freight from CJ API (no flat fallback)
+    const cjProductItems: Array<{ product: any; qty: number }> = [];
+    for (const item of cart.items || []) {
+      const product = productMap.get((item.productId as any).toString());
+      if (product && (product as any).supplierSource === "cj") {
+        const vid = (product as any).externalData?.variants?.[0]?.vid;
+        if (!vid) throw new AppError(`Product "${(product as any).title}" is missing variant data for shipping. Please contact support.`, 400);
+        cjProductItems.push({ product, qty: item.qty });
+      }
+    }
+
     let shipping = 0;
-    if (fulfillmentMethod === "delivery") {
-      for (const sid of supplierIds) {
-        const s = supplierMap.get(sid);
-        shipping += (s as any)?.shippingCost ?? DEFAULT_SHIPPING_PER_SUPPLIER;
+    let cjShippingZar = 0;
+    for (const sid of supplierIds) {
+      const s = supplierMap.get(sid);
+      shipping += (s as any)?.shippingCost ?? DEFAULT_SHIPPING_PER_SUPPLIER;
+    }
+    if (cjProductItems.length > 0) {
+      const { getCJAdapter } = await import("../services/suppliers/supplierService");
+      const cjAdapter = await getCJAdapter();
+      if (!cjAdapter?.getFreightQuote) {
+        throw new AppError("CJ freight calculation is not available. Please try again later.", 503);
       }
-      for (const _ of uniqueExternalSupplierIds) {
-        shipping += DEFAULT_EXTERNAL_SHIPPING;
+      const freightReq = {
+        startCountryCode: "CN",
+        endCountryCode: deliveryCountry,
+        products: cjProductItems.map(({ product, qty }) => ({
+          vid: (product as any).externalData?.variants?.[0]?.vid,
+          quantity: qty,
+        })),
+      };
+      const freightResult = await cjAdapter.getFreightQuote(freightReq);
+      if (!freightResult) {
+        throw new AppError("Unable to get shipping cost for imported products. Please try again or contact support.", 503);
       }
+      const { rates } = await getFxRates();
+      cjShippingZar = Math.round(convertUsdTo(freightResult.logisticPrice, "ZAR", rates));
+      shipping += cjShippingZar;
+    }
+    for (const extId of uniqueExternalSupplierIds) {
+      const ext = externalSupplierMap.get(extId);
+      if ((ext as any)?.source === "cj") continue; // already handled above
+      const cost = (ext as any)?.shippingCost;
+      if (cost != null && cost >= 0) shipping += cost;
+      else throw new AppError("External supplier shipping cost not configured. Please contact support.", 400);
     }
 
     let subtotal = 0;
@@ -107,7 +178,9 @@ router.post("/quote", authenticate, async (req: AuthRequest, res: Response, next
     for (const item of cart.items || []) {
       const product = productMap.get((item.productId as any).toString());
       if (!product) continue;
-      const effectivePrice = getProductPriceForQty(product, item.qty);
+      const effectivePriceRaw = getProductPriceForQty(product, item.qty);
+      const productCurrency = (product as any).currency || "ZAR";
+      const effectivePrice = await toZAR(effectivePriceRaw, productCurrency);
       let sellingPrice = effectivePrice;
       if (item.resellerId && (product as any).allowResell) {
         const resellerCommissionPct = await getResellerCommissionPct((item.resellerId as any).toString(), (item.productId as any).toString());
@@ -143,18 +216,25 @@ router.post("/quote", authenticate, async (req: AuthRequest, res: Response, next
 
     const total = subtotal + shipping;
 
-    const shippingBreakdown = [
-      ...supplierIds.map((sid) => {
-        const s = supplierMap.get(sid);
-        const shippingCost = fulfillmentMethod === "collection" ? 0 : (s as any)?.shippingCost ?? DEFAULT_SHIPPING_PER_SUPPLIER;
-        return { supplierId: sid, storeName: (s as any)?.storeName ?? "Supplier", shippingCost };
-      }),
-      ...Array.from(uniqueExternalSupplierIds).map(() => ({
-        supplierId: "external",
-        storeName: "Dropship",
-        shippingCost: fulfillmentMethod === "collection" ? 0 : DEFAULT_EXTERNAL_SHIPPING,
-      })),
-    ];
+    // Build shipping breakdown (delivery only; no collection)
+    const shippingBreakdown: Array<{ supplierId: string; storeName: string; shippingCost: number }> = [];
+    for (const sid of supplierIds) {
+      const s = supplierMap.get(sid);
+      shippingBreakdown.push({
+        supplierId: sid,
+        storeName: (s as any)?.storeName ?? "Supplier",
+        shippingCost: (s as any)?.shippingCost ?? DEFAULT_SHIPPING_PER_SUPPLIER,
+      });
+    }
+    if (cjShippingZar > 0) {
+      shippingBreakdown.push({ supplierId: "cj", storeName: "CJ / Dropship", shippingCost: cjShippingZar });
+    }
+    for (const extId of uniqueExternalSupplierIds) {
+      if ((externalSupplierMap.get(extId) as any)?.source === "cj") continue;
+      const ext = externalSupplierMap.get(extId);
+      const cost = (ext as any)?.shippingCost ?? 0;
+      shippingBreakdown.push({ supplierId: extId, storeName: "Dropship", shippingCost: cost });
+    }
 
     res.json({
       data: {
@@ -166,7 +246,6 @@ router.post("/quote", authenticate, async (req: AuthRequest, res: Response, next
         currency: "ZAR",
         itemCount: (cart.items?.length ?? 0) + (cart.musicItems?.length ?? 0),
         paymentBreakdown: breakdown,
-        fulfillmentMethod,
       },
     });
   } catch (err) {
@@ -177,8 +256,8 @@ router.post("/quote", authenticate, async (req: AuthRequest, res: Response, next
 // Create order and pay (wallet or card)
 router.post("/pay", authenticate, async (req: AuthRequest, res: Response, next) => {
   try {
-    const { paymentMethod, deliveryAddress, deliveryCountry, fulfillmentMethod: rawFulfillmentMethod } = req.body;
-    let fulfillmentMethod = rawFulfillmentMethod === "collection" ? "collection" : "delivery";
+    const { paymentMethod, deliveryAddress, deliveryCountry: rawCountry } = req.body;
+    const deliveryCountry = toCountryCode(rawCountry);
     if (!paymentMethod || !["wallet", "card"].includes(paymentMethod)) {
       throw new AppError("paymentMethod must be 'wallet' or 'card'", 400);
     }
@@ -188,11 +267,8 @@ router.post("/pay", authenticate, async (req: AuthRequest, res: Response, next) 
     if (!cart || (!hasProducts && !hasMusic)) {
       throw new AppError("Cart is empty", 400);
     }
-    if (hasProducts && fulfillmentMethod === "delivery" && !String(deliveryAddress || "").trim()) {
-      throw new AppError("deliveryAddress is required for delivery", 400);
-    }
-    if (!hasProducts) {
-      fulfillmentMethod = "collection";
+    if (hasProducts && !String(deliveryAddress || "").trim()) {
+      throw new AppError("Delivery address is required", 400);
     }
 
     const productIds = (cart.items || []).map((i) => i.productId);
@@ -222,15 +298,58 @@ router.post("/pay", authenticate, async (req: AuthRequest, res: Response, next) 
       ? await Supplier.find({ _id: { $in: Array.from(uniqueSupplierIds) } }).select("shippingCost").lean()
       : [];
     const supplierMap = new Map(suppliers.map((s) => [s._id.toString(), s]));
+    const externalSuppliersPayData = uniqueExternalSupplierIdsPay.size > 0
+      ? await (await import("../data/models/ExternalSupplier")).default
+          .find({ _id: { $in: Array.from(uniqueExternalSupplierIdsPay) } })
+          .select("shippingCost source")
+          .lean()
+      : [];
+    const externalSupplierMapPay = new Map(externalSuppliersPayData.map((s: any) => [s._id.toString(), s]));
+
+    const cjProductItemsPay: Array<{ product: any; qty: number }> = [];
+    for (const item of cart.items || []) {
+      const product = productMap.get((item.productId as any).toString());
+      if (product && (product as any).supplierSource === "cj") {
+        const vid = (product as any).externalData?.variants?.[0]?.vid;
+        if (!vid) throw new AppError(`Product "${(product as any).title}" is missing variant data for shipping. Please contact support.`, 400);
+        cjProductItemsPay.push({ product, qty: item.qty });
+      }
+    }
+
     let shipping = 0;
-    if (fulfillmentMethod === "delivery") {
-      for (const sid of uniqueSupplierIds) {
-        const s = supplierMap.get(sid);
-        shipping += (s as any)?.shippingCost ?? DEFAULT_SHIPPING_PER_SUPPLIER;
+    let cjShippingZarPay = 0;
+    for (const sid of uniqueSupplierIds) {
+      const s = supplierMap.get(sid);
+      shipping += (s as any)?.shippingCost ?? DEFAULT_SHIPPING_PER_SUPPLIER;
+    }
+    if (cjProductItemsPay.length > 0) {
+      const { getCJAdapter } = await import("../services/suppliers/supplierService");
+      const cjAdapter = await getCJAdapter();
+      if (!cjAdapter?.getFreightQuote) {
+        throw new AppError("CJ freight calculation is not available. Please try again later.", 503);
       }
-      for (const _ of uniqueExternalSupplierIdsPay) {
-        shipping += DEFAULT_EXTERNAL_SHIPPING;
+      const freightReq = {
+        startCountryCode: "CN",
+        endCountryCode: deliveryCountry,
+        products: cjProductItemsPay.map(({ product, qty }) => ({
+          vid: (product as any).externalData?.variants?.[0]?.vid,
+          quantity: qty,
+        })),
+      };
+      const freightResult = await cjAdapter.getFreightQuote(freightReq);
+      if (!freightResult) {
+        throw new AppError("Unable to get shipping cost for imported products. Please try again or contact support.", 503);
       }
+      const { rates } = await getFxRates();
+      cjShippingZarPay = Math.round(convertUsdTo(freightResult.logisticPrice, "ZAR", rates));
+      shipping += cjShippingZarPay;
+    }
+    for (const extId of uniqueExternalSupplierIdsPay) {
+      const ext = externalSupplierMapPay.get(extId);
+      if ((ext as any)?.source === "cj") continue;
+      const cost = (ext as any)?.shippingCost;
+      if (cost != null && cost >= 0) shipping += cost;
+      else throw new AppError("External supplier shipping cost not configured. Please contact support.", 400);
     }
 
     const orderItems: Array<{
@@ -258,7 +377,9 @@ router.post("/pay", authenticate, async (req: AuthRequest, res: Response, next) 
         }
       }
       if (!supplierId) supplierId = (product as any).supplierId?._id ?? (product as any).supplierId ?? (product as any).externalSupplierId;
-      let price = getProductPriceForQty(product as any, item.qty);
+      const priceRaw = getProductPriceForQty(product as any, item.qty);
+      const productCurrency = (product as any).currency || "ZAR";
+      let price = await toZAR(priceRaw, productCurrency);
       let commissionPct: number | undefined;
       if (item.resellerId && (product as any).allowResell) {
         const pct = await getResellerCommissionPct((item.resellerId as any).toString(), (item.productId as any).toString());
@@ -301,17 +422,22 @@ router.post("/pay", authenticate, async (req: AuthRequest, res: Response, next) 
 
     const total = subtotal + musicSubtotal + shipping;
 
-    const shippingBreakdownForOrder = [
-      ...Array.from(uniqueSupplierIds).map((sid) => {
-        const s = supplierMap.get(sid);
-        const shippingCost = fulfillmentMethod === "collection" ? 0 : (s as any)?.shippingCost ?? DEFAULT_SHIPPING_PER_SUPPLIER;
-        return { storeName: (s as any)?.storeName ?? "Supplier", shippingCost };
-      }),
-      ...Array.from(uniqueExternalSupplierIdsPay).map(() => ({
-        storeName: "Dropship",
-        shippingCost: fulfillmentMethod === "collection" ? 0 : DEFAULT_EXTERNAL_SHIPPING,
-      })),
-    ];
+    const shippingBreakdownForOrder: Array<{ storeName: string; shippingCost: number }> = [];
+    for (const sid of uniqueSupplierIds) {
+      const s = supplierMap.get(sid);
+      shippingBreakdownForOrder.push({
+        storeName: (s as any)?.storeName ?? "Supplier",
+        shippingCost: (s as any)?.shippingCost ?? DEFAULT_SHIPPING_PER_SUPPLIER,
+      });
+    }
+    if (cjShippingZarPay > 0) {
+      shippingBreakdownForOrder.push({ storeName: "CJ / Dropship", shippingCost: cjShippingZarPay });
+    }
+    for (const extId of uniqueExternalSupplierIdsPay) {
+      if ((externalSupplierMapPay.get(extId) as any)?.source === "cj") continue;
+      const ext = externalSupplierMapPay.get(extId);
+      shippingBreakdownForOrder.push({ storeName: "Dropship", shippingCost: (ext as any)?.shippingCost ?? 0 });
+    }
 
     const paymentBreakdownForOrder = {
       items: orderItems.map((oi) => {
@@ -344,9 +470,9 @@ router.post("/pay", authenticate, async (req: AuthRequest, res: Response, next) 
       },
       paymentBreakdown: paymentBreakdownForOrder,
       delivery: {
-        method: fulfillmentMethod === "collection" ? "collection" : "courier",
-        address: fulfillmentMethod === "delivery" ? deliveryAddress || "" : "",
-        countryCode: deliveryCountry || "ZA",
+        method: "courier",
+        address: String(deliveryAddress || "").trim(),
+        countryCode: deliveryCountry,
       },
       paymentMethod,
     });

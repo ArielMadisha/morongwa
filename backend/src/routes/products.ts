@@ -51,14 +51,16 @@ router.get("/", async (req: Request, res: Response) => {
       .lean()
       .then((docs) => docs.map((d) => d._id));
 
-    if (approvedSupplierIds.length === 0) {
+    const match: Record<string, unknown> = {
+      active: true,
+      $or: [
+        ...(approvedSupplierIds.length > 0 ? [{ supplierId: { $in: approvedSupplierIds } }] : []),
+        { supplierSource: { $in: ["cj", "spocket", "eprolo"] } },
+      ],
+    };
+    if (match.$or && (match.$or as any[]).length === 0) {
       return res.json({ data: [], count: 0 });
     }
-
-    const match: Record<string, unknown> = {
-      supplierId: { $in: approvedSupplierIds },
-      active: true,
-    };
     if (q && q.length >= 2) {
       match.$or = [
         { title: { $regex: q, $options: "i" } },
@@ -69,7 +71,7 @@ router.get("/", async (req: Request, res: Response) => {
     }
 
     let query = Product.find(match)
-      .select("title slug description images price discountPrice bulkTiers currency stock outOfStock categories tags availableCountries ratingAvg ratingCount")
+      .select("title slug description images price discountPrice bulkTiers currency stock outOfStock categories tags availableCountries ratingAvg ratingCount supplierSource allowResell")
       .populate("supplierId", "storeName")
       .lean();
 
@@ -104,7 +106,10 @@ router.get("/:idOrSlug", async (req: Request, res: Response) => {
 
     const baseQuery = {
       active: true,
-      supplierId: { $in: approvedSupplierIds },
+      $or: [
+        ...(approvedSupplierIds.length > 0 ? [{ supplierId: { $in: approvedSupplierIds } }] : []),
+        { supplierSource: { $in: ["cj", "spocket", "eprolo"] } },
+      ],
     };
 
     const query = isMongoId
@@ -112,7 +117,7 @@ router.get("/:idOrSlug", async (req: Request, res: Response) => {
       : Product.findOne({ slug: idOrSlug, ...baseQuery });
 
     const product = await query
-      .populate("supplierId", "storeName status")
+      .populate("supplierId", "storeName status shippingCost")
       .lean()
       .exec();
 
@@ -120,7 +125,30 @@ router.get("/:idOrSlug", async (req: Request, res: Response) => {
       return res.status(404).json({ error: true, message: "Product not found" });
     }
 
-    res.json({ data: product });
+    const DEFAULT_SHIPPING = 100;
+    const DEFAULT_EXTERNAL_SHIPPING = 150;
+    const src = (product as any).supplierSource;
+    const isExternal = src && ["cj", "spocket", "eprolo"].includes(src);
+    let estimatedShipping: number;
+    if (isExternal) {
+      const extId = (product as any).externalSupplierId;
+      if (extId) {
+        const ExternalSupplier = (await import("../data/models/ExternalSupplier")).default;
+        const ext = await ExternalSupplier.findById(extId).select("shippingCost").lean();
+        estimatedShipping = (ext as any)?.shippingCost ?? DEFAULT_EXTERNAL_SHIPPING;
+      } else {
+        estimatedShipping = DEFAULT_EXTERNAL_SHIPPING;
+      }
+    } else {
+      estimatedShipping = ((product as any).supplierId as any)?.shippingCost ?? DEFAULT_SHIPPING;
+    }
+
+    res.json({
+      data: {
+        ...product,
+        estimatedShipping,
+      },
+    });
   } catch (err) {
     console.error("GET /api/products/:id error:", err);
     res.status(500).json({ error: true, message: "Failed to get product" });

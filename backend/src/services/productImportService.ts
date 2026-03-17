@@ -1,6 +1,6 @@
 /**
  * Product import from external suppliers (CJ, Spocket, EPROLO)
- * Uses 2-tier pricing: Supplier Cost → Platform Price → Reseller Final Price
+ * All prices stored in USD. Frontend converts to local currency based on user country.
  */
 
 import Product from "../data/models/Product";
@@ -55,6 +55,16 @@ export async function importProductFromCJ(
     externalSupplierId: ext._id,
   });
 
+  let stock = 999;
+  let outOfStock = false;
+  if (adapter.getStockByVid && sp.defaultVariantId) {
+    const cjStock = await adapter.getStockByVid(sp.defaultVariantId);
+    if (cjStock !== null) {
+      stock = cjStock;
+      outOfStock = cjStock < 1;
+    }
+  }
+
   const doc = {
     supplierSource: "cj" as const,
     externalSupplierId: ext._id,
@@ -70,9 +80,9 @@ export async function importProductFromCJ(
     description: sp.description || "",
     images: sp.images || [],
     price: Math.round(platformPriceVal * 100) / 100,
-    currency: "ZAR",
-    stock: 999,
-    outOfStock: false,
+    currency: "USD",
+    stock,
+    outOfStock,
     allowResell: true,
     categories: sp.categories || ["Imported"],
     tags: [],
@@ -88,6 +98,27 @@ export async function importProductFromCJ(
 
   const product = await Product.create(doc);
   return { product, created: true };
+}
+
+/** Search CJ products only (no import) – for admin browse/preview */
+export async function searchCJProducts(
+  query: string,
+  options?: { page?: number; size?: number }
+): Promise<Array<{ id: string; name: string; sku?: string; supplierCost: number; images: string[]; categories?: string[] }>> {
+  const adapter = await getSupplierAdapter("cj");
+  if (!adapter) return [];
+
+  const page = options?.page ?? 1;
+  const size = Math.min(options?.size ?? 20, 50);
+  const results = await adapter.searchProducts(query, { page, size });
+  return results.map((sp) => ({
+    id: sp.id,
+    name: sp.name,
+    sku: sp.sku,
+    supplierCost: sp.supplierCost,
+    images: sp.images || [],
+    categories: sp.categories,
+  }));
 }
 
 export async function searchAndImportFromCJ(

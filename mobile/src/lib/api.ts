@@ -114,21 +114,16 @@ export const walletAPI = {
 };
 
 export const checkoutAPI = {
-  quote: (fulfillmentMethod: "delivery" | "collection" = "delivery") =>
+  quote: (params?: { deliveryCountry?: string }) =>
     api.post<{
       data?: {
         subtotal: number;
         shipping: number;
         total: number;
         currency?: string;
-        fulfillmentMethod: "delivery" | "collection";
       };
-    }>("/checkout/quote", { fulfillmentMethod }),
-  pay: (
-    paymentMethod: "wallet" | "card",
-    deliveryAddress?: string,
-    fulfillmentMethod: "delivery" | "collection" = "delivery"
-  ) =>
+    }>("/checkout/quote", { deliveryCountry: params?.deliveryCountry ?? "ZA" }),
+  pay: (paymentMethod: "wallet" | "card", deliveryAddress: string, deliveryCountry?: string) =>
     api.post<{
       data?: {
         orderId?: string;
@@ -136,5 +131,5 @@ export const checkoutAPI = {
         message?: string;
         paymentUrl?: string;
       };
-    }>("/checkout/pay", { paymentMethod, deliveryAddress, fulfillmentMethod })
+    }>("/checkout/pay", { paymentMethod, deliveryAddress, deliveryCountry: deliveryCountry ?? "ZA" })
 };

@@ -6,12 +6,12 @@ import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { useAuth } from '@/contexts/AuthContext';
 import { storesAPI, resellerAPI, suppliersAPI, getImageUrl, getEffectivePrice } from '@/lib/api';
 import Link from 'next/link';
-import { Loader2, Package, Plus, Store } from 'lucide-react';
+import { Loader2, Package, Plus, Store, RefreshCw } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { AppSidebar, AppSidebarMenuButton } from '@/components/AppSidebar';
 import { SearchButton } from '@/components/SearchButton';
 import { ProfileHeaderButton } from '@/components/ProfileHeaderButton';
-import { useCartAndStores } from '@/lib/useCartAndStores';
+import { useCartAndStores, invalidateCartStoresCache } from '@/lib/useCartAndStores';
 import { MobileBottomNav } from '@/components/MobileBottomNav';
 import StoreHeader from '@/components/StoreHeader';
 
@@ -91,6 +91,7 @@ export default function MyStorePage() {
     }
   };
 
+  const [refreshingWall, setRefreshingWall] = useState(false);
   const fetchWall = async () => {
     try {
       const res = await resellerAPI.getMyWall();
@@ -100,6 +101,14 @@ export default function MyStorePage() {
     } catch {
       setWallProducts([]);
     }
+  };
+
+  const refreshAll = async () => {
+    setRefreshingWall(true);
+    invalidateCartStoresCache();
+    await Promise.all([fetchStores(), fetchWall(), fetchSupplierProducts()]);
+    setRefreshingWall(false);
+    toast.success('Refreshed');
   };
 
   const fetchSupplierProducts = async () => {
@@ -168,6 +177,14 @@ export default function MyStorePage() {
               </div>
               <div className="flex-1 min-w-0" />
             <div className="flex items-center gap-2 shrink-0">
+              <button
+                onClick={refreshAll}
+                disabled={refreshingWall}
+                className="p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-slate-800 disabled:opacity-50"
+                title="Refresh store"
+              >
+                <RefreshCw className={`h-5 w-5 ${refreshingWall ? 'animate-spin' : ''}`} />
+              </button>
               <SearchButton />
               <ProfileHeaderButton />
             </div>
@@ -192,13 +209,21 @@ export default function MyStorePage() {
           <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
             {!loading && stores.length > 0 ? (
               <>
-                {stores.map((store) => (
+                {/* When user has both supplier and reseller stores, show single unified header (prefer supplier store) */}
+                {(() => {
+                  const supplierStore = stores.find((s) => s.type === 'supplier');
+                  const resellerStore = stores.find((s) => s.type === 'reseller');
+                  const displayStores = supplierStore && resellerStore
+                    ? [{ ...supplierStore, _merged: true }]
+                    : stores;
+                  return displayStores.map((store) => (
                   <div key={store._id}>
                     <StoreHeader
                       title={store.name}
                       address={store.address || 'Enter address'}
                       phone={store.cellphone || store.whatsapp || '—'}
                       email={store.email || '—'}
+                      storeSlug={store.slug}
                       isEditing={editingId === store._id}
                       onEdit={() =>
                         editingId === store._id ? cancelEdit() : startEdit(store)
@@ -289,7 +314,8 @@ export default function MyStorePage() {
                       </div>
                     )}
                   </div>
-                ))}
+                ));
+                })()}
               </>
             ) : null}
             <main className="flex-1 overflow-y-auto px-4 sm:px-6 lg:px-8 py-8 pb-24 lg:pb-8 min-h-0">
@@ -305,7 +331,6 @@ export default function MyStorePage() {
                 const hasResellerStore = stores.some((s) => s.type === 'reseller');
                 const showSupplierProducts = hasSupplierStore;
                 const validWallProducts = wallProducts.filter((wp) => wp.product);
-                const showWallProducts = hasResellerStore && validWallProducts.length > 0;
 
                 return (
                   <>
@@ -357,9 +382,9 @@ export default function MyStorePage() {
                         </Link>
                       </div>
                     ) : null}
-                    {showWallProducts && (
+                    {hasResellerStore && (
                       <>
-                        {hasResellerStore && validWallProducts.length > 0 && (
+                        {validWallProducts.length > 0 ? (
                           <div className={showSupplierProducts ? 'mt-10' : ''}>
                             {showSupplierProducts && <h3 className="text-lg font-semibold text-slate-800 mb-4">Products from QwertyHub</h3>}
                             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
@@ -369,7 +394,7 @@ export default function MyStorePage() {
                           const basePrice = getEffectivePrice(p);
                           const resellerPrice = Math.round(basePrice * (1 + markup / 100) * 100) / 100;
                           return (
-                            <Link key={wp.productId} href={`/marketplace/product/${p._id}`} className="group flex flex-col rounded-xl border border-slate-100 overflow-hidden bg-white shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200">
+                            <Link key={wp.productId} href={`/marketplace/product/${p._id}${(user as any)?._id || (user as any)?.id ? `?resellerId=${(user as any)._id || (user as any).id}&resellerCommissionPct=${wp.resellerCommissionPct ?? 5}` : ''}`} className="group flex flex-col rounded-xl border border-slate-100 overflow-hidden bg-white shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200">
                               <div className="aspect-square bg-slate-100 overflow-hidden">
                                 {p.images?.[0] ? (
                                   <img src={getImageUrl(p.images[0])} alt="" className="h-full w-full object-cover group-hover:scale-105 transition-transform duration-200" />
@@ -388,15 +413,14 @@ export default function MyStorePage() {
                         })}
                             </div>
                           </div>
-                        )}
-                        {hasResellerStore && validWallProducts.length === 0 && !showSupplierProducts && (
-                          <div className="rounded-xl border-2 border-dashed border-slate-200 bg-white/70 backdrop-blur-sm p-10 text-center shadow-sm">
+                        ) : (
+                          <div className={`rounded-xl border-2 border-dashed border-slate-200 bg-white/70 backdrop-blur-sm p-10 text-center shadow-sm ${showSupplierProducts ? 'mt-10' : ''}`}>
                             <div className="h-12 w-12 rounded-xl bg-brand-50 text-brand-600 grid place-items-center mx-auto mb-4">
                               <Package className="h-6 w-6" />
                             </div>
-                            <h3 className="text-slate-800 font-semibold text-lg">No products yet</h3>
-                            <p className="text-slate-500 mt-1">Add products from QwertyHub to your store.</p>
-                            <Link href="/marketplace" className="inline-block mt-6 px-5 py-2 rounded-lg border border-slate-200 bg-white text-slate-800 hover:bg-slate-50 shadow-xs">
+                            <h3 className="text-slate-800 font-semibold text-lg">No products from QwertyHub yet</h3>
+                            <p className="text-slate-500 mt-1">Add products from QwertyHub to your store to resell them.</p>
+                            <Link href="/marketplace" className="inline-block mt-6 px-5 py-2.5 rounded-lg bg-brand-500 text-white font-medium hover:bg-brand-600 shadow-sm">
                               Browse QwertyHub →
                             </Link>
                           </div>

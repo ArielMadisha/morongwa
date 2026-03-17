@@ -30,7 +30,8 @@ import { upload } from "../middleware/upload";
 import { sendNotification } from "../services/notification";
 import payoutService from "../services/payoutService";
 import fnbService from "../services/fnbService";
-import { importProductFromCJ, searchAndImportFromCJ } from "../services/productImportService";
+import { importProductFromCJ, searchAndImportFromCJ, searchCJProducts } from "../services/productImportService";
+import { syncCjProductStock } from "../services/cjStockSyncService";
 
 const router = express.Router();
 
@@ -1098,7 +1099,7 @@ router.post(
 
 router.get("/products", async (req: AuthRequest, res: Response, next) => {
   try {
-    const { page, limit, supplierId, active } = req.query;
+    const { page, limit, supplierId, active, supplierSource } = req.query;
     const { skip, limit: limitNum } = getPaginationParams(
       page ? parseInt(page as string) : undefined,
       limit ? parseInt(limit as string) : undefined
@@ -1106,6 +1107,7 @@ router.get("/products", async (req: AuthRequest, res: Response, next) => {
     const query: any = {};
     if (supplierId) query.supplierId = supplierId;
     if (active !== undefined) query.active = active === "true";
+    if (supplierSource) query.supplierSource = supplierSource;
     const [products, total] = await Promise.all([
       Product.find(query).populate("supplierId", "storeName status").sort({ createdAt: -1 }).skip(skip).limit(limitNum).lean(),
       Product.countDocuments(query),
@@ -1183,6 +1185,20 @@ router.post("/products", async (req: AuthRequest, res: Response, next) => {
   }
 });
 
+/** Search CJ products only (browse) – superadmin */
+router.get("/dropship/search-cj", requireSuperAdmin, async (req: AuthRequest, res: Response, next) => {
+  try {
+    const { q, page, size } = req.query;
+    const results = await searchCJProducts((q as string) || "hoodie", {
+      page: page ? parseInt(page as string) : 1,
+      size: size ? parseInt(size as string) : 20,
+    });
+    res.json({ products: results });
+  } catch (err) {
+    next(err);
+  }
+});
+
 /** Import product from CJ by product ID */
 router.post("/dropship/import-cj/:cjProductId", requireSuperAdmin, async (req: AuthRequest, res: Response, next) => {
   try {
@@ -1204,6 +1220,24 @@ router.post("/dropship/search-import-cj", requireSuperAdmin, async (req: AuthReq
     res.json({ message: "Import complete", imported: results.filter(Boolean).length, data: results });
   } catch (err) {
     next(err);
+  }
+});
+
+/** Sync CJ product stock from CJ API (run periodically to avoid selling out-of-stock) */
+router.post("/dropship/sync-cj-stock", requireSuperAdmin, async (req: AuthRequest, res: Response, next) => {
+  try {
+    const result = await syncCjProductStock();
+    res.json({
+      message: "Stock sync complete",
+      data: {
+        total: result.total,
+        updated: result.updated,
+        failed: result.failed,
+        outOfStock: result.outOfStock,
+      },
+    });
+  } catch (err: any) {
+    next(new AppError(err?.message || "CJ stock sync failed", 503));
   }
 });
 

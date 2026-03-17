@@ -286,8 +286,18 @@ export const adminAPI = {
   updateStore: (id: string, data: { name?: string }) => api.put(`/admin/stores/${id}`, data),
 
   // Products (admin load products for marketplace)
-  getProducts: (params?: { page?: number; limit?: number; supplierId?: string; active?: boolean }) =>
+  getProducts: (params?: { page?: number; limit?: number; supplierId?: string; active?: boolean; supplierSource?: string }) =>
     api.get('/admin/products', { params }),
+
+  // Dropshipping (CJ – superadmin only)
+  searchCJProducts: (params?: { q?: string; page?: number; size?: number }) =>
+    api.get('/admin/dropship/search-cj', { params }),
+  importCJProduct: (cjProductId: string, forceUpdate?: boolean) =>
+    api.post(`/admin/dropship/import-cj/${cjProductId}${forceUpdate ? '?forceUpdate=true' : ''}`),
+  searchImportCJ: (data: { query?: string; limit?: number }) =>
+    api.post('/admin/dropship/search-import-cj', data),
+  syncCjStock: () =>
+    api.post<{ data: { total: number; updated: number; failed: number; outOfStock: string[] } }>('/admin/dropship/sync-cj-stock'),
   uploadProductImages: (files: File[]) => {
     const formData = new FormData();
     files.forEach((f) => formData.append('images', f));
@@ -438,6 +448,8 @@ export const usersAPI = {
     documents.forEach((f) => formData.append('documents', f));
     return api.post(`/users/${id}/vehicles`, formData, { headers: { 'Content-Type': 'multipart/form-data' } });
   },
+  updateContentPreferences: (id: string, data: { showProducts?: boolean; preferencesAskedAt?: string }) =>
+    api.patch(`/users/${id}/content-preferences`, data),
 };
 
 export const policiesAPI = {
@@ -492,14 +504,10 @@ export const cartAPI = {
 };
 
 export const checkoutAPI = {
-  quote: (fulfillmentMethod: 'delivery' | 'collection' = 'delivery') =>
-    api.post('/checkout/quote', { fulfillmentMethod }),
-  pay: (
-    paymentMethod: 'wallet' | 'card',
-    deliveryAddress?: string,
-    fulfillmentMethod: 'delivery' | 'collection' = 'delivery'
-  ) =>
-    api.post('/checkout/pay', { paymentMethod, deliveryAddress, fulfillmentMethod }),
+  quote: (params?: { deliveryAddress?: string; deliveryCountry?: string }) =>
+    api.post('/checkout/quote', { deliveryCountry: params?.deliveryCountry ?? 'ZA', deliveryAddress: params?.deliveryAddress }),
+  pay: (paymentMethod: 'wallet' | 'card', deliveryAddress: string, deliveryCountry?: string) =>
+    api.post('/checkout/pay', { paymentMethod, deliveryAddress, deliveryCountry: deliveryCountry ?? 'ZA' }),
   getOrder: (orderId: string) => api.get(`/checkout/order/${orderId}`),
 };
 
@@ -547,8 +555,10 @@ export const productEnquiryAPI = {
 
 export const tvAPI = {
   getPost: (id: string) => api.get(`/tv/${id}`),
-  getFeed: (params?: { page?: number; limit?: number; sort?: 'newest' | 'trending' | 'random'; type?: 'video' | 'image' | 'carousel' | 'product' | 'images' | 'audio' | 'text'; creatorId?: string; q?: string; genre?: string }) =>
-    api.get('/tv', { params }),
+  getFeed: (params?: { page?: number; limit?: number; sort?: 'newest' | 'trending' | 'random'; type?: 'video' | 'image' | 'carousel' | 'product' | 'images' | 'audio' | 'text'; creatorId?: string; q?: string; genre?: string; hideProducts?: boolean }) => {
+    const { hideProducts, ...rest } = params ?? {};
+    return api.get('/tv', { params: { ...rest, ...(hideProducts ? { hideProducts: '1' } : {}) } });
+  },
   getStatuses: () => api.get('/tv/statuses'),
   getTrendingHashtags: (limit?: number) => api.get<{ data: { tag: string; count: number }[] }>('/tv/hashtags/trending', { params: { limit } }),
   uploadMedia: (file: File) => {
@@ -590,7 +600,8 @@ export const tvAPI = {
     return api.post(`/tv/${id}/comments`, payload);
   },
   getWatermark: () => api.get<{ data: { watermark: string } }>('/tv/watermark'),
-  getFeaturedProducts: () => api.get('/tv/products/featured'),
+  getFeaturedProducts: (hideProducts?: boolean) =>
+    api.get('/tv/products/featured', { params: hideProducts ? { hideProducts: '1' } : undefined }),
 };
 
 export const translateAPI = {
