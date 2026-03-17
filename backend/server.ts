@@ -175,8 +175,9 @@ const initializeServices = () => {
   logger.info("Services initialized successfully");
 };
 
-// Start server
-const PORT = process.env.PORT || 4000;
+// Start server (try preferred port, then next available if EADDRINUSE)
+const PREFERRED_PORT = parseInt(process.env.PORT || "4000", 10);
+const MAX_PORT_ATTEMPTS = 5;
 
 const startServer = async () => {
   try {

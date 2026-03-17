@@ -25,6 +25,7 @@ import { authAPI } from '@/lib/api';
 type Step = 'phone' | 'verify' | 'profile' | 'email';
 type Mode = 'whatsapp' | 'sms' | 'email';
 
+/** All registration is on the landing page. */
 export default function RegisterPage() {
   const searchParams = useSearchParams();
   const [step, setStep] = useState<Step>('phone');

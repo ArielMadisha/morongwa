@@ -343,7 +343,9 @@ router.get("/", authenticateOptional, async (req: AuthRequest, res: Response, ne
 router.post("/upload", authenticate, tvUploadSingle.single("media"), async (req: AuthRequest, res: Response, next) => {
   try {
     if (!req.file) throw new AppError("No file uploaded", 400);
-    const filePath = (req.file as any).path || path.join(__dirname, "../../uploads/tv", req.file.filename);
+    const filePath =
+      (req.file as Express.Multer.File & { path?: string }).path ??
+      path.join(req.file.destination ?? path.join(__dirname, "../../uploads/tv"), req.file.filename);
     const result = await moderateMedia(filePath, req.file.mimetype);
     if (!result.safe) {
       try {

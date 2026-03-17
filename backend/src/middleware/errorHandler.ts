@@ -19,8 +19,19 @@ export const errorHandler = (
   res: Response,
   _next: NextFunction
 ): void => {
-  const statusCode = err instanceof AppError ? err.statusCode : 500;
-  const message = err.message || "Internal server error";
+  const multerCode = (err as { code?: string }).code;
+  const statusCode =
+    err instanceof AppError
+      ? err.statusCode
+      : multerCode === "LIMIT_FILE_SIZE" || multerCode === "LIMIT_UNEXPECTED_FILE"
+        ? 400
+        : 500;
+  const message =
+    multerCode === "LIMIT_FILE_SIZE"
+      ? "File is too large"
+      : multerCode === "LIMIT_UNEXPECTED_FILE"
+        ? "Unexpected file field"
+        : err.message || "Internal server error";
 
   logger.error("Error occurred:", {
     message: err.message,
