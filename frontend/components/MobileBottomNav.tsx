@@ -2,8 +2,7 @@
 
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
-import Image from 'next/image';
-import { Package, Tv, ShoppingCart, User } from 'lucide-react';
+import { Package, Tv, ShoppingCart, Wallet, Search } from 'lucide-react';
 
 interface MobileBottomNavProps {
   cartCount?: number;
@@ -18,16 +17,15 @@ export function MobileBottomNav({ cartCount = 0, hasStore }: MobileBottomNavProp
   const isActive = (href: string) =>
     pathname === href || (href !== '/' && pathname.startsWith(href));
 
-  // Order: QwertyHub, QwertyTV, Me, Cart (only when items), Home (Q logo at bottom right)
+  // Order: QwertyHub, QwertyTV, ACBPayWallet, Cart, Ask MacGyver
   const baseItems = [
     { href: '/marketplace', label: 'QwertyHub', icon: Package },
     { href: '/morongwa-tv', label: 'QwertyTV', icon: Tv },
-    { href: '/profile', label: 'Me', icon: User },
+    { href: '/wallet', label: 'ACBPayWallet', icon: Wallet },
+    { href: '/cart', label: 'Cart', icon: ShoppingCart, badge: cartCount },
+    { href: '/search', label: 'Ask MacGyver', icon: Search, isAsk: true },
   ];
-  const cartItem = cartCount > 0
-    ? [{ href: '/cart', label: 'Cart', icon: ShoppingCart, badge: cartCount }]
-    : [];
-  const navItems = [...baseItems, ...cartItem, { href: '/wall', label: 'Home', isLogo: true }];
+  const navItems = baseItems;
 
   return (
     <nav
@@ -35,43 +33,39 @@ export function MobileBottomNav({ cartCount = 0, hasStore }: MobileBottomNavProp
       style={{ paddingBottom: 'max(env(safe-area-inset-bottom, 0px), 8px)' }}
       aria-label="Bottom navigation"
     >
-      <div className="flex items-stretch justify-around px-1 pt-2">
+      <div className="flex items-stretch justify-between px-1.5 pt-1.5 gap-1">
         {navItems.map((item) => {
           const badge = 'badge' in item ? (item as any).badge : 0;
           const active = isActive(item.href);
-          const isLogo = 'isLogo' in item && (item as any).isLogo;
-          const Icon = !isLogo ? (item as any).icon : null;
+          const Icon = (item as any).icon;
+          const isAsk = !!(item as any).isAsk;
           return (
             <Link
               key={item.href}
               href={item.href}
-              className={`${tapTarget} px-2 py-1 rounded-lg transition-colors ${
-                active ? 'bg-brand-50 text-brand-600' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-800'
-              }`}
+              className={
+                isAsk
+                  ? `min-h-[40px] inline-flex items-center justify-center gap-1.5 px-2.5 py-1 rounded-full border transition-colors whitespace-nowrap ${
+                      active
+                        ? 'border-brand-200 bg-brand-50 text-brand-700'
+                        : 'border-slate-200 bg-white text-slate-500 hover:border-sky-300 hover:bg-sky-50/30'
+                    }`
+                  : `${tapTarget} px-1.5 py-1 rounded-lg transition-colors ${
+                      active ? 'bg-brand-50 text-brand-600' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-800'
+                    }`
+              }
               aria-current={active ? 'page' : undefined}
-              aria-label={isLogo ? 'Home' : item.label}
+              aria-label={item.label}
             >
-              {isLogo ? (
-                <span className="relative block w-8 h-8">
-                  <Image
-                    src="/qwerty-home-icon.png"
-                    alt="Home"
-                    width={32}
-                    height={32}
-                    className="object-contain"
-                  />
-                </span>
-              ) : (
-                <span className="relative">
-                  {Icon && <Icon className="h-6 w-6" />}
-                  {badge > 0 && (
-                    <span className="absolute -top-1.5 -right-2 min-w-[18px] h-[18px] flex items-center justify-center rounded-full bg-brand-500 text-white text-[10px] font-bold px-1">
-                      {badge > 99 ? '99+' : badge}
-                    </span>
-                  )}
-                </span>
-              )}
-              {!isLogo && <span className="text-[10px] font-medium">{item.label}</span>}
+              <span className="relative">
+                {Icon && <Icon className={isAsk ? 'h-4 w-4' : 'h-5 w-5'} />}
+                {badge > 0 && (
+                  <span className="absolute -top-1.5 -right-2 min-w-[18px] h-[18px] flex items-center justify-center rounded-full bg-brand-500 text-white text-[10px] font-bold px-1">
+                    {badge > 99 ? '99+' : badge}
+                  </span>
+                )}
+              </span>
+              <span className={isAsk ? 'text-[11px] font-medium leading-none' : 'text-[10px] font-medium'}>{item.label}</span>
             </Link>
           );
         })}

@@ -43,6 +43,7 @@ export const errorHandler = (
 
   res.status(statusCode).json({
     error: message,
+    message: message, // alias for frontend compatibility
     ...(process.env.NODE_ENV === "development" && { stack: err.stack }),
   });
 };

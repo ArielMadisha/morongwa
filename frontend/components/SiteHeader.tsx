@@ -8,6 +8,7 @@ import { useCartAndStores } from '@/lib/useCartAndStores';
 import { getImageUrl } from '@/lib/api';
 import { Package, Home, ArrowRight, LayoutDashboard, ShoppingBag, ShoppingCart, Store, Menu, X } from 'lucide-react';
 import { SearchButton } from '@/components/SearchButton';
+import { ProfileHeaderButton } from '@/components/ProfileHeaderButton';
 
 type SiteHeaderProps = {
   minimal?: boolean;
@@ -92,15 +93,7 @@ export default function SiteHeader({ minimal }: SiteHeaderProps) {
             <span className="w-px h-6 bg-slate-200 mx-1" aria-hidden />
             <SearchButton className="hidden md:flex" />
             {isAuthenticated && user ? (
-              <Link
-                href="/profile"
-                className="flex items-center justify-center p-2 rounded-full text-slate-700 hover:bg-slate-100"
-                aria-label="Profile"
-              >
-                <span className="w-8 h-8 rounded-full bg-brand-50 text-brand-700 flex items-center justify-center text-sm font-bold ring-2 ring-white shadow-sm">
-                  {user.name?.charAt(0)?.toUpperCase() || 'U'}
-                </span>
-              </Link>
+              <ProfileHeaderButton />
             ) : (
               <>
                 <Link
@@ -120,23 +113,11 @@ export default function SiteHeader({ minimal }: SiteHeaderProps) {
             )}
           </nav>
 
-          {/* Mobile: Ask McGyver + profile + hamburger */}
+          {/* Mobile: Ask MacGyver + profile + hamburger */}
           <div className="md:hidden flex items-center gap-1">
             <SearchButton className="max-w-[140px]" />
             {isAuthenticated && user ? (
-              <Link
-                href="/profile"
-                className={`${tapTarget} p-1 rounded-full text-slate-700 hover:bg-slate-100`}
-                aria-label="Profile"
-              >
-                <span className="w-8 h-8 rounded-full bg-brand-50 text-brand-700 flex items-center justify-center text-sm font-bold ring-2 ring-white shadow-sm overflow-hidden">
-                  {user.avatar ? (
-                    <img src={getImageUrl(user.avatar)} alt={user.name || 'Profile'} className="h-full w-full object-cover" />
-                  ) : (
-                    user.name?.charAt(0)?.toUpperCase() || 'U'
-                  )}
-                </span>
-              </Link>
+              <ProfileHeaderButton className="shrink-0" />
             ) : null}
             <button
               type="button"
@@ -178,7 +159,13 @@ export default function SiteHeader({ minimal }: SiteHeaderProps) {
                       </Link>
                     )}
                     <Link href="/profile" onClick={() => setMobileMenuOpen(false)} className={`flex items-center gap-3 px-4 py-3 text-slate-700 hover:bg-slate-50 ${tapTarget} justify-start border-t border-slate-100 mt-1`}>
-                      <span className="w-8 h-8 rounded-full bg-brand-50 text-brand-700 flex items-center justify-center text-sm font-bold">{user.name?.charAt(0)?.toUpperCase() || 'U'}</span>
+                      <span className="w-9 h-9 rounded-full bg-brand-50 text-brand-700 flex items-center justify-center text-xs font-bold ring-1 ring-slate-200 shadow-sm overflow-hidden">
+                        {(user as { avatar?: string }).avatar ? (
+                          <img src={getImageUrl((user as { avatar?: string }).avatar)} alt={user.name || 'Profile'} className="h-full w-full object-cover" />
+                        ) : (
+                          user.name?.charAt(0)?.toUpperCase() || 'U'
+                        )}
+                      </span>
                       <span>Profile</span>
                     </Link>
                   </>

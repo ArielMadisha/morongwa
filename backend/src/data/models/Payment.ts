@@ -10,6 +10,8 @@ export interface IPayment extends Document {
   refundReason?: string;
   disputeReason?: string;
   refundedAt?: Date;
+  /** For MUSIC-* payments: { musicItems: Array<{ songId, qty, price }> } */
+  metadata?: Record<string, any>;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -28,6 +30,7 @@ const PaymentSchema = new Schema<IPayment>(
     refundReason: { type: String },
     disputeReason: { type: String },
     refundedAt: { type: Date },
+    metadata: { type: Schema.Types.Mixed },
   },
   { timestamps: true }
 );

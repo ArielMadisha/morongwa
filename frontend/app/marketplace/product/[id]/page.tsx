@@ -4,17 +4,19 @@ import { useState, useEffect } from 'react';
 import { useParams, usePathname, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import DOMPurify from 'dompurify';
 import { Package, ArrowLeft, ShoppingCart, X, MapPin } from 'lucide-react';
 import { productsAPI, cartAPI, resellerAPI, getImageUrl, getEffectivePrice } from '@/lib/api';
 import { invalidateCartStoresCache, useCartAndStores } from '@/lib/useCartAndStores';
 import { useAuth } from '@/contexts/AuthContext';
+import { useCurrency } from '@/contexts/CurrencyContext';
 import type { Product } from '@/lib/types';
 import { AppSidebar, AppSidebarMenuButton } from '@/components/AppSidebar';
 import { SearchButton } from '@/components/SearchButton';
 import { MobileBottomNav } from '@/components/MobileBottomNav';
 import toast from 'react-hot-toast';
 
-function formatPrice(price: number, currency: string) {
+function formatPriceLocal(price: number, currency: string) {
   return new Intl.NumberFormat('en-ZA', {
     style: 'currency',
     currency: currency || 'ZAR',
@@ -30,6 +32,7 @@ export default function ProductPage() {
   const searchParams = useSearchParams();
   const id = params.id as string;
   const { user, logout } = useAuth();
+  const { formatPrice: formatInLocal } = useCurrency();
   const { cartCount, hasStore } = useCartAndStores(!!user);
   const [product, setProduct] = useState<Product | null>(null);
   const [loading, setLoading] = useState(true);
@@ -38,7 +41,10 @@ export default function ProductPage() {
   const [addToWallModal, setAddToWallModal] = useState(false);
   const [resellerCommissionPct, setResellerCommissionPct] = useState(5);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [fetchedResellerCommission, setFetchedResellerCommission] = useState<number | null>(null);
   const viewResell = searchParams.get('view') === 'resell';
+  const resellerIdFromUrl = searchParams.get('resellerId');
+  const resellerCommissionPctFromUrl = searchParams.get('resellerCommissionPct');
 
   useEffect(() => {
     if (!id) return;
@@ -50,11 +56,24 @@ export default function ProductPage() {
   }, [id]);
 
   // When view=resell, open add-to-wall modal automatically (after product loads)
+  // Do NOT open if resellerId in URL – viewing from reseller's store, not original library
   useEffect(() => {
-    if (viewResell && product && user && (product as any).allowResell) {
+    if (viewResell && product && user && (product as any).allowResell && !resellerIdFromUrl) {
       setAddToWallModal(true);
     }
-  }, [viewResell, product, user]);
+  }, [viewResell, product, user, resellerIdFromUrl]);
+
+  // Fetch reseller commission when viewing from reseller's store (resellerId in URL, no commission in URL)
+  useEffect(() => {
+    if (!resellerIdFromUrl || resellerCommissionPctFromUrl || !product?._id) return;
+    resellerAPI.getWall(resellerIdFromUrl)
+      .then((res) => {
+        const products = (res.data?.data ?? res.data)?.products ?? [];
+        const wp = products.find((p: any) => (p.productId ?? p.product?._id)?.toString() === product._id);
+        if (wp?.resellerCommissionPct != null) setFetchedResellerCommission(wp.resellerCommissionPct);
+      })
+      .catch(() => {});
+  }, [resellerIdFromUrl, resellerCommissionPctFromUrl, product?._id]);
 
   const handleLogout = () => {
     logout();
@@ -85,8 +104,13 @@ export default function ProductPage() {
   const storeName = typeof product.supplierId === 'object' && product.supplierId?.storeName
     ? product.supplierId.storeName
     : null;
-  const allowResell = 'allowResell' in product ? (product as any).allowResell : false;
+  const allowResell = !resellerIdFromUrl && ('allowResell' in product ? (product as any).allowResell : false);
   const isOutOfStock = (product as any).outOfStock || (product.stock != null && product.stock < 1);
+
+  const effectiveCommission = resellerCommissionPctFromUrl ? Number(resellerCommissionPctFromUrl) : fetchedResellerCommission;
+  const displayPrice = resellerIdFromUrl && effectiveCommission != null
+    ? Math.round(getEffectivePrice(product) * (1 + effectiveCommission / 100) * 100) / 100
+    : getEffectivePrice(product);
 
   const addToCart = () => {
     if (isOutOfStock) { toast.error('Product is out of stock'); return; }
@@ -95,7 +119,7 @@ export default function ProductPage() {
       return;
     }
     setAddingCart(true);
-    cartAPI.add(product._id, 1).then(() => { toast.success('Added to cart'); invalidateCartStoresCache(); setAddingCart(false); }).catch(() => { toast.error('Failed'); setAddingCart(false); });
+    cartAPI.add(product._id, 1, resellerIdFromUrl || undefined).then(() => { toast.success('Added to cart'); invalidateCartStoresCache(); setAddingCart(false); }).catch(() => { toast.error('Failed'); setAddingCart(false); });
   };
 
   const addToWall = () => {
@@ -134,7 +158,7 @@ export default function ProductPage() {
         <header className="bg-white/85 backdrop-blur-md border-b border-slate-100 shadow-sm flex-shrink-0">
           <div className="px-4 sm:px-6 lg:px-8 py-3 sm:py-4 flex items-center justify-between gap-3 sm:gap-4">
             <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-              {user && <AppSidebarMenuButton onClick={() => setMenuOpen(true)} />}
+              {user && <AppSidebarMenuButton onClick={() => setMenuOpen((v) => !v)} />}
               <Link href="/marketplace" className="text-slate-700 hover:text-sky-600 font-medium">← QwertyHub</Link>
             </div>
             <div className="flex-1 min-w-0" />
@@ -175,23 +199,60 @@ export default function ProductPage() {
                 <h1 className="text-2xl font-bold text-slate-900">{product.title}</h1>
                 {isOutOfStock && <span className="px-2 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800">Out of stock</span>}
               </div>
+              {((product as any)._id || (product as any).externalProductId) && (
+                <p className="mt-2 text-xs text-slate-500 font-mono flex flex-wrap gap-x-3 gap-y-0.5">
+                  {(product as any)._id && <span title={(product as any)._id}>ID: {(product as any)._id}</span>}
+                  {(product as any).externalProductId && (
+                    <span
+                      className="cursor-copy hover:text-sky-600"
+                      title="CJ Product ID – click to copy"
+                      onClick={() => {
+                        navigator.clipboard.writeText((product as any).externalProductId);
+                        toast.success('Product ID copied');
+                      }}
+                    >
+                      CJ: {(product as any).externalProductId}
+                    </span>
+                  )}
+                </p>
+              )}
               <div className="mt-2">
-                {product.discountPrice != null && product.discountPrice < product.price ? (
-                  <>
-                    <span className="text-2xl font-bold text-sky-600">{formatPrice(product.discountPrice, product.currency)}</span>
-                    <span className="ml-2 text-base text-slate-400 line-through">{formatPrice(product.price, product.currency)}</span>
-                  </>
+                {resellerIdFromUrl ? (
+                  <p className="text-2xl font-bold text-sky-600">
+                    {product.currency === 'USD' ? formatInLocal(displayPrice) : formatPriceLocal(displayPrice, product.currency)}
+                  </p>
+                ) : product.currency === 'USD' ? (
+                  product.discountPrice != null && product.discountPrice < product.price ? (
+                    <>
+                      <span className="text-2xl font-bold text-sky-600">{formatInLocal(product.discountPrice)}</span>
+                      <span className="ml-2 text-base text-slate-400 line-through">{formatInLocal(product.price)}</span>
+                    </>
+                  ) : (
+                    <p className="text-2xl font-bold text-sky-600">{formatInLocal(product.price)}</p>
+                  )
                 ) : (
-                  <p className="text-2xl font-bold text-sky-600">{formatPrice(product.price, product.currency)}</p>
+                  product.discountPrice != null && product.discountPrice < product.price ? (
+                    <>
+                      <span className="text-2xl font-bold text-sky-600">{formatPriceLocal(product.discountPrice, product.currency)}</span>
+                      <span className="ml-2 text-base text-slate-400 line-through">{formatPriceLocal(product.price, product.currency)}</span>
+                    </>
+                  ) : (
+                    <p className="text-2xl font-bold text-sky-600">{formatPriceLocal(product.price, product.currency)}</p>
+                  )
                 )}
               </div>
+              {(product as any).estimatedShipping != null && (
+                <p className="text-sm text-slate-600 mt-2">
+                  Shipping: {formatPriceLocal((product as any).estimatedShipping, 'ZAR')}
+                </p>
+              )}
               {(product as any).bulkTiers?.length > 0 && (
                 <div className="mt-2 rounded-lg bg-sky-50 border border-sky-100 px-3 py-2">
                   <p className="text-xs font-medium text-sky-800 mb-1">Bulk pricing</p>
                   <ul className="text-sm text-sky-700 space-y-0.5">
                     {((product as any).bulkTiers as Array<{ minQty: number; maxQty: number; price: number }>).map((t, i) => (
                       <li key={i}>
-                        {t.minQty}–{t.maxQty} units: {formatPrice(t.price, product.currency)} each
+                        {t.minQty}–{t.maxQty} units: {product.currency === 'USD' ? formatInLocal(t.price) : formatPriceLocal(t.price, product.currency)} each
                       </li>
                     ))}
                   </ul>
@@ -218,7 +279,12 @@ export default function ProductPage() {
                 </p>
               )}
               {product.description && (
-                <p className="text-slate-600 mt-4">{product.description}</p>
+                <div
+                  className="text-slate-600 mt-4 prose prose-slate prose-sm prose-img:rounded-lg prose-img:max-w-full max-w-none"
+                  dangerouslySetInnerHTML={{
+                    __html: DOMPurify.sanitize(product.description, { ADD_ATTR: ['target'] }),
+                  }}
+                />
               )}
               <div className="flex flex-wrap gap-3 mt-6">
                 <button
@@ -235,6 +301,8 @@ export default function ProductPage() {
                 <Link href={user ? '/cart' : `/register?returnTo=${encodeURIComponent('/cart')}`} className="text-sky-600 hover:text-sky-700">View cart</Link>
                 {' · '}
                 <Link href="/marketplace" className="text-sky-600 hover:text-sky-700">Back to marketplace</Link>
+                {' · '}
+                <Link href="/support?category=products:marketplace" className="text-sky-600 hover:text-sky-700">Need help?</Link>
               </p>
             </div>
           </div>
@@ -264,7 +332,7 @@ export default function ProductPage() {
                   onChange={(e) => setResellerCommissionPct(Number(e.target.value))}
                   className="w-full"
                 />
-                <p className="text-sm font-semibold text-sky-600 mt-1">{resellerCommissionPct}% — Selling price: {formatPrice(Math.round(getEffectivePrice(product) * (1 + resellerCommissionPct / 100) * 100) / 100, product.currency)}</p>
+                <p className="text-sm font-semibold text-sky-600 mt-1">{resellerCommissionPct}% — Selling price: {product.currency === 'USD' ? formatInLocal(Math.round(getEffectivePrice(product) * (1 + resellerCommissionPct / 100) * 100) / 100) : formatPriceLocal(Math.round(getEffectivePrice(product) * (1 + resellerCommissionPct / 100) * 100) / 100, product.currency)}</p>
               </div>
               <div className="flex gap-2">
                 <button onClick={addToWall} disabled={addingWall} className="flex-1 rounded-lg bg-sky-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-700 disabled:opacity-50">

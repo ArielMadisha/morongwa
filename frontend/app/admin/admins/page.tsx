@@ -19,12 +19,20 @@ const SECTIONS = [
   'policies',
 ];
 
+const SUPPORT_CATEGORIES = [
+  { value: 'music', label: 'Music' },
+  { value: 'videos', label: 'Videos' },
+  { value: 'wallet', label: 'Wallet' },
+  { value: 'products', label: 'Products' },
+  { value: 'general', label: 'General' },
+];
+
 export default function AdminAdminsPage() {
   const [admins, setAdmins] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
   const [creating, setCreating] = useState(false);
-  const [form, setForm] = useState({ email: '', name: '', password: '', sections: [] as string[] });
+  const [form, setForm] = useState({ email: '', name: '', password: '', sections: [] as string[], supportCategories: [] as string[] });
 
   const loadAdmins = async () => {
     setLoading(true);
@@ -58,10 +66,11 @@ export default function AdminAdminsPage() {
         name: form.name.trim(),
         password: form.password,
         sections: form.sections,
+        supportCategories: form.sections.includes('support') ? form.supportCategories : [],
       });
       toast.success('Admin created');
       setShowCreate(false);
-      setForm({ email: '', name: '', password: '', sections: [] });
+      setForm({ email: '', name: '', password: '', sections: [], supportCategories: [] });
       loadAdmins();
     } catch (e: any) {
       toast.error(e.response?.data?.message || 'Failed to create admin');
@@ -74,6 +83,14 @@ export default function AdminAdminsPage() {
     setForm((f) => ({
       ...f,
       sections: f.sections.includes(s) ? f.sections.filter((x) => x !== s) : [...f.sections, s],
+      supportCategories: s === 'support' && !f.sections.includes(s) ? [] : f.supportCategories,
+    }));
+  };
+
+  const toggleSupportCategory = (c: string) => {
+    setForm((f) => ({
+      ...f,
+      supportCategories: f.supportCategories.includes(c) ? f.supportCategories.filter((x) => x !== c) : [...f.supportCategories, c],
     }));
   };
 
@@ -138,6 +155,16 @@ export default function AdminAdminsPage() {
                           <span className="text-slate-400 text-sm">No sections</span>
                         )}
                       </div>
+                      {a.sections?.includes('support') && (a.supportCategories?.length ?? 0) > 0 && (
+                        <div className="mt-1 flex flex-wrap gap-1">
+                          <span className="text-xs text-slate-500">Support:</span>
+                          {(a.supportCategories || []).map((c: string) => (
+                            <span key={c} className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-700 text-xs">
+                              {c}
+                            </span>
+                          ))}
+                        </div>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -199,6 +226,24 @@ export default function AdminAdminsPage() {
                     ))}
                   </div>
                 </div>
+                {form.sections.includes('support') && (
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-2">Support ticket categories (leave empty = all)</label>
+                    <p className="text-xs text-slate-500 mb-2">Assign which support categories this admin can handle. Empty = all categories.</p>
+                    <div className="flex flex-wrap gap-2">
+                      {SUPPORT_CATEGORIES.map((c) => (
+                        <label key={c.value} className="flex items-center gap-1.5 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={form.supportCategories.includes(c.value)}
+                            onChange={() => toggleSupportCategory(c.value)}
+                          />
+                          <span className="text-sm text-slate-700">{c.label}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 <div className="flex gap-3 pt-4">
                   <button
                     type="button"

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { Tv, Plus, Loader2, User } from 'lucide-react';
 import { QwertyTVWithGenres } from '@/components/tv/QwertyTVWithGenres';
@@ -10,6 +10,7 @@ import ProtectedRoute from '@/components/ProtectedRoute';
 import { useCartAndStores } from '@/lib/useCartAndStores';
 import { AppSidebar, AppSidebarMenuButton } from '@/components/AppSidebar';
 import { SearchButton } from '@/components/SearchButton';
+import { ProfileHeaderButton } from '@/components/ProfileHeaderButton';
 import { TVGridTileWithObserver } from '@/components/tv/TVGridTileWithObserver';
 import type { TVGridItem } from '@/components/tv/TVGridTile';
 import { CreatePostModal } from '@/components/tv/CreatePostModal';
@@ -22,12 +23,14 @@ import toast from 'react-hot-toast';
 function MorongwaTVPageContent() {
   const { user, logout } = useAuth();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [menuOpen, setMenuOpen] = useState(false);
   const [gridItems, setGridItems] = useState<TVGridItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
+  const [hasMore, setHasMore] = useState(true);
   const [createOpen, setCreateOpen] = useState(false);
   const [enquireOpen, setEnquireOpen] = useState(false);
   const [enquireProductId, setEnquireProductId] = useState<string | null>(null);
@@ -39,6 +42,7 @@ function MorongwaTVPageContent() {
   const { cartCount, hasStore } = useCartAndStores(!!user);
   const containerRef = useRef<HTMLDivElement>(null);
   const loadMoreSentinelRef = useRef<HTMLDivElement>(null);
+  const composeHandledRef = useRef(false);
   const limit = 8;
 
   const loadLiveUsers = useCallback(() => {
@@ -58,14 +62,23 @@ function MorongwaTVPageContent() {
   const loadFeed = useCallback(async (pageNum = 1, append = false) => {
     if (pageNum === 1) setLoading(true);
     else setLoadingMore(true);
+    if (pageNum === 1) setHasMore(true);
     try {
       const res = await tvAPI.getFeed({ page: pageNum, limit, type: 'video', genre: genre || undefined });
       const data = res.data?.data ?? res.data ?? [];
       const posts = Array.isArray(data) ? data : [];
-      setTotal(res.data?.total ?? posts.length);
-      setGridItems((prev) => (append ? [...prev, ...posts] : posts));
+      const fetchedTotal = Number(res.data?.total ?? posts.length);
+      setTotal(fetchedTotal);
+      let nextCount = posts.length;
+      setGridItems((prev) => {
+        const next = append ? [...prev, ...posts] : posts;
+        nextCount = next.length;
+        return next;
+      });
+      setHasMore(nextCount < fetchedTotal && posts.length > 0);
     } catch {
       if (!append) setGridItems([]);
+      if (append) setHasMore(false);
     } finally {
       setLoading(false);
       setLoadingMore(false);
@@ -77,12 +90,23 @@ function MorongwaTVPageContent() {
     loadLiveUsers();
   }, [loadFeed, loadLiveUsers, genre]);
 
+  useEffect(() => {
+    const compose = searchParams.get('compose');
+    if (composeHandledRef.current) return;
+    if (compose === 'qwertz') {
+      composeHandledRef.current = true;
+      setGenre('qwertz');
+      setCreateOpen(true);
+      router.replace('/morongwa-tv');
+    }
+  }, [router, searchParams]);
+
   const loadMore = useCallback(() => {
-    if (loadingMore || gridItems.length >= total) return;
+    if (!hasMore || loadingMore || gridItems.length >= total) return;
     const nextPage = page + 1;
     setPage(nextPage);
     loadFeed(nextPage, true);
-  }, [loadingMore, gridItems.length, total, page, loadFeed]);
+  }, [hasMore, loadingMore, gridItems.length, total, page, loadFeed]);
 
   useEffect(() => {
     const sentinel = loadMoreSentinelRef.current;
@@ -91,7 +115,7 @@ function MorongwaTVPageContent() {
     const observer = new IntersectionObserver(
       (entries) => {
         const [e] = entries;
-        if (e?.isIntersecting && !loading && !loadingMore && gridItems.length < total && gridItems.length > 0) {
+        if (e?.isIntersecting && hasMore && !loading && !loadingMore && gridItems.length < total && gridItems.length > 0) {
           loadMore();
         }
       },
@@ -99,7 +123,7 @@ function MorongwaTVPageContent() {
     );
     observer.observe(sentinel);
     return () => observer.disconnect();
-  }, [loadMore, loading, loadingMore, gridItems.length, total]);
+  }, [loadMore, hasMore, loading, loadingMore, gridItems.length, total]);
 
   const handleLike = (id: string, liked: boolean) => {
     setLikedMap((m) => ({ ...m, [id]: liked }));
@@ -176,22 +200,21 @@ function MorongwaTVPageContent() {
     <div className="min-h-screen flex flex-col bg-gradient-to-br from-sky-50 via-blue-50 to-white text-slate-900">
       {/* Full-width frozen header - logo, QwertyTV title, Live now strip, actions */}
       <header className="sticky top-0 z-40 w-full bg-white/95 backdrop-blur-md border-b border-slate-100 shadow-sm flex-shrink-0">
-        <div className="px-4 sm:px-6 lg:px-8 py-2 sm:py-3">
-          <div className="flex items-center gap-2 sm:gap-4 min-w-0">
+        <div className="px-3 sm:px-6 lg:px-8 py-1">
+          <div className="flex items-center gap-2 sm:gap-3 w-full">
             <Link href="/wall" className="shrink-0 flex items-center" aria-label="Home">
               <img src="/qwertymates-logo-icon.png" alt="Qwertymates" className="h-8 w-8 object-contain lg:hidden" />
-              <img src="/qwertymates-logo.png" alt="Qwertymates" className="h-8 w-auto object-contain hidden lg:block" />
+              <img src="/qwertymates-logo.png" alt="Qwertymates" className="h-7 w-auto object-contain hidden lg:block" />
             </Link>
-            <AppSidebarMenuButton onClick={() => setMenuOpen(true)} />
+            <AppSidebarMenuButton onClick={() => setMenuOpen((v) => !v)} />
             <button
               onClick={() => setCreateOpen(true)}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-brand-500 text-white font-medium hover:bg-brand-600 transition-colors shrink-0"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand-500 text-white font-medium hover:bg-brand-600 transition-colors shrink-0"
             >
               <Plus className="h-4 w-4" />
               <span className="text-sm">Create</span>
             </button>
-            {/* Live now strip - in top bar */}
-            <div className="flex-1 min-w-0 overflow-x-auto scrollbar-thin flex items-center gap-2 py-1">
+            <div className="flex-1 min-w-0 overflow-x-auto scrollbar-thin flex items-center gap-2">
               {liveUsers.length > 0 && (
                 <>
                   <span className="flex items-center gap-1.5 shrink-0 text-xs font-medium text-slate-600">
@@ -202,17 +225,17 @@ function MorongwaTVPageContent() {
                     <Link
                       key={u.userId}
                       href={`/morongwa-tv/user/${u.userId}`}
-                      className="flex-shrink-0 flex items-center gap-2 px-2 py-1.5 rounded-lg bg-red-50 border border-red-200 hover:border-red-400 transition-colors"
+                      className="flex-shrink-0 flex items-center gap-2 px-2 py-1 rounded-lg bg-red-50 border border-red-200 hover:border-red-400 transition-colors"
                     >
                       <div className="relative">
-                        <div className="h-7 w-7 rounded-full bg-sky-100 border-2 border-red-300 flex items-center justify-center overflow-hidden">
+                        <div className="h-6 w-6 rounded-full bg-sky-100 border-2 border-red-300 flex items-center justify-center overflow-hidden">
                           {u.avatar ? (
                             <img src={u.avatar} alt="" className="h-full w-full object-cover" />
                           ) : (
-                            <User className="h-4 w-4 text-sky-600" />
+                            <User className="h-3 w-3 text-sky-600" />
                           )}
                         </div>
-                        <span className="absolute -bottom-0.5 -right-0.5 inline-flex h-2 w-2 rounded-full bg-red-500" />
+                        <span className="absolute -bottom-0.5 -right-0.5 inline-flex h-1.5 w-1.5 rounded-full bg-red-500" />
                       </div>
                       <span className="text-xs font-medium text-slate-800 truncate max-w-[60px] sm:max-w-[80px]">{u.name || 'User'}</span>
                     </Link>
@@ -220,16 +243,17 @@ function MorongwaTVPageContent() {
                 </>
               )}
             </div>
-            <div className="flex items-center gap-2 shrink-0">
-              <SearchButton />
+            <div className="shrink-0 flex items-center gap-2">
               <QwertyTVWithGenres selectedGenre={genre} onGenreSelect={setGenre} />
+              <SearchButton />
+              <ProfileHeaderButton />
             </div>
           </div>
         </div>
       </header>
 
       {/* Menu (sidebar) + content below header */}
-      <div className="flex flex-1 min-h-0">
+      <div ref={containerRef} className="flex flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain">
         <AppSidebar
           variant="wall"
           userName={user?.name}
@@ -242,9 +266,10 @@ function MorongwaTVPageContent() {
           setMenuOpen={setMenuOpen}
           hideLogo
           belowHeader
+          allowPageScroll
         />
-        <div ref={containerRef} className="flex-1 flex flex-col lg:flex-row gap-0 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain">
-        <main className="flex-1 min-w-0 px-4 sm:px-6 lg:px-8 py-4 pb-24 lg:pb-6 order-2 lg:order-none">
+        <div className="flex-1 flex flex-col lg:flex-row gap-0 min-h-0">
+        <main className="flex-1 min-w-0 px-4 sm:px-6 lg:px-8 pt-0 pb-24 lg:pb-6 order-2 lg:order-none">
           {loading && allItems.length === 0 ? (
             <div className="flex justify-center py-24">
               <Loader2 className="h-12 w-12 text-sky-500 animate-spin" />
@@ -261,11 +286,16 @@ function MorongwaTVPageContent() {
                 <Plus className="h-5 w-5" />
                 Create post
               </button>
+              <p className="mt-6 text-sm text-slate-500">
+                Need help? <Link href="/support?category=videos:morongwa_tv" className="text-sky-600 hover:underline">Contact support</Link>
+              </p>
             </div>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 w-full">
-              {allItems.map((item) => (
-                <div key={item._id} className="w-full min-h-[300px] flex flex-col rounded-xl bg-white border border-slate-100 shadow-sm overflow-hidden">
+              {allItems
+                .filter((item, i, arr) => arr.findIndex((x) => x._id === item._id) === i)
+                .map((item, idx) => (
+                <div key={`${item._id}-${idx}`} className="w-full min-h-[300px] flex flex-col rounded-xl bg-white border border-slate-100 shadow-sm overflow-hidden">
                   <TVGridTileWithObserver
                     item={item}
                     liked={likedMap[item._id]}
@@ -274,14 +304,16 @@ function MorongwaTVPageContent() {
                     currentUserId={user?._id || user?.id}
                     onEnquire={handleEnquire}
                     onCommentAdded={item.type !== 'product_tile' ? handleCommentAdded : undefined}
+                    onDelete={(id) => setGridItems((prev) => prev.filter((i) => i._id !== id))}
                     variant="grid"
+                    relatedVideos={allItems}
                   />
                 </div>
-              ))}
+                ))}
             </div>
           )}
 
-          {!loading && allItems.length < total && (
+          {!loading && hasMore && allItems.length < total && (
             <div ref={loadMoreSentinelRef} className="flex justify-center py-8 min-h-[80px]">
               {loadingMore ? (
                 <Loader2 className="h-8 w-8 text-sky-500 animate-spin" />

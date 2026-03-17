@@ -2,6 +2,7 @@
 import express, { Response } from "express";
 import SupportTicket from "../data/models/SupportTicket";
 import AuditLog from "../data/models/AuditLog";
+import AdminPermission from "../data/models/AdminPermission";
 import { authenticate, AuthRequest, authorize } from "../middleware/auth";
 import { supportTicketSchema } from "../utils/validators";
 import { AppError } from "../middleware/errorHandler";
@@ -9,6 +10,13 @@ import { getPaginationParams } from "../utils/helpers";
 import { sendNotification } from "../services/notification";
 
 const router = express.Router();
+
+const isSuperAdmin = (req: AuthRequest): boolean => {
+  const r = req.user?.role;
+  if (!r) return false;
+  const roles = Array.isArray(r) ? r : [r];
+  return (roles as string[]).includes("superadmin");
+};
 
 // Create support ticket
 router.post("/", authenticate, async (req: AuthRequest, res: Response, next) => {
@@ -70,14 +78,14 @@ router.get("/my-tickets", authenticate, async (req: AuthRequest, res: Response, 
   }
 });
 
-// Get all tickets (admin only)
+// Get all tickets (admin only) - filtered by admin's support categories when not superadmin
 router.get(
   "/",
   authenticate,
   authorize("admin", "superadmin"),
   async (req: AuthRequest, res: Response, next) => {
     try {
-      const { page, limit, status, priority } = req.query;
+      const { page, limit, status, category, priority } = req.query;
       const { skip, limit: limitNum } = getPaginationParams(
         page ? parseInt(page as string) : undefined,
         limit ? parseInt(limit as string) : undefined
@@ -85,7 +93,28 @@ router.get(
 
       const query: any = {};
       if (status) query.status = status;
+      if (category) query.category = category;
       if (priority) query.priority = priority;
+
+      // Non-superadmin: if they have AdminPermission, require support section; otherwise allow (legacy admins)
+      if (!isSuperAdmin(req)) {
+        const perm = await AdminPermission.findOne({ userId: req.user!._id }).lean();
+        if (perm && !perm.sections?.includes("support")) {
+          return res.status(403).json({ error: "Insufficient permissions for support" });
+        }
+        const cats = perm?.supportCategories ?? [];
+        if (cats.length > 0) {
+          if (category) {
+            const main = (category as string).split(":")[0];
+            if (!cats.includes(main)) {
+              return res.json({ tickets: [], pagination: { total: 0, page: 1, limit: limitNum, pages: 0 } });
+            }
+            query.category = category;
+          } else {
+            query.category = { $in: cats.map((c) => new RegExp(`^${c}:`)) };
+          }
+        }
+      }
 
       const [tickets, total] = await Promise.all([
         SupportTicket.find(query)
@@ -123,12 +152,21 @@ router.get("/:id", authenticate, async (req: AuthRequest, res: Response, next) =
     if (!ticket) throw new AppError("Ticket not found", 404);
 
     const hasRole = (roles: any, r: string) => Array.isArray(roles) ? roles.includes(r) : roles === r;
+    const isAdminOrSuper = hasRole(req.user!.role, "admin") || hasRole(req.user!.role, "superadmin");
 
-    if (
-      ticket.user.toString() !== req.user!._id.toString() &&
-      !hasRole(req.user!.role, "admin") &&
-      !hasRole(req.user!.role, "superadmin")
-    ) {
+    if (ticket.user.toString() === req.user!._id.toString()) {
+      // Ticket owner - always allowed
+    } else if (isAdminOrSuper) {
+      if (!isSuperAdmin(req)) {
+        const perm = await AdminPermission.findOne({ userId: req.user!._id }).lean();
+        if (!perm?.sections?.includes("support")) throw new AppError("Insufficient permissions for support", 403);
+        const cats = perm?.supportCategories ?? [];
+        if (cats.length > 0) {
+          const main = (ticket.category || "").split(":")[0];
+          if (!cats.includes(main)) throw new AppError("Ticket category not in your assigned support areas", 403);
+        }
+      }
+    } else {
       throw new AppError("Unauthorized", 403);
     }
 
@@ -145,12 +183,21 @@ router.post("/:id/messages", authenticate, async (req: AuthRequest, res: Respons
     if (!ticket) throw new AppError("Ticket not found", 404);
 
     const hasRole2 = (roles: any, r: string) => Array.isArray(roles) ? roles.includes(r) : roles === r;
+    const isAdminOrSuper = hasRole2(req.user!.role, "admin") || hasRole2(req.user!.role, "superadmin");
 
-    if (
-      ticket.user.toString() !== req.user!._id.toString() &&
-      !hasRole2(req.user!.role, "admin") &&
-      !hasRole2(req.user!.role, "superadmin")
-    ) {
+    if (ticket.user.toString() === req.user!._id.toString()) {
+      // Owner allowed
+    } else if (isAdminOrSuper) {
+      if (!isSuperAdmin(req)) {
+        const perm = await AdminPermission.findOne({ userId: req.user!._id }).lean();
+        if (!perm?.sections?.includes("support")) throw new AppError("Insufficient permissions for support", 403);
+        const cats = perm?.supportCategories ?? [];
+        if (cats.length > 0) {
+          const main = (ticket.category || "").split(":")[0];
+          if (!cats.includes(main)) throw new AppError("Ticket category not in your assigned support areas", 403);
+        }
+      }
+    } else {
       throw new AppError("Unauthorized", 403);
     }
 
@@ -196,6 +243,16 @@ router.put(
 
       const ticket = await SupportTicket.findById(req.params.id);
       if (!ticket) throw new AppError("Ticket not found", 404);
+
+      if (!isSuperAdmin(req)) {
+        const perm = await AdminPermission.findOne({ userId: req.user!._id }).lean();
+        if (!perm?.sections?.includes("support")) throw new AppError("Insufficient permissions for support", 403);
+        const cats = perm?.supportCategories ?? [];
+        if (cats.length > 0) {
+          const main = (ticket.category || "").split(":")[0];
+          if (!cats.includes(main)) throw new AppError("Ticket category not in your assigned support areas", 403);
+        }
+      }
 
       ticket.status = status;
       if (status === "resolved") ticket.resolvedAt = new Date();

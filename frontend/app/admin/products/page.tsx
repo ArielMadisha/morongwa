@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { adminAPI } from '@/lib/api';
 import Link from 'next/link';
-import { ArrowLeft, Package, Loader2, Plus, Pencil, Trash2, ImagePlus, X, Layers } from 'lucide-react';
+import { ArrowLeft, Package, Loader2, Plus, Trash2, ImagePlus, X, Layers } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 const MAX_IMAGES = 5;
@@ -22,6 +22,8 @@ interface ProductRow {
   stock: number;
   active: boolean;
   supplierId?: { _id: string; storeName?: string; status?: string };
+  supplierSource?: string;
+  externalProductId?: string;
   createdAt?: string;
 }
 
@@ -441,6 +443,7 @@ export default function AdminProductsPage() {
                     <tr>
                       <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700">Product</th>
                       <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700">Supplier</th>
+                      <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700">CJ / External ID</th>
                       <th className="text-right py-3 px-4 text-sm font-semibold text-slate-700">Price</th>
                       <th className="text-right py-3 px-4 text-sm font-semibold text-slate-700">Stock</th>
                       <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700">Status</th>
@@ -454,7 +457,23 @@ export default function AdminProductsPage() {
                           <p className="font-medium text-slate-900">{p.title}</p>
                           <p className="text-xs text-slate-500">{p.slug}</p>
                         </td>
-                        <td className="py-3 px-4 text-sm">{(p.supplierId as any)?.storeName ?? '—'}</td>
+                        <td className="py-3 px-4 text-sm">{(p.supplierId as any)?.storeName ?? ((p as any).supplierSource === 'cj' ? 'CJ Dropshipping' : (p as any).supplierSource ?? '—')}</td>
+                        <td className="py-3 px-4 text-sm">
+                          {(p as any).externalProductId ? (
+                            <code
+                              className="text-xs font-mono text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded cursor-copy"
+                              title="CJ Product ID – copy to trace in CJ Dropshipping"
+                              onClick={() => {
+                                navigator.clipboard.writeText((p as any).externalProductId);
+                                toast.success('CJ Product ID copied');
+                              }}
+                            >
+                              {(p as any).externalProductId}
+                            </code>
+                          ) : (
+                            <span className="text-slate-400">—</span>
+                          )}
+                        </td>
                         <td className="py-3 px-4 text-right font-medium text-slate-900">
                           {(p as any).discountPrice != null && (p as any).discountPrice < p.price ? (
                             <span><span className="text-sky-600">{formatPrice((p as any).discountPrice)}</span> <span className="text-slate-400 line-through text-sm">{formatPrice(p.price)}</span></span>
@@ -466,6 +485,7 @@ export default function AdminProductsPage() {
                         <td className="py-3 px-4 text-sm">{p.active ? 'Active' : 'Inactive'}</td>
                         <td className="py-3 px-4 text-right">
                           <Link href={`/marketplace/product/${p._id}`} className="text-sky-600 hover:underline text-sm mr-2">View</Link>
+                          <Link href={`/admin/products/${p._id}/edit`} className="text-emerald-600 hover:underline text-sm mr-2">Edit</Link>
                           <button type="button" onClick={() => handleDelete(p._id)} className="text-red-600 hover:underline text-sm">Delete</button>
                         </td>
                       </tr>

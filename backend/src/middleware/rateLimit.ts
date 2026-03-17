@@ -16,6 +16,15 @@ export const authLimiter = rateLimit({
   skipSuccessfulRequests: true,
 });
 
+/** Stricter limit for OTP send - prevents SMS/WhatsApp abuse and Twilio cost exhaustion. */
+export const otpSendLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: process.env.NODE_ENV === "development" ? 20 : 3, // 3 per 15 min per IP in prod
+  message: "Too many verification requests. Please try again later.",
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 export const strictLimiter = rateLimit({
   windowMs: 60 * 60 * 1000, // 1 hour
   max: 10,

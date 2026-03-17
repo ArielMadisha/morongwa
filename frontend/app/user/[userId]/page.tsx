@@ -62,6 +62,7 @@ function UserProfileContent() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
+  const [hasMore, setHasMore] = useState(true);
   const [likedMap, setLikedMap] = useState<Record<string, boolean>>({});
   const [viewingPost, setViewingPost] = useState<TVGridItem | null>(null);
   const { cartCount, hasStore } = useCartAndStores(!!user);
@@ -105,6 +106,7 @@ function UserProfileContent() {
       if (!userId) return;
       if (pageNum === 1) setLoading(true);
       else setLoadingMore(true);
+      if (pageNum === 1) setHasMore(true);
       try {
         const type = getFeedType(activeTab);
         const res = await tvAPI.getFeed({
@@ -116,10 +118,18 @@ function UserProfileContent() {
         });
         const data = res.data?.data ?? res.data ?? [];
         const posts = Array.isArray(data) ? data : [];
-        setTotal(res.data?.total ?? posts.length);
-        setItems((prev) => (append ? [...prev, ...posts] : posts));
+        const fetchedTotal = Number(res.data?.total ?? posts.length);
+        setTotal(fetchedTotal);
+        let nextCount = posts.length;
+        setItems((prev) => {
+          const next = append ? [...prev, ...posts] : posts;
+          nextCount = next.length;
+          return next;
+        });
+        setHasMore(nextCount < fetchedTotal && posts.length > 0);
       } catch {
         if (!append) setItems([]);
+        if (append) setHasMore(false);
       } finally {
         setLoading(false);
         setLoadingMore(false);
@@ -139,11 +149,11 @@ function UserProfileContent() {
   }, [activeTab, userId, loadFeed, profileUser]);
 
   const loadMore = useCallback(() => {
-    if (loadingMore || items.length >= total) return;
+    if (!hasMore || loadingMore || items.length >= total) return;
     const nextPage = page + 1;
     setPage(nextPage);
     loadFeed(nextPage, true);
-  }, [loadingMore, items.length, total, page, loadFeed]);
+  }, [hasMore, loadingMore, items.length, total, page, loadFeed]);
 
   useEffect(() => {
     const sentinel = loadMoreSentinelRef.current;
@@ -152,7 +162,7 @@ function UserProfileContent() {
     const observer = new IntersectionObserver(
       (entries) => {
         const [e] = entries;
-        if (e?.isIntersecting && !loading && !loadingMore && items.length < total && items.length > 0) {
+        if (e?.isIntersecting && hasMore && !loading && !loadingMore && items.length < total && items.length > 0) {
           loadMore();
         }
       },
@@ -160,7 +170,7 @@ function UserProfileContent() {
     );
     observer.observe(sentinel);
     return () => observer.disconnect();
-  }, [loadMore, loading, loadingMore, items.length, total]);
+  }, [loadMore, hasMore, loading, loadingMore, items.length, total]);
 
   const handleLike = (id: string, liked: boolean) => {
     setLikedMap((m) => ({ ...m, [id]: liked }));
@@ -270,7 +280,7 @@ function UserProfileContent() {
               </Link>
             )}
             <SearchButton />
-            <AppSidebarMenuButton onClick={() => setMenuOpen(true)} />
+            <AppSidebarMenuButton onClick={() => setMenuOpen((v) => !v)} />
           </div>
         </header>
 
@@ -422,6 +432,11 @@ function UserProfileContent() {
               liked={likedMap[viewingPost._id]}
               onLike={handleLike}
               onCommentAdded={handleCommentAdded}
+              onDelete={(id) => {
+                setViewingPost(null);
+                setItems((prev) => prev.filter((i) => i._id !== id));
+              }}
+              currentUserId={user?._id || user?.id}
               isVisible
             />
           </div>

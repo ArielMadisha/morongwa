@@ -128,7 +128,7 @@ export function ProfileHeaderButton({ className = '' }: { className?: string }) 
         <button
           type="button"
           onClick={() => setOpen((o) => !o)}
-          className="flex items-center justify-center p-1.5 rounded-full text-slate-700 hover:bg-slate-100 shrink-0 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-offset-2 relative group"
+          className="flex items-center justify-center p-1 rounded-full text-slate-700 hover:bg-slate-100 shrink-0 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-offset-2 relative group"
           aria-label="Profile menu"
           aria-expanded={open}
           aria-haspopup="true"
@@ -136,7 +136,7 @@ export function ProfileHeaderButton({ className = '' }: { className?: string }) 
           <label
             htmlFor={avatarInputId}
             onClick={(e) => e.stopPropagation()}
-            className="relative w-11 h-11 rounded-full bg-brand-50 text-brand-700 flex items-center justify-center text-sm font-bold ring-2 ring-white shadow-sm overflow-hidden cursor-pointer block"
+            className="relative w-9 h-9 rounded-full bg-brand-50 text-brand-700 flex items-center justify-center text-xs font-bold ring-1 ring-slate-200 shadow-sm overflow-hidden cursor-pointer block"
           >
             {(user as { avatar?: string }).avatar ? (
               <img
@@ -147,11 +147,8 @@ export function ProfileHeaderButton({ className = '' }: { className?: string }) 
             ) : (
               user.name?.charAt(0)?.toUpperCase() || 'U'
             )}
-            <span className="absolute inset-0 rounded-full bg-black/55 flex flex-col items-center justify-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-              <Camera className="h-4 w-4 text-white shrink-0" />
-              <span className="text-[10px] font-bold text-white leading-tight text-center tracking-wide uppercase">
-                CHANGE<br />AVATAR
-              </span>
+            <span className="absolute inset-0 rounded-full bg-black/45 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+              <Camera className="h-3.5 w-3.5 text-white shrink-0" />
             </span>
           </label>
         </button>

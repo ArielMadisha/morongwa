@@ -2,16 +2,16 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { ArrowLeft, LayoutDashboard, Wallet, ClipboardList, HelpCircle, ShieldCheck, Lock, Radio, UserCheck, Camera, Pencil, Check, X } from "lucide-react";
+import { ArrowLeft, LayoutDashboard, Wallet, ClipboardList, HelpCircle, ShieldCheck, Lock, Radio, UserCheck, Camera, Pencil, Check, X, Download, Music2, LayoutGrid } from "lucide-react";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import { useAuth } from "@/contexts/AuthContext";
-import { usersAPI, followsAPI } from "@/lib/api";
+import { usersAPI, followsAPI, musicAPI, getImageUrl, API_BASE } from "@/lib/api";
 import { AppSidebar, AppSidebarMenuButton } from "@/components/AppSidebar";
 import { SearchButton } from "@/components/SearchButton";
 import { MobileBottomNav } from "@/components/MobileBottomNav";
 import { SetPictureOptionsModal } from "@/components/SetPictureOptionsModal";
+import { ContentPreferencesModal } from "@/components/ContentPreferencesModal";
 import { useCartAndStores } from "@/lib/useCartAndStores";
-import { getImageUrl } from "@/lib/api";
 import toast from "react-hot-toast";
 
 function initials(name: string) {
@@ -32,6 +32,12 @@ export default function ProfilePage() {
   const [editingUsername, setEditingUsername] = useState(false);
   const [usernameValue, setUsernameValue] = useState("");
   const [usernameSaving, setUsernameSaving] = useState(false);
+  const [editingPhone, setEditingPhone] = useState(false);
+  const [phoneValue, setPhoneValue] = useState("");
+  const [phoneSaving, setPhoneSaving] = useState(false);
+  const [downloads, setDownloads] = useState<Array<{ songId: string; song?: { _id: string; title?: string; artist?: string; artworkUrl?: string; type?: string; tracks?: { title: string; audioUrl: string }[] }; amount: number; createdAt: string }>>([]);
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const [contentPrefsOpen, setContentPrefsOpen] = useState(false);
   const { cartCount, hasStore } = useCartAndStores(!!user);
 
   useEffect(() => {
@@ -42,8 +48,44 @@ export default function ProfilePage() {
         const data = res.data?.data ?? res.data ?? [];
         setPendingRequests(Array.isArray(data) ? data : []);
       }).catch(() => setPendingRequests([]));
+      musicAPI.getMyPurchases().then((res) => {
+        const data = res.data?.data ?? res.data ?? [];
+        setDownloads(Array.isArray(data) ? data : []);
+      }).catch(() => setDownloads([]));
     }
   }, [user]);
+
+  const handleDownload = async (songId: string) => {
+    setDownloadingId(songId);
+    try {
+      const res = await musicAPI.getDownloadLinks(songId);
+      const data = res.data?.data ?? res.data;
+      if (!data) return;
+      const toHref = (url: string) => (url?.startsWith('/uploads/') ? url : `${API_BASE || ''}${url || ''}`);
+      if (data.type === 'album' && Array.isArray(data.tracks)) {
+        data.tracks.forEach((t: any) => {
+          const a = document.createElement('a');
+          a.href = toHref(t.url);
+          a.download = `${t.title || 'track'}.wav`;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+        });
+      } else if (data.url) {
+        const a = document.createElement('a');
+        a.href = toHref(data.url);
+        a.download = `${data.title || 'song'}.wav`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      }
+      toast.success('Download started');
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || 'Download failed');
+    } finally {
+      setDownloadingId(null);
+    }
+  };
 
   const handleTogglePrivate = async () => {
     if (!user?._id && !user?.id) return;
@@ -129,6 +171,34 @@ export default function ProfilePage() {
     setUsernameValue("");
   };
 
+  const formatPhoneDisplay = (p?: string) => {
+    if (!p) return "Not set";
+    const d = p.replace(/\D/g, "");
+    if (d.startsWith("27") && d.length >= 11) return `+27 ${d.slice(2, 4)} ${d.slice(4, 7)} ${d.slice(7)}`;
+    return p;
+  };
+
+  const savePhone = async () => {
+    const digits = phoneValue.replace(/\D/g, "");
+    if (digits.length < 10) {
+      toast.error("Enter a valid phone number (at least 10 digits)");
+      return;
+    }
+    if (!user?._id && !user?.id) return;
+    setPhoneSaving(true);
+    try {
+      await usersAPI.updateProfile(user._id || user.id!, { phone: digits });
+      toast.success("Phone number updated. Required for QR payments and money requests.");
+      setEditingPhone(false);
+      setPhoneValue("");
+      refreshUser?.();
+    } catch (e: any) {
+      toast.error(e.response?.data?.message || "Failed to update");
+    } finally {
+      setPhoneSaving(false);
+    }
+  };
+
   const saveUsername = async () => {
     const uname = usernameValue.trim().toLowerCase().replace(/[^a-z0-9_]/g, "").slice(0, 30);
     if (uname.length < 2) {
@@ -182,7 +252,7 @@ export default function ProfilePage() {
           <header className="bg-white/85 backdrop-blur-md border-b border-slate-100 shadow-sm flex-shrink-0">
             <div className="px-4 sm:px-6 lg:px-8 py-2 sm:py-3 flex items-center justify-between gap-3 sm:gap-4">
               <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-                <AppSidebarMenuButton onClick={() => setMenuOpen(true)} />
+                <AppSidebarMenuButton onClick={() => setMenuOpen((v) => !v)} />
                 <Link
                   href={dashboardHref}
                   className="inline-flex items-center gap-2 text-sm font-medium text-slate-700 hover:text-blue-600 transition-colors"
@@ -276,6 +346,45 @@ export default function ProfilePage() {
                 </div>
               </div>
 
+              {/* Phone - required for QR payments & money requests */}
+              <div className="mt-6 pt-6 border-t border-slate-100">
+                <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Phone</p>
+                <p className="text-xs text-slate-500 mt-0.5">Required for QR payments at stores and money requests (WhatsApp/SMS).</p>
+                <div className="mt-2 flex items-center gap-2">
+                  {editingPhone ? (
+                    <div className="flex flex-col gap-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <input
+                          type="tel"
+                          value={phoneValue}
+                          onChange={(e) => setPhoneValue(e.target.value)}
+                          placeholder="+27 82 123 4567"
+                          className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm w-48 focus:ring-2 focus:ring-sky-500 focus:border-sky-500"
+                          autoFocus
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") savePhone();
+                            if (e.key === "Escape") { setEditingPhone(false); setPhoneValue(""); }
+                          }}
+                        />
+                        <button onClick={savePhone} disabled={phoneSaving} className="p-1.5 rounded-lg bg-sky-500 text-white hover:bg-sky-600 disabled:opacity-50">
+                          <Check className="h-4 w-4" />
+                        </button>
+                        <button onClick={() => { setEditingPhone(false); setPhoneValue(""); }} disabled={phoneSaving} className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50">
+                          <X className="h-4 w-4" />
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <span className="text-slate-700 text-sm">{formatPhoneDisplay((user as any).phone)}</span>
+                      <button onClick={() => { setEditingPhone(true); setPhoneValue((user as any).phone || ""); }} className="p-1 rounded text-slate-500 hover:text-sky-600 hover:bg-sky-50" title="Edit phone">
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+
               {/* Status row */}
               <div className="mt-6 pt-6 border-t border-slate-100 grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div>
@@ -312,6 +421,17 @@ export default function ProfilePage() {
                   />
                 </label>
                 <p className="text-xs text-slate-500">When private, others must request to follow. You approve each request.</p>
+                <button
+                  type="button"
+                  onClick={() => setContentPrefsOpen(true)}
+                  className="flex items-center justify-between gap-4 w-full px-4 py-3 rounded-xl border border-slate-200 hover:border-sky-200 hover:bg-sky-50/50 text-left transition-colors"
+                >
+                  <span className="flex items-center gap-2 text-sm text-slate-700">
+                    <LayoutGrid className="h-4 w-4 text-slate-500" />
+                    Customize feed
+                  </span>
+                  <span className="text-xs text-slate-500">Products, content</span>
+                </button>
                 <label className="flex items-center justify-between gap-4 cursor-pointer">
                   <span className="flex items-center gap-2 text-sm text-slate-700">
                     <Radio className="h-4 w-4 text-red-500" />
@@ -360,6 +480,57 @@ export default function ProfilePage() {
             </div>
           </div>
 
+          {/* Downloads - purchased songs & videos */}
+          <div className="mt-6">
+            <h3 className="text-sm font-semibold text-slate-700 mb-4 flex items-center gap-2">
+              <Download className="h-4 w-4" /> Downloads
+            </h3>
+            {downloads.length === 0 ? (
+              <div className="rounded-xl border border-slate-100 bg-white p-6 text-center text-slate-500">
+                <Music2 className="h-12 w-12 mx-auto mb-2 text-slate-300" />
+                <p className="text-sm">No downloads yet</p>
+                <p className="text-xs mt-1">Songs and albums you purchase appear here. Download anytime.</p>
+                <Link href="/qwerty-music" className="mt-3 inline-block text-sm font-medium text-sky-600 hover:text-sky-700">Browse QwertyMusic</Link>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+                {downloads.map((d) => (
+                  <div key={d.songId} className="rounded-xl border border-slate-100 bg-white overflow-hidden shadow-sm hover:shadow-md transition">
+                    <div className="aspect-square bg-slate-100 flex items-center justify-center overflow-hidden">
+                      {d.song?.artworkUrl ? (
+                        <img src={getImageUrl(d.song.artworkUrl)} alt="" className="w-full h-full object-cover" />
+                      ) : (
+                        <Music2 className="h-12 w-12 text-slate-400" />
+                      )}
+                    </div>
+                    <div className="p-2">
+                      <p className="font-medium text-slate-900 text-sm truncate" title={d.song?.title}>{d.song?.title || 'Song'}</p>
+                      {d.song?.artist && <p className="text-xs text-slate-600 truncate">{d.song.artist}</p>}
+                      {d.song?.type === 'album' && Array.isArray(d.song?.tracks) && d.song.tracks.length > 0 && (
+                        <div className="mt-1.5 pt-1.5 border-t border-slate-100">
+                          <p className="text-[10px] uppercase tracking-wide text-slate-400 font-medium mb-0.5">Tracks</p>
+                          <ol className="space-y-0.5 text-[11px] text-slate-600 max-h-16 overflow-y-auto">
+                            {d.song.tracks.map((t, i) => (
+                              <li key={i} className="truncate" title={t.title}>{i + 1}. {t.title}</li>
+                            ))}
+                          </ol>
+                        </div>
+                      )}
+                      <button
+                        onClick={() => handleDownload(d.songId)}
+                        disabled={downloadingId === d.songId}
+                        className="mt-1.5 w-full py-1.5 rounded-lg bg-sky-500 text-white text-xs font-medium hover:bg-sky-600 disabled:opacity-50 flex items-center justify-center gap-1"
+                      >
+                        <Download className="h-3.5 w-3.5" />
+                        {downloadingId === d.songId ? 'Preparing...' : (d.song?.type === 'album' ? 'Download album' : 'Download')}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
           {/* Quick links */}
           <div className="mt-6">
             <h3 className="text-sm font-semibold text-slate-700 mb-4">Quick links</h3>
@@ -401,7 +572,7 @@ export default function ProfilePage() {
                 </div>
               </Link>
               <Link
-                href="/support"
+                href="/support?category=general:account"
                 className="flex items-center gap-4 rounded-xl border border-slate-100 bg-white p-4 shadow-sm transition hover:border-blue-200 hover:shadow-md"
               >
                 <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-blue-100 text-blue-600">
@@ -420,7 +591,7 @@ export default function ProfilePage() {
             <p className="text-sm text-slate-600">
               <span className="font-medium text-slate-700">Stay secure:</span> Log out on shared devices.
               Spot something unusual?{" "}
-              <Link href="/support" className="font-medium text-blue-600 hover:text-blue-700">
+              <Link href="/support?category=general:account" className="font-medium text-blue-600 hover:text-blue-700">
                 Report an issue
               </Link>
             </p>
@@ -437,6 +608,14 @@ export default function ProfilePage() {
         imagePreview={selectedPictureFile ?? undefined}
         onSetProfilePic={handleSetProfilePic}
         onSetStripBackground={handleSetStripBackground}
+      />
+      <ContentPreferencesModal
+        open={contentPrefsOpen}
+        onClose={() => setContentPrefsOpen(false)}
+        user={user}
+        onSaved={() => {
+          refreshUser?.();
+        }}
       />
     </ProtectedRoute>
   );

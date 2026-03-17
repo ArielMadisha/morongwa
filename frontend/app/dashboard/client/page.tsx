@@ -29,6 +29,7 @@ import {
 import toast from 'react-hot-toast';
 import { AppSidebar, AppSidebarMenuButton } from '@/components/AppSidebar';
 import { SearchButton } from '@/components/SearchButton';
+import { ProfileHeaderButton } from '@/components/ProfileHeaderButton';
 import { AdvertSlot } from '@/components/AdvertSlot';
 import { MobileBottomNav } from '@/components/MobileBottomNav';
 
@@ -104,8 +105,11 @@ function ClientDashboard() {
     try {
       const { data } = await walletAPI.getBalance();
       setWalletBalance(data.balance || 0);
-    } catch (error) {
-      console.error('Wallet fetch error:', error);
+    } catch (error: any) {
+      const status = error?.response?.status;
+      if (status === 503) {
+        toast.error('Service temporarily unavailable. Please try again in a moment.', { duration: 5000 });
+      }
       setWalletBalance(0);
     }
   };
@@ -396,36 +400,17 @@ function ClientDashboard() {
     setTopupSubmitting(true);
     try {
       const amount = parseFloat(topupAmount);
-      const { data } = await walletAPI.topUp(amount);
-      setWalletBalance(data.balance || 0);
-      toast.success('Wallet topped up successfully!');
-      setShowWalletModal(false);
-      setTopupAmount('');
-
-      // Now create the task with the new wallet balance
-      if (pendingTaskData) {
-        try {
-          await tasksAPI.create(pendingTaskData);
-          toast.success('Task created successfully!');
-          setShowCreateModal(false);
-          setTitle('');
-          setDescription('');
-          setBudget('');
-          setLocation('');
-          setPickupAddress('');
-          setPickupLat('');
-          setPickupLon('');
-          setDeliveryAddress('');
-          setDeliveryLat('');
-          setDeliveryLon('');
-          setPendingTaskData(null);
-          fetchTasks();
-        } catch (error: any) {
-          toast.error(error.response?.data?.message || 'Failed to create task');
-        }
+      if (pendingTaskData && typeof window !== 'undefined') {
+        localStorage.setItem('pending_client_task_after_topup', JSON.stringify(pendingTaskData));
       }
+      const { data } = await walletAPI.topUp(amount, '/dashboard/client');
+      if (data?.paymentUrl) {
+        window.location.href = data.paymentUrl;
+        return;
+      }
+      toast.success('Top-up initiated');
     } catch (error: any) {
-      toast.error(error.message || 'Failed to add funds to wallet');
+      toast.error(error?.response?.data?.message || error.message || 'Failed to add funds to wallet');
     } finally {
       setTopupSubmitting(false);
     }
@@ -458,7 +443,7 @@ function ClientDashboard() {
               <img src="/qwertymates-logo-icon.png" alt="Qwertymates" className="h-9 w-9 object-contain lg:hidden" />
               <img src="/qwertymates-logo.png" alt="Qwertymates" className="h-9 w-auto object-contain hidden lg:block" />
             </Link>
-            <AppSidebarMenuButton onClick={() => setMenuOpen(true)} />
+            <AppSidebarMenuButton onClick={() => setMenuOpen((v) => !v)} />
             <div className="flex items-center gap-2 min-w-0 shrink-0">
               <div className="h-8 w-8 rounded-lg bg-brand-50 flex items-center justify-center shrink-0">
                 <LayoutDashboard className="h-4 w-4 text-brand-600" />
@@ -466,7 +451,10 @@ function ClientDashboard() {
               <h1 className="text-base sm:text-lg font-semibold text-slate-900 truncate">Client Dashboard</h1>
             </div>
             <div className="flex-1 min-w-0" />
-            <SearchButton />
+            <div className="flex items-center gap-2 shrink-0">
+              <SearchButton />
+              <ProfileHeaderButton />
+            </div>
           </div>
         </div>
       </header>

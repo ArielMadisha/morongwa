@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { tvAPI, getImageUrl, getEffectivePrice } from '@/lib/api';
 import type { Product } from '@/lib/types';
+import { useCurrency } from '@/contexts/CurrencyContext';
 
 const WATERMARK_IMG = '/watermark-qwertymates.svg';
 
@@ -32,6 +33,7 @@ interface TVPost {
   shareCount: number;
   creatorId: { _id: string; name?: string; avatar?: string };
   createdAt: string;
+  resellerCommissionPct?: number;
 }
 
 interface TVComment {
@@ -41,24 +43,35 @@ interface TVComment {
   createdAt: string;
 }
 
-function formatPrice(price: number, currency: string) {
+function formatPriceLocal(price: number, currency: string) {
   return new Intl.NumberFormat('en-ZA', {
     style: 'currency',
     currency: currency || 'ZAR',
     minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
+    maximumFractionDigits: 2,
   }).format(price);
 }
 
 function formatTimeAgo(date: string) {
+  if (!date) return "";
   const d = new Date(date);
+  if (Number.isNaN(d.getTime())) return "";
   const now = new Date();
-  const sec = Math.floor((now.getTime() - d.getTime()) / 1000);
-  if (sec < 60) return 'now';
-  if (sec < 3600) return `${Math.floor(sec / 60)}m`;
-  if (sec < 86400) return `${Math.floor(sec / 3600)}h`;
-  if (sec < 604800) return `${Math.floor(sec / 86400)}d`;
-  return d.toLocaleDateString();
+  const diffMs = Math.max(0, now.getTime() - d.getTime());
+  const diffSec = Math.floor(diffMs / 1000);
+  const diffMin = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMs / 3600000);
+  const diffDays = Math.floor(diffMs / 86400000);
+  const diffMonths = Math.floor(diffDays / 30);
+  const diffYears = Math.floor(diffDays / 365);
+
+  if (diffSec < 60) return "Just now";
+  if (diffMin < 60) return `${diffMin} minute${diffMin === 1 ? "" : "s"} ago`;
+  if (diffHours < 2) return "An hour ago";
+  if (diffHours < 24) return `${diffHours} hours ago`;
+  if (diffDays < 30) return `${diffDays} day${diffDays === 1 ? "" : "s"} ago`;
+  if (diffMonths < 12) return `${diffMonths} month${diffMonths === 1 ? "" : "s"} ago`;
+  return `${diffYears} year${diffYears === 1 ? "" : "s"} ago`;
 }
 
 interface TVPostCardProps {
@@ -70,6 +83,7 @@ interface TVPostCardProps {
 }
 
 export function TVPostCard({ post, liked = false, onLike, onRepost, onComment }: TVPostCardProps) {
+  const { formatPrice: formatInLocal } = useCurrency();
   const [showComments, setShowComments] = useState(false);
   const [comments, setComments] = useState<TVComment[]>([]);
   const [commentText, setCommentText] = useState('');
@@ -266,7 +280,7 @@ export function TVPostCard({ post, liked = false, onLike, onRepost, onComment }:
       {post.productId && (
         <div className="mx-4 mb-4">
           <Link
-            href={`/marketplace/product/${post.productId._id}`}
+            href={`/marketplace/product/${post.productId._id}${post.creatorId?._id ? `?resellerId=${post.creatorId._id}` : ''}`}
             className="flex gap-3 p-3 rounded-xl border border-slate-200 bg-slate-50/50 hover:bg-slate-100 transition-colors"
           >
             <div className="w-16 h-16 rounded-lg overflow-hidden bg-slate-200 shrink-0">
@@ -285,7 +299,14 @@ export function TVPostCard({ post, liked = false, onLike, onRepost, onComment }:
             <div className="flex-1 min-w-0">
               <p className="font-medium text-slate-900 truncate">{post.productId.title}</p>
               <p className="text-sky-600 font-semibold">
-                {formatPrice(getEffectivePrice(post.productId), post.productId.currency || 'ZAR')}
+                {(() => {
+                  let displayPrice = getEffectivePrice(post.productId);
+                  if (post.resellerCommissionPct != null) {
+                    displayPrice = Math.round(displayPrice * (1 + post.resellerCommissionPct / 100) * 100) / 100;
+                  }
+                  const currency = post.productId.currency || 'ZAR';
+                  return currency === 'USD' ? formatInLocal(displayPrice) : formatPriceLocal(displayPrice, currency);
+                })()}
               </p>
             </div>
             <span className="text-xs text-sky-600 font-medium self-center">Buy →</span>
@@ -293,7 +314,8 @@ export function TVPostCard({ post, liked = false, onLike, onRepost, onComment }:
         </div>
       )}
 
-      {/* Actions */}
+      {/* Actions - hidden for product posts */}
+      {!post.productId && (
       <div className="flex items-center gap-2 px-4 pb-4">
         <button
           onClick={() => onLike?.(post._id, !liked)}
@@ -325,6 +347,7 @@ export function TVPostCard({ post, liked = false, onLike, onRepost, onComment }:
           <Share2 className="h-5 w-5" />
         </button>
       </div>
+      )}
 
       {/* Comments panel */}
       {showComments && (

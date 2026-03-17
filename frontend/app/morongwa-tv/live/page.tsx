@@ -69,7 +69,7 @@ function LiveTVPageContent() {
           <div className="px-4 sm:px-6 lg:px-8 py-3 sm:py-4">
             <div className="flex items-center justify-between gap-3 sm:gap-4 min-w-0">
               <div className="flex items-center gap-2 sm:gap-3 min-w-0 shrink">
-                <AppSidebarMenuButton onClick={() => setMenuOpen(true)} />
+                <AppSidebarMenuButton onClick={() => setMenuOpen((v) => !v)} />
                 <Link href="/morongwa-tv" className="flex items-center gap-2 text-slate-600 hover:text-slate-900">
                   <Tv className="h-5 w-5 shrink-0" />
                   <span className="text-sm font-medium">Back to QwertyTV</span>

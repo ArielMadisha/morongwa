@@ -12,12 +12,16 @@ export interface ISong extends Document {
   lyrics?: string;
   /** WAV audio file URL */
   audioUrl: string;
-  /** 3000x3000 cover art (JPEG/PNG) */
+  /** 1200×1200 cover art (JPEG/PNG) - fits display area */
   artworkUrl: string;
   /** Uploading artist */
   userId: mongoose.Types.ObjectId;
   /** For albums: tracks */
   tracks?: { title: string; audioUrl: string; duration?: number }[];
+  /** Optional paid download setting (streaming remains default). */
+  downloadEnabled?: boolean;
+  /** Download price in ZAR when enabled (R10-R25). */
+  downloadPrice?: number;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -41,6 +45,8 @@ const SongSchema = new Schema<ISong>(
         duration: Number,
       },
     ],
+    downloadEnabled: { type: Boolean, default: false },
+    downloadPrice: { type: Number, min: 10, max: 25 },
   },
   { timestamps: true }
 );

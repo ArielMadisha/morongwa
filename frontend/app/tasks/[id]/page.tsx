@@ -295,7 +295,7 @@ function TaskDetailPage() {
                 </p>
                 {isRunner && task.status !== 'posted' && (
                   <Link
-                    href={`/support?type=task_inquiry&taskId=${id}`}
+                    href={`/support?category=general:tasks`}
                     className="w-full rounded-lg border border-sky-200 bg-sky-50 px-4 py-2 text-sm font-semibold text-sky-700 transition hover:bg-sky-100 flex items-center justify-center gap-2"
                   >
                     <MessageSquare className="h-4 w-4" />
@@ -371,7 +371,7 @@ function TaskDetailPage() {
                 <h3 className="mt-2 text-lg font-semibold">Contact support</h3>
                 <p className="mt-2 text-sm text-white/80">Got questions about this task? Our team is here to help.</p>
                 <Link
-                  href="/support"
+                  href="/support?category=general:tasks"
                   className="mt-4 inline-flex items-center gap-2 rounded-full bg-white/15 px-4 py-2 text-sm font-semibold backdrop-blur transition hover:bg-white/20"
                 >
                   Get help

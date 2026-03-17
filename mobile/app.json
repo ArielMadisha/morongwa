@@ -1,0 +1,26 @@
+{
+  "expo": {
+    "name": "Morongwa",
+    "slug": "morongwa-mobile",
+    "scheme": "morongwa",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "platforms": [
+      "ios",
+      "android",
+      "web"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.morongwa.app"
+    },
+    "android": {
+      "package": "com.morongwa.app"
+    },
+    "extra": {
+      "apiUrl": "http://192.168.0.101:4000/api",
+      "socketUrl": "http://192.168.0.101:4000"
+    }
+  }
+}

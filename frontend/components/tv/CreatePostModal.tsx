@@ -17,6 +17,9 @@ import { GENRES } from './GenresDropdown';
 import type { Product } from '@/lib/types';
 import toast from 'react-hot-toast';
 
+const MAX_CAROUSEL_IMAGES = 20;
+const QWERTZ_MAX_DURATION_SECONDS = 180; // 3 minutes
+
 const FILTERS = [
   { id: 'none', label: 'None' },
   { id: 'warm', label: 'Warm' },
@@ -45,7 +48,7 @@ export function CreatePostModal({
   const [type, setType] = useState<'video' | 'image' | 'carousel' | 'audio'>('image');
   const [caption, setCaption] = useState('');
   const [filter, setFilter] = useState<string>('');
-  const [genre, setGenre] = useState<string>('qwertz');
+  const [genre, setGenre] = useState<string>('comedy');
   const [productId, setProductId] = useState<string>('');
   const [uploading, setUploading] = useState(false);
   const [posting, setPosting] = useState(false);
@@ -57,10 +60,40 @@ export function CreatePostModal({
   const [artistVerified, setArtistVerified] = useState<boolean | null>(null);
   const [musicGenre, setMusicGenre] = useState('');
   const [musicTitle, setMusicTitle] = useState('');
+  const [artworkUrl, setArtworkUrl] = useState('');
+  const [selectedSongId, setSelectedSongId] = useState<string | null>(null);
+  const [mySongs, setMySongs] = useState<any[]>([]);
+  const [mediaSensitive, setMediaSensitive] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const qwertzInputRef = useRef<HTMLInputElement>(null);
   const imagesInputRef = useRef<HTMLInputElement>(null);
   const audioInputRef = useRef<HTMLInputElement>(null);
   const musicInputRef = useRef<HTMLInputElement>(null);
+
+  const validateQwertzVideoDuration = (file: File) =>
+    new Promise<void>((resolve, reject) => {
+      const url = URL.createObjectURL(file);
+      const media = document.createElement('video');
+      media.preload = 'metadata';
+      media.src = url;
+      media.onloadedmetadata = () => {
+        const duration = Number(media.duration || 0);
+        URL.revokeObjectURL(url);
+        if (!duration || Number.isNaN(duration)) {
+          reject(new Error('Could not read video duration.'));
+          return;
+        }
+        if (duration > QWERTZ_MAX_DURATION_SECONDS) {
+          reject(new Error('Qwertz videos must be 3 minutes or less.'));
+          return;
+        }
+        resolve();
+      };
+      media.onerror = () => {
+        URL.revokeObjectURL(url);
+        reject(new Error('Invalid video file.'));
+      };
+    });
 
   useEffect(() => {
     if (audioStep === 'choose' && currentUserId) {
@@ -68,13 +101,28 @@ export function CreatePostModal({
     }
   }, [audioStep, currentUserId]);
 
+  useEffect(() => {
+    if (audioStep === 'upload' && artistVerified && currentUserId) {
+      musicAPI.getSongs().then((r) => {
+        const all = r.data?.data ?? [];
+        const mine = all.filter((s: any) => {
+          const uid = s.userId?._id ?? s.userId;
+          return uid && String(uid) === String(currentUserId);
+        });
+        setMySongs(mine);
+      }).catch(() => setMySongs([]));
+    }
+  }, [audioStep, artistVerified, currentUserId]);
+
+  const artworkInputRef = useRef<HTMLInputElement>(null);
+
   const reset = () => {
     setStep('upload');
     setMediaUrls([]);
     setType('image');
     setCaption('');
     setFilter('');
-    setGenre('qwertz');
+    setGenre('comedy');
     setProductId('');
     setUploading(false);
     setPosting(false);
@@ -86,6 +134,9 @@ export function CreatePostModal({
     setArtistVerified(null);
     setMusicGenre('');
     setMusicTitle('');
+    setArtworkUrl('');
+    setSelectedSongId(null);
+    setMediaSensitive(false);
   };
 
   const handleClose = () => {
@@ -103,9 +154,11 @@ export function CreatePostModal({
         const isVideo = file.type.startsWith('video/');
         const res = await tvAPI.uploadMedia(file);
         const url = res.data?.url ?? (res.data as any)?.url;
+        const sensitive = res.data?.sensitive ?? (res.data as any)?.sensitive ?? false;
         if (url) {
           setMediaUrls([url]);
           setType(isVideo ? 'video' : 'image');
+          setMediaSensitive(sensitive);
           setStep('details');
         }
       } else {
@@ -114,11 +167,13 @@ export function CreatePostModal({
           toast.error('Please select images only for carousel');
           return;
         }
-        const res = await tvAPI.uploadImages(imageFiles.slice(0, 10));
+        const res = await tvAPI.uploadImages(imageFiles.slice(0, MAX_CAROUSEL_IMAGES));
         const urls = res.data?.urls ?? (res.data as any)?.urls ?? (res.data as any)?.data?.urls ?? [];
+        const sensitive = res.data?.sensitive ?? (res.data as any)?.sensitive ?? false;
         if (urls.length) {
           setMediaUrls(urls);
           setType('carousel');
+          setMediaSensitive(sensitive);
           setStep('details');
         } else {
           toast.error('No images could be uploaded. Try again or use smaller images.');
@@ -130,6 +185,34 @@ export function CreatePostModal({
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
       if (imagesInputRef.current) imagesInputRef.current.value = '';
+    }
+  };
+
+  const handleQwertzSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('video/')) {
+      toast.error('Please select a video file for Qwertz');
+      return;
+    }
+    setUploading(true);
+    try {
+      await validateQwertzVideoDuration(file);
+      const res = await tvAPI.uploadMedia(file);
+      const url = res.data?.url ?? (res.data as any)?.url;
+      const sensitive = res.data?.sensitive ?? (res.data as any)?.sensitive ?? false;
+      if (url) {
+        setMediaUrls([url]);
+        setType('video');
+        setGenre('comedy');
+        setMediaSensitive(sensitive);
+        setStep('details');
+      }
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to upload Qwertz video');
+    } finally {
+      setUploading(false);
+      if (qwertzInputRef.current) qwertzInputRef.current.value = '';
     }
   };
 
@@ -159,7 +242,7 @@ export function CreatePostModal({
       handleClose();
     } catch (err: any) {
       setSpinnerMode('off');
-      toast.error(err.response?.data?.message || 'Failed to create post');
+      toast.error(err.response?.data?.error || err.response?.data?.message || 'Failed to create post');
     }
   };
 
@@ -193,7 +276,7 @@ export function CreatePostModal({
       if (url) {
         setMediaUrls([url]);
         setType('audio' as any);
-        setGenre(musicGenre || 'qwertz');
+        setGenre(musicGenre || 'comedy');
         setAudioStep('upload-details');
       }
     } catch (err: any) {
@@ -204,6 +287,22 @@ export function CreatePostModal({
     }
   };
 
+  const handleArtworkUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !file.type.startsWith('image/')) return;
+    setUploading(true);
+    try {
+      const res = await tvAPI.uploadMedia(file);
+      const url = res.data?.url ?? (res.data as any)?.url;
+      if (url) setArtworkUrl(url);
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'Artwork upload failed');
+    } finally {
+      setUploading(false);
+      if (artworkInputRef.current) artworkInputRef.current.value = '';
+    }
+  };
+
   const handleSubmit = async () => {
     if (!mediaUrls.length) return;
     setPosting(true);
@@ -211,10 +310,12 @@ export function CreatePostModal({
       const res = await tvAPI.createPost({
         type,
         mediaUrls,
+        heading: heading.trim() || undefined,
         caption: subject.trim() || undefined,
         filter: filter || undefined,
         genre: genre || undefined,
         productId: productId || undefined,
+        sensitive: mediaSensitive,
       });
       toast.success('Post created!');
       handleClose();
@@ -222,7 +323,7 @@ export function CreatePostModal({
       storeLatestPostForHome(created);
       onCreated(created);
     } catch (err: any) {
-      toast.error(err.response?.data?.message || 'Failed to create post');
+      toast.error(err.response?.data?.error || err.response?.data?.message || 'Failed to create post');
     } finally {
       setPosting(false);
     }
@@ -232,7 +333,7 @@ export function CreatePostModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
-      <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
+      <div className="bg-white rounded-2xl shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between p-4 border-b border-slate-100">
           <h2 className="text-lg font-semibold text-slate-900">Create post</h2>
           <div className="flex items-center gap-2">
@@ -378,6 +479,36 @@ export function CreatePostModal({
                   </div>
                 ) : (
                   <div className="space-y-4">
+                    {mySongs.length > 0 && (
+                      <div>
+                        <p className="text-sm font-medium text-slate-700 mb-2">Or post from your QwertyMusic songs</p>
+                        <div className="max-h-32 overflow-y-auto space-y-1 border border-slate-200 rounded-lg p-2">
+                          {mySongs.map((s) => (
+                            <button
+                              key={s._id}
+                              type="button"
+                              onClick={() => {
+                                setSelectedSongId(s._id);
+                                setMediaUrls([s.audioUrl]);
+                                setArtworkUrl(s.artworkUrl || '');
+                                setMusicTitle(s.title || '');
+                                setType('audio' as any);
+                                setAudioStep('upload-details');
+                              }}
+                              className={`w-full flex items-center gap-2 p-2 rounded-lg text-left hover:bg-slate-50 ${selectedSongId === s._id ? 'bg-sky-50 border border-sky-200' : ''}`}
+                            >
+                              {s.artworkUrl ? (
+                                <img src={getImageUrl(s.artworkUrl)} alt="" className="h-10 w-10 rounded object-cover" />
+                              ) : (
+                                <Music2 className="h-10 w-10 text-sky-400" />
+                              )}
+                              <span className="text-sm font-medium truncate">{s.title} {s.artist ? `– ${s.artist}` : ''}</span>
+                              {s.downloadEnabled && <span className="text-xs text-emerald-600 ml-auto">Buy</span>}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                     <div>
                       <label className="block text-sm font-medium text-slate-700 mb-1">Song title</label>
                       <input
@@ -439,6 +570,23 @@ export function CreatePostModal({
                     <audio src={mediaUrls[0]} controls className="w-full mt-2 max-h-10" />
                   </div>
                 </div>
+                {audioStep === 'upload-details' && (
+                  <div>
+                    <p className="text-sm font-medium text-slate-700 mb-2">Cover art (required)</p>
+                    {artworkUrl ? (
+                      <div className="flex items-center gap-2">
+                        <img src={getImageUrl(artworkUrl)} alt="Artwork" className="h-16 w-16 rounded-lg object-cover" />
+                        <button type="button" onClick={() => setArtworkUrl('')} className="text-sm text-rose-600 hover:underline">Remove</button>
+                      </div>
+                    ) : (
+                      <label className="flex flex-col items-center justify-center gap-2 p-4 rounded-xl border-2 border-dashed border-slate-200 hover:border-sky-300 hover:bg-sky-50/50 cursor-pointer">
+                        <input ref={artworkInputRef} type="file" accept="image/*" onChange={handleArtworkUpload} className="hidden" />
+                        <Upload className="h-8 w-8 text-slate-400" />
+                        <span className="text-xs text-slate-600">Upload cover image</span>
+                      </label>
+                    )}
+                  </div>
+                )}
                 <div className="flex gap-3">
                   <button
                     onClick={() => { setAudioStep('choose'); setMediaUrls([]); }}
@@ -448,13 +596,20 @@ export function CreatePostModal({
                   </button>
                   <button
                     onClick={async () => {
-                      setPosting(true);
-                      try {
+                        if (audioStep === 'upload-details' && !artworkUrl && !selectedSongId) {
+                          toast.error('Please add cover art for your song');
+                          return;
+                        }
+                        setPosting(true);
+                        try {
                         const res = await tvAPI.createPost({
                           type: 'audio',
                           mediaUrls,
+                          heading: heading.trim() || musicTitle.trim() || undefined,
                           caption: subject.trim() || undefined,
                           genre: musicGenre || genre || undefined,
+                          artworkUrl: artworkUrl || undefined,
+                          songId: selectedSongId || undefined,
                         });
                         toast.success('Post created!');
                         handleClose();
@@ -462,7 +617,7 @@ export function CreatePostModal({
                         storeLatestPostForHome(created);
                         onCreated?.(created);
                       } catch (err: any) {
-                        toast.error(err.response?.data?.message || 'Failed to create post');
+                        toast.error(err.response?.data?.error || err.response?.data?.message || 'Failed to create post');
                       } finally {
                         setPosting(false);
                       }
@@ -479,37 +634,58 @@ export function CreatePostModal({
           </div>
         ) : step === 'upload' ? (
           <div className="p-4 pt-0 space-y-4">
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-              <label className="flex flex-col items-center justify-center gap-2 p-6 rounded-xl border-2 border-dashed border-slate-200 hover:border-sky-300 hover:bg-sky-50/50 cursor-pointer transition-colors">
+            <div className="flex items-stretch gap-3 overflow-x-auto pb-1">
+              <label
+                title="Upload up to 20 images"
+                className="min-w-[120px] flex-1 flex flex-col items-center justify-center gap-2 p-4 rounded-xl border-2 border-dashed border-slate-200 hover:border-sky-300 hover:bg-sky-50/50 cursor-pointer transition-colors"
+              >
                 <input
                   ref={fileInputRef}
                   type="file"
-                  accept="video/mp4,video/webm,video/quicktime,image/*"
+                  accept="video/*,image/*"
+                  capture="environment"
                   onChange={handleFileSelect}
                   disabled={uploading}
                   className="hidden"
                 />
                 {uploading ? (
-                  <div className="h-10 w-10 flex items-center justify-center">
+                  <div className="h-9 w-9 flex items-center justify-center">
                     <QSpinner size={28} running="loop" speedMs={800} />
                   </div>
                 ) : (
-                  <Video className="h-10 w-10 text-sky-500" />
+                  <Video className="h-9 w-9 text-sky-500" />
                 )}
-                <span className="text-sm font-medium text-slate-700 text-center">Video or image</span>
+                <span className="text-sm font-medium text-slate-700 text-center">Video</span>
               </label>
-              <label className="flex flex-col items-center justify-center gap-2 p-6 rounded-xl border-2 border-dashed border-slate-200 hover:border-sky-300 hover:bg-sky-50/50 cursor-pointer transition-colors">
+              <label
+                title="create short videos"
+                className="min-w-[120px] flex-1 flex flex-col items-center justify-center gap-2 p-4 rounded-xl border-2 border-dashed border-fuchsia-200 hover:border-fuchsia-300 hover:bg-fuchsia-50/50 cursor-pointer transition-colors"
+              >
+                <input
+                  ref={qwertzInputRef}
+                  type="file"
+                  accept="video/*"
+                  capture="environment"
+                  onChange={handleQwertzSelect}
+                  disabled={uploading}
+                  className="hidden"
+                />
+                <Plus className="h-9 w-9 text-fuchsia-500" />
+                <span className="text-sm font-medium text-slate-700 text-center">Create Qwertz</span>
+              </label>
+              <label className="min-w-[120px] flex-1 flex flex-col items-center justify-center gap-2 p-4 rounded-xl border-2 border-dashed border-slate-200 hover:border-sky-300 hover:bg-sky-50/50 cursor-pointer transition-colors">
                 <input
                   ref={imagesInputRef}
                   type="file"
                   accept="image/*"
+                  capture
                   multiple
                   onChange={handleFileSelect}
                   disabled={uploading}
                   className="hidden"
                 />
-                <ImagePlus className="h-10 w-10 text-sky-500" />
-                <span className="text-sm font-medium text-slate-700 text-center">Carousel (up to 10)</span>
+                <ImagePlus className="h-9 w-9 text-sky-500" />
+                <span className="text-sm font-medium text-slate-700 text-center">Images</span>
               </label>
               <button
                 type="button"
@@ -528,17 +704,17 @@ export function CreatePostModal({
                     toast.error(e.response?.data?.message || 'Failed to toggle live');
                   }
                 }}
-                className="flex flex-col items-center justify-center gap-2 p-6 rounded-xl border-2 border-dashed border-slate-200 hover:border-red-300 hover:bg-red-50/50 cursor-pointer transition-colors"
+                className="min-w-[120px] flex-1 flex flex-col items-center justify-center gap-2 p-4 rounded-xl border-2 border-dashed border-slate-200 hover:border-red-300 hover:bg-red-50/50 cursor-pointer transition-colors"
               >
-                <Radio className="h-10 w-10 text-red-500" />
+                <Radio className="h-9 w-9 text-red-500" />
                 <span className="text-sm font-medium text-slate-700 text-center">Go live</span>
               </button>
               <button
                 type="button"
                 onClick={() => setAudioStep('choose')}
-                className="flex flex-col items-center justify-center gap-2 p-6 rounded-xl border-2 border-dashed border-slate-200 hover:border-sky-300 hover:bg-sky-50/50 cursor-pointer transition-colors"
+                className="min-w-[120px] flex-1 flex flex-col items-center justify-center gap-2 p-4 rounded-xl border-2 border-dashed border-slate-200 hover:border-sky-300 hover:bg-sky-50/50 cursor-pointer transition-colors"
               >
-                <Music2 className="h-10 w-10 text-sky-500" />
+                <Music2 className="h-9 w-9 text-sky-500" />
                 <span className="text-sm font-medium text-slate-700 text-center">Post Audio</span>
               </button>
             </div>

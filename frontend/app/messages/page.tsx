@@ -4,6 +4,7 @@ import { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
+import Image from 'next/image';
 import { Send, Loader2, MessageCircle, Plus, X, Video, Search } from 'lucide-react';
 import { SearchButton } from '@/components/SearchButton';
 import { useAuth } from '@/contexts/AuthContext';
@@ -12,6 +13,7 @@ import { useCartAndStores } from '@/lib/useCartAndStores';
 import { AppSidebar, AppSidebarMenuButton } from '@/components/AppSidebar';
 import { AdvertSlot } from '@/components/AdvertSlot';
 import { MobileBottomNav } from '@/components/MobileBottomNav';
+import { ProfileHeaderButton } from '@/components/ProfileHeaderButton';
 import { VideoCallView } from '@/components/VideoCallView';
 import { useWebRTC } from '@/hooks/useWebRTC';
 import { messengerAPI, productEnquiryAPI } from '@/lib/api';
@@ -35,6 +37,9 @@ function MessagesPageContent() {
   const [newMessage, setNewMessage] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [newChatOpen, setNewChatOpen] = useState(false);
+  const [newChatSearch, setNewChatSearch] = useState('');
+  const [discoverUsers, setDiscoverUsers] = useState<any[]>([]);
+  const [discoverLoading, setDiscoverLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<'tasks' | 'enquiries'>('tasks');
   const [enquiries, setEnquiries] = useState<any[]>([]);
   const [enquiriesLoading, setEnquiriesLoading] = useState(false);
@@ -44,7 +49,9 @@ function MessagesPageContent() {
   const [enquirySending, setEnquirySending] = useState(false);
   const [enquiryNewMessage, setEnquiryNewMessage] = useState('');
 
-  const roomId = activeTab === 'tasks' && selectedChat?.taskId ? selectedChat.taskId : '';
+  const roomId = activeTab === 'tasks'
+    ? (selectedChat?.taskId || (selectedChat?.kind === 'direct' && selectedChat?.user?._id ? `direct-${selectedChat.user._id}` : ''))
+    : '';
   const peerUserId = activeTab === 'tasks' && selectedChat?.user?._id ? String(selectedChat.user._id) : '';
   const peerUserName = activeTab === 'tasks' && selectedChat?.user?.name ? selectedChat.user.name : undefined;
 
@@ -94,6 +101,18 @@ function MessagesPageContent() {
   useEffect(() => {
     fetchConversations();
   }, []);
+
+  useEffect(() => {
+    if (!newChatOpen) return;
+    setDiscoverLoading(true);
+    messengerAPI.searchUsers(newChatSearch || undefined, 20)
+      .then((res) => {
+        const list = res.data?.data ?? [];
+        setDiscoverUsers(Array.isArray(list) ? list : []);
+      })
+      .catch(() => setDiscoverUsers([]))
+      .finally(() => setDiscoverLoading(false));
+  }, [newChatOpen, newChatSearch]);
 
   useEffect(() => {
     if (activeTab === 'enquiries') fetchEnquiries();
@@ -151,7 +170,10 @@ function MessagesPageContent() {
     setMessagesLoading(true);
     setMessages([]);
     try {
-      const res = await messengerAPI.getMessages(conversation.taskId);
+      const isDirect = conversation?.kind === 'direct' || !conversation?.taskId;
+      const res = isDirect
+        ? await messengerAPI.getDirectMessages(conversation.user?._id || conversation.otherUserId)
+        : await messengerAPI.getMessages(conversation.taskId);
       const list = res.data?.messages ?? [];
       const msgs = (Array.isArray(list) ? list : []).map((m: any) => ({
         _id: m._id,
@@ -160,7 +182,7 @@ function MessagesPageContent() {
         createdAt: m.createdAt,
       }));
       setMessages(msgs);
-      messengerAPI.markAsRead(conversation.taskId).catch(() => {});
+      if (!isDirect) messengerAPI.markAsRead(conversation.taskId).catch(() => {});
     } catch (error) {
       toast.error('Failed to load messages');
     } finally {
@@ -175,7 +197,10 @@ function MessagesPageContent() {
     const text = newMessage.trim();
     setNewMessage('');
     try {
-      const res = await messengerAPI.sendMessage(selectedChat.taskId, text);
+      const isDirect = selectedChat?.kind === 'direct' || !selectedChat?.taskId;
+      const res = isDirect
+        ? await messengerAPI.sendDirectMessage(selectedChat.user?._id || selectedChat.otherUserId, text)
+        : await messengerAPI.sendMessage(selectedChat.taskId, text);
       const m = res.data?.data;
       if (m) {
         setMessages((prev) => [
@@ -189,7 +214,7 @@ function MessagesPageContent() {
         ]);
         setConversations((prev) =>
           prev.map((c) =>
-            c.taskId === selectedChat.taskId
+            c._id === selectedChat._id
               ? { ...c, lastMessage: text, lastMessageTime: new Date(), unread: 0 }
               : c
           )
@@ -199,7 +224,7 @@ function MessagesPageContent() {
         setMessages((prev) => [...prev, { _id: Date.now().toString(), sender: user?._id, text, createdAt: new Date() }]);
         setConversations((prev) =>
           prev.map((c) =>
-            c.taskId === selectedChat.taskId ? { ...c, lastMessage: text, lastMessageTime: new Date() } : c
+            c._id === selectedChat._id ? { ...c, lastMessage: text, lastMessageTime: new Date() } : c
           )
         );
         toast.success('Message sent');
@@ -213,7 +238,29 @@ function MessagesPageContent() {
   };
 
   const openNewChat = () => {
+    setNewChatSearch('');
     setNewChatOpen(true);
+  };
+
+  const startDirectChat = (u: any) => {
+    const conv = {
+      _id: `direct-${u._id}`,
+      kind: 'direct',
+      taskId: null,
+      taskTitle: 'Direct message',
+      user: { _id: u._id, name: u.name || u.username || 'User', role: Array.isArray(u.role) ? u.role.join(', ') : u.role || 'user' },
+      unread: 0,
+      lastMessage: '',
+      lastMessageTime: new Date().toISOString(),
+      otherUserId: u._id,
+    };
+    setConversations((prev) => {
+      const exists = prev.find((c) => c._id === conv._id);
+      if (exists) return prev;
+      return [conv, ...prev];
+    });
+    setNewChatOpen(false);
+    void handleSelectChat(conv);
   };
 
   const filteredConversations = conversations.filter((conv) =>
@@ -223,19 +270,22 @@ function MessagesPageContent() {
   return (
     <div className="min-h-screen flex flex-col bg-gradient-to-br from-sky-50 via-blue-50 to-white text-slate-900">
       <header className="sticky top-0 z-40 w-full bg-white/95 backdrop-blur-md border-b border-slate-100 shadow-sm flex-shrink-0">
-        <div className="px-4 sm:px-6 lg:px-8 py-3 sm:py-4">
-          <div className="flex items-center justify-between gap-3 sm:gap-4 min-w-0">
+        <div className="px-3 sm:px-6 lg:px-8 py-1">
+          <div className="flex items-center gap-2 sm:gap-3 w-full">
             <Link href="/wall" className="shrink-0 flex items-center" aria-label="Home">
-              <img src="/qwertymates-logo-icon.png" alt="Qwertymates" className="h-9 w-9 object-contain lg:hidden" />
-              <img src="/qwertymates-logo.png" alt="Qwertymates" className="h-9 w-auto object-contain hidden lg:block" />
+              <img src="/qwertymates-logo-icon.png" alt="Qwertymates" className="h-8 w-8 object-contain lg:hidden" />
+              <img src="/qwertymates-logo.png" alt="Qwertymates" className="h-7 w-auto object-contain hidden lg:block" />
             </Link>
-            <AppSidebarMenuButton onClick={() => setMenuOpen(true)} />
+            <AppSidebarMenuButton onClick={() => setMenuOpen((v) => !v)} />
             <div className="flex items-center gap-2 min-w-0 shrink-0">
-              <MessageCircle className="h-5 w-5 text-brand-600" />
+              <Image src="/messages-icon.png" alt="" width={20} height={20} className="h-5 w-5 object-contain shrink-0" />
               <h1 className="text-base sm:text-lg font-semibold text-slate-900 truncate">Morongwa</h1>
             </div>
             <div className="flex-1 min-w-0" />
-            <SearchButton />
+            <div className="shrink-0 flex items-center gap-2">
+              <SearchButton />
+              <ProfileHeaderButton />
+            </div>
           </div>
         </div>
       </header>
@@ -306,6 +356,9 @@ function MessagesPageContent() {
                   <div className="py-8 text-center text-slate-600">
                     <MessageCircle className="mx-auto mb-2 h-8 w-8 text-slate-300" />
                     <p className="text-sm">No conversations yet</p>
+                    <p className="mt-2 text-xs text-slate-500">
+                      Need help? <Link href="/support?category=general:messages" className="text-sky-600 hover:underline">Contact support</Link>
+                    </p>
                   </div>
                 ) : (
                   filteredConversations.map((conv) => (
@@ -555,44 +608,57 @@ function MessagesPageContent() {
               </button>
             </div>
             <div className="max-h-[60vh] overflow-y-auto p-4">
-              {conversations.length === 0 ? (
-                <div className="py-8 text-center">
-                  <MessageCircle className="mx-auto mb-3 h-12 w-12 text-slate-300" />
-                  <p className="text-slate-600 mb-4">No tasks to chat about yet.</p>
-                  <p className="text-sm text-slate-500 mb-6">
-                    Post a task as a client or accept one as a runner to start messaging.
-                  </p>
-                  <Link
-                    href="/dashboard/client"
-                    className="inline-flex items-center gap-2 rounded-lg bg-sky-100 px-4 py-2 text-sm font-medium text-sky-700 hover:bg-sky-200"
-                  >
-                    Client Dashboard
-                  </Link>
-                  <span className="mx-2 text-slate-400">or</span>
-                  <Link
-                    href="/dashboard/runner"
-                    className="inline-flex items-center gap-2 rounded-lg bg-sky-100 px-4 py-2 text-sm font-medium text-sky-700 hover:bg-sky-200"
-                  >
-                    Runner Cockpit
-                  </Link>
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {conversations.map((conv) => (
-                    <button
-                      key={conv._id}
-                      onClick={() => {
-                        handleSelectChat(conv);
-                        setNewChatOpen(false);
-                      }}
-                      className="w-full rounded-lg border border-slate-200 bg-white p-3 text-left transition hover:border-sky-200 hover:bg-sky-50/50"
-                    >
-                      <p className="font-semibold text-slate-900">{conv.user?.name ?? 'Unknown'}</p>
-                      <p className="text-xs text-slate-600 truncate">{conv.taskTitle}</p>
-                    </button>
-                  ))}
-                </div>
-              )}
+              <div className="mb-3">
+                <input
+                  type="text"
+                  value={newChatSearch}
+                  onChange={(e) => setNewChatSearch(e.target.value)}
+                  placeholder="Search users by name, username or email..."
+                  className="w-full rounded-lg border border-slate-200 bg-white/80 px-3 py-2 text-sm text-slate-900"
+                />
+              </div>
+              <div className="space-y-3">
+                {discoverLoading ? (
+                  <div className="py-6 flex justify-center">
+                    <Loader2 className="h-6 w-6 animate-spin text-sky-600" />
+                  </div>
+                ) : discoverUsers.length > 0 ? (
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Start direct chat</p>
+                    {discoverUsers.map((u) => (
+                      <button
+                        key={u._id}
+                        onClick={() => startDirectChat(u)}
+                        className="w-full rounded-lg border border-slate-200 bg-white p-3 text-left transition hover:border-sky-200 hover:bg-sky-50/50"
+                      >
+                        <p className="font-semibold text-slate-900">{u.name || u.username || 'User'}</p>
+                        <p className="text-xs text-slate-600 truncate">@{u.username || 'user'}</p>
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="py-6 text-center text-slate-500 text-sm">No users found</div>
+                )}
+
+                {conversations.length > 0 && (
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Existing conversations</p>
+                    {conversations.map((conv) => (
+                      <button
+                        key={conv._id}
+                        onClick={() => {
+                          handleSelectChat(conv);
+                          setNewChatOpen(false);
+                        }}
+                        className="w-full rounded-lg border border-slate-200 bg-white p-3 text-left transition hover:border-sky-200 hover:bg-sky-50/50"
+                      >
+                        <p className="font-semibold text-slate-900">{conv.user?.name ?? 'Unknown'}</p>
+                        <p className="text-xs text-slate-600 truncate">{conv.kind === 'direct' ? 'Direct message' : conv.taskTitle}</p>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>

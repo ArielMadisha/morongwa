@@ -5,7 +5,7 @@ export interface INotification extends Document {
   user: mongoose.Types.ObjectId | null;
   type: string;
   message: string;
-  channel: "realtime" | "email" | "sms" | "push" | "broadcast";
+  channel: "realtime" | "email" | "sms" | "whatsapp" | "push" | "broadcast";
   read: boolean;
   readAt?: Date;
   createdAt: Date;
@@ -18,7 +18,7 @@ const NotificationSchema = new Schema<INotification>(
     message: { type: String, required: true },
     channel: {
       type: String,
-      enum: ["realtime", "email", "sms", "push", "broadcast"],
+      enum: ["realtime", "email", "sms", "whatsapp", "push", "broadcast"],
       default: "realtime",
     },
     read: { type: Boolean, default: false },

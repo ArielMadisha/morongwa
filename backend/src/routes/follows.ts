@@ -99,26 +99,71 @@ router.get("/requests/pending", authenticate, async (req: AuthRequest, res: Resp
   }
 });
 
-// Get suggested users (random users not yet followed by current user)
+// Get suggested users (random, or search-filtered when q provided - MacGyver super search)
 router.get("/suggested", authenticate, async (req: AuthRequest, res: Response, next) => {
   try {
     const currentId = req.user!._id;
-    const limit = Math.min(parseInt((req.query.limit as string) || "5") || 5, 10);
+    const limit = Math.min(parseInt((req.query.limit as string) || "5") || 5, 30);
+    const search = (req.query.q as string)?.trim()?.toLowerCase() || "";
 
     const followingIds = await Follow.find({ followerId: currentId }).distinct("followingId");
 
     const excludeIds = [currentId, ...followingIds];
 
+    const baseMatch: any = {
+      _id: { $nin: excludeIds },
+      active: { $ne: false },
+      suspended: { $ne: true },
+      role: { $nin: ["admin", "superadmin"] },
+    };
+    if (search.length >= 1) {
+      baseMatch.$or = [
+        { name: { $regex: search, $options: "i" } },
+        { username: { $regex: search, $options: "i" } },
+      ];
+    }
+
+    const searchLen = search.length;
+    const sortOrSample = searchLen >= 1
+      ? [
+          {
+            $addFields: {
+              _relevance: {
+                $switch: {
+                  branches: [
+                    {
+                      case: {
+                        $or: [
+                          { $eq: [{ $toLower: { $substrCP: [{ $ifNull: ["$name", ""] }, 0, searchLen] } }, search] },
+                          { $eq: [{ $toLower: { $substrCP: [{ $ifNull: ["$username", ""] }, 0, searchLen] } }, search] },
+                        ],
+                      },
+                      then: 2,
+                    },
+                    {
+                      case: {
+                        $or: [
+                          { $gt: [{ $indexOfCP: [{ $toLower: { $ifNull: ["$name", ""] } }, search] }, -1] },
+                          { $gt: [{ $indexOfCP: [{ $toLower: { $ifNull: ["$username", ""] } }, search] }, -1] },
+                        ],
+                      },
+                      then: 1,
+                    },
+                  ],
+                  default: 0,
+                },
+              },
+            },
+          },
+          { $sort: { _relevance: -1 as 1 | -1, name: 1 as 1 | -1 } },
+          { $limit: limit },
+          { $project: { _relevance: 0 } },
+        ]
+      : [{ $sample: { size: limit } }];
+
     const suggested = await User.aggregate([
-      {
-        $match: {
-          _id: { $nin: excludeIds },
-          active: { $ne: false },
-          suspended: { $ne: true },
-          role: { $nin: ["admin", "superadmin"] },
-        },
-      },
-      { $sample: { size: limit } },
+      { $match: baseMatch },
+      ...sortOrSample,
       {
         $lookup: {
           from: "follows",
@@ -139,6 +184,40 @@ router.get("/suggested", authenticate, async (req: AuthRequest, res: Response, n
     ]);
 
     res.json({ data: suggested });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Get followers for a user (accepted only)
+router.get("/:userId/followers", async (req: AuthRequest, res: Response, next) => {
+  try {
+    const followingId = req.params.userId;
+    const followers = await Follow.find({ followingId, status: "accepted" })
+      .populate("followerId", "name avatar username")
+      .sort({ createdAt: -1 })
+      .lean();
+    const users = followers
+      .map((f: any) => f.followerId)
+      .filter(Boolean);
+    res.json({ data: users });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Get accounts a user follows (accepted only)
+router.get("/:userId/following", async (req: AuthRequest, res: Response, next) => {
+  try {
+    const followerId = req.params.userId;
+    const following = await Follow.find({ followerId, status: "accepted" })
+      .populate("followingId", "name avatar username")
+      .sort({ createdAt: -1 })
+      .lean();
+    const users = following
+      .map((f: any) => f.followingId)
+      .filter(Boolean);
+    res.json({ data: users });
   } catch (err) {
     next(err);
   }

@@ -5,6 +5,9 @@ import Wallet from "../data/models/Wallet";
 import Transaction from "../data/models/Transaction";
 import Order from "../data/models/Order";
 import AuditLog from "../data/models/AuditLog";
+import StoredCard from "../data/models/StoredCard";
+import WalletPaymentRequest from "../data/models/WalletPaymentRequest";
+import CheckoutSession from "../data/models/CheckoutSession";
 import Escrow from "../data/models/Escrow";
 import LedgerEntry from "../data/models/LedgerEntry";
 import Task from "../data/models/Task";
@@ -16,8 +19,51 @@ import payoutService from "../services/payoutService";
 import fnbService from "../services/fnbService";
 import logger from "../utils/logger";
 import { generateReference } from "../utils/helpers";
+import { notifyOrderPaid } from "../services/orderNotification";
+import { forwardOrderToExternalSupplier } from "../services/orderForwardingService";
+import MusicPurchase from "../data/models/MusicPurchase";
+import Song from "../data/models/Song";
+import Cart from "../data/models/Cart";
+
+const MUSIC_PLATFORM_COMMISSION_PCT = 30;
+const MUSIC_OWNER_SHARE_PCT = 70;
 
 const router = express.Router();
+
+async function processMusicPurchases(
+  musicItems: Array<{ songId: any; qty: number; price: number }>,
+  buyerId: any
+): Promise<void> {
+  const adminEmail = process.env.ADMIN_EMAIL;
+  const adminUser = adminEmail ? await User.findOne({ email: adminEmail }).select("_id") : null;
+  if (!adminUser?._id) return;
+  for (const m of musicItems) {
+    const song = await Song.findById(m.songId).lean();
+    if (!song) continue;
+    let ownerWallet = await Wallet.findOne({ user: (song as any).userId });
+    if (!ownerWallet) ownerWallet = await Wallet.create({ user: (song as any).userId });
+    let adminWallet = await Wallet.findOne({ user: adminUser._id });
+    if (!adminWallet) adminWallet = await Wallet.create({ user: adminUser._id });
+    const adminCommission = Math.round((m.price * m.qty * MUSIC_PLATFORM_COMMISSION_PCT / 100) * 100) / 100;
+    const ownerShare = Math.round((m.price * m.qty * MUSIC_OWNER_SHARE_PCT / 100) * 100) / 100;
+    const reference = `MUSIC-${m.songId}-${Date.now()}`;
+    ownerWallet.balance += ownerShare;
+    ownerWallet.transactions.push({ type: "credit", amount: ownerShare, reference: `${reference}-OWNER`, createdAt: new Date() });
+    await ownerWallet.save();
+    adminWallet.balance += adminCommission;
+    adminWallet.transactions.push({ type: "credit", amount: adminCommission, reference: `${reference}-ADMIN`, createdAt: new Date() });
+    await adminWallet.save();
+    await MusicPurchase.create({
+      songId: m.songId,
+      buyerId,
+      ownerId: (song as any).userId,
+      amount: m.price * m.qty,
+      adminCommission,
+      ownerShare,
+      reference,
+    });
+  }
+}
 
 // Initiate payment
 router.post("/initiate", authenticate, async (req: AuthRequest, res: Response, next) => {
@@ -70,18 +116,116 @@ router.post("/initiate", authenticate, async (req: AuthRequest, res: Response, n
   }
 });
 
-// Payment webhook (PayGate callback)
+// Payment webhook (PayGate callback) - must respond with "OK" for PayGate
 router.post("/webhook", async (req: Request, res: Response, next) => {
+  const sendOk = () => res.status(200).send("OK");
+
   try {
     const result = await processPaymentCallback(req.body);
+    const ref = result.reference;
 
-    const payment = await Payment.findOne({ reference: result.reference });
-    if (!payment) throw new AppError("Payment not found", 404);
+    // ADDCARD: PayVault tokenization - no Payment record
+    if (ref.startsWith("ADDCARD-") && result.status === "successful" && result.vaultId) {
+      const parts = ref.replace("ADDCARD-", "").split("-");
+      const userId = parts[0];
+      if (userId) {
+        const mongoose = await import("mongoose");
+        const uid = new mongoose.default.Types.ObjectId(userId);
+        const existing = await StoredCard.findOne({ user: uid, vaultId: result.vaultId });
+        if (!existing) {
+          const payvault1 = (result.payvaultData1 || "").replace(/\D/g, "");
+          const last4 = payvault1.length >= 4 ? payvault1.slice(-4) : "????";
+          const brand = result.payMethodDetail || "Card";
+          const payvault2 = (result.payvaultData2 || "").replace(/\D/g, "");
+          const mmMatch = payvault2.length >= 4 ? payvault2.match(/^(\d{2})(\d{2})$/) : null;
+          const expiryMonth = mmMatch ? Math.min(12, Math.max(1, parseInt(mmMatch[1], 10))) : 12;
+          const expiryYear = mmMatch ? (parseInt(mmMatch[2], 10) <= 50 ? 2000 + parseInt(mmMatch[2], 10) : 1900 + parseInt(mmMatch[2], 10)) : new Date().getFullYear() + 5;
+
+          const isFirst = (await StoredCard.countDocuments({ user: uid })) === 0;
+          await StoredCard.create({
+            user: uid,
+            vaultId: result.vaultId,
+            payvaultData1: result.payvaultData1,
+            payvaultData2: result.payvaultData2,
+            last4,
+            brand,
+            expiryMonth,
+            expiryYear,
+            isDefault: isFirst,
+          });
+        }
+        let wallet = await Wallet.findOne({ user: uid });
+        if (!wallet) wallet = await Wallet.create({ user: uid });
+        wallet.balance += 1; // R1 credited from add-card charge
+        wallet.transactions.push({ type: "topup", amount: 1, reference: ref, createdAt: new Date() });
+        await wallet.save();
+        await AuditLog.create({ action: "WALLET_CARD_ADDED", user: uid, meta: { reference: ref } });
+      }
+      return sendOk();
+    }
+
+    // CHECKOUT: E-commerce payment with card
+    if (ref.startsWith("CHECKOUT-") && result.status === "successful") {
+      const sessionId = ref.replace("CHECKOUT-", "");
+      const session = await CheckoutSession.findById(sessionId);
+      if (session && session.status === "pending") {
+        const amount = (req.body as any).AMOUNT ? Number((req.body as any).AMOUNT) / 100 : session.amount;
+        let merchantWallet = await Wallet.findOne({ user: session.merchantId });
+        if (!merchantWallet) merchantWallet = await Wallet.create({ user: session.merchantId });
+        merchantWallet.balance += amount;
+        merchantWallet.transactions.push({
+          type: "credit",
+          amount,
+          reference: `CHECKOUT-${session.reference}`,
+          createdAt: new Date(),
+        });
+        await merchantWallet.save();
+        session.status = "completed";
+        session.completedAt = new Date();
+        await session.save();
+        await AuditLog.create({
+          action: "CHECKOUT_PAY_CARD",
+          user: session.payerId,
+          meta: { amount, merchantId: session.merchantId, reference: session.reference },
+        });
+      }
+      return sendOk();
+    }
+
+    // CARDPMT: Pay with stored card for QR payment - no Payment record
+    if (ref.startsWith("CARDPMT-") && result.status === "successful") {
+      const prId = ref.replace("CARDPMT-", "");
+      const pr = await WalletPaymentRequest.findById(prId);
+      if (pr && pr.status === "pending") {
+        const amount = (req.body as any).AMOUNT ? Number((req.body as any).AMOUNT) / 100 : pr.amount;
+        let payeeWallet = await Wallet.findOne({ user: pr.toUser });
+        if (!payeeWallet) payeeWallet = await Wallet.create({ user: pr.toUser });
+        payeeWallet.balance += amount;
+        payeeWallet.transactions.push({ type: "credit", amount, reference: pr.reference, createdAt: new Date() });
+        await payeeWallet.save();
+        pr.status = "completed";
+        pr.completedAt = new Date();
+        await pr.save();
+        await AuditLog.create({
+          action: "WALLET_QR_PAYMENT_CARD",
+          user: pr.fromUser,
+          meta: { amount, toUser: pr.toUser, reference: pr.reference },
+        });
+      }
+      return sendOk();
+    }
+
+    const payment = await Payment.findOne({ reference: ref });
+    if (!payment) {
+      logger.warn("Payment webhook: no Payment found for reference", { reference: ref });
+      return sendOk();
+    }
+    const wasSuccessful = payment.status === "successful";
 
     payment.status = result.status as "pending" | "successful" | "failed" | "refunded" | "disputed";
     await payment.save();
 
-    if (result.status === "successful") {
+    if (result.status === "successful" && !wasSuccessful) {
       if (payment.reference.startsWith("ORDER-")) {
         const orderId = payment.reference.replace("ORDER-", "");
         const order = await Order.findById(orderId);
@@ -90,14 +234,36 @@ router.post("/webhook", async (req: Request, res: Response, next) => {
           order.paidAt = new Date();
           order.paymentReference = payment.reference;
           await order.save();
+          await notifyOrderPaid({
+            orderId: order._id.toString(),
+            buyerId: order.buyerId.toString(),
+            items: order.items.map((it: any) => ({
+              productId: it.productId.toString(),
+              qty: it.qty,
+            })),
+          });
+          forwardOrderToExternalSupplier(order._id.toString()).catch((err) =>
+            console.error("Order forward to external supplier failed:", err)
+          );
+          const musicItems = (order as any).musicItems;
+          if (Array.isArray(musicItems) && musicItems.length > 0) {
+            await processMusicPurchases(musicItems, order.buyerId);
+          }
         }
-      } else {
-        // Credit wallet (top-up)
+      } else if (payment.reference.startsWith("MUSIC-")) {
+        const meta = payment.metadata as { musicItems?: Array<{ songId: any; qty: number; price: number }> } | undefined;
+        const musicItems = meta?.musicItems;
+        if (Array.isArray(musicItems) && musicItems.length > 0) {
+          await processMusicPurchases(musicItems, payment.user);
+          const cart = await Cart.findOne({ user: payment.user });
+          if (cart) {
+            cart.musicItems = [];
+            await cart.save();
+          }
+        }
+      } else if (payment.reference.startsWith("TOPUP-") || payment.reference.startsWith("PAY-")) {
         let wallet = await Wallet.findOne({ user: payment.user });
-        if (!wallet) {
-          wallet = await Wallet.create({ user: payment.user });
-        }
-
+        if (!wallet) wallet = await Wallet.create({ user: payment.user });
         wallet.balance += payment.amount;
         wallet.transactions.push({
           type: "topup",
@@ -106,7 +272,6 @@ router.post("/webhook", async (req: Request, res: Response, next) => {
           createdAt: new Date(),
         });
         await wallet.save();
-
         await Transaction.create({
           wallet: wallet._id,
           user: payment.user,
@@ -124,7 +289,7 @@ router.post("/webhook", async (req: Request, res: Response, next) => {
       meta: { reference: payment.reference, status: payment.status },
     });
 
-    res.json({ message: "Webhook processed successfully" });
+    return sendOk();
   } catch (err) {
     next(err);
   }

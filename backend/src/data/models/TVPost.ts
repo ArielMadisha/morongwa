@@ -18,6 +18,10 @@ export interface ITVPost extends Document {
   hashtags?: string[];
   /** Optional product to promote */
   productId?: mongoose.Types.ObjectId;
+  /** For audio posts: cover/artwork image URL */
+  artworkUrl?: string;
+  /** For audio posts: linked Song from QwertyMusic (enables purchase/download) */
+  songId?: mongoose.Types.ObjectId;
   /** Filter/enhancement applied (e.g. "warm", "cool", "vintage") */
   filter?: string;
   /** Genre (e.g. "qwertz", "comedy", "action", "drama", "scifi", "thriller", "reality", "family") */
@@ -29,9 +33,12 @@ export interface ITVPost extends Document {
   repostedBy?: mongoose.Types.ObjectId;
   status: "pending" | "approved" | "rejected";
   aiModerated?: boolean;
+  /** When true, media is blurred until user clicks to reveal */
+  sensitive?: boolean;
   likeCount: number;
   commentCount: number;
   shareCount: number;
+  viewCount: number;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -46,6 +53,8 @@ const TVPostSchema = new Schema<ITVPost>(
     subject: { type: String },
     hashtags: { type: [String], default: [] },
     productId: { type: Schema.Types.ObjectId, ref: "Product" },
+    artworkUrl: { type: String },
+    songId: { type: Schema.Types.ObjectId, ref: "Song" },
     filter: { type: String },
     genre: { type: String },
     hasWatermark: { type: Boolean, default: true },
@@ -53,9 +62,11 @@ const TVPostSchema = new Schema<ITVPost>(
     repostedBy: { type: Schema.Types.ObjectId, ref: "User" },
     status: { type: String, enum: ["pending", "approved", "rejected"], default: "approved" },
     aiModerated: { type: Boolean },
+    sensitive: { type: Boolean },
     likeCount: { type: Number, default: 0 },
     commentCount: { type: Number, default: 0 },
     shareCount: { type: Number, default: 0 },
+    viewCount: { type: Number, default: 0 },
   },
   { timestamps: true }
 );

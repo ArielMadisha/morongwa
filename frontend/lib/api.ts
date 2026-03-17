@@ -27,6 +27,11 @@ export function getImageUrl(url: string | undefined): string {
   const uploadsMatch = normalized.match(/\/uploads\/.+$/);
   if (uploadsMatch) return uploadsMatch[0];
   if (normalized.startsWith('/uploads/')) return normalized;
+  // Bare filename (legacy data): tv-* -> /uploads/tv/, else -> /uploads/
+  if (!normalized.includes('/') && !normalized.startsWith('http')) {
+    const prefix = normalized.startsWith('tv-') ? '/uploads/tv/' : '/uploads/';
+    return prefix + normalized;
+  }
   return normalized;
 }
 
@@ -97,6 +102,8 @@ export const authAPI = {
   }) => api.post('/auth/register', data),
   sendOtp: (phone: string, channel?: 'sms' | 'whatsapp') =>
     api.post('/auth/send-otp', { phone, channel: channel || 'whatsapp' }),
+  getOtpHealth: () =>
+    api.get<{ data: { provider: string; configured: boolean; smsReady: boolean; whatsappReady: boolean; mode: string } }>('/auth/otp-health'),
   verifyOtp: (phone: string, otp: string) => api.post('/auth/verify-otp', { phone, otp }),
   login: (data: { email?: string; username?: string; phone?: string; password: string }) =>
     api.post('/auth/login', data),
@@ -129,9 +136,36 @@ export const tasksAPI = {
 export const walletAPI = {
   getBalance: () => api.get('/wallet/balance'),
   getTransactions: (params?: any) => api.get('/wallet/transactions', { params }),
-  topUp: (amount: number) => api.post('/wallet/topup', { amount }),
+  topUp: (amount: number, returnPath?: string) => api.post('/wallet/topup', { amount, returnPath }),
   withdraw: (amount: number) => api.post('/wallet/payout', { amount }),
   donate: (amount: number, recipientId: string) => api.post('/wallet/donate', { amount, recipientId }),
+  getQrPayload: () => api.get<{ payload: string; userId: string; displayName: string }>('/wallet/qr-payload'),
+  paymentFromScan: (fromUserId: string, amount: number, merchantName?: string) =>
+    api.post('/wallet/payment-from-scan', { fromUserId, amount, merchantName }),
+  confirmPayment: (paymentRequestId: string, otp: string) =>
+    api.post('/wallet/confirm-payment', { paymentRequestId, otp }),
+  requestMoney: (params: { toUserId?: string; toUsername?: string; amount: number; message?: string; notifyChannel?: 'sms' | 'whatsapp' | 'both' }) =>
+    api.post('/wallet/request-money', params),
+  payRequest: (requestId: string) => api.post('/wallet/pay-request', { requestId }),
+  getMoneyRequests: () => api.get('/wallet/money-requests'),
+  // Stored cards (PayGate PayVault)
+  addCard: () => api.post<{ paymentUrl: string; reference: string }>('/wallet/add-card'),
+  getCards: () => api.get<Array<{ _id: string; last4: string; brand: string; expiryMonth: number; expiryYear: number; isDefault: boolean }>>('/wallet/cards'),
+  deleteCard: (cardId: string) => api.delete(`/wallet/cards/${cardId}`),
+  setDefaultCard: (cardId: string) => api.patch(`/wallet/cards/${cardId}/default`),
+  payWithCard: (paymentRequestId: string, cardId: string) =>
+    api.post<{ paymentUrl: string; reference: string }>('/wallet/pay-with-card', { paymentRequestId, cardId }),
+  payPendingWithWallet: (paymentRequestId: string) =>
+    api.post('/wallet/pay-pending-with-wallet', { paymentRequestId }),
+  getPendingPayment: (id: string) =>
+    api.get<{ _id: string; amount: number; merchantName: string; expiresAt: string }>(`/wallet/pending-payment/${id}`),
+  // E-commerce checkout
+  getCheckoutDetails: (params: { merchantId: string; amount: number; reference: string; name?: string }) =>
+    api.get<{ merchantId: string; amount: number; reference: string; merchantName: string }>('/wallet/checkout/details', { params }),
+  checkoutPay: (data: { merchantId: string; amount: number; reference: string; returnUrl: string; cancelUrl?: string; method: 'wallet' | 'card'; cardId?: string }) =>
+    api.post<{ success: boolean; redirectUrl?: string; paymentUrl?: string }>('/wallet/checkout/pay', data),
+  getCheckoutSession: (sessionId: string) =>
+    api.get<{ status: string; returnUrl: string; reference: string; amount: number }>(`/wallet/checkout/session/${sessionId}`),
 };
 
 export const paymentsAPI = {
@@ -154,6 +188,9 @@ export const messengerAPI = {
   getMessages: (taskId: string) => api.get(`/messenger/task/${taskId}`),
   sendMessage: (taskId: string, content: string) =>
     api.post(`/messenger/task/${taskId}`, { content }),
+  searchUsers: (q?: string, limit?: number) => api.get('/messenger/users/search', { params: { q, limit } }),
+  getDirectMessages: (userId: string) => api.get(`/messenger/direct/${userId}`),
+  sendDirectMessage: (userId: string, content: string) => api.post(`/messenger/direct/${userId}`, { content }),
   markAsRead: (taskId: string) => api.post(`/messenger/task/${taskId}/read`),
   getUnreadCount: () => api.get('/messenger/unread'),
 };
@@ -249,8 +286,18 @@ export const adminAPI = {
   updateStore: (id: string, data: { name?: string }) => api.put(`/admin/stores/${id}`, data),
 
   // Products (admin load products for marketplace)
-  getProducts: (params?: { page?: number; limit?: number; supplierId?: string; active?: boolean }) =>
+  getProducts: (params?: { page?: number; limit?: number; supplierId?: string; active?: boolean; supplierSource?: string }) =>
     api.get('/admin/products', { params }),
+
+  // Dropshipping (CJ – superadmin only)
+  searchCJProducts: (params?: { q?: string; page?: number; size?: number }) =>
+    api.get('/admin/dropship/search-cj', { params }),
+  importCJProduct: (cjProductId: string, forceUpdate?: boolean) =>
+    api.post(`/admin/dropship/import-cj/${cjProductId}${forceUpdate ? '?forceUpdate=true' : ''}`),
+  searchImportCJ: (data: { query?: string; limit?: number }) =>
+    api.post('/admin/dropship/search-import-cj', data),
+  syncCjStock: () =>
+    api.post<{ data: { total: number; updated: number; failed: number; outOfStock: string[] } }>('/admin/dropship/sync-cj-stock'),
   uploadProductImages: (files: File[]) => {
     const formData = new FormData();
     files.forEach((f) => formData.append('images', f));
@@ -289,13 +336,14 @@ export const adminAPI = {
   resolveTVReport: (id: string) => api.post(`/admin/tv/reports/${id}/resolve`),
 
   // Super-admin: create admins
-  createAdmin: (data: { email: string; name: string; password: string; sections?: string[] }) =>
+  createAdmin: (data: { email: string; name: string; password: string; sections?: string[]; supportCategories?: string[] }) =>
     api.post('/admin/admins', data),
   getAdmins: () => api.get('/admin/admins'),
 
   // Music (admin: load songs)
   getMusicSongs: () => api.get('/admin/music/songs'),
-  uploadMusicSong: (audio: File, artwork: File, metadata: { userId?: string; title: string; artist: string; songwriters?: string; producer?: string; genre: string; lyrics?: string }) => {
+  deleteMusicSong: (id: string) => api.delete(`/admin/music/songs/${id}`),
+  uploadMusicSong: (audio: File, artwork: File, metadata: { userId?: string; title: string; artist: string; songwriters?: string; producer?: string; genre: string; lyrics?: string; downloadEnabled?: boolean; downloadPrice?: number }) => {
     const formData = new FormData();
     formData.append('audio', audio);
     formData.append('artwork', artwork);
@@ -306,7 +354,28 @@ export const adminAPI = {
     if (metadata.songwriters) formData.append('songwriters', metadata.songwriters);
     if (metadata.producer) formData.append('producer', metadata.producer);
     if (metadata.lyrics) formData.append('lyrics', metadata.lyrics);
+    formData.append('downloadEnabled', metadata.downloadEnabled ? 'true' : 'false');
+    if (metadata.downloadEnabled && metadata.downloadPrice != null) formData.append('downloadPrice', String(metadata.downloadPrice));
     return api.post('/admin/music/upload-song', formData);
+  },
+  uploadMusicAlbum: (
+    tracks: File[],
+    artwork: File,
+    metadata: { userId?: string; title: string; artist: string; songwriters?: string; producer?: string; genre: string; lyrics?: string; downloadEnabled?: boolean; downloadPrice?: number }
+  ) => {
+    const formData = new FormData();
+    tracks.forEach((track) => formData.append('tracks', track));
+    formData.append('artwork', artwork);
+    formData.append('title', metadata.title);
+    formData.append('artist', metadata.artist);
+    formData.append('genre', metadata.genre);
+    if (metadata.userId) formData.append('userId', metadata.userId);
+    if (metadata.songwriters) formData.append('songwriters', metadata.songwriters);
+    if (metadata.producer) formData.append('producer', metadata.producer);
+    if (metadata.lyrics) formData.append('lyrics', metadata.lyrics);
+    formData.append('downloadEnabled', metadata.downloadEnabled ? 'true' : 'false');
+    if (metadata.downloadEnabled && metadata.downloadPrice != null) formData.append('downloadPrice', String(metadata.downloadPrice));
+    return api.post('/admin/music/upload-album', formData);
   },
 
   // Artists (admin: create artist/publisher, manage verifications)
@@ -321,9 +390,13 @@ export const supportAPI = {
   create: (data: { title: string; description: string; category: string; priority?: string }) =>
     api.post('/support', data),
   getMyTickets: (params?: any) => api.get('/support/my-tickets', { params }),
+  getAllTickets: (params?: { page?: number; limit?: number; status?: string; category?: string; priority?: string }) =>
+    api.get('/support', { params }),
   getById: (id: string) => api.get(`/support/${id}`),
   addMessage: (id: string, message: string) =>
     api.post(`/support/${id}/messages`, { message }),
+  updateStatus: (id: string, status: string) =>
+    api.put(`/support/${id}/status`, { status }),
 };
 
 export const analyticsAPI = {
@@ -339,7 +412,7 @@ export const usersAPI = {
   getProfile: (id: string) => api.get(`/users/${id}`),
   getProfileStats: (id: string) =>
     api.get<{ user: any; postCount: number; imageCount: number; videoCount: number; musicCount: number; followerCount: number; followingCount: number }>(`/users/${id}/profile-stats`),
-  updateProfile: (id: string, data: { name?: string; username?: string; isPrivate?: boolean; avatar?: string; stripBackgroundPic?: string }) =>
+  updateProfile: (id: string, data: { name?: string; username?: string; phone?: string; isPrivate?: boolean; avatar?: string; stripBackgroundPic?: string }) =>
     api.put(`/users/${id}`, data),
   toggleLive: (id: string) => api.patch(`/users/${id}/live`),
   uploadAvatar: (id: string, file: File) => {
@@ -375,6 +448,8 @@ export const usersAPI = {
     documents.forEach((f) => formData.append('documents', f));
     return api.post(`/users/${id}/vehicles`, formData, { headers: { 'Content-Type': 'multipart/form-data' } });
   },
+  updateContentPreferences: (id: string, data: { showProducts?: boolean; preferencesAskedAt?: string }) =>
+    api.patch(`/users/${id}/content-preferences`, data),
 };
 
 export const policiesAPI = {
@@ -420,15 +495,19 @@ export const cartAPI = {
   get: () => api.get('/cart'),
   add: (productId: string, qty?: number, resellerId?: string) =>
     api.post('/cart', { productId, qty: qty ?? 1, resellerId }),
+  addMusic: (songId: string, qty?: number) =>
+    api.post('/cart', { type: 'music', songId, qty: qty ?? 1 }),
   updateItem: (productId: string, qty: number) =>
     api.put(`/cart/item/${productId}`, { qty }),
   removeItem: (productId: string) => api.delete(`/cart/item/${productId}`),
+  removeMusicItem: (songId: string) => api.delete(`/cart/music/${songId}`),
 };
 
 export const checkoutAPI = {
-  quote: () => api.post('/checkout/quote'),
-  pay: (paymentMethod: 'wallet' | 'card', deliveryAddress?: string) =>
-    api.post('/checkout/pay', { paymentMethod, deliveryAddress }),
+  quote: (params?: { deliveryAddress?: string; deliveryCountry?: string }) =>
+    api.post('/checkout/quote', { deliveryCountry: params?.deliveryCountry ?? 'ZA', deliveryAddress: params?.deliveryAddress }),
+  pay: (paymentMethod: 'wallet' | 'card', deliveryAddress: string, deliveryCountry?: string) =>
+    api.post('/checkout/pay', { paymentMethod, deliveryAddress, deliveryCountry: deliveryCountry ?? 'ZA' }),
   getOrder: (orderId: string) => api.get(`/checkout/order/${orderId}`),
 };
 
@@ -458,7 +537,7 @@ export const storesAPI = {
 export const followsAPI = {
   follow: (userId: string) => api.post(`/follows/${userId}`),
   unfollow: (userId: string) => api.delete(`/follows/${userId}`),
-  getSuggested: (limit?: number) => api.get<{ data: Array<{ _id: string; name: string; avatar?: string; username?: string; followerCount?: number }> }>('/follows/suggested', { params: { limit } }),
+  getSuggested: (params?: { limit?: number; q?: string }) => api.get<{ data: Array<{ _id: string; name: string; avatar?: string; username?: string; followerCount?: number }> }>('/follows/suggested', { params }),
   getStatus: (userId: string) => api.get(`/follows/${userId}/status`),
   getPendingRequests: () => api.get('/follows/requests/pending'),
   acceptRequest: (followerId: string) => api.post(`/follows/${followerId}/accept`),
@@ -476,8 +555,10 @@ export const productEnquiryAPI = {
 
 export const tvAPI = {
   getPost: (id: string) => api.get(`/tv/${id}`),
-  getFeed: (params?: { page?: number; limit?: number; sort?: 'newest' | 'trending' | 'random'; type?: 'video' | 'image' | 'carousel' | 'product' | 'images' | 'audio' | 'text'; creatorId?: string; q?: string; genre?: string }) =>
-    api.get('/tv', { params }),
+  getFeed: (params?: { page?: number; limit?: number; sort?: 'newest' | 'trending' | 'random'; type?: 'video' | 'image' | 'carousel' | 'product' | 'images' | 'audio' | 'text'; creatorId?: string; q?: string; genre?: string; hideProducts?: boolean }) => {
+    const { hideProducts, ...rest } = params ?? {};
+    return api.get('/tv', { params: { ...rest, ...(hideProducts ? { hideProducts: '1' } : {}) } });
+  },
   getStatuses: () => api.get('/tv/statuses'),
   getTrendingHashtags: (limit?: number) => api.get<{ data: { tag: string; count: number }[] }>('/tv/hashtags/trending', { params: { limit } }),
   uploadMedia: (file: File) => {
@@ -500,15 +581,34 @@ export const tvAPI = {
     productId?: string;
     filter?: string;
     genre?: string;
+    artworkUrl?: string;
+    songId?: string;
   }) => api.post('/tv', data),
   repost: (id: string) => api.post(`/tv/${id}/repost`),
   like: (id: string) => api.post(`/tv/${id}/like`),
   getLiked: (id: string) => api.get<{ data: { liked: boolean } }>(`/tv/${id}/liked`),
   report: (id: string, reason: string) => api.post(`/tv/${id}/report`, { reason }),
+  deletePost: (id: string) => api.delete(`/tv/${id}`),
   getComments: (id: string) => api.get(`/tv/${id}/comments`),
-  addComment: (id: string, text: string) => api.post(`/tv/${id}/comments`, { text }),
+  uploadCommentAudio: (file: File) => {
+    const formData = new FormData();
+    formData.append('audio', file);
+    return api.post<{ data: { url: string } }>('/tv/comments/upload-audio', formData);
+  },
+  addComment: (id: string, payload: string | { text?: string; audioUrl?: string }) => {
+    if (typeof payload === 'string') return api.post(`/tv/${id}/comments`, { text: payload });
+    return api.post(`/tv/${id}/comments`, payload);
+  },
   getWatermark: () => api.get<{ data: { watermark: string } }>('/tv/watermark'),
-  getFeaturedProducts: () => api.get('/tv/products/featured'),
+  getFeaturedProducts: (hideProducts?: boolean) =>
+    api.get('/tv/products/featured', { params: hideProducts ? { hideProducts: '1' } : undefined }),
+};
+
+export const translateAPI = {
+  translate: (text: string, target: string = 'en', source: string = 'auto') =>
+    api.get<{ translatedText: string; detectedLanguage?: string }>('/translate', {
+      params: { text, target, source },
+    }),
 };
 
 export interface SongRecord {
@@ -522,6 +622,9 @@ export interface SongRecord {
   lyrics?: string;
   audioUrl: string;
   artworkUrl: string;
+  tracks?: { title: string; audioUrl: string; duration?: number }[];
+  downloadEnabled?: boolean;
+  downloadPrice?: number;
   userId?: { _id: string; name?: string };
   createdAt: string;
 }
@@ -529,7 +632,7 @@ export interface SongRecord {
 export const musicAPI = {
   getGenres: () => api.get<{ data: { id: string; label: string }[] }>('/music/genres'),
   getArtistStatus: () => api.get<{ data: { isVerified: boolean; status: string | null; type: string | null } }>('/music/artist-status'),
-  getSongs: () => api.get<{ data: SongRecord[] }>('/music/songs'),
+  getSongs: (params?: { type?: 'song' | 'album' }) => api.get<{ data: SongRecord[] }>('/music/songs', { params }),
   uploadAudio: (file: File) => {
     const formData = new FormData();
     formData.append('audio', file);
@@ -543,7 +646,7 @@ export const musicAPI = {
     (documents || []).forEach((f) => formData.append('documents', f, f.name));
     return api.post('/music/artist-apply', formData);
   },
-  /** Upload song: WAV audio, JPEG/PNG artwork (3000x3000), metadata */
+  /** Upload song: WAV audio, JPEG/PNG artwork (1200×1200), metadata */
   uploadSong: (audio: File, artwork: File, metadata: { title: string; artist: string; songwriters?: string; producer?: string; genre: string; lyrics?: string }) => {
     const formData = new FormData();
     formData.append('audio', audio);
@@ -556,6 +659,27 @@ export const musicAPI = {
     if (metadata.lyrics) formData.append('lyrics', metadata.lyrics);
     return api.post<{ data: SongRecord }>('/music/upload-song', formData);
   },
+  uploadAlbum: (
+    tracks: File[],
+    artwork: File,
+    metadata: { title: string; artist: string; songwriters?: string; producer?: string; genre: string; lyrics?: string; downloadEnabled?: boolean; downloadPrice?: number }
+  ) => {
+    const formData = new FormData();
+    tracks.forEach((track) => formData.append('tracks', track));
+    formData.append('artwork', artwork);
+    formData.append('title', metadata.title);
+    formData.append('artist', metadata.artist);
+    formData.append('genre', metadata.genre);
+    if (metadata.songwriters) formData.append('songwriters', metadata.songwriters);
+    if (metadata.producer) formData.append('producer', metadata.producer);
+    if (metadata.lyrics) formData.append('lyrics', metadata.lyrics);
+    formData.append('downloadEnabled', metadata.downloadEnabled ? 'true' : 'false');
+    if (metadata.downloadEnabled && metadata.downloadPrice != null) formData.append('downloadPrice', String(metadata.downloadPrice));
+    return api.post<{ data: SongRecord }>('/music/upload-album', formData);
+  },
+  purchaseDownload: (songId: string) => api.post(`/music/${songId}/purchase`),
+  getDownloadLinks: (songId: string) => api.get(`/music/${songId}/download`),
+  getMyPurchases: () => api.get<{ data: Array<{ songId: string; reference: string; amount: number; createdAt: string }> }>('/music/purchases/me'),
 };
 
 export const suppliersAPI = {
@@ -580,4 +704,8 @@ export const suppliersAPI = {
   }) => api.post('/suppliers/apply', data),
   getMe: () => api.get('/suppliers/me'),
   getMyProducts: () => api.get('/suppliers/me/products'),
+};
+
+export const macgyverAPI = {
+  ask: (query: string) => api.post<{ data: { text: string; error?: string } }>('/macgyver/ask', { query }),
 };

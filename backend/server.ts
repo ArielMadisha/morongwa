@@ -2,6 +2,7 @@
 import dotenv from "dotenv";
 import express, { Application } from "express";
 import http from "http";
+import path from "path";
 import { Server as SocketServer } from "socket.io";
 import cors from "cors";
 import { connectDB, isDbConnected } from "./src/data/db";
@@ -45,6 +46,11 @@ import advertsRoutes from "./src/routes/adverts";
 import landingBackgroundsRoutes from "./src/routes/landingBackgrounds";
 import followsRoutes from "./src/routes/follows";
 import musicRoutes from "./src/routes/music";
+import translateRoutes from "./src/routes/translate";
+import macgyverRoutes from "./src/routes/macgyver";
+import webhookRoutes from "./src/routes/webhooks";
+import fxRoutes from "./src/routes/fx";
+import { getCardPaymentConfigIssues } from "./src/services/payment";
 import { ensureDefaultPolicies } from "./src/services/policyService";
 import { seedPricingConfig } from "./src/services/pricingConfig";
 import { ensureDefaultProducts } from "./src/services/marketplaceSeed";
@@ -57,6 +63,7 @@ const server = http.createServer(app);
 const allowedOrigins = [
   "http://localhost:3000",
   "http://localhost:3001",
+  "http://localhost:8081",
   process.env.FRONTEND_URL,
 ].filter(Boolean) as string[];
 
@@ -94,8 +101,13 @@ app.use("/api", (req, res, next) => {
   next();
 });
 
-// Static files (uploads)
-app.use("/uploads", express.static("uploads"));
+// Static files (uploads) - allow cross-origin so frontend can load when proxied or direct
+const uploadsDir = path.join(__dirname, "uploads");
+app.use("/uploads", (req, res, next) => {
+  res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  next();
+}, express.static(uploadsDir));
 
 // Health check (always responds so load balancers see the server is up)
 app.get("/health", (req, res) => {
@@ -138,6 +150,10 @@ const routePairs: [string, express.RequestHandler | undefined][] = [
   ["/api/landing-backgrounds", landingBackgroundsRoutes],
   ["/api/follows", followsRoutes],
   ["/api/music", musicRoutes],
+  ["/api/translate", translateRoutes],
+  ["/api/macgyver", macgyverRoutes],
+  ["/api/webhooks", webhookRoutes],
+  ["/api/fx", fxRoutes],
 ];
 for (const [path, handler] of routePairs) {
   if (handler == null) {
@@ -175,31 +191,23 @@ const startServer = async () => {
   }
 
   initializeServices();
-
-  const tryListen = (port: number, attempt: number): void => {
-    server.once("error", (err: NodeJS.ErrnoException) => {
-      if (err.code === "EADDRINUSE" && attempt < MAX_PORT_ATTEMPTS) {
-        logger.warn(`Port ${port} in use, trying ${port + 1}...`);
-        tryListen(port + 1, attempt + 1);
-      } else {
-        logger.error("Failed to start server:", err);
-        process.exit(1);
-      }
-    });
-    server.listen(port, () => {
-      logger.info(`🚀 Server running on port ${port}`);
-      if (port !== PREFERRED_PORT) {
-        logger.warn(`⚠️ Port ${PREFERRED_PORT} was in use. Update frontend .env.local: NEXT_PUBLIC_API_URL=http://localhost:${port}/api`);
-      }
-      logger.info(`📝 Environment: ${process.env.NODE_ENV || "development"}`);
-      logger.info(`🔗 API: http://localhost:${port}/api`);
-      logger.info(`💬 Socket.IO: http://localhost:${port}`);
-      if (!isDbConnected()) {
-        logger.warn("⚠️ MongoDB not connected. API will return 503 until DB is available.");
-      }
-    });
-  };
-  tryListen(PREFERRED_PORT, 0);
+  server.listen(PORT, () => {
+    logger.info(`🚀 Server running on port ${PORT}`);
+    logger.info(`📝 Environment: ${process.env.NODE_ENV || "development"}`);
+    logger.info(`🔗 API: http://localhost:${PORT}/api`);
+    logger.info(`💬 Socket.IO: http://localhost:${PORT}`);
+    const paymentConfigIssues = getCardPaymentConfigIssues();
+    if (paymentConfigIssues.length > 0) {
+      logger.warn(
+        `⚠️ Card payments are blocked in current config: ${paymentConfigIssues.join(
+          ", "
+        )}. Configure public FRONTEND_URL/BACKEND_URL for PayGate.`
+      );
+    }
+    if (!isDbConnected()) {
+      logger.warn("⚠️ MongoDB not connected. API will return 503 until DB is available.");
+    }
+  });
 };
 
 // Graceful shutdown

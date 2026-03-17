@@ -1,6 +1,8 @@
 import express, { Response } from "express";
 import Cart from "../data/models/Cart";
 import Product from "../data/models/Product";
+import Song from "../data/models/Song";
+import MusicPurchase from "../data/models/MusicPurchase";
 import ResellerWall from "../data/models/ResellerWall";
 import { authenticate, AuthRequest } from "../middleware/auth";
 import { AppError } from "../middleware/errorHandler";
@@ -34,12 +36,12 @@ async function getResellerPrice(resellerId: string, productId: string, basePrice
   return Math.round(basePrice * (1 + pct / 100) * 100) / 100;
 }
 
-// Get my cart with product details
+// Get my cart with product and music details
 router.get("/", authenticate, async (req: AuthRequest, res: Response, next) => {
   try {
     let cart = await Cart.findOne({ user: req.user!._id });
     if (!cart) {
-      cart = await Cart.create({ user: req.user!._id, items: [] });
+      cart = await Cart.create({ user: req.user!._id, items: [], musicItems: [] });
     }
 
     const productIds = cart.items.map((i) => i.productId);
@@ -57,6 +59,7 @@ router.get("/", authenticate, async (req: AuthRequest, res: Response, next) => {
         price = await getResellerPrice((item.resellerId as any).toString(), (item.productId as any).toString(), price);
       }
       items.push({
+        type: "product",
         productId: item.productId,
         qty: item.qty,
         resellerId: item.resellerId,
@@ -78,16 +81,71 @@ router.get("/", authenticate, async (req: AuthRequest, res: Response, next) => {
       });
     }
 
-    res.json({ data: { items, updatedAt: cart.updatedAt } });
+    const musicItems: any[] = [];
+    if (cart.musicItems && cart.musicItems.length > 0) {
+      const songIds = cart.musicItems.map((i) => i.songId);
+      const songs = await Song.find({ _id: { $in: songIds }, downloadEnabled: true })
+        .select("title artist artworkUrl downloadPrice type")
+        .lean();
+      const songMap = new Map(songs.map((s) => [s._id.toString(), s]));
+      for (const item of cart.musicItems) {
+        const song = songMap.get((item.songId as any).toString?.() ?? item.songId);
+        if (!song) continue;
+        const price = Number((song as any).downloadPrice ?? 10);
+        musicItems.push({
+          type: "music",
+          songId: item.songId,
+          qty: item.qty,
+          song: {
+            _id: song._id,
+            title: (song as any).title,
+            artist: (song as any).artist,
+            artworkUrl: (song as any).artworkUrl,
+            price,
+            type: (song as any).type,
+          },
+          lineTotal: price * item.qty,
+        });
+      }
+    }
+
+    res.json({ data: { items, musicItems, updatedAt: cart.updatedAt } });
   } catch (err) {
     next(err);
   }
 });
 
-// Add or update item in cart
+// Add or update item in cart (product or music)
 router.post("/", authenticate, async (req: AuthRequest, res: Response, next) => {
   try {
-    const { productId, qty = 1, resellerId } = req.body;
+    const { productId, songId, qty = 1, resellerId, type } = req.body;
+
+    if (type === "music" || songId) {
+      if (!songId || qty < 1) throw new AppError("songId and qty (min 1) required for music", 400);
+      const song = await Song.findOne({ _id: songId, downloadEnabled: true });
+      if (!song) throw new AppError("Song not found or downloads not enabled", 404);
+      if (String(song.userId) === String(req.user!._id)) {
+        throw new AppError("You cannot add your own song to cart", 400);
+      }
+      const alreadyPurchased = await MusicPurchase.findOne({ songId: song._id, buyerId: req.user!._id });
+      if (alreadyPurchased) {
+        throw new AppError("You already own this song. Check your Downloads in profile.", 400);
+      }
+
+      let cart = await Cart.findOne({ user: req.user!._id });
+      if (!cart) cart = await Cart.create({ user: req.user!._id, items: [], musicItems: [] });
+      if (!cart.musicItems) cart.musicItems = [];
+
+      const existing = cart.musicItems.find((i) => (i.songId as any).toString() === songId.toString());
+      if (existing) {
+        existing.qty = 1;
+      } else {
+        cart.musicItems.push({ songId: song._id, qty: 1 });
+      }
+      await cart.save();
+      return res.json({ message: "Music added to cart", data: { items: cart.items, musicItems: cart.musicItems, updatedAt: cart.updatedAt } });
+    }
+
     if (!productId || qty < 1) {
       throw new AppError("productId and qty (min 1) required", 400);
     }
@@ -98,7 +156,7 @@ router.post("/", authenticate, async (req: AuthRequest, res: Response, next) => 
     if (product.stock < qty) throw new AppError("Insufficient stock", 400);
 
     let cart = await Cart.findOne({ user: req.user!._id });
-    if (!cart) cart = await Cart.create({ user: req.user!._id, items: [] });
+    if (!cart) cart = await Cart.create({ user: req.user!._id, items: [], musicItems: [] });
 
     const existing = cart.items.find(
       (i) => (i.productId as any).toString() === productId.toString()
@@ -139,7 +197,7 @@ router.post("/", authenticate, async (req: AuthRequest, res: Response, next) => 
       });
     }
 
-    res.json({ data: { items, updatedAt: cart.updatedAt } });
+    res.json({ data: { items, musicItems: cart.musicItems || [], updatedAt: cart.updatedAt } });
   } catch (err) {
     next(err);
   }
@@ -186,7 +244,24 @@ router.delete("/item/:productId", authenticate, async (req: AuthRequest, res: Re
 
     cart.items = cart.items.filter((i) => (i.productId as any).toString() !== productId);
     await cart.save();
-    res.json({ message: "Item removed", data: { items: cart.items, updatedAt: cart.updatedAt } });
+    res.json({ message: "Item removed", data: { items: cart.items, musicItems: cart.musicItems || [], updatedAt: cart.updatedAt } });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Remove music item from cart
+router.delete("/music/:songId", authenticate, async (req: AuthRequest, res: Response, next) => {
+  try {
+    const { songId } = req.params;
+    const cart = await Cart.findOne({ user: req.user!._id });
+    if (!cart) return res.json({ message: "Cart empty" });
+
+    if (cart.musicItems) {
+      cart.musicItems = cart.musicItems.filter((i) => (i.songId as any).toString() !== songId);
+      await cart.save();
+    }
+    res.json({ message: "Music item removed", data: { items: cart.items, musicItems: cart.musicItems || [], updatedAt: cart.updatedAt } });
   } catch (err) {
     next(err);
   }

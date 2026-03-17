@@ -1,12 +1,15 @@
 'use client';
 
-import { Edit3, User } from 'lucide-react';
+import { useState } from 'react';
+import { Edit3, User, Share2, Check } from 'lucide-react';
+import toast from 'react-hot-toast';
 
 type StoreHeaderProps = {
   title?: string;
   address?: string;
   phone?: string;
   email?: string;
+  storeSlug?: string;
   onEdit?: () => void;
   onProfile?: () => void;
   isEditing?: boolean;
@@ -18,11 +21,26 @@ export default function StoreHeader({
   address = 'Enter address',
   phone = '—',
   email = '—',
+  storeSlug,
   onEdit,
   onProfile,
   isEditing = false,
   startContent,
 }: StoreHeaderProps) {
+  const [copied, setCopied] = useState(false);
+  const shareUrl = typeof window !== 'undefined' && storeSlug
+    ? `${window.location.origin}/store/${storeSlug}`
+    : '';
+
+  const handleCopyStoreUrl = () => {
+    if (!shareUrl) return;
+    navigator.clipboard.writeText(shareUrl).then(() => {
+      setCopied(true);
+      toast.success('Store link copied');
+      setTimeout(() => setCopied(false), 2000);
+    }).catch(() => toast.error('Failed to copy'));
+  };
+
   return (
     <section className="relative isolate w-full">
       {/* Thin accent strip */}
@@ -55,6 +73,19 @@ export default function StoreHeader({
                   <span className="hidden sm:inline">|</span>
                   <span>Email: {email}</span>
                 </div>
+                {storeSlug && (
+                  <div className="mt-2 flex items-center gap-2">
+                    <span className="text-white/80 text-xs">Store ID: <code className="bg-white/20 px-1.5 py-0.5 rounded text-white/95">{storeSlug}</code></span>
+                    <button
+                      onClick={handleCopyStoreUrl}
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-white/20 hover:bg-white/30 px-2.5 py-1.5 text-xs font-medium backdrop-blur-md transition-colors"
+                      title="Copy store link to share"
+                    >
+                      {copied ? <Check className="h-3.5 w-3.5" /> : <Share2 className="h-3.5 w-3.5" />}
+                      {copied ? 'Copied' : 'Share'}
+                    </button>
+                  </div>
+                )}
               </div>
               {(onEdit || onProfile) && (
                 <div className="flex gap-2 shrink-0">

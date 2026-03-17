@@ -4,7 +4,11 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { Calculator, Globe, Shield, Clock, Package, Zap, CheckCircle, ArrowRight, Info, AlertCircle } from 'lucide-react';
 import { API_URL } from '@/lib/api';
-import SiteHeader from '@/components/SiteHeader';
+import { useAuth } from '@/contexts/AuthContext';
+import { useCartAndStores } from '@/lib/useCartAndStores';
+import { AppSidebar, AppSidebarMenuButton } from '@/components/AppSidebar';
+import { SearchButton } from '@/components/SearchButton';
+import { ProfileHeaderButton } from '@/components/ProfileHeaderButton';
 
 interface CountryConfig {
   country: string;
@@ -38,6 +42,9 @@ interface QuoteBreakdown {
 }
 
 export default function PricingPage() {
+  const { user } = useAuth();
+  const { cartCount, hasStore } = useCartAndStores(!!user);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [selectedCountry, setSelectedCountry] = useState<string>('ZAR');
   const [countries, setCountries] = useState<Record<string, CountryConfig>>({});
   const [quote, setQuote] = useState<QuoteBreakdown | null>(null);
@@ -138,9 +145,38 @@ export default function PricingPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-sky-50 via-white to-sky-100">
-      <SiteHeader />
-
+    <div className="min-h-screen flex flex-col bg-gradient-to-br from-sky-50 via-white to-sky-100 text-slate-900">
+      <header className="sticky top-0 z-40 w-full bg-white/95 backdrop-blur-md border-b border-slate-100 shadow-sm flex-shrink-0">
+        <div className="px-4 sm:px-6 lg:px-8 py-3">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <Link href={user ? '/wall' : '/'} className="shrink-0 flex items-center" aria-label="Home">
+                <img src="/qwertymates-logo-icon.png" alt="Qwertymates" className="h-9 w-9 object-contain lg:hidden" />
+                <img src="/qwertymates-logo.png" alt="Qwertymates" className="h-9 w-auto object-contain hidden lg:block" />
+              </Link>
+              {user && <AppSidebarMenuButton onClick={() => setMenuOpen((v) => !v)} />}
+            </div>
+            <div className="flex-1 min-w-0" />
+            <div className="flex items-center gap-2 shrink-0">
+              <SearchButton className="max-w-[200px] sm:max-w-[280px]" />
+              <ProfileHeaderButton />
+            </div>
+          </div>
+        </div>
+      </header>
+      <div className="flex flex-1 min-h-0">
+        {user && (
+          <AppSidebar
+            variant="wall"
+            cartCount={cartCount}
+            hasStore={hasStore}
+            menuOpen={menuOpen}
+            setMenuOpen={setMenuOpen}
+            hideLogo
+            belowHeader
+          />
+        )}
+      <div className="flex-1 min-w-0 overflow-y-auto">
       {apiUnavailable && (
         <div className="max-w-7xl mx-auto px-4 pt-4">
           <div className="flex items-center gap-2 px-4 py-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-800 text-sm">
@@ -455,6 +491,8 @@ export default function PricingPage() {
           </p>
         </div>
       </footer>
+      </div>
+      </div>
     </div>
   );
 }

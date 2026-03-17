@@ -5,6 +5,10 @@ import { followsAPI } from '@/lib/api';
 import { UserPlus, UserCheck, Loader2, Clock } from 'lucide-react';
 import toast from 'react-hot-toast';
 
+const FOLLOW_STATUS_TTL_MS = 60_000;
+const followStatusCache = new Map<string, { following: boolean; status: 'accepted' | 'pending' | null; ts: number }>();
+const inflightStatusRequests = new Map<string, Promise<{ following: boolean; status: 'accepted' | 'pending' | null }>>();
+
 interface FollowButtonProps {
   targetUserId: string;
   currentUserId?: string;
@@ -27,16 +31,46 @@ export function FollowButton({ targetUserId, currentUserId, targetIsPrivate, cla
       setStatus(null);
       return;
     }
-    followsAPI
+    const cacheKey = `${currentUserId}:${targetUserId}`;
+    const cached = followStatusCache.get(cacheKey);
+    if (cached && Date.now() - cached.ts < FOLLOW_STATUS_TTL_MS) {
+      setFollowing(cached.following);
+      setStatus(cached.status);
+      return;
+    }
+
+    const pending = inflightStatusRequests.get(cacheKey);
+    if (pending) {
+      pending
+        .then((v) => {
+          setFollowing(v.following);
+          setStatus(v.status);
+        })
+        .catch(() => {
+          setFollowing(false);
+          setStatus(null);
+        });
+      return;
+    }
+
+    const req = followsAPI
       .getStatus(targetUserId)
-      .then((res) => {
-        setFollowing(!!res.data?.following);
-        setStatus(res.data?.status || null);
+      .then((res) => ({
+        following: !!res.data?.following,
+        status: (res.data?.status || null) as 'accepted' | 'pending' | null,
+      }));
+    inflightStatusRequests.set(cacheKey, req);
+    req
+      .then((v) => {
+        followStatusCache.set(cacheKey, { ...v, ts: Date.now() });
+        setFollowing(v.following);
+        setStatus(v.status);
       })
       .catch(() => {
         setFollowing(false);
         setStatus(null);
-      });
+      })
+      .finally(() => inflightStatusRequests.delete(cacheKey));
   }, [currentUserId, targetUserId]);
 
   const handleClick = async () => {
@@ -47,12 +81,19 @@ export function FollowButton({ targetUserId, currentUserId, targetIsPrivate, cla
         await followsAPI.unfollow(targetUserId);
         setFollowing(false);
         setStatus(null);
+        if (currentUserId) {
+          followStatusCache.set(`${currentUserId}:${targetUserId}`, { following: false, status: null, ts: Date.now() });
+        }
         onFollowChange?.(false);
         toast.success('Unfollowed');
       } else {
         const res = await followsAPI.follow(targetUserId);
         setFollowing(true);
-        setStatus(res.data?.data?.status || (targetIsPrivate ? 'pending' : 'accepted'));
+        const nextStatus = (res.data?.data?.status || (targetIsPrivate ? 'pending' : 'accepted')) as 'accepted' | 'pending';
+        setStatus(nextStatus);
+        if (currentUserId) {
+          followStatusCache.set(`${currentUserId}:${targetUserId}`, { following: true, status: nextStatus, ts: Date.now() });
+        }
         onFollowChange?.(true);
         toast.success(res.data?.message || 'Following');
       }

@@ -1,4 +1,5 @@
 // Admin routes for platform management
+import path from "path";
 import express, { Response } from "express";
 import bcrypt from "bcryptjs";
 import User from "../data/models/User";
@@ -19,8 +20,9 @@ import Advert from "../data/models/Advert";
 import LandingBackground from "../data/models/LandingBackground";
 import ArtistVerification from "../data/models/ArtistVerification";
 import Song from "../data/models/Song";
-import AdminPermission, { AdminSection } from "../data/models/AdminPermission";
-import { musicUploadSong } from "../middleware/musicUpload";
+import Cart from "../data/models/Cart";
+import AdminPermission, { AdminSection, SUPPORT_CATEGORY_MAIN } from "../data/models/AdminPermission";
+import { musicUploadSong, musicUploadAlbum } from "../middleware/musicUpload";
 import { authenticate, AuthRequest, authorize } from "../middleware/auth";
 import { AppError } from "../middleware/errorHandler";
 import { getPaginationParams, slugify } from "../utils/helpers";
@@ -28,6 +30,8 @@ import { upload } from "../middleware/upload";
 import { sendNotification } from "../services/notification";
 import payoutService from "../services/payoutService";
 import fnbService from "../services/fnbService";
+import { importProductFromCJ, searchAndImportFromCJ, searchCJProducts } from "../services/productImportService";
+import { syncCjProductStock } from "../services/cjStockSyncService";
 
 const router = express.Router();
 
@@ -771,11 +775,14 @@ router.get("/music/songs", async (req: AuthRequest, res: Response, next) => {
   }
 });
 
-/** Admin: Upload song (bypass artist verification) */
+/** Admin: Upload song (bypass artist verification) - WAV only (Apple standard) */
 router.post(
   "/music/upload-song",
   (req: AuthRequest, res: Response, next) => {
-    musicUploadSong(req, res, (err) => (err ? next(err) : next()));
+    musicUploadSong(req, res, (err) => {
+      if (err) return next(new AppError(err.message || "Upload failed", 400));
+      next();
+    });
   },
   async (req: AuthRequest, res: Response, next) => {
     try {
@@ -783,14 +790,22 @@ router.post(
       if (!title?.trim()) throw new AppError("Song title is required", 400);
       if (!artist?.trim()) throw new AppError("Artist name is required", 400);
       if (!genre?.trim()) throw new AppError("Genre is required", 400);
+      const downloadEnabled = String(req.body?.downloadEnabled || "false") === "true";
+      const parsedDownloadPrice = Number(req.body?.downloadPrice);
+      const downloadPrice = Number.isFinite(parsedDownloadPrice) ? parsedDownloadPrice : undefined;
+      if (downloadEnabled) {
+        if (downloadPrice == null || downloadPrice < 10 || downloadPrice > 25) {
+          throw new AppError("Download price must be between R10 and R25", 400);
+        }
+      }
       const creatorId = userId ? (await User.findById(userId))?._id : req.user!._id;
       if (!creatorId) throw new AppError("User not found", 404);
 
       const files = (req as any).files as { audio?: Express.Multer.File[]; artwork?: Express.Multer.File[] };
       const audioFile = files?.audio?.[0];
       const artworkFile = files?.artwork?.[0];
-      if (!audioFile) throw new AppError("No audio file uploaded. Use WAV (16-bit, 44.1 kHz or higher).", 400);
-      if (!artworkFile) throw new AppError("No artwork uploaded. Use 3000x3000 JPEG or PNG.", 400);
+      if (!audioFile) throw new AppError("No audio file uploaded. Use WAV: 16-bit or 24-bit, 44.1 kHz, Stereo.", 400);
+      if (!artworkFile) throw new AppError("No artwork uploaded. Use 1200×1200 JPEG or PNG.", 400);
 
       const audioUrl = `/uploads/music/${audioFile.filename}`;
       const artworkUrl = `/uploads/music/${artworkFile.filename}`;
@@ -806,6 +821,8 @@ router.post(
         audioUrl,
         artworkUrl,
         userId: creatorId,
+        downloadEnabled,
+        downloadPrice: downloadEnabled ? downloadPrice : undefined,
       });
 
       const tvPost = await TVPost.create({
@@ -825,6 +842,99 @@ router.post(
     }
   }
 );
+
+/** Admin: Upload album (bypass artist verification) */
+router.post(
+  "/music/upload-album",
+  (req: AuthRequest, res: Response, next) => {
+    musicUploadAlbum(req, res, (err) => (err ? next(err) : next()));
+  },
+  async (req: AuthRequest, res: Response, next) => {
+    try {
+      const { userId, title, artist, songwriters, producer, genre, lyrics } = req.body;
+      if (!title?.trim()) throw new AppError("Album title is required", 400);
+      if (!artist?.trim()) throw new AppError("Artist name is required", 400);
+      if (!genre?.trim()) throw new AppError("Genre is required", 400);
+      const downloadEnabled = String(req.body?.downloadEnabled || "false") === "true";
+      const parsedDownloadPrice = Number(req.body?.downloadPrice);
+      const downloadPrice = Number.isFinite(parsedDownloadPrice) ? parsedDownloadPrice : undefined;
+      if (downloadEnabled) {
+        if (downloadPrice == null || downloadPrice < 10 || downloadPrice > 25) {
+          throw new AppError("Download price must be between R10 and R25", 400);
+        }
+      }
+      const creatorId = userId ? (await User.findById(userId))?._id : req.user!._id;
+      if (!creatorId) throw new AppError("User not found", 404);
+
+      const files = (req as any).files as { tracks?: Express.Multer.File[]; artwork?: Express.Multer.File[] };
+      const trackFiles = files?.tracks || [];
+      const artworkFile = files?.artwork?.[0];
+      if (!trackFiles.length) throw new AppError("At least one WAV track is required", 400);
+      if (!artworkFile) throw new AppError("Album artwork is required", 400);
+
+      const tracks = trackFiles.map((file) => ({
+        title: path.parse(file.originalname).name,
+        audioUrl: `/uploads/music/${file.filename}`,
+      }));
+      const artworkUrl = `/uploads/music/${artworkFile.filename}`;
+
+      const album = await Song.create({
+        type: "album",
+        title: title.trim(),
+        artist: artist.trim(),
+        songwriters: songwriters?.trim(),
+        producer: producer?.trim(),
+        genre: genre.trim(),
+        lyrics: lyrics?.trim(),
+        audioUrl: tracks[0].audioUrl,
+        artworkUrl,
+        tracks,
+        userId: creatorId,
+        downloadEnabled,
+        downloadPrice: downloadEnabled ? downloadPrice : undefined,
+      });
+
+      const tvPost = await TVPost.create({
+        creatorId,
+        type: "audio",
+        mediaUrls: [tracks[0].audioUrl],
+        caption: `${title.trim()} (Album) – ${artist.trim()}`,
+        genre: genre.trim(),
+        hasWatermark: true,
+        status: "approved",
+      });
+
+      const populated = await Song.findById(album._id).populate("userId", "name email").lean();
+      res.status(201).json({ data: populated, post: await TVPost.findById(tvPost._id).populate("creatorId", "name avatar").lean() });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/** Admin: Delete song or album */
+router.delete("/music/songs/:id", async (req: AuthRequest, res: Response, next) => {
+  try {
+    const song = await Song.findById(req.params.id);
+    if (!song) throw new AppError("Song not found", 404);
+
+    const audioUrls = [song.audioUrl];
+    if (song.type === "album" && Array.isArray((song as any).tracks)) {
+      (song as any).tracks.forEach((t: { audioUrl: string }) => audioUrls.push(t.audioUrl));
+    }
+
+    await Song.deleteOne({ _id: song._id });
+    await TVPost.deleteMany({ type: "audio", mediaUrls: { $in: audioUrls } });
+    await Cart.updateMany(
+      { "musicItems.songId": song._id },
+      { $pull: { musicItems: { songId: song._id } } }
+    );
+    await AuditLog.create({ action: "SONG_DELETED_BY_ADMIN", user: req.user!._id, target: song._id, meta: { title: song.title, artist: song.artist } });
+    res.json({ message: "Song deleted" });
+  } catch (err) {
+    next(err);
+  }
+});
 
 // List marketplace orders (checkout orders)
 router.get("/orders", async (req: AuthRequest, res: Response, next) => {
@@ -989,7 +1099,7 @@ router.post(
 
 router.get("/products", async (req: AuthRequest, res: Response, next) => {
   try {
-    const { page, limit, supplierId, active } = req.query;
+    const { page, limit, supplierId, active, supplierSource } = req.query;
     const { skip, limit: limitNum } = getPaginationParams(
       page ? parseInt(page as string) : undefined,
       limit ? parseInt(limit as string) : undefined
@@ -997,6 +1107,7 @@ router.get("/products", async (req: AuthRequest, res: Response, next) => {
     const query: any = {};
     if (supplierId) query.supplierId = supplierId;
     if (active !== undefined) query.active = active === "true";
+    if (supplierSource) query.supplierSource = supplierSource;
     const [products, total] = await Promise.all([
       Product.find(query).populate("supplierId", "storeName status").sort({ createdAt: -1 }).skip(skip).limit(limitNum).lean(),
       Product.countDocuments(query),
@@ -1071,6 +1182,62 @@ router.post("/products", async (req: AuthRequest, res: Response, next) => {
     res.status(201).json({ message: "Product created", data: product });
   } catch (err) {
     next(err);
+  }
+});
+
+/** Search CJ products only (browse) – superadmin */
+router.get("/dropship/search-cj", requireSuperAdmin, async (req: AuthRequest, res: Response, next) => {
+  try {
+    const { q, page, size } = req.query;
+    const results = await searchCJProducts((q as string) || "hoodie", {
+      page: page ? parseInt(page as string) : 1,
+      size: size ? parseInt(size as string) : 20,
+    });
+    res.json({ products: results });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** Import product from CJ by product ID */
+router.post("/dropship/import-cj/:cjProductId", requireSuperAdmin, async (req: AuthRequest, res: Response, next) => {
+  try {
+    const { cjProductId } = req.params;
+    const forceUpdate = req.query.forceUpdate === "true";
+    const result = await importProductFromCJ(cjProductId, { forceUpdate });
+    if (!result) throw new AppError("CJ product not found or import failed", 404);
+    res.json({ message: result.created ? "Product imported" : "Product updated", data: result.product, created: result.created });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** Search CJ and import products by keyword */
+router.post("/dropship/search-import-cj", requireSuperAdmin, async (req: AuthRequest, res: Response, next) => {
+  try {
+    const { query, limit } = req.body as { query?: string; limit?: number };
+    const results = await searchAndImportFromCJ(query || "hoodie", limit ?? 5);
+    res.json({ message: "Import complete", imported: results.filter(Boolean).length, data: results });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** Sync CJ product stock from CJ API (run periodically to avoid selling out-of-stock) */
+router.post("/dropship/sync-cj-stock", requireSuperAdmin, async (req: AuthRequest, res: Response, next) => {
+  try {
+    const result = await syncCjProductStock();
+    res.json({
+      message: "Stock sync complete",
+      data: {
+        total: result.total,
+        updated: result.updated,
+        failed: result.failed,
+        outOfStock: result.outOfStock,
+      },
+    });
+  } catch (err: any) {
+    next(new AppError(err?.message || "CJ stock sync failed", 503));
   }
 });
 
@@ -1282,7 +1449,7 @@ router.delete("/landing-backgrounds/:id", async (req: AuthRequest, res: Response
 // ————— Super-admin only: create admins with section permissions —————
 router.post("/admins", requireSuperAdmin, async (req: AuthRequest, res: Response, next) => {
   try {
-    const { email, name, password, sections } = req.body;
+    const { email, name, password, sections, supportCategories } = req.body;
     if (!email?.trim() || !name?.trim() || !password?.trim()) {
       throw new AppError("email, name, and password required", 400);
     }
@@ -1300,9 +1467,13 @@ router.post("/admins", requireSuperAdmin, async (req: AuthRequest, res: Response
     const validSections: AdminSection[] = (sections || []).filter((s: string) =>
       ["tv_posts", "tv_comments", "tv_reports", "products", "suppliers", "users", "orders", "tasks", "support", "policies"].includes(s)
     );
+    const validSupportCategories: string[] = (supportCategories || []).filter((c: string) =>
+      SUPPORT_CATEGORY_MAIN.includes(c as any)
+    );
     await AdminPermission.create({
       userId: user._id,
       sections: validSections,
+      supportCategories: validSupportCategories,
       createdBy: req.user!._id,
     });
 
@@ -1310,7 +1481,7 @@ router.post("/admins", requireSuperAdmin, async (req: AuthRequest, res: Response
       action: "ADMIN_CREATED",
       user: req.user!._id,
       target: user._id,
-      meta: { email: user.email, sections: validSections },
+      meta: { email: user.email, sections: validSections, supportCategories: validSupportCategories },
     });
 
     res.status(201).json({
@@ -1319,6 +1490,7 @@ router.post("/admins", requireSuperAdmin, async (req: AuthRequest, res: Response
         email: user.email,
         name: user.name,
         sections: validSections,
+        supportCategories: validSupportCategories,
       },
     });
   } catch (err) {
@@ -1431,6 +1603,39 @@ router.get("/admins", requireSuperAdmin, async (req: AuthRequest, res: Response,
       .sort({ createdAt: -1 })
       .lean();
     res.json({ data: perms });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Update admin permissions (super-admin only) - sections and support categories
+router.patch("/admins/:id", requireSuperAdmin, async (req: AuthRequest, res: Response, next) => {
+  try {
+    const perm = await AdminPermission.findOne({ userId: req.params.id });
+    if (!perm) throw new AppError("Admin permission not found", 404);
+
+    const { sections, supportCategories } = req.body;
+    if (sections !== undefined) {
+      const validSections: AdminSection[] = (Array.isArray(sections) ? sections : []).filter((s: string) =>
+        ["tv_posts", "tv_comments", "tv_reports", "products", "suppliers", "users", "orders", "tasks", "support", "policies"].includes(s)
+      );
+      perm.sections = validSections;
+    }
+    if (supportCategories !== undefined) {
+      perm.supportCategories = (Array.isArray(supportCategories) ? supportCategories : []).filter((c: string) =>
+        SUPPORT_CATEGORY_MAIN.includes(c as any)
+      );
+    }
+    await perm.save();
+
+    await AuditLog.create({
+      action: "ADMIN_PERMISSION_UPDATED",
+      user: req.user!._id,
+      target: perm.userId,
+      meta: { sections: perm.sections, supportCategories: perm.supportCategories },
+    });
+
+    res.json({ data: perm });
   } catch (err) {
     next(err);
   }

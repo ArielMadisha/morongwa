@@ -4,10 +4,10 @@ import { useState, useRef, useEffect } from 'react';
 import { ChevronDown, Tv } from 'lucide-react';
 
 export const GENRES = [
-  { id: 'qwertz', label: 'Qwertz', desc: 'Short-form, vertical, full-screen video for entertaining, fast-paced content, often set to music or trending audio' },
   { id: 'comedy', label: 'Comedy', desc: 'Sitcoms, sketches, dark comedy, mockumentary' },
-  { id: 'action', label: 'Action/Adventure', desc: 'Superhero, spy, or high-stakes action' },
   { id: 'drama', label: 'Drama', desc: 'Emotional, character-driven storytelling' },
+  { id: 'qwertz', label: 'Qwertz', desc: 'Short-form, vertical, full-screen video for entertaining, fast-paced content, often set to music or trending audio' },
+  { id: 'action', label: 'Action/Adventure', desc: 'Superhero, spy, or high-stakes action' },
   { id: 'scifi', label: 'Science Fiction & Fantasy', desc: 'Dystopian, space opera, magical, or supernatural' },
   { id: 'thriller', label: 'Thriller & Mystery', desc: 'True crime, detective, or suspenseful shows' },
   { id: 'reality', label: 'Reality TV', desc: 'Competition, lifestyle, or documentary-style' },
@@ -48,8 +48,7 @@ export function GenresDropdown({ selectedGenre, onSelect, className = '' }: Genr
       </button>
       {open && (
         <div
-          className="absolute right-0 top-full mt-1 py-2 bg-white rounded-xl border border-slate-200 shadow-xl z-50 min-w-[240px] max-w-[320px]"
-          onMouseLeave={() => setOpen(false)}
+          className="absolute right-0 top-full mt-1 py-2 bg-white rounded-xl border border-slate-200 shadow-xl z-[120] min-w-[240px] max-w-[320px]"
         >
           {GENRES.map((g) => (
             <button

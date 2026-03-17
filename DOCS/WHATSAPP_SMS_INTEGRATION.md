@@ -141,12 +141,27 @@ const verification = await twilioClient.verify.v2
 
 ---
 
+## Abuse Prevention (SMS/OTP Cost Protection)
+
+The backend includes several safeguards to reduce Twilio cost abuse:
+
+| Control | Limit | Purpose |
+|--------|-------|---------|
+| **IP rate limit** | 3 requests / 15 min per IP | Prevents bulk OTP spam from one IP |
+| **Per-phone cooldown** | 2 min between requests | Stops rapid retries to same number |
+| **Per-phone daily cap** | 5 OTPs per phone per day | Limits abuse via multiple accounts |
+| **Premium number block** | Africa (53 countries): SADC (Botswana, Angola, Lesotho, Namibia, Zimbabwe, Zambia, Mozambique, Malawi, etc.), West Africa/ECOWAS (Ghana, Senegal, Côte d'Ivoire, Benin, Togo, Mali, etc.), East Africa (Kenya, Tanzania, Uganda, Rwanda, Ethiopia, etc.), North Africa (Egypt, Morocco, Algeria, Tunisia, Libya, Sudan). Nigeria 080/081/090/091 = mobile (excluded). Plus Asia, Americas, Europe, Middle East, Oceania. | Avoids sending to expensive premium numbers |
+
+**Custom block list:** Set `OTP_BLOCK_PREFIXES=2787,1900` (comma-separated prefixes) to block additional number ranges.
+
+**Production:** For multi-instance deployments, replace per-phone in-memory maps with Redis (TTL keys for cooldown + daily counters).
+
 ## Production Checklist
 
 - [ ] Replace in-memory OTP store with Redis or database
 - [ ] Set `OTP_SECRET` to a strong random value
 - [ ] Configure Twilio (SMS) and/or WhatsApp Cloud API
-- [ ] Add rate limiting per phone number (already in place via `authLimiter`)
+- [ ] Add rate limiting per phone number (already in place via `otpSendLimiter` + per-phone limits)
 - [ ] Set `NEXT_PUBLIC_WHATSAPP_NUMBER` for the "Register via WhatsApp chat" link
 
 ## Username Auto-Generation

@@ -107,6 +107,58 @@ export default function Home() {
           </div>
         </section>
       </main>
+
+      {/* Footer */}
+      <footer className="relative bg-white/85 backdrop-blur-md mt-20 border-t border-slate-100">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+          <div className="grid md:grid-cols-4 gap-8 mb-8">
+            <div>
+              <div className="flex items-center space-x-2 mb-4">
+                <Package className="h-6 w-6 text-brand-600" />
+                <span className="text-lg font-bold text-slate-900">Qwertymates</span>
+              </div>
+              <p className="text-sm text-slate-600">Your errand marketplace, built for trust and speed.</p>
+            </div>
+
+            <div>
+              <h4 className="font-semibold text-slate-900 mb-4 text-sm">Legal</h4>
+              <ul className="space-y-2 text-sm">
+                <li><Link href="/policies/terms-of-service" className="text-slate-600 hover:text-brand-600">Terms of Service</Link></li>
+                <li><Link href="/policies/privacy-policy" className="text-slate-600 hover:text-brand-600">Privacy Policy</Link></li>
+                <li><Link href="/policies/cookies-tracking" className="text-slate-600 hover:text-brand-600">Cookies</Link></li>
+              </ul>
+            </div>
+
+            <div>
+              <h4 className="font-semibold text-slate-900 mb-4 text-sm">Platform</h4>
+              <ul className="space-y-2 text-sm">
+                <li><Link href="/policies/pricing-fees" className="text-slate-600 hover:text-brand-600">Pricing & Fees</Link></li>
+                <li><Link href="/policies/escrow-payouts" className="text-slate-600 hover:text-brand-600">Escrow & Payouts</Link></li>
+                <li><Link href="/marketplace" className="text-slate-600 hover:text-brand-600">Marketplace</Link></li>
+                <li><Link href="/policies/suppliers-manufacturers" className="text-slate-600 hover:text-brand-600">Suppliers & Manufacturers</Link></li>
+                <li><Link href="/policies/acceptable-use" className="text-slate-600 hover:text-brand-600">Community Guidelines</Link></li>
+              </ul>
+            </div>
+
+            <div>
+              <h4 className="font-semibold text-slate-900 mb-4 text-sm">Resources</h4>
+              <ul className="space-y-2 text-sm">
+                <li><Link href="/about" className="text-slate-600 hover:text-brand-600">About Qwertymates</Link></li>
+                <li><Link href="/policies" className="text-slate-600 hover:text-brand-600">All Policies</Link></li>
+                <li><Link href="/policies/security-vulnerability" className="text-slate-600 hover:text-brand-600">Security</Link></li>
+                <li><Link href="/policies/consumer-complaints" className="text-slate-600 hover:text-brand-600">Support</Link></li>
+              </ul>
+            </div>
+          </div>
+
+          <div className="border-t border-slate-100 pt-8 flex justify-between items-center">
+            <p className="text-slate-500 text-sm">
+              © {new Date().getFullYear()} Qwertymates. All rights reserved.
+            </p>
+            <p className="text-slate-500 text-xs">Serving Botswana · Lesotho · Namibia · South Africa · Zimbabwe · Zambia</p>
+          </div>
+        </div>
+      </footer>
     </div>
   );
 }

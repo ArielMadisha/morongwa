@@ -8,14 +8,19 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
-# Env files (never commit secrets)
+# Credentials (never commit)
+SUPERADMIN_CREDENTIALS.md
+
+# Env files (never commit secrets - keep .env out of version control)
 .env
+.env.local
+.env.development
+.env.production
 .env.*
 !.env.example
 deploy-linode.config
 backend/.env
 frontend/.env
-.env.local
 .env.development.local
 .env.test.local
 .env.production.local

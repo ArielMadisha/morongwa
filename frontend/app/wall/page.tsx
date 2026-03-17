@@ -3,7 +3,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { LayoutGrid, Loader2, MessageSquare, Plus } from 'lucide-react';
+import Image from 'next/image';
+import { LayoutGrid, Loader2, Plus } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import ProtectedRoute from '@/components/ProtectedRoute';
 import { useCartAndStores } from '@/lib/useCartAndStores';
@@ -20,6 +21,11 @@ import { AdvertTile } from '@/components/AdvertTile';
 import { tvAPI, productEnquiryAPI, advertsAPI, usersAPI } from '@/lib/api';
 import type { Product } from '@/lib/types';
 import toast from 'react-hot-toast';
+import {
+  ContentPreferencesModal,
+  shouldShowPreferencesModal,
+  getHideProducts,
+} from '@/components/ContentPreferencesModal';
 
 function WallPageContent() {
   const { user, logout, refreshUser } = useAuth();
@@ -32,6 +38,7 @@ function WallPageContent() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
+  const [hasMore, setHasMore] = useState(true);
   const [createOpen, setCreateOpen] = useState(false);
   const [statusRefreshKey, setStatusRefreshKey] = useState(0);
   const [latestCreatedPost, setLatestCreatedPost] = useState<TVGridItem | null>(null);
@@ -40,27 +47,46 @@ function WallPageContent() {
   const [enquireMessage, setEnquireMessage] = useState('');
   const [enquireSending, setEnquireSending] = useState(false);
   const [likedMap, setLikedMap] = useState<Record<string, boolean>>({});
+  const [prefsModalOpen, setPrefsModalOpen] = useState(false);
+  const hideProducts = getHideProducts(user);
   const { cartCount, hasStore } = useCartAndStores(!!user);
   const containerRef = useRef<HTMLDivElement>(null);
   const loadMoreSentinelRef = useRef<HTMLDivElement>(null);
   const limit = 24;
 
-  const loadFeed = useCallback(async (pageNum = 1, append = false) => {
-    if (pageNum === 1) setLoading(true);
-    else setLoadingMore(true);
-    try {
-      const res = await tvAPI.getFeed({ page: pageNum, limit, q: searchQ || undefined });
+  const loadFeed = useCallback(
+    async (pageNum = 1, append = false) => {
+      if (pageNum === 1) setLoading(true);
+      else setLoadingMore(true);
+      if (pageNum === 1) setHasMore(true);
+      try {
+        const res = await tvAPI.getFeed({
+          page: pageNum,
+          limit,
+          q: searchQ || undefined,
+          hideProducts: !user ? hideProducts : undefined,
+        });
       const data = res.data?.data ?? res.data ?? [];
       const posts = Array.isArray(data) ? data : [];
-      setTotal(res.data?.total ?? posts.length);
-      setGridItems((prev) => (append ? [...prev, ...posts] : posts));
+      const fetchedTotal = Number(res.data?.total ?? posts.length);
+      setTotal(fetchedTotal);
+      let nextCount = posts.length;
+      setGridItems((prev) => {
+        const next = append ? [...prev, ...posts] : posts;
+        nextCount = next.length;
+        return next;
+      });
+      setHasMore(nextCount < fetchedTotal && posts.length > 0);
     } catch {
       if (!append) setGridItems([]);
+      if (append) setHasMore(false);
     } finally {
       setLoading(false);
       setLoadingMore(false);
     }
-  }, [searchQ]);
+  },
+    [searchQ, limit, user, hideProducts]
+  );
 
   const [productTiles, setProductTiles] = useState<TVGridItem[]>([]);
   const [featuredProducts, setFeaturedProducts] = useState<(Product & { _id: string })[]>([]);
@@ -68,7 +94,7 @@ function WallPageContent() {
 
   const loadFeaturedProducts = useCallback(() => {
     tvAPI
-      .getFeaturedProducts()
+      .getFeaturedProducts(!user ? hideProducts : undefined)
       .then((res) => {
         const list = res.data?.data ?? res.data ?? [];
         const products = Array.isArray(list) ? list : [];
@@ -78,6 +104,7 @@ function WallPageContent() {
             _id: p._id,
             type: 'product_tile' as const,
             title: p.title,
+            description: p.description,
             images: p.images,
             price: p.price,
             discountPrice: p.discountPrice,
@@ -94,7 +121,7 @@ function WallPageContent() {
         setProductTiles([]);
         setFeaturedProducts([]);
       });
-  }, []);
+  }, [user, hideProducts]);
 
   // Read post created on another page (e.g. QwertyTV) so it appears on Home
   useEffect(() => {
@@ -111,7 +138,14 @@ function WallPageContent() {
   useEffect(() => {
     loadFeed(1);
     loadFeaturedProducts();
-  }, [loadFeed]);
+  }, [loadFeed, loadFeaturedProducts]);
+
+  // Show content preferences modal (first visit or every 30 days)
+  useEffect(() => {
+    if (!loading && user !== undefined && shouldShowPreferencesModal(user)) {
+      setPrefsModalOpen(true);
+    }
+  }, [loading, user]);
   useEffect(() => {
     advertsAPI.getAdverts().then((res) => {
       const data = res.data?.data ?? res.data ?? [];
@@ -121,11 +155,11 @@ function WallPageContent() {
   }, []);
 
   const loadMore = useCallback(() => {
-    if (loadingMore || gridItems.length >= total) return;
+    if (!hasMore || loadingMore || gridItems.length >= total) return;
     const nextPage = page + 1;
     setPage(nextPage);
     loadFeed(nextPage, true);
-  }, [loadingMore, gridItems.length, total, page, loadFeed]);
+  }, [hasMore, loadingMore, gridItems.length, total, page, loadFeed]);
 
   useEffect(() => {
     const sentinel = loadMoreSentinelRef.current;
@@ -134,7 +168,7 @@ function WallPageContent() {
     const observer = new IntersectionObserver(
       (entries) => {
         const [e] = entries;
-        if (e?.isIntersecting && !loading && !loadingMore && gridItems.length < total && gridItems.length > 0) {
+        if (e?.isIntersecting && hasMore && !loading && !loadingMore && gridItems.length < total && gridItems.length > 0) {
           loadMore();
         }
       },
@@ -142,7 +176,7 @@ function WallPageContent() {
     );
     observer.observe(sentinel);
     return () => observer.disconnect();
-  }, [loadMore, loading, loadingMore, gridItems.length, total]);
+  }, [loadMore, hasMore, loading, loadingMore, gridItems.length, total]);
 
   const handleSetProfilePicFromUrl = async (url: string) => {
     if (!user?._id && !user?.id) return;
@@ -258,14 +292,16 @@ function WallPageContent() {
     <div className="min-h-screen flex flex-col bg-gradient-to-br from-sky-50 via-blue-50 to-white text-slate-900">
       {/* Full-width frozen header - logo at top-left */}
       <header className="sticky top-0 z-40 w-full bg-white/95 backdrop-blur-md border-b border-slate-100 shadow-sm flex-shrink-0">
-        <div className="px-4 sm:px-6 lg:px-8 py-2 sm:py-3">
-          <div className="flex items-center justify-between gap-3 sm:gap-4 min-w-0 overflow-hidden">
-            <Link href="/wall" className="shrink-0 flex items-center" aria-label="Home">
-              <img src="/qwertymates-logo-icon.png" alt="Qwertymates" className="h-9 w-9 object-contain lg:hidden" />
-              <img src="/qwertymates-logo.png" alt="Qwertymates" className="h-9 w-auto object-contain hidden lg:block" />
-            </Link>
-            <AppSidebarMenuButton onClick={() => setMenuOpen(true)} />
-            <div className="flex-1 min-w-0 overflow-hidden">
+        <div className="px-3 sm:px-6 lg:px-8 py-1">
+          <div className="flex items-center gap-2 sm:gap-3 w-full">
+            <div className="shrink-0 flex items-center gap-1 sm:gap-2">
+              <Link href="/wall" className="shrink-0 flex items-center" aria-label="Home">
+                <img src="/qwertymates-logo-icon.png" alt="Qwertymates" className="h-8 w-8 object-contain lg:hidden" />
+                <img src="/qwertymates-logo.png" alt="Qwertymates" className="h-7 w-auto max-w-[112px] sm:max-w-none object-contain hidden lg:block" />
+              </Link>
+              <AppSidebarMenuButton onClick={() => setMenuOpen((v) => !v)} />
+            </div>
+            <div className="flex-1 min-w-0 overflow-x-auto overflow-y-hidden scrollbar-thin">
               <StatusesStrip
                 currentUserId={user?._id || user?.id}
                 userAvatar={(user as any)?.avatar}
@@ -276,8 +312,10 @@ function WallPageContent() {
                 currentUserName={user?.name}
               />
             </div>
-            <SearchButton />
-            <ProfileHeaderButton />
+            <div className="shrink-0 flex items-center gap-2">
+              <SearchButton />
+              <ProfileHeaderButton />
+            </div>
           </div>
         </div>
       </header>
@@ -338,6 +376,7 @@ function WallPageContent() {
                       onRepost={(item as TVGridItem).type !== 'product_tile' ? handleRepost : undefined}
                       onEnquire={(item as TVGridItem).type === 'product_tile' ? undefined : handleEnquire}
                       onCommentAdded={(item as TVGridItem).type !== 'product_tile' ? handleCommentAdded : undefined}
+                      onDelete={(id) => setGridItems((prev) => prev.filter((i) => (i as TVGridItem)._id !== id))}
                       currentUserId={user?._id || user?.id}
                       onSetProfilePicFromUrl={handleSetProfilePicFromUrl}
                       onSetStripBackgroundFromUrl={handleSetStripBackgroundFromUrl}
@@ -348,7 +387,7 @@ function WallPageContent() {
             </div>
           )}
 
-          {!loading && gridItems.length < total && (
+          {!loading && hasMore && gridItems.length < total && (
             <div ref={loadMoreSentinelRef} className="flex justify-center py-8 min-h-[80px]">
               {loadingMore ? (
                 <Loader2 className="h-8 w-8 text-sky-500 animate-spin" />
@@ -365,12 +404,23 @@ function WallPageContent() {
 
       <Link
         href="/messages"
-        className="fixed right-4 bottom-20 lg:bottom-6 z-40 flex items-center gap-2 px-4 py-3 rounded-full bg-sky-500 text-white shadow-lg hover:bg-sky-600 hover:shadow-xl transition-all font-semibold"
+        className="fixed right-4 bottom-[8.25rem] sm:bottom-36 lg:bottom-24 z-40 flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-4 py-2 sm:py-3 rounded-full bg-white border border-slate-200 text-sky-600 shadow-lg hover:bg-slate-50 hover:border-slate-300 transition-all font-semibold"
         aria-label="Morongwa"
       >
-        <MessageSquare className="h-6 w-6 shrink-0" />
-        <span>Morongwa</span>
+        <Image src="/messages-icon.png" alt="" width={24} height={24} className="h-4 w-4 sm:h-6 sm:w-6 shrink-0 object-contain" />
+        <span className="text-xs sm:text-base text-sky-600">Morongwa</span>
       </Link>
+
+      <ContentPreferencesModal
+        open={prefsModalOpen}
+        onClose={() => setPrefsModalOpen(false)}
+        user={user}
+        onSaved={() => {
+          refreshUser?.();
+          loadFeed(1);
+          loadFeaturedProducts();
+        }}
+      />
 
       <CreatePostModal
         open={createOpen}

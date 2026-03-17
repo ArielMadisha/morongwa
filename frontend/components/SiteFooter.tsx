@@ -1,7 +1,11 @@
+'use client';
+
 import Link from 'next/link';
-import { Receipt, BookOpen, HelpCircle } from 'lucide-react';
+import { Receipt, BookOpen, HelpCircle, Info } from 'lucide-react';
+import { CurrencySelector } from './CurrencySelector';
 
 const footerLinks = [
+  { href: '/about', label: 'About Qwertymates', icon: Info },
   { href: '/pricing', label: 'Pricing', icon: Receipt },
   { href: '/policies', label: 'Policies & Legal', icon: BookOpen },
   { href: '/support', label: 'Support', icon: HelpCircle },
@@ -12,7 +16,10 @@ export default function SiteFooter() {
     <footer className="w-full border-t border-slate-200 bg-white mt-10">
       <div className="max-w-7xl mx-auto px-6 py-10 space-y-6">
         <div className="flex flex-wrap items-center justify-between gap-6">
-          <div className="text-xl font-bold text-slate-900">Qwertymates</div>
+          <div className="flex items-center gap-4">
+            <div className="text-xl font-bold text-slate-900">Qwertymates</div>
+            <CurrencySelector />
+          </div>
           <nav className="flex flex-wrap items-center gap-6 text-sm">
             {footerLinks.map(({ href, label, icon: Icon }) => (
               <Link

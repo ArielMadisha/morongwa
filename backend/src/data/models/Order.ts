@@ -9,6 +9,12 @@ export interface IOrderItem {
   commissionValue?: number;
 }
 
+export interface IOrderMusicItem {
+  songId: mongoose.Types.ObjectId;
+  qty: number;
+  price: number;
+}
+
 export interface IOrderAmounts {
   subtotal: number;
   shipping: number;
@@ -27,9 +33,15 @@ export interface IOrderPaymentBreakdown {
 }
 
 export interface IOrderDelivery {
-  method?: "runner" | "courier";
+  method?: "runner" | "courier" | "collection";
   address?: string;
+  /** ISO country code for courier routing (e.g. "ZA", "US") */
+  countryCode?: string;
   trackingNo?: string;
+  /** Tracking URL from supplier (CJ/Spocket/EPROLO) */
+  trackingUrl?: string;
+  /** Carrier name (e.g. "DHL", "Aramex") */
+  carrier?: string;
 }
 
 export type OrderStatus =
@@ -44,8 +56,14 @@ export type OrderStatus =
 export interface IOrder extends Document {
   buyerId: mongoose.Types.ObjectId;
   supplierId?: mongoose.Types.ObjectId; // first product's supplier for simplicity
+  /** Supplier's order ID (CJ/Spocket/EPROLO) when fulfilled externally */
+  externalOrderId?: string;
+  /** Reference to ExternalSupplier when order is fulfilled by CJ/Spocket/EPROLO */
+  externalSupplierId?: mongoose.Types.ObjectId;
   status: OrderStatus;
   items: IOrderItem[];
+  /** Music items included in same checkout (for card payment webhook) */
+  musicItems?: IOrderMusicItem[];
   amounts: IOrderAmounts;
   /** Stored breakdown for wallet transaction list and invoice */
   paymentBreakdown?: IOrderPaymentBreakdown;
@@ -56,6 +74,11 @@ export interface IOrder extends Document {
   createdAt: Date;
   updatedAt: Date;
 }
+
+const OrderMusicItemSchema = new Schema(
+  { songId: { type: Schema.Types.ObjectId, ref: "Song", required: true }, qty: { type: Number, required: true, min: 1 }, price: { type: Number, required: true } },
+  { _id: false }
+);
 
 const OrderItemSchema = new Schema<IOrderItem>(
   {
@@ -73,12 +96,15 @@ const OrderSchema = new Schema<IOrder>(
   {
     buyerId: { type: Schema.Types.ObjectId, ref: "User", required: true },
     supplierId: { type: Schema.Types.ObjectId, ref: "Supplier" },
+    externalOrderId: { type: String },
+    externalSupplierId: { type: Schema.Types.ObjectId, ref: "ExternalSupplier" },
     status: {
       type: String,
       enum: ["pending_payment", "paid", "processing", "shipped", "delivered", "cancelled", "refunded"],
       default: "pending_payment",
     },
     items: { type: [OrderItemSchema], required: true },
+    musicItems: { type: [OrderMusicItemSchema], default: [] },
     amounts: {
       subtotal: { type: Number, required: true },
       shipping: { type: Number, default: 0 },
@@ -93,9 +119,12 @@ const OrderSchema = new Schema<IOrder>(
       shippingBreakdown: [{ storeName: String, shippingCost: Number }],
     },
     delivery: {
-      method: { type: String, enum: ["runner", "courier"] },
+      method: { type: String, enum: ["runner", "courier", "collection"] },
       address: { type: String },
+      countryCode: { type: String },
       trackingNo: { type: String },
+      trackingUrl: { type: String },
+      carrier: { type: String },
     },
     paymentMethod: { type: String, enum: ["wallet", "card"], required: true },
     paymentReference: { type: String },

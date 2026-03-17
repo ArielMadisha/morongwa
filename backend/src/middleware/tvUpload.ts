@@ -17,7 +17,15 @@ const storage = multer.diskStorage({
   },
 });
 
-const ALLOWED_VIDEO = ["video/mp4", "video/webm", "video/quicktime"];
+const ALLOWED_VIDEO = [
+  "video/mp4",
+  "video/webm",
+  "video/quicktime",
+  "video/x-m4v",
+  "video/3gpp",
+  "video/3gpp2",
+  "video/x-matroska", // MKV
+];
 const ALLOWED_IMAGE = ["image/jpeg", "image/png", "image/gif", "image/webp"];
 const ALLOWED_MIMES = [...ALLOWED_VIDEO, ...ALLOWED_IMAGE];
 
@@ -27,19 +35,19 @@ const fileFilter = (
   cb: multer.FileFilterCallback
 ) => {
   if (ALLOWED_MIMES.includes(file.mimetype)) cb(null, true);
-  else cb(new Error("Invalid file type. Only videos (MP4, WebM) and images (JPEG, PNG, GIF, WebP) allowed."));
+  else cb(new Error("Invalid file type. Only videos (MP4, WebM, MKV, MOV) and images (JPEG, PNG, GIF, WebP) allowed."));
 };
 
 /** For single video or image */
 export const tvUploadSingle = multer({
   storage,
   fileFilter,
-  limits: { fileSize: 100 * 1024 * 1024 }, // 100MB for videos
+  limits: { fileSize: 1024 * 1024 * 1024 }, // 1GB for videos (large uploads may take several minutes)
 });
 
 /** For multiple images (carousel) */
 export const tvUploadMultiple = multer({
   storage,
   fileFilter,
-  limits: { fileSize: 50 * 1024 * 1024, files: 10 }, // 50MB each, max 10
+  limits: { fileSize: 50 * 1024 * 1024, files: 20 }, // 50MB each, max 20
 });

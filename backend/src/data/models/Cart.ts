@@ -6,9 +6,15 @@ export interface ICartItem {
   resellerId?: mongoose.Types.ObjectId;
 }
 
+export interface ICartMusicItem {
+  songId: mongoose.Types.ObjectId;
+  qty: number;
+}
+
 export interface ICart extends Document {
   user: mongoose.Types.ObjectId;
   items: ICartItem[];
+  musicItems: ICartMusicItem[];
   updatedAt: Date;
 }
 
@@ -21,10 +27,19 @@ const CartItemSchema = new Schema<ICartItem>(
   { _id: false }
 );
 
+const CartMusicItemSchema = new Schema<ICartMusicItem>(
+  {
+    songId: { type: Schema.Types.ObjectId, ref: "Song", required: true },
+    qty: { type: Number, required: true, min: 1, default: 1 },
+  },
+  { _id: false }
+);
+
 const CartSchema = new Schema<ICart>(
   {
     user: { type: Schema.Types.ObjectId, ref: "User", required: true, unique: true },
     items: { type: [CartItemSchema], default: [] },
+    musicItems: { type: [CartMusicItemSchema], default: [] },
   },
   { timestamps: true }
 );
