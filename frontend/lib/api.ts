@@ -647,7 +647,20 @@ export const musicAPI = {
     return api.post('/music/artist-apply', formData);
   },
   /** Upload song: WAV audio, JPEG/PNG artwork (1200×1200), metadata */
-  uploadSong: (audio: File, artwork: File, metadata: { title: string; artist: string; songwriters?: string; producer?: string; genre: string; lyrics?: string }) => {
+  uploadSong: (
+    audio: File,
+    artwork: File,
+    metadata: {
+      title: string;
+      artist: string;
+      songwriters?: string;
+      producer?: string;
+      genre: string;
+      lyrics?: string;
+      downloadEnabled?: boolean;
+      downloadPrice?: number;
+    }
+  ) => {
     const formData = new FormData();
     formData.append('audio', audio);
     formData.append('artwork', artwork);
@@ -657,6 +670,8 @@ export const musicAPI = {
     if (metadata.songwriters) formData.append('songwriters', metadata.songwriters);
     if (metadata.producer) formData.append('producer', metadata.producer);
     if (metadata.lyrics) formData.append('lyrics', metadata.lyrics);
+    formData.append('downloadEnabled', metadata.downloadEnabled ? 'true' : 'false');
+    if (metadata.downloadEnabled && metadata.downloadPrice != null) formData.append('downloadPrice', String(metadata.downloadPrice));
     return api.post<{ data: SongRecord }>('/music/upload-song', formData);
   },
   uploadAlbum: (
