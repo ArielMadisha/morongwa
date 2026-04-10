@@ -27,13 +27,14 @@ export default function SiteHeader({ minimal }: SiteHeaderProps) {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3">
         <div className="flex justify-between items-center gap-4">
           <Link href="/" className={`flex items-center shrink-0 ${tapTarget}`}>
-            <img src="/qwertymates-logo-icon.png" alt="Qwertymates" className="h-9 w-9 object-contain md:hidden" />
+            <img src="/qwertymates-logo-icon-transparent.svg" alt="Qwertymates" className="h-16 w-16 sm:h-[4.25rem] sm:w-[4.25rem] object-contain md:hidden shrink-0" />
             <img src="/qwertymates-logo.png" alt="Qwertymates" className="h-9 w-auto object-contain hidden md:block" />
           </Link>
           {minimal ? (
             <>
               <div className="flex-1 min-w-0" />
-              <SearchButton />
+              {/* Mobile: remove top "Ask MacGyver"; keep only bottom nav */}
+              <SearchButton className="hidden md:flex" />
             </>
           ) : (
           <>
@@ -113,9 +114,8 @@ export default function SiteHeader({ minimal }: SiteHeaderProps) {
             )}
           </nav>
 
-          {/* Mobile: Ask MacGyver + profile + hamburger */}
+          {/* Mobile: profile + hamburger */}
           <div className="md:hidden flex items-center gap-1">
-            <SearchButton className="max-w-[140px]" />
             {isAuthenticated && user ? (
               <ProfileHeaderButton className="shrink-0" />
             ) : null}

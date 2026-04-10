@@ -1,4 +1,5 @@
-const base = 'http://localhost:5001';
+const port = process.env.PORT || '4000';
+const base = (process.env.SMOKE_API_BASE || `http://127.0.0.1:${port}/api`).replace(/\/$/, '');
 const ts = new Date().toISOString().replace(/[:.]/g, "");
 const clientEmail = `testclient+${ts}@example.com`;
 const runnerEmail = `testrunner+${ts}@example.com`;
@@ -33,27 +34,27 @@ async function get(path, token) {
 
 (async () => {
   try {
-    log('Register client', await post('/api/auth/register', { name: 'Smoke Client', email: clientEmail, password: clientPass, role: ['client'] }));
-    const loginClient = await post('/api/auth/login', { email: clientEmail, password: clientPass });
+    log('Register client', await post('/auth/register', { name: 'Smoke Client', email: clientEmail, password: clientPass, role: ['client'] }));
+    const loginClient = await post('/auth/login', { email: clientEmail, password: clientPass });
     log('Login client', loginClient);
     const clientToken = loginClient.body?.token;
 
-    log('Topup client 100', await post('/api/wallet/topup', { amount: 100 }, clientToken));
+    log('Topup client 100', await post('/wallet/topup', { amount: 100 }, clientToken));
 
-    log('Register runner', await post('/api/auth/register', { name: 'Smoke Runner', email: runnerEmail, password: runnerPass, role: ['runner'] }));
-    const loginRunner = await post('/api/auth/login', { email: runnerEmail, password: runnerPass });
+    log('Register runner', await post('/auth/register', { name: 'Smoke Runner', email: runnerEmail, password: runnerPass, role: ['runner'] }));
+    const loginRunner = await post('/auth/login', { email: runnerEmail, password: runnerPass });
     log('Login runner', loginRunner);
     const runnerToken = loginRunner.body?.token;
 
-    const createTask = await post('/api/tasks', { title: 'Smoke Task', description: 'Smoke test', budget: 50, location: 'Test Address' }, clientToken);
+    const createTask = await post('/tasks', { title: 'Smoke Task', description: 'Smoke test', budget: 50, location: 'Test Address' }, clientToken);
     log('Create task', createTask);
     const taskId = createTask.body?.task?._id;
 
-    log('Available tasks (runner)', await get('/api/tasks/available', runnerToken));
+    log('Available tasks (runner)', await get('/tasks/available', runnerToken));
 
     if (taskId) {
-      log('Accept task', await post(`/api/tasks/${taskId}/accept`, {}, runnerToken));
-      log('Complete task', await post(`/api/tasks/${taskId}/complete`, {}, runnerToken));
+      log('Accept task', await post(`/tasks/${taskId}/accept`, {}, runnerToken));
+      log('Complete task', await post(`/tasks/${taskId}/complete`, {}, runnerToken));
     } else {
       log('No task id, skipping accept/complete');
     }

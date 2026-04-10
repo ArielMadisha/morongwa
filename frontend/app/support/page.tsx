@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import toast from 'react-hot-toast';
 import {
@@ -19,7 +19,7 @@ import SiteHeader from '@/components/SiteHeader';
 import { supportAPI } from '@/lib/api';
 import { SUPPORT_CATEGORIES } from '@/lib/supportCategories';
 
-function SupportPage() {
+function SupportPageContent() {
   const { user } = useAuth();
   const searchParams = useSearchParams();
   const [tickets, setTickets] = useState<any[]>([]);
@@ -371,4 +371,10 @@ function SupportPage() {
   );
 }
 
-export default SupportPage;
+export default function SupportPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-gradient-to-br from-sky-50 via-white to-sky-100" />}>
+      <SupportPageContent />
+    </Suspense>
+  );
+}

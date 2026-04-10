@@ -1,6 +1,7 @@
 import { Router, Request, Response } from "express";
 import Product from "../data/models/Product";
 import Supplier from "../data/models/Supplier";
+import { buildPublicProductMatch, getApprovedSupplierIds } from "../services/publicProductListing";
 import TVPost from "../data/models/TVPost";
 import { authenticate, AuthRequest } from "../middleware/auth";
 import { AppError } from "../middleware/errorHandler";
@@ -43,34 +44,40 @@ router.post(
 router.get("/", async (req: Request, res: Response) => {
   try {
     const limit = Math.min(parseInt(req.query.limit as string, 10) || 20, 50);
+    const page = Math.max(parseInt(req.query.page as string, 10) || 1, 1);
+    const skip = (page - 1) * limit;
     const random = req.query.random === "1" || req.query.random === "true";
     const q = (req.query.q as string)?.trim();
+    const category = (req.query.category as string)?.trim();
 
-    const approvedSupplierIds = await Supplier.find({ status: "approved" })
-      .select("_id")
-      .lean()
-      .then((docs) => docs.map((d) => d._id));
+    const approvedSupplierIds = await getApprovedSupplierIds();
 
-    const match: Record<string, unknown> = {
-      active: true,
-      $or: [
-        ...(approvedSupplierIds.length > 0 ? [{ supplierId: { $in: approvedSupplierIds } }] : []),
-        { supplierSource: { $in: ["cj", "spocket", "eprolo"] } },
-      ],
-    };
-    if (match.$or && (match.$or as any[]).length === 0) {
-      return res.json({ data: [], count: 0 });
-    }
+    let match: Record<string, unknown>;
     if (q && q.length >= 2) {
-      match.$or = [
-        { title: { $regex: q, $options: "i" } },
-        { description: { $regex: q, $options: "i" } },
-        { categories: { $in: [new RegExp(q, "i")] } },
-        { tags: { $in: [new RegExp(q, "i")] } },
-      ];
+      match = {
+        active: true,
+        $or: [
+          { title: { $regex: q, $options: "i" } },
+          { description: { $regex: q, $options: "i" } },
+          { categories: { $in: [new RegExp(q, "i")] } },
+          { tags: { $in: [new RegExp(q, "i")] } },
+        ],
+      };
+    } else {
+      const base = buildPublicProductMatch(approvedSupplierIds);
+      if (!base || !((base.$or as unknown[])?.length)) {
+        return res.json({ data: [], count: 0 });
+      }
+      match = base;
+    }
+    if (category) {
+      match = {
+        ...match,
+        categories: { $in: [new RegExp(`^${category}$`, "i")] },
+      };
     }
 
-    let query = Product.find(match)
+    const query = Product.find(match)
       .select("title slug description images price discountPrice bulkTiers currency stock outOfStock categories tags availableCountries ratingAvg ratingCount supplierSource allowResell")
       .populate("supplierId", "storeName")
       .lean();
@@ -82,11 +89,36 @@ router.get("/", async (req: Request, res: Response) => {
       return res.json({ data, count: data.length });
     }
 
-    const data = await query.sort({ createdAt: -1 }).limit(limit).exec();
-    res.json({ data, count: data.length });
+    const total = await Product.countDocuments(match);
+    const data = await query.sort({ createdAt: -1 }).skip(skip).limit(limit).exec();
+    const hasMore = skip + data.length < total;
+    res.json({ data, count: data.length, page, limit, total, hasMore });
   } catch (err) {
     console.error("GET /api/products error:", err);
     res.status(500).json({ error: true, message: "Failed to list products" });
+  }
+});
+
+/**
+ * GET /api/products/categories
+ * List unique product categories for active public products.
+ */
+router.get("/categories", async (_req: Request, res: Response) => {
+  try {
+    const categories = await Product.aggregate([
+      { $match: { active: true, categories: { $exists: true, $ne: [] } } },
+      { $unwind: "$categories" },
+      { $project: { c: { $trim: { input: "$categories" } } } },
+      { $match: { c: { $ne: "" } } },
+      { $group: { _id: { $toLower: "$c" }, label: { $first: "$c" }, count: { $sum: 1 } } },
+      { $sort: { count: -1, label: 1 } },
+      { $limit: 50 },
+      { $project: { _id: 0, name: "$label", count: 1 } },
+    ]);
+    res.json({ data: categories });
+  } catch (err) {
+    console.error("GET /api/products/categories error:", err);
+    res.status(500).json({ error: true, message: "Failed to list categories" });
   }
 });
 
@@ -99,18 +131,11 @@ router.get("/:idOrSlug", async (req: Request, res: Response) => {
     const { idOrSlug } = req.params;
     const isMongoId = /^[0-9a-fA-F]{24}$/.test(idOrSlug);
 
-    const approvedSupplierIds = await Supplier.find({ status: "approved" })
-      .select("_id")
-      .lean()
-      .then((docs) => docs.map((d) => d._id));
-
-    const baseQuery = {
-      active: true,
-      $or: [
-        ...(approvedSupplierIds.length > 0 ? [{ supplierId: { $in: approvedSupplierIds } }] : []),
-        { supplierSource: { $in: ["cj", "spocket", "eprolo"] } },
-      ],
-    };
+    const approvedSupplierIds = await getApprovedSupplierIds();
+    const baseQuery = buildPublicProductMatch(approvedSupplierIds);
+    if (!baseQuery || !((baseQuery.$or as unknown[])?.length)) {
+      return res.status(404).json({ error: true, message: "Product not found" });
+    }
 
     const query = isMongoId
       ? Product.findOne({ _id: idOrSlug, ...baseQuery })
@@ -126,27 +151,37 @@ router.get("/:idOrSlug", async (req: Request, res: Response) => {
     }
 
     const DEFAULT_SHIPPING = 100;
-    const DEFAULT_EXTERNAL_SHIPPING = 150;
     const src = (product as any).supplierSource;
     const isExternal = src && ["cj", "spocket", "eprolo"].includes(src);
-    let estimatedShipping: number;
+    let estimatedShipping: number | null;
+    let shippingNote = "Shipping is calculated at checkout.";
     if (isExternal) {
       const extId = (product as any).externalSupplierId;
       if (extId) {
         const ExternalSupplier = (await import("../data/models/ExternalSupplier")).default;
         const ext = await ExternalSupplier.findById(extId).select("shippingCost").lean();
-        estimatedShipping = (ext as any)?.shippingCost ?? DEFAULT_EXTERNAL_SHIPPING;
+        const configured = Number((ext as any)?.shippingCost);
+        if (Number.isFinite(configured) && configured >= 0 && src !== "cj") {
+          estimatedShipping = configured;
+          shippingNote = "Estimated from supplier tariff. Final shipping is confirmed at checkout.";
+        } else {
+          estimatedShipping = null;
+          shippingNote = "Shipping is calculated at checkout from live courier/supplier rates.";
+        }
       } else {
-        estimatedShipping = DEFAULT_EXTERNAL_SHIPPING;
+        estimatedShipping = null;
+        shippingNote = "Shipping is calculated at checkout from live courier/supplier rates.";
       }
     } else {
       estimatedShipping = ((product as any).supplierId as any)?.shippingCost ?? DEFAULT_SHIPPING;
+      shippingNote = "Estimated from supplier tariff. Final shipping is confirmed at checkout.";
     }
 
     res.json({
       data: {
         ...product,
         estimatedShipping,
+        shippingNote,
       },
     });
   } catch (err) {

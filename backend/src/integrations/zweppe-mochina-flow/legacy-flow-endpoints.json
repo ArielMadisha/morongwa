@@ -1,0 +1,181 @@
+{
+  "flow_name": "Zweppe/Mochina Twilio Studio",
+  "legacy_base_placeholder": "{{widgets.function_1.parsed.apiUrl}}",
+  "legacy_function_bootstrap": {
+    "widget": "function_1",
+    "url": "https://inchworm-peacock-1230.twil.io/getEndpointFn",
+    "purpose": "Resolve API base URL for Studio HTTP widgets"
+  },
+  "msgcodes": [
+    "USER_NOT_FOUND",
+    "USER_NOT_18",
+    "USER_SUCCESS_PLAYER",
+    "USER_SUCCESS_RUNNER",
+    "USER_ALREADY_RUNNER",
+    "USER_INPUT_INVALID",
+    "PLAYER_ALREADY_CHOOSEN",
+    "NO_GAME",
+    "GAME_FULL",
+    "GAME_CANCELLED",
+    "LOTE_OUT_OF_LIMIT",
+    "USER_SUCCESS_PLAYER_WITH_JOIN",
+    "SUCCESS_WITH_RESULT",
+    "USERNAMEALREADYTAKEN",
+    "INSUFFICIANT_BALANCE",
+    "WITHDRAW_FAILED",
+    "INAVLID_OTP",
+    "TRANSACTION_FAILED",
+    "SUCCESS"
+  ],
+  "endpoints": [
+    {
+      "path": "/game/checkUser",
+      "method": "POST",
+      "content_type": "application/x-www-form-urlencoded",
+      "params": ["phone", "body"],
+      "returns": ["MSGCODE", "gmCode", "userDetail", "body"],
+      "source": "api/src/game/views.py"
+    },
+    {
+      "path": "/game/listBetValues",
+      "method": "POST",
+      "content_type": "application/json",
+      "params": [],
+      "returns": ["msg", "betvalues"],
+      "source": "api/src/game/views.py"
+    },
+    {
+      "path": "/game/listGames",
+      "method": "POST",
+      "content_type": "application/x-www-form-urlencoded",
+      "params": ["phone", "betvalue", "betvalues"],
+      "returns": ["MSGCODE", "games", "gamesStr"],
+      "source": "api/src/game/views.py"
+    },
+    {
+      "path": "/game/joinGame",
+      "method": "POST",
+      "content_type": "application/x-www-form-urlencoded",
+      "params": ["phone", "games", "selectedGame", "chooseNo"],
+      "returns": ["MSGCODE", "chooseNo"],
+      "source": "api/src/game/views.py"
+    },
+    {
+      "path": "/game/joinGameByUrl",
+      "method": "POST",
+      "content_type": "application/x-www-form-urlencoded",
+      "params": ["phone", "body", "chooseNo"],
+      "returns": ["MSGCODE", "chooseNo"],
+      "source": "api/src/game/views.py"
+    },
+    {
+      "path": "/game/registerUser",
+      "method": "POST",
+      "content_type": "application/x-www-form-urlencoded",
+      "params": ["phone", "dob", "fullname", "password", "gender", "username", "profilePic", "body"],
+      "returns": ["MSGCODE"],
+      "source": "api/src/game/views.py"
+    },
+    {
+      "path": "/game/checkUsername",
+      "method": "POST",
+      "content_type": "application/x-www-form-urlencoded",
+      "params": ["username"],
+      "returns": ["MSGCODE"],
+      "source": "api/src/game/views.py"
+    },
+    {
+      "path": "/game/loadWallet",
+      "method": "POST",
+      "content_type": "application/x-www-form-urlencoded",
+      "params": ["phone"],
+      "returns": ["MSGCODE", "BALANCE"],
+      "source": "api/src/game/views.py"
+    },
+    {
+      "path": "/game/previousGames",
+      "method": "POST",
+      "content_type": "application/x-www-form-urlencoded",
+      "params": ["phone"],
+      "returns": ["MSGCODE", "games", "gamesStr"],
+      "source": "api/src/game/views.py"
+    },
+    {
+      "path": "/runner/convertToRunner",
+      "method": "POST",
+      "content_type": "application/x-www-form-urlencoded",
+      "params": ["phone"],
+      "returns": ["MSGCODE", "msg"],
+      "source": "api/src/game/runnerview.py"
+    },
+    {
+      "path": "/runner/createGame",
+      "method": "POST",
+      "content_type": "application/x-www-form-urlencoded",
+      "params": ["phone", "betvalue", "betvalues"],
+      "returns": ["MSGCODE", "gameCode"],
+      "source": "api/src/game/runnerview.py"
+    },
+    {
+      "path": "/funds/withdrawToShoprite",
+      "method": "POST",
+      "content_type": "application/x-www-form-urlencoded",
+      "params": ["phone", "amount"],
+      "returns": ["MSGCODE"],
+      "source": "api/src/game/manageFundsView.py"
+    },
+    {
+      "path": "/funds/generatePaymentLink",
+      "method": "POST",
+      "content_type": "application/x-www-form-urlencoded",
+      "params": ["phone", "amount"],
+      "returns": ["MSGCODE", "url"],
+      "source": "api/src/game/manageFundsView.py"
+    },
+    {
+      "path": "/funds/sendTwilioMessage",
+      "method": "POST",
+      "content_type": "application/json",
+      "params": ["phone", "message"],
+      "returns": ["MSGCODE"],
+      "source": "api/src/game/manageFundsView.py"
+    },
+    {
+      "path": "/funds/generateOtp",
+      "method": "POST",
+      "content_type": "application/x-www-form-urlencoded",
+      "params": ["phone", "amount"],
+      "returns": ["MSGCODE", "otp"],
+      "source": "api/src/game/manageFundsView.py"
+    },
+    {
+      "path": "/funds/verifyOtp",
+      "method": "POST",
+      "content_type": "application/x-www-form-urlencoded",
+      "params": ["runnerPhone", "playerPhone", "amount", "otp"],
+      "returns": ["MSGCODE"],
+      "source": "api/src/game/manageFundsView.py"
+    },
+    {
+      "path": "/funds/walletToWalletTransfer",
+      "method": "POST",
+      "content_type": "application/x-www-form-urlencoded",
+      "params": ["phone", "userphone", "amount"],
+      "returns": ["MSGCODE"],
+      "source": "api/src/game/manageFundsView.py"
+    }
+  ],
+  "legacy_twilio_env": [
+    "TWILIO_SID_LIVE",
+    "TWILIO_SID_AUTH_TOKEN_LIVE",
+    "TWILIO_FROM",
+    "CONTENTSID",
+    "WALLETCREDITMSGID"
+  ],
+  "current_morongwa_twilio_env": [
+    "TWILIO_ACCOUNT_SID",
+    "TWILIO_AUTH_TOKEN",
+    "TWILIO_SMS_FROM",
+    "TWILIO_WHATSAPP_FROM"
+  ]
+}

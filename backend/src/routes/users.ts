@@ -1,6 +1,8 @@
 // User management routes
 import express, { Response } from "express";
 import mongoose from "mongoose";
+import fs from "fs";
+import path from "path";
 import User from "../data/models/User";
 import AuditLog from "../data/models/AuditLog";
 import TVPost from "../data/models/TVPost";
@@ -9,6 +11,10 @@ import { authenticate, AuthRequest } from "../middleware/auth";
 import { upload } from "../middleware/upload";
 import { AppError } from "../middleware/errorHandler";
 import { getPaginationParams } from "../utils/helpers";
+import { computePhoneLocale } from "../utils/phoneCountryCurrency";
+import { isValidForOtp } from "../utils/phoneValidation";
+import { emitRunnerLocation } from "../services/notification";
+import { moderateMedia } from "../services/contentModeration";
 
 const router = express.Router();
 
@@ -19,6 +25,9 @@ router.get("/:id/profile-stats", async (req: express.Request, res: Response, nex
     if (!mongoose.Types.ObjectId.isValid(id)) throw new AppError("Invalid user id", 400);
     const user = await User.findById(id).select("-passwordHash").lean();
     if (!user) throw new AppError("User not found", 404);
+    if (Array.isArray((user as { role?: string[] }).role) && (user as { role?: string[] }).role!.includes("superadmin")) {
+      throw new AppError("User not found", 404);
+    }
 
     const [postCount, imageCount, videoCount, musicCount, followerCount, followingCount] = await Promise.all([
       TVPost.countDocuments({ creatorId: id, status: "approved" }),
@@ -68,6 +77,23 @@ router.put("/:id", authenticate, async (req: AuthRequest, res: Response, next) =
     if (typeof phone === "string") {
       const digits = phone.replace(/\D/g, "");
       updates.phone = digits.length >= 10 ? digits : null;
+      if (updates.phone) {
+        const phoneCheck = isValidForOtp(phone);
+        if (!phoneCheck.valid) throw new AppError(phoneCheck.reason || "Invalid phone", 400);
+        const taken = await User.findOne({
+          _id: { $ne: req.params.id },
+          $or: [{ phone: updates.phone }, { email: `wa_${updates.phone}@morongwa.local` }],
+        });
+        if (taken) throw new AppError("Phone already in use", 400);
+        const loc = computePhoneLocale(updates.phone);
+        if (loc.countryCode) {
+          updates.countryCode = loc.countryCode;
+          updates.preferredCurrency = loc.preferredCurrency;
+        }
+      } else {
+        updates.countryCode = null;
+        updates.preferredCurrency = null;
+      }
     }
     if (typeof username === "string" && username.trim()) {
       const uname = username.toLowerCase().trim().replace(/[^a-z0-9_]/g, "").slice(0, 30);
@@ -140,9 +166,15 @@ router.patch("/:id/live", authenticate, async (req: AuthRequest, res: Response, 
     }
     const user = await User.findById(req.params.id);
     if (!user) throw new AppError("User not found", 404);
-    (user as any).isLive = !(user as any).isLive;
+    const nextLive = !(user as any).isLive;
+    (user as any).isLive = nextLive;
+    if (nextLive) {
+      (user as any).lastLiveEndedAt = undefined;
+    } else {
+      (user as any).lastLiveEndedAt = new Date();
+    }
     await user.save();
-    res.json({ message: (user as any).isLive ? "You are now live" : "Live ended", isLive: (user as any).isLive });
+    res.json({ message: nextLive ? "You are now live" : "Live ended", isLive: nextLive });
   } catch (err) {
     next(err);
   }
@@ -160,6 +192,19 @@ router.post(
       }
 
       if (!req.file) throw new AppError("No file uploaded", 400);
+      const avatarFilePath = (req.file as any).path || path.join(__dirname, "../../uploads", req.file.filename);
+      const mod = await moderateMedia(avatarFilePath, req.file.mimetype);
+      if (!mod.safe || mod.sensitive) {
+        try {
+          fs.unlinkSync(avatarFilePath);
+        } catch {
+          /* ignore */
+        }
+        throw new AppError(
+          mod.reason || "Profile image rejected. Nudity or suggestive content is not allowed.",
+          400
+        );
+      }
 
       const avatarPath = `/uploads/${req.file.filename}`;
 
@@ -208,6 +253,19 @@ router.post(
     try {
       if (req.user?._id.toString() !== req.params.id) throw new AppError("Unauthorized", 403);
       if (!req.file) throw new AppError("No file uploaded", 400);
+      const bgFilePath = (req.file as any).path || path.join(__dirname, "../../uploads", req.file.filename);
+      const mod = await moderateMedia(bgFilePath, req.file.mimetype);
+      if (!mod.safe || mod.sensitive) {
+        try {
+          fs.unlinkSync(bgFilePath);
+        } catch {
+          /* ignore */
+        }
+        throw new AppError(
+          mod.reason || "Image rejected. Nudity or suggestive content is not allowed.",
+          400
+        );
+      }
       const url = `/uploads/${req.file.filename}`;
       const user = await User.findByIdAndUpdate(req.params.id, { stripBackgroundPic: url }, { new: true }).select("-passwordHash");
       if (!user) throw new AppError("User not found", 404);
@@ -310,7 +368,6 @@ router.patch('/:id/location', authenticate, async (req: AuthRequest, res: Respon
 
     // Emit location update over Socket.IO to clients of assigned tasks
     try {
-      const { emitRunnerLocation } = require('../services/notification');
       await emitRunnerLocation(user._id.toString(), user.location as any);
     } catch (emitErr) {
       // non-fatal - continue

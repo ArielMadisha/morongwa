@@ -7,14 +7,10 @@ import { Package, ArrowLeft, CheckCircle } from 'lucide-react';
 import { checkoutAPI } from '@/lib/api';
 import SiteHeader from '@/components/SiteHeader';
 import ProtectedRoute from '@/components/ProtectedRoute';
+import { formatCurrencyAmount } from '@/lib/formatCurrency';
 
 function formatPrice(price: number) {
-  return new Intl.NumberFormat('en-ZA', {
-    style: 'currency',
-    currency: 'ZAR',
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(price);
+  return formatCurrencyAmount(price, 'ZAR');
 }
 
 export default function OrderPage() {

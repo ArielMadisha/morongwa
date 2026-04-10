@@ -27,11 +27,13 @@ import {
   LayoutDashboard,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { AppSidebar, AppSidebarMenuButton } from '@/components/AppSidebar';
+import { AppSidebar } from '@/components/AppSidebar';
+import { AppShellHeader } from '@/components/AppShellHeader';
 import { SearchButton } from '@/components/SearchButton';
 import { ProfileHeaderButton } from '@/components/ProfileHeaderButton';
 import { AdvertSlot } from '@/components/AdvertSlot';
 import { MobileBottomNav } from '@/components/MobileBottomNav';
+import { openPayGatePayment } from '@/lib/payGateRedirect';
 
 function ClientDashboard() {
   const { user, logout } = useAuth();
@@ -404,8 +406,8 @@ function ClientDashboard() {
         localStorage.setItem('pending_client_task_after_topup', JSON.stringify(pendingTaskData));
       }
       const { data } = await walletAPI.topUp(amount, '/dashboard/client');
-      if (data?.paymentUrl) {
-        window.location.href = data.paymentUrl;
+      if (data?.paymentUrl || data?.payGateRedirect) {
+        openPayGatePayment({ paymentUrl: data.paymentUrl, payGateRedirect: data.payGateRedirect });
         return;
       }
       toast.success('Top-up initiated');
@@ -434,32 +436,28 @@ function ClientDashboard() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-gradient-to-br from-sky-50 via-blue-50 to-white text-slate-900">
-      {/* Full-width frozen header - same as QwertyHub */}
-      <header className="sticky top-0 z-40 w-full bg-white/95 backdrop-blur-md border-b border-slate-100 shadow-sm flex-shrink-0">
-        <div className="px-4 sm:px-6 lg:px-8 py-3 sm:py-4">
-          <div className="flex items-center justify-between gap-3 sm:gap-4 min-w-0">
-            <Link href="/wall" className="shrink-0 flex items-center" aria-label="Home">
-              <img src="/qwertymates-logo-icon.png" alt="Qwertymates" className="h-9 w-9 object-contain lg:hidden" />
-              <img src="/qwertymates-logo.png" alt="Qwertymates" className="h-9 w-auto object-contain hidden lg:block" />
-            </Link>
-            <AppSidebarMenuButton onClick={() => setMenuOpen((v) => !v)} />
-            <div className="flex items-center gap-2 min-w-0 shrink-0">
-              <div className="h-8 w-8 rounded-lg bg-brand-50 flex items-center justify-center shrink-0">
-                <LayoutDashboard className="h-4 w-4 text-brand-600" />
-              </div>
-              <h1 className="text-base sm:text-lg font-semibold text-slate-900 truncate">Client Dashboard</h1>
+    <div className="min-h-[100dvh] min-h-screen flex flex-col bg-gradient-to-br from-sky-50 via-blue-50 to-white text-slate-900 overscroll-y-contain">
+      <AppShellHeader
+        onMenuClick={() => setMenuOpen((v) => !v)}
+        center={
+          <>
+            <div className="h-7 w-7 sm:h-8 sm:w-8 rounded-lg bg-brand-50 flex items-center justify-center shrink-0">
+              <LayoutDashboard className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-brand-600" />
             </div>
-            <div className="flex-1 min-w-0" />
-            <div className="flex items-center gap-2 shrink-0">
-              <SearchButton />
-              <ProfileHeaderButton />
-            </div>
-          </div>
-        </div>
-      </header>
+            <h1 className="text-sm sm:text-base lg:text-lg font-semibold text-slate-900 min-w-0 break-words sm:truncate sm:max-w-none">
+              Client Dashboard
+            </h1>
+          </>
+        }
+        actions={
+          <>
+            <SearchButton className="hidden lg:flex" />
+            <ProfileHeaderButton />
+          </>
+        }
+      />
 
-      <div className="flex flex-1 min-h-0">
+      <div className="flex min-h-0 min-w-0 w-full flex-1 overflow-hidden">
         <AppSidebar
           variant="client"
           userName={user?.name}
@@ -473,51 +471,51 @@ function ClientDashboard() {
           hideLogo
           belowHeader
         />
-        <div className="flex-1 flex flex-col min-w-0 overflow-visible">
-        <div className="flex-1 flex gap-0 pt-6 min-h-0">
-      <main className="flex-1 min-w-0 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-24 lg:pb-0">
-        {/* Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-          <div className="bg-white/90 backdrop-blur-md p-6 rounded-xl shadow border border-slate-100">
+        <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-y-auto overflow-x-hidden touch-pan-y">
+        <div className="flex-1 flex gap-0 pt-3 sm:pt-6 min-h-0">
+      <main className="flex-1 min-w-0 max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 pb-24 lg:pb-8">
+        {/* Stats — 2-up on phones to shorten vertical scroll */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-4 md:gap-6 mb-6 sm:mb-8">
+          <div className="bg-white/90 backdrop-blur-md p-3 sm:p-6 rounded-xl shadow border border-slate-100">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-slate-600">Total Tasks</p>
-                <p className="text-2xl font-bold text-slate-900">{tasks.length}</p>
+                <p className="text-xs sm:text-sm text-slate-600">Total Tasks</p>
+                <p className="text-lg sm:text-2xl font-bold text-slate-900">{tasks.length}</p>
               </div>
-              <Package className="h-10 w-10 text-blue-600" />
+              <Package className="h-7 w-7 sm:h-10 sm:w-10 text-blue-600 shrink-0" />
             </div>
           </div>
-          <div className="bg-white/90 backdrop-blur-md p-6 rounded-xl shadow border border-slate-100">
+          <div className="bg-white/90 backdrop-blur-md p-3 sm:p-6 rounded-xl shadow border border-slate-100">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-slate-600">Pending</p>
-                <p className="text-2xl font-bold text-yellow-600">
+                <p className="text-xs sm:text-sm text-slate-600">Pending</p>
+                <p className="text-lg sm:text-2xl font-bold text-yellow-600">
                   {tasks.filter((t) => t.status === 'pending').length}
                 </p>
               </div>
-              <Clock className="h-10 w-10 text-yellow-600" />
+              <Clock className="h-7 w-7 sm:h-10 sm:w-10 text-yellow-600 shrink-0" />
             </div>
           </div>
-          <div className="bg-white/90 backdrop-blur-md p-6 rounded-xl shadow border border-slate-100">
+          <div className="bg-white/90 backdrop-blur-md p-3 sm:p-6 rounded-xl shadow border border-slate-100">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-slate-600">In Progress</p>
-                <p className="text-2xl font-bold text-purple-600">
+                <p className="text-xs sm:text-sm text-slate-600">In Progress</p>
+                <p className="text-lg sm:text-2xl font-bold text-purple-600">
                   {tasks.filter((t) => t.status === 'in_progress' || t.status === 'accepted').length}
                 </p>
               </div>
-              <Loader2 className="h-10 w-10 text-purple-600" />
+              <Loader2 className="h-7 w-7 sm:h-10 sm:w-10 text-purple-600 shrink-0" />
             </div>
           </div>
-          <div className="bg-white/90 backdrop-blur-md p-6 rounded-xl shadow border border-slate-100">
+          <div className="bg-white/90 backdrop-blur-md p-3 sm:p-6 rounded-xl shadow border border-slate-100">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-slate-600">Completed</p>
-                <p className="text-2xl font-bold text-green-600">
+                <p className="text-xs sm:text-sm text-slate-600">Completed</p>
+                <p className="text-lg sm:text-2xl font-bold text-green-600">
                   {tasks.filter((t) => t.status === 'completed').length}
                 </p>
               </div>
-              <CheckCircle className="h-10 w-10 text-green-600" />
+              <CheckCircle className="h-7 w-7 sm:h-10 sm:w-10 text-green-600 shrink-0" />
             </div>
           </div>
         </div>
@@ -622,15 +620,17 @@ function ClientDashboard() {
         )}
       </main>
 
-          <AdvertSlot belowHeader />
+          <div className="hidden lg:block">
+            <AdvertSlot belowHeader />
+          </div>
         </div>
         </div>
       </div>
 
       {/* Create Task Modal */}
       {showCreateModal && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50 overflow-y-auto">
-          <div className="bg-white/95 backdrop-blur-xl rounded-2xl max-w-2xl w-full my-8 shadow-2xl border border-slate-100 max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center p-0 sm:p-4 z-50 overflow-y-auto">
+          <div className="bg-white/95 backdrop-blur-xl rounded-t-2xl sm:rounded-2xl max-w-2xl w-full sm:my-8 shadow-2xl border border-slate-100 max-h-[92dvh] sm:max-h-[90vh] overflow-y-auto">
             {/* Modal Header - Sticky */}
             <div className="sticky top-0 bg-white/95 border-b border-slate-100 p-6">
               <h2 className="text-2xl font-bold text-slate-900">Create New Task</h2>
@@ -942,7 +942,7 @@ function ClientDashboard() {
 
 export default function ProtectedClientDashboard() {
   return (
-    <ProtectedRoute allowedRoles={['client']}>
+    <ProtectedRoute>
       <ClientDashboard />
     </ProtectedRoute>
   );

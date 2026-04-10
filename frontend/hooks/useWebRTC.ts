@@ -31,6 +31,8 @@ export function useWebRTC({
   const [incomingCaller, setIncomingCaller] = useState<{ callerId: string; callerName?: string } | null>(null);
 
   const socketRef = useRef<Socket | null>(null);
+  /** Room id from server call-request (canonical DM id) when the callee has not selected that thread yet. */
+  const incomingCallRoomRef = useRef<string | null>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -51,13 +53,15 @@ export function useWebRTC({
   }, [localStream]);
 
   const endCall = useCallback(() => {
+    incomingCallRoomRef.current = null;
     cleanup();
     setCallStatus('idle');
     setIncomingCaller(null);
     onCallEnded?.();
   }, [cleanup, onCallEnded]);
 
-  const createPeerConnection = useCallback((targetUserId: string) => {
+  const createPeerConnection = useCallback((targetUserId: string, signalingRoomId?: string) => {
+    const rid = signalingRoomId ?? roomId;
     const pc = new RTCPeerConnection({
       iceServers: [
         { urls: 'stun:stun.l.google.com:19302' },
@@ -68,7 +72,7 @@ export function useWebRTC({
     pc.onicecandidate = (e) => {
       if (e.candidate && socketRef.current) {
         socketRef.current.emit('webrtc-ice-candidate', {
-          roomId,
+          roomId: rid,
           toUserId: targetUserId,
           candidate: e.candidate.toJSON(),
         });
@@ -86,7 +90,7 @@ export function useWebRTC({
     };
 
     return pc;
-  }, [roomId, peerUserId, endCall]);
+  }, [roomId, endCall]);
 
   const startCall = useCallback(async () => {
     if (!roomId || !userId || !peerUserId) return;
@@ -96,8 +100,9 @@ export function useWebRTC({
     socketRef.current = socket;
 
     socket.on('connect', async () => {
+      socket.emit('join-user-presence', { userId });
       socket.emit('join-call-room', { roomId, userId });
-      socket.emit('call-request', { roomId, callerId: userId, callerName: userName });
+      socket.emit('call-request', { roomId, callerId: userId, callerName: userName, calleeId: peerUserId });
 
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
@@ -157,25 +162,33 @@ export function useWebRTC({
   }, [roomId, userId, userName, peerUserId, createPeerConnection, cleanup, endCall]);
 
   const acceptCall = useCallback(async () => {
-    if (!incomingCaller || !roomId || !userId) return;
+    const effectiveRoomId = incomingCallRoomRef.current || roomId;
+    if (!incomingCaller || !effectiveRoomId || !userId) return;
     const callerId = incomingCaller.callerId;
     setCallStatus('connecting');
     setIncomingCaller(null);
+    incomingCallRoomRef.current = null;
 
     socketRef.current?.disconnect();
     const socket = io(`${SOCKET_URL}/webrtc`, { autoConnect: true });
     socketRef.current = socket;
 
     socket.on('connect', async () => {
-      socket.emit('join-call-room', { roomId, userId });
-      socket.emit('call-accept', { roomId, calleeId: userId, calleeName: userName });
+      socket.emit('join-user-presence', { userId });
+      socket.emit('join-call-room', { roomId: effectiveRoomId, userId });
+      socket.emit('call-accept', {
+        roomId: effectiveRoomId,
+        calleeId: userId,
+        calleeName: userName,
+        callerId,
+      });
 
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
         setLocalStream(stream);
         if (localVideoRef.current) localVideoRef.current.srcObject = stream;
 
-        const pc = createPeerConnection(callerId);
+        const pc = createPeerConnection(callerId, effectiveRoomId);
         pcRef.current = pc;
         stream.getTracks().forEach((t) => pc.addTrack(t, stream));
       } catch (err) {
@@ -191,7 +204,7 @@ export function useWebRTC({
         await pcRef.current.setRemoteDescription(new RTCSessionDescription(data.offer));
         const answer = await pcRef.current.createAnswer();
         await pcRef.current.setLocalDescription(answer);
-        socket.emit('webrtc-answer', { roomId, toUserId: callerId, answer });
+        socket.emit('webrtc-answer', { roomId: effectiveRoomId, toUserId: callerId, answer });
         setCallStatus('connected');
       } catch (e) {
         console.error('Failed to handle offer', e);
@@ -214,39 +227,50 @@ export function useWebRTC({
 
   const rejectCall = useCallback(() => {
     const socket = socketRef.current;
-    if (socket) {
-      socket.emit('call-reject', { roomId, calleeId: userId });
+    const callerForReject = incomingCaller?.callerId;
+    const rjid = incomingCallRoomRef.current || roomId;
+    if (socket && rjid) {
+      socket.emit('call-reject', { roomId: rjid, calleeId: userId, callerId: callerForReject });
       socket.disconnect();
     }
+    incomingCallRoomRef.current = null;
     setCallStatus('idle');
     setIncomingCaller(null);
-  }, [roomId, userId]);
+  }, [roomId, userId, incomingCaller?.callerId]);
 
   const cancelCall = useCallback(() => {
     if (socketRef.current) {
-      socketRef.current.emit('call-cancel', { roomId, callerId: userId });
+      socketRef.current.emit('call-cancel', { roomId, callerId: userId, calleeId: peerUserId });
       socketRef.current.disconnect();
     }
     cleanup();
     setCallStatus('idle');
-  }, [roomId, userId, cleanup]);
+  }, [roomId, userId, peerUserId, cleanup]);
 
   const joinRoomForIncoming = useCallback(() => {
-    if (!roomId || !userId) return;
+    if (!userId) return;
     socketRef.current?.disconnect();
     const socket = io(`${SOCKET_URL}/webrtc`, { autoConnect: true });
     socketRef.current = socket;
 
     socket.on('connect', () => {
-      socket.emit('join-call-room', { roomId, userId });
+      socket.emit('join-user-presence', { userId });
+      if (roomId) {
+        socket.emit('join-call-room', { roomId, userId });
+      }
     });
 
-    socket.on('call-request', (data: { callerId: string; callerName?: string }) => {
-      setIncomingCaller({ callerId: data.callerId, callerName: data.callerName });
-      setCallStatus('incoming');
-    });
+    socket.on(
+      'call-request',
+      (data: { callerId: string; callerName?: string; roomId?: string }) => {
+        if (data.roomId) incomingCallRoomRef.current = data.roomId;
+        setIncomingCaller({ callerId: data.callerId, callerName: data.callerName });
+        setCallStatus('incoming');
+      }
+    );
 
     socket.on('call-cancel', () => {
+      incomingCallRoomRef.current = null;
       setIncomingCaller(null);
       setCallStatus('idle');
     });

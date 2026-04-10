@@ -6,6 +6,47 @@ import { AppError } from "../middleware/errorHandler";
 
 const router = express.Router();
 
+// Friend request a user (force pending regardless of target privacy)
+router.post("/friend/:userId", authenticate, async (req: AuthRequest, res: Response, next) => {
+  try {
+    const followerId = req.user!._id;
+    const followingId = req.params.userId;
+    if (followerId.toString() === followingId) {
+      throw new AppError("You cannot follow yourself", 400);
+    }
+
+    const targetUser = await User.findById(followingId);
+    if (!targetUser) throw new AppError("User not found", 404);
+
+    const existing = await Follow.findOne({ followerId, followingId });
+    if (existing) {
+      if (existing.status === "accepted") {
+        return res.json({ message: "Already following", data: existing });
+      }
+      return res.json({ message: "Friend request already sent", data: existing });
+    }
+
+    // Always require approval: store as pending
+    const follow = await Follow.create({
+      followerId,
+      followingId,
+      status: "pending",
+    });
+
+    const populated = await Follow.findById(follow._id)
+      .populate("followerId", "name avatar")
+      .populate("followingId", "name avatar")
+      .lean();
+
+    res.status(201).json({
+      message: "Friend request sent",
+      data: populated,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // Follow a user
 router.post("/:userId", authenticate, async (req: AuthRequest, res: Response, next) => {
   try {

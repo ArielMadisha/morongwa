@@ -1,17 +1,23 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { Package, ArrowRight, AlertCircle } from 'lucide-react';
-import { productsAPI, getImageUrl } from '@/lib/api';
+import { productsAPI, getImageUrl, getEffectivePrice } from '@/lib/api';
 import type { Product } from '@/lib/types';
+import { useCurrency } from '@/contexts/CurrencyContext';
+import { formatCurrencyAmount } from '@/lib/formatCurrency';
 
-function formatPrice(price: number, currency: string) {
-  return new Intl.NumberFormat('en-ZA', {
+function formatZar(price: number) {
+  return formatCurrencyAmount(price, 'ZAR');
+}
+
+function formatUsd(price: number) {
+  return new Intl.NumberFormat('en-US', {
     style: 'currency',
-    currency: currency || 'ZAR',
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
+    currency: 'USD',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
   }).format(price);
 }
 
@@ -19,6 +25,48 @@ export default function LandingMarketplaceCard() {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
+  const { formatPrice: formatUsdToViewerCurrency, countryCode, rates } = useCurrency();
+
+  /** ZA: ZAR for local suppliers; USD listings converted via FX. Elsewhere: USD (ZAR listings converted to USD). */
+  const formatListingPrice = useCallback(
+    (amountInProductCurrency: number, productCurrency: string | undefined) => {
+      const cur = (productCurrency || 'ZAR').toUpperCase();
+      const inSouthAfrica = countryCode === 'ZA';
+
+      if (inSouthAfrica) {
+        if (cur === 'USD') {
+          return formatUsdToViewerCurrency(amountInProductCurrency);
+        }
+        return formatZar(amountInProductCurrency);
+      }
+
+      if (cur === 'USD') {
+        return formatUsd(amountInProductCurrency);
+      }
+      const zarPerUsd = rates.ZAR ?? rates.zar ?? 18.5;
+      const usd = zarPerUsd > 0 ? amountInProductCurrency / zarPerUsd : amountInProductCurrency;
+      return formatUsd(Math.round(usd * 100) / 100);
+    },
+    [countryCode, formatUsdToViewerCurrency, rates]
+  );
+
+  const priceLine = useCallback(
+    (p: Product) => {
+      const eff = getEffectivePrice(p);
+      const list = p.price;
+      const hasDiscount = p.discountPrice != null && p.discountPrice < list;
+      if (hasDiscount) {
+        return (
+          <p className="text-brand-600 font-semibold">
+            {formatListingPrice(p.discountPrice!, p.currency)}{' '}
+            <span className="line-through text-slate-400 text-xs ml-1">{formatListingPrice(list, p.currency)}</span>
+          </p>
+        );
+      }
+      return <p className="text-brand-600 font-semibold">{formatListingPrice(eff, p.currency)}</p>;
+    },
+    [formatListingPrice]
+  );
 
   useEffect(() => {
     productsAPI
@@ -61,7 +109,7 @@ export default function LandingMarketplaceCard() {
           </div>
         ) : products.length > 0 ? (
           <div className="space-y-3">
-            {          products.map((p) => (
+            {products.map((p) => (
               <Link
                 key={p._id}
                 href={`/marketplace/product/${p._id}`}
@@ -76,14 +124,7 @@ export default function LandingMarketplaceCard() {
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="font-medium text-slate-800 line-clamp-1">{p.title}</p>
-                  {p.discountPrice != null && p.discountPrice < p.price ? (
-                    <p className="text-brand-600 font-semibold">
-                      {formatPrice(p.discountPrice, p.currency)}{' '}
-                      <span className="line-through text-slate-400 text-xs ml-1">{formatPrice(p.price, p.currency)}</span>
-                    </p>
-                  ) : (
-                    <p className="text-brand-600 font-semibold">{formatPrice(p.price, p.currency)}</p>
-                  )}
+                  {priceLine(p)}
                 </div>
               </Link>
             ))}

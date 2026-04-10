@@ -91,46 +91,43 @@ async function probeVideoDurationSeconds(filePath: string): Promise<number | nul
   }
 }
 
-// GET /api/tv/statuses - Instagram-style statuses: users with recent posts (last 24h) + live users
+/** LIVE ring/badge: active stream, or up to 24h after the user ended live */
+const LIVE_BADGE_AFTER_END_MS = 24 * 60 * 60 * 1000;
+
+function userShowsLiveBadge(u: { isLive?: boolean; lastLiveEndedAt?: Date | string | null }): boolean {
+  if (u.isLive) return true;
+  if (u.lastLiveEndedAt == null) return false;
+  const t = new Date(u.lastLiveEndedAt as Date).getTime();
+  if (Number.isNaN(t)) return false;
+  return Date.now() - t < LIVE_BADGE_AFTER_END_MS;
+}
+
+// GET /api/tv/statuses - Instagram-style statuses: users with recent posts (last 24h)
 router.get("/statuses", async (req: express.Request, res: Response, next) => {
   try {
     const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
-    const User = require("../data/models/User").default;
-    const [agg, liveUsers] = await Promise.all([
-      TVPost.aggregate([
-        { $match: { status: "approved", createdAt: { $gte: cutoff } } },
-        { $sort: { createdAt: -1 } },
-        { $group: { _id: "$creatorId", latestPost: { $first: "$$ROOT" } } },
-        {
-          $lookup: {
-            from: "users",
-            localField: "_id",
-            foreignField: "_id",
-            as: "user",
-            pipeline: [{ $project: { name: 1, avatar: 1, isLive: 1 } }],
-          },
+    const agg = await TVPost.aggregate([
+      { $match: { status: "approved", createdAt: { $gte: cutoff } } },
+      { $sort: { createdAt: -1 } },
+      { $group: { _id: "$creatorId", latestPost: { $first: "$$ROOT" } } },
+      {
+        $lookup: {
+          from: "users",
+          localField: "_id",
+          foreignField: "_id",
+          as: "user",
+          pipeline: [
+            { $match: { $nor: [{ role: "superadmin" }] } },
+            { $project: { name: 1, avatar: 1, isLive: 1, lastLiveEndedAt: 1 } },
+          ],
         },
-        { $unwind: "$user" },
-        { $sort: { "latestPost.createdAt": -1 } },
-        { $limit: 50 },
-      ]),
-      User.find({ isLive: true }).select("_id name avatar isLive").lean(),
+      },
+      { $unwind: "$user" },
+      { $sort: { "latestPost.createdAt": -1 } },
+      { $limit: 50 },
     ]);
     const seen = new Set<string>();
     const statuses: any[] = [];
-    for (const u of liveUsers) {
-      const id = (u as any)._id.toString();
-      if (!seen.has(id)) {
-        seen.add(id);
-        statuses.push({
-          userId: (u as any)._id,
-          name: (u as any).name,
-          avatar: (u as any).avatar,
-          isLive: true,
-          latestPost: null,
-        });
-      }
-    }
     for (const s of agg) {
       const id = s._id.toString();
       if (!seen.has(id)) {
@@ -139,7 +136,7 @@ router.get("/statuses", async (req: express.Request, res: Response, next) => {
           userId: s._id,
           name: s.user?.name,
           avatar: s.user?.avatar,
-          isLive: !!s.user?.isLive,
+          isLive: userShowsLiveBadge(s.user || {}),
           latestPost: s.latestPost
             ? { _id: s.latestPost._id, type: s.latestPost.type, mediaUrls: s.latestPost.mediaUrls, createdAt: s.latestPost.createdAt }
             : null,
@@ -165,6 +162,48 @@ router.get("/hashtags/trending", async (_req: express.Request, res: Response, ne
       { $project: { tag: "$_id", count: 1, _id: 0 } },
     ]);
     res.json({ data: agg });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /api/tv/hashtags/:tag/accounts — distinct creators who used this hashtag (random order for grid UI)
+router.get("/hashtags/:tag/accounts", async (req: express.Request, res: Response, next) => {
+  try {
+    let raw = String(req.params.tag || "").trim().replace(/^#/, "");
+    raw = decodeURIComponent(raw).trim();
+    if (!raw || raw.length > 80) {
+      return res.status(400).json({ error: true, message: "Invalid hashtag" });
+    }
+    const escaped = raw.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const tagRegex = new RegExp(`^${escaped}$`, "i");
+    const limit = Math.min(200, parseInt(req.query.limit as string, 10) || 120);
+
+    const rows = await TVPost.aggregate([
+      { $match: { status: "approved", hashtags: tagRegex } },
+      { $group: { _id: "$creatorId" } },
+      {
+        $lookup: {
+          from: "users",
+          localField: "_id",
+          foreignField: "_id",
+          as: "u",
+          pipeline: [
+            {
+              $match: { active: true, suspended: { $ne: true } },
+            },
+            { $project: { name: 1, avatar: 1, username: 1 } },
+          ],
+        },
+      },
+      { $unwind: { path: "$u", preserveNullAndEmptyArrays: false } },
+      { $addFields: { r: { $rand: {} } } },
+      { $sort: { r: 1 } },
+      { $limit: limit },
+      { $project: { _id: "$u._id", name: "$u.name", avatar: "$u.avatar", username: "$u.username" } },
+    ]);
+
+    res.json({ data: rows, tag: raw });
   } catch (err) {
     next(err);
   }
@@ -213,19 +252,15 @@ router.get("/", authenticateOptional, async (req: AuthRequest, res: Response, ne
         { hashtags: new RegExp(`^${escaped}$`, "i") },
       ];
     }
-    const creatorId = req.query.creatorId as string;
-    if (creatorId && mongoose.Types.ObjectId.isValid(creatorId)) {
-      match.creatorId = new mongoose.Types.ObjectId(creatorId);
+    const creatorIdParam = req.query.creatorId as string;
+    if (creatorIdParam && mongoose.Types.ObjectId.isValid(creatorIdParam)) {
+      match.creatorId = new mongoose.Types.ObjectId(creatorIdParam);
     }
 
-    let query = TVPost.find(match)
-      .populate("creatorId", "name avatar")
-      .populate({ path: "productId", populate: { path: "supplierId", select: "userId" } })
-      .populate("songId", "title artist artworkUrl downloadEnabled downloadPrice");
+    const skip = (page - 1) * limit;
+    const total = await TVPost.countDocuments(match);
 
-    if (sort === "trending") {
-      query = query.sort({ likeCount: -1, commentCount: -1, createdAt: -1 });
-    } else if (sort === "random") {
+    if (sort === "random") {
       const posts = await TVPost.aggregate([
         { $match: match },
         { $sample: { size: limit } },
@@ -273,7 +308,7 @@ router.get("/", authenticateOptional, async (req: AuthRequest, res: Response, ne
         { $unwind: { path: "$songId", preserveNullAndEmptyArrays: true } },
       ]);
       // Enrich audio posts missing artwork: lookup Song by audioUrl
-      let enriched = await Promise.all(
+      const enriched = await Promise.all(
         posts.map(async (p: any) => {
           if (p.type !== "audio" || (p.artworkUrl || (p.songId && p.songId.artworkUrl))) return p;
           const audioUrl = p.mediaUrls?.[0];
@@ -294,15 +329,27 @@ router.get("/", authenticateOptional, async (req: AuthRequest, res: Response, ne
         for (const { post, productId, creatorId } of productIdsRandom) {
           const wall = wallMap.get(creatorId);
           const wp = (wall?.products as any[])?.find((p) => (p.productId as any)?.toString?.() === productId);
-          if (wp?.resellerCommissionPct != null) (post as any).resellerCommissionPct = wp.resellerCommissionPct;
+          if (wp) {
+            if (wp.resellerCommissionPct != null) (post as any).resellerCommissionPct = wp.resellerCommissionPct;
+            (post as any).fromResellerWall = true;
+          }
         }
       }
-      const total = await TVPost.countDocuments(match);
       return res.json({ data: enriched, total, page: 1, limit });
     }
 
-    const skip = (page - 1) * limit;
-    let posts = await query.sort({ createdAt: -1 }).skip(skip).limit(limit).lean();
+    let query = TVPost.find(match)
+      .populate("creatorId", "name avatar")
+      .populate({ path: "productId", populate: { path: "supplierId", select: "userId" } })
+      .populate("songId", "title artist artworkUrl downloadEnabled downloadPrice");
+
+    if (sort === "trending") {
+      query = query.sort({ likeCount: -1, commentCount: -1, createdAt: -1, _id: -1 });
+    } else {
+      // Newest first everywhere (wall, profile, type filters) — no reseller boost so fresh posts stay on top
+      query = query.sort({ createdAt: -1, _id: -1 });
+    }
+    let posts = await query.skip(skip).limit(limit).lean();
     // Enrich audio posts: if missing artworkUrl, try to find Song by matching audioUrl
     posts = await Promise.all(
       posts.map(async (p: any) => {
@@ -327,12 +374,12 @@ router.get("/", authenticateOptional, async (req: AuthRequest, res: Response, ne
       for (const { post, productId, creatorId } of productIds) {
         const wall = wallMap.get(creatorId);
         const wp = (wall?.products as any[])?.find((p) => (p.productId as any)?.toString?.() === productId);
-        if (wp?.resellerCommissionPct != null) {
-          (post as any).resellerCommissionPct = wp.resellerCommissionPct;
+        if (wp) {
+          if (wp.resellerCommissionPct != null) (post as any).resellerCommissionPct = wp.resellerCommissionPct;
+          (post as any).fromResellerWall = true;
         }
       }
     }
-    const total = await TVPost.countDocuments(match);
     res.json({ data: posts, total, page, limit });
   } catch (err) {
     next(err);
@@ -436,8 +483,9 @@ router.get("/products/featured", authenticateOptional, async (req: AuthRequest, 
       return res.json({ data: [] });
     }
     const products = await Product.find({ active: true })
-      .select("title description price discountPrice images currency slug allowResell")
+      .select("title description price discountPrice images currency slug allowResell createdAt")
       .populate("supplierId", "userId")
+      .sort({ createdAt: -1 })
       .limit(12)
       .lean();
     res.json({ data: products });
@@ -643,7 +691,7 @@ router.post("/:id/comments", authenticate, async (req: AuthRequest, res: Respons
 // GET /api/tv/:id - single post (for share links) - must be after /:id/liked, /:id/comments, etc.
 router.get("/:id", async (req: express.Request, res: Response, next) => {
   try {
-    let post = await TVPost.findOne({ _id: req.params.id, status: "approved" })
+    const post = await TVPost.findOne({ _id: req.params.id, status: "approved" })
       .populate("creatorId", "name avatar")
       .populate({ path: "productId", populate: { path: "supplierId", select: "userId" } })
       .populate("songId", "title artist artworkUrl downloadEnabled downloadPrice")

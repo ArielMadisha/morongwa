@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -20,18 +20,21 @@ import {
   CreditCard,
   MessageCircle,
   Trash2,
+  Store,
 } from 'lucide-react';
 
 const QRCodeSVG = dynamic(() => import('qrcode.react').then((m) => m.QRCodeSVG), { ssr: false });
 import { SearchButton } from '@/components/SearchButton';
 import { useAuth } from '@/contexts/AuthContext';
 import ProtectedRoute from '@/components/ProtectedRoute';
-import { walletAPI } from '@/lib/api';
+import { paymentsAPI, walletAPI } from '@/lib/api';
 import { useCartAndStores } from '@/lib/useCartAndStores';
-import { AppSidebar, AppSidebarMenuButton } from '@/components/AppSidebar';
+import { AppSidebar } from '@/components/AppSidebar';
+import { AppShellHeader } from '@/components/AppShellHeader';
 import { AdvertSlot } from '@/components/AdvertSlot';
 import { MobileBottomNav } from '@/components/MobileBottomNav';
 import { ProfileHeaderButton } from '@/components/ProfileHeaderButton';
+import { openPayGatePayment } from '@/lib/payGateRedirect';
 
 function WalletDashboard() {
   const { user, logout } = useAuth();
@@ -78,6 +81,31 @@ function WalletDashboard() {
   const [acceptPaymentRequestId, setAcceptPaymentRequestId] = useState<string | null>(null);
   const [acceptStep, setAcceptStep] = useState<'scan' | 'otp'>('scan');
   const [acceptSubmitting, setAcceptSubmitting] = useState(false);
+
+  // Merchant agent (cash-in / cash-out)
+  const [maEnabled, setMaEnabled] = useState(false);
+  const [maNote, setMaNote] = useState('');
+  const [maSaving, setMaSaving] = useState(false);
+  const [maDepositUser, setMaDepositUser] = useState('');
+  const [maDepositAmount, setMaDepositAmount] = useState('');
+  const [maDepositSubmitting, setMaDepositSubmitting] = useState(false);
+  const [maWithdrawAmount, setMaWithdrawAmount] = useState('');
+  const [maWithdrawAgentId, setMaWithdrawAgentId] = useState('');
+  const [maWithdrawSubmitting, setMaWithdrawSubmitting] = useState(false);
+  const [maAgents, setMaAgents] = useState<Array<{ _id: string; name: string; username?: string; publicNote: string }>>([]);
+  const [maAgentSearch, setMaAgentSearch] = useState('');
+  const [maPending, setMaPending] = useState<{ asCustomer: any[]; asAgent: any[] } | null>(null);
+  const [maUrlTx, setMaUrlTx] = useState<any | null>(null);
+  const [maApproveSubmitting, setMaApproveSubmitting] = useState(false);
+  const [maHistory, setMaHistory] = useState<any[]>([]);
+  const [maApplicationStatus, setMaApplicationStatus] = useState<string>('none');
+  const [maBusinessName, setMaBusinessName] = useState('');
+  const [maBusinessDesc, setMaBusinessDesc] = useState('');
+  const [maRejectionReason, setMaRejectionReason] = useState('');
+  const [maCanApply, setMaCanApply] = useState(false);
+  const [maIsApproved, setMaIsApproved] = useState(false);
+  const [maApplySubmitting, setMaApplySubmitting] = useState(false);
+  const [maKycCheck, setMaKycCheck] = useState(false);
 
   useEffect(() => {
     fetchWalletData();
@@ -135,6 +163,92 @@ function WalletDashboard() {
     const rid = searchParams.get('payRequest');
     if (rid) setPayRequestId(rid);
   }, [searchParams]);
+
+  useEffect(() => {
+    const pgType = searchParams.get('pgType');
+    const pgRef = searchParams.get('pgRef');
+    if (pgType !== 'topup' || !pgRef) return;
+    let cancelled = false;
+    let attempts = 0;
+    const maxAttempts = 14;
+    const poll = async () => {
+      attempts += 1;
+      try {
+        const res = await paymentsAPI.getStatus(pgRef);
+        const status = String(res.data?.payment?.status || '');
+        if (status === 'successful') {
+          if (!cancelled) {
+            toast.success('Top-up completed');
+            await fetchWalletData();
+            router.replace('/wallet', { scroll: false });
+          }
+          return;
+        }
+      } catch {
+        // keep polling briefly; webhook might still be processing
+      }
+      if (!cancelled && attempts < maxAttempts) {
+        setTimeout(poll, 2500);
+      }
+    };
+    void poll();
+    return () => {
+      cancelled = true;
+    };
+  }, [searchParams]);
+
+  const loadMerchantAgent = async () => {
+    if (!user) return;
+    try {
+      const [settings, pending, agents, hist] = await Promise.all([
+        walletAPI.getMerchantAgentSettings(),
+        walletAPI.getMerchantAgentPending(),
+        walletAPI.searchMerchantAgents('').catch(() => ({ data: [] as any[] })),
+        walletAPI.getMerchantAgentHistory(15).catch(() => ({ data: [] as any[] })),
+      ]);
+      const s = settings.data;
+      setMaEnabled(!!s?.enabled);
+      setMaNote(s?.publicNote ?? '');
+      setMaApplicationStatus(s?.applicationStatus ?? 'none');
+      setMaBusinessName(s?.businessName ?? '');
+      setMaBusinessDesc(s?.businessDescription ?? '');
+      setMaRejectionReason(s?.rejectionReason ?? '');
+      setMaCanApply(!!s?.canApply);
+      setMaIsApproved(!!s?.isApproved);
+      setMaPending(pending.data ?? null);
+      setMaAgents(Array.isArray(agents.data) ? agents.data : []);
+      setMaHistory(Array.isArray(hist.data) ? hist.data : []);
+    } catch {
+      // optional
+    }
+  };
+
+  useEffect(() => {
+    if (user) void loadMerchantAgent();
+  }, [user]);
+
+  useEffect(() => {
+    if (!user) return;
+    const t = setTimeout(() => {
+      walletAPI
+        .searchMerchantAgents(maAgentSearch.trim() || undefined)
+        .then((r) => setMaAgents(Array.isArray(r.data) ? r.data : []))
+        .catch(() => {});
+    }, 350);
+    return () => clearTimeout(t);
+  }, [maAgentSearch, user]);
+
+  useEffect(() => {
+    const txId = searchParams.get('agentCashTx');
+    if (!txId || !user) {
+      setMaUrlTx(null);
+      return;
+    }
+    walletAPI
+      .getMerchantAgentTx(txId)
+      .then((r) => setMaUrlTx(r.data))
+      .catch(() => setMaUrlTx(null));
+  }, [searchParams, user]);
 
   useEffect(() => {
     if (searchParams.get('pendingDonate') !== '1') return;
@@ -200,7 +314,7 @@ function WalletDashboard() {
         amount,
         message: reqMessage.trim() || undefined,
       });
-      toast.success('Request sent! They will receive a WhatsApp/SMS.');
+      toast.success('Payment request sent successfully.');
       setShowRequestMoney(false);
       setReqToUsername('');
       setReqAmount('');
@@ -214,8 +328,26 @@ function WalletDashboard() {
 
   const handlePayRequest = async (requestId: string) => {
     try {
-      await walletAPI.payRequest(requestId);
-      toast.success('Payment sent!');
+      const res = await walletAPI.payRequest(requestId);
+      const data = res.data as {
+        message?: string;
+        code?: string;
+        paymentUrl?: string;
+        payGateRedirect?: { processUrl: string; payRequestId: string; checksum: string };
+        shortfall?: number;
+      };
+      if (data?.code === 'TOPUP_REQUIRED' && (data?.paymentUrl || data?.payGateRedirect)) {
+        const ok = window.confirm(
+          'Your balance is too low. Complete the card payment to top up, then pay this request again. Open PayGate now?'
+        );
+        if (ok) openPayGatePayment({ paymentUrl: data.paymentUrl, payGateRedirect: data.payGateRedirect });
+        return;
+      }
+      if (data?.paymentUrl || data?.payGateRedirect) {
+        openPayGatePayment({ paymentUrl: data.paymentUrl, payGateRedirect: data.payGateRedirect });
+        return;
+      }
+      toast.success(data?.message || 'Payment sent!');
       setPayRequestId(null);
       fetchWalletData();
     } catch (e: any) {
@@ -282,8 +414,9 @@ function WalletDashboard() {
     try {
       const res = await walletAPI.topUp(amount, '/wallet');
       const paymentUrl = res.data?.paymentUrl;
-      if (paymentUrl) {
-        window.location.href = paymentUrl;
+      const payGateRedirect = res.data?.payGateRedirect;
+      if (paymentUrl || payGateRedirect) {
+        openPayGatePayment({ paymentUrl, payGateRedirect });
         return;
       }
       toast.success('Top-up initiated');
@@ -356,28 +489,23 @@ function WalletDashboard() {
 
   return (
     <div className="min-h-screen flex flex-col bg-gradient-to-br from-sky-50 via-blue-50 to-white text-slate-900">
-      <header className="sticky top-0 z-40 w-full bg-white/95 backdrop-blur-md border-b border-slate-100 shadow-sm flex-shrink-0">
-        <div className="px-3 sm:px-6 lg:px-8 py-1">
-          <div className="flex items-center gap-2 sm:gap-3 w-full">
-            <Link href="/wall" className="shrink-0 flex items-center" aria-label="Home">
-              <img src="/qwertymates-logo-icon.png" alt="Qwertymates" className="h-8 w-8 object-contain lg:hidden" />
-              <img src="/qwertymates-logo.png" alt="Qwertymates" className="h-7 w-auto object-contain hidden lg:block" />
-            </Link>
-            <AppSidebarMenuButton onClick={() => setMenuOpen((v) => !v)} />
-            <div className="flex items-center gap-2 min-w-0 shrink-0">
-              <Wallet className="h-5 w-5 text-sky-600" />
-              <h1 className="text-base sm:text-lg font-semibold text-slate-900 truncate">ACBPayWallet</h1>
-            </div>
-            <div className="flex-1 min-w-0" />
-            <div className="shrink-0 flex items-center gap-2">
-              <SearchButton />
-              <ProfileHeaderButton />
-            </div>
-          </div>
-        </div>
-      </header>
+      <AppShellHeader
+        onMenuClick={() => setMenuOpen((v) => !v)}
+        center={
+          <>
+            <Wallet className="h-5 w-5 text-sky-600 shrink-0" />
+            <h1 className="text-base sm:text-lg font-semibold text-slate-900 min-w-0 break-words sm:truncate">ACBPayWallet</h1>
+          </>
+        }
+        actions={
+          <>
+            <SearchButton />
+            <ProfileHeaderButton />
+          </>
+        }
+      />
 
-      <div className="flex flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain">
+      <div className="flex min-h-0 min-w-0 w-full flex-1">
         <AppSidebar
           variant="wall"
           userName={user?.name}
@@ -390,10 +518,9 @@ function WalletDashboard() {
           setMenuOpen={setMenuOpen}
           hideLogo
           belowHeader
-          allowPageScroll
         />
-        <div className="flex-1 flex gap-0 min-w-0 min-h-0 shrink-0">
-          <main className="flex-1 min-w-0 px-4 sm:px-6 lg:px-8 pt-0 pb-24 lg:pb-6">
+        <div className="flex-1 flex flex-col lg:flex-row gap-0 min-w-0 min-h-0 shrink-0 overflow-y-auto overflow-x-hidden overscroll-contain">
+          <main className="flex-1 min-w-0 px-4 sm:px-6 lg:px-8 pt-0 pb-24 lg:pb-6 order-2 lg:order-none w-full">
           <div className="max-w-6xl mx-auto">
           {loading ? (
             <div className="flex min-h-[400px] items-center justify-center">
@@ -432,7 +559,12 @@ function WalletDashboard() {
                         setPayWithCardLoading(c._id);
                         try {
                           const res = await walletAPI.payWithCard(pendingPayment._id, c._id);
-                          if (res.data?.paymentUrl) window.location.href = res.data.paymentUrl;
+                          if (res.data?.paymentUrl || res.data?.payGateRedirect) {
+                            openPayGatePayment({
+                              paymentUrl: res.data?.paymentUrl,
+                              payGateRedirect: res.data?.payGateRedirect,
+                            });
+                          }
                         } catch (e: any) {
                           toast.error(e?.response?.data?.message || 'Could not start payment');
                         } finally {
@@ -450,6 +582,37 @@ function WalletDashboard() {
                     <p className="text-sm text-slate-600">Add a card or top up your wallet to pay.</p>
                   )}
                 </div>
+              </div>
+            )}
+            {maUrlTx && maUrlTx.status === 'pending_customer' && maUrlTx.kind === 'cash_deposit' && user && String(maUrlTx.customer?._id || maUrlTx.customer) === String(user._id || user.id) && (
+              <div className="lg:col-span-3 rounded-xl border-2 border-emerald-200 bg-emerald-50 p-4">
+                <p className="font-semibold text-emerald-900">Approve cash deposit</p>
+                <p className="text-sm text-emerald-800 mt-1">
+                  {(maUrlTx.agent as any)?.name || (maUrlTx.agent as any)?.username || 'Agent'} requests to credit{' '}
+                  <strong>R{Number(maUrlTx.amount).toFixed(2)}</strong> to your wallet (you paid them cash).
+                </p>
+                <button
+                  type="button"
+                  disabled={maApproveSubmitting}
+                  onClick={async () => {
+                    setMaApproveSubmitting(true);
+                    try {
+                      await walletAPI.approveAgentDeposit(String(maUrlTx._id));
+                      toast.success('Wallet credited');
+                      setMaUrlTx(null);
+                      router.replace('/wallet', { scroll: false });
+                      fetchWalletData();
+                      loadMerchantAgent();
+                    } catch (e: any) {
+                      toast.error(e?.response?.data?.message || 'Could not approve');
+                    } finally {
+                      setMaApproveSubmitting(false);
+                    }
+                  }}
+                  className="mt-3 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+                >
+                  {maApproveSubmitting ? <Loader2 className="inline h-4 w-4 animate-spin" /> : 'Approve deposit'}
+                </button>
               </div>
             )}
             {!(user as any)?.phone && (
@@ -640,6 +803,383 @@ function WalletDashboard() {
                 )}
               </div>
 
+              {/* Merchant agent — cash-in / cash-out */}
+              <div className="rounded-2xl border border-white/60 bg-white/80 p-4 sm:p-5 shadow-xl shadow-sky-50 backdrop-blur">
+                <div className="mb-4 flex items-center gap-2">
+                  <Store className="h-5 w-5 text-sky-600" />
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.2em] text-sky-600">Agent network</p>
+                    <h3 className="text-lg font-semibold text-slate-900">Merchant agents</h3>
+                  </div>
+                </div>
+                <p className="text-sm text-slate-600 mb-4">
+                  Become an approved agent after <strong>KYC verification</strong> and <strong>admin approval</strong>. You must run an <strong>active business</strong> and keep <strong>sufficient wallet float</strong> (top up or card) to move digital funds when customers deposit cash with you. Agents only transact when their ACBPayWallet has enough balance for each transaction.
+                </p>
+
+                {maApplicationStatus === 'suspended' && (
+                  <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+                    Your merchant agent access is suspended. Contact support.
+                  </div>
+                )}
+
+                {maApplicationStatus === 'pending' && (
+                  <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                    <strong>Application under review.</strong> Admin will approve or reject your request. You cannot act as an agent until approved.
+                  </div>
+                )}
+
+                {maApplicationStatus === 'rejected' && maRejectionReason && (
+                  <div className="mb-4 rounded-lg border border-rose-100 bg-rose-50 p-3 text-sm text-rose-900">
+                    <strong>Previous application declined.</strong> {maRejectionReason}
+                  </div>
+                )}
+
+                {maCanApply && (
+                  <div className="rounded-xl border border-sky-100 bg-sky-50/50 p-4 mb-4 space-y-3">
+                    <p className="text-sm font-semibold text-slate-900">Apply to become a merchant agent</p>
+                    {!(user as any)?.isVerified && (
+                      <p className="text-xs text-amber-800">
+                        Complete <Link href="/profile" className="underline font-medium">KYC / account verification</Link> first.
+                      </p>
+                    )}
+                    {(user as any)?.isVerified && !(user as any)?.phone && (
+                      <p className="text-xs text-amber-800">
+                        Add a <Link href="/profile" className="underline font-medium">phone number</Link> on your profile.
+                      </p>
+                    )}
+                    <input
+                      placeholder="Registered business or trading name"
+                      value={maBusinessName}
+                      onChange={(e) => setMaBusinessName(e.target.value)}
+                      className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white"
+                    />
+                    <textarea
+                      placeholder="Describe your active operating business (min. 20 characters)"
+                      value={maBusinessDesc}
+                      onChange={(e) => setMaBusinessDesc(e.target.value)}
+                      rows={3}
+                      className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white"
+                    />
+                    <input
+                      placeholder="Public note when listed (location / hours)"
+                      value={maNote}
+                      onChange={(e) => setMaNote(e.target.value)}
+                      className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white"
+                    />
+                    <label className="flex items-start gap-2 text-xs text-slate-700 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={maKycCheck}
+                        onChange={(e) => setMaKycCheck(e.target.checked)}
+                        className="mt-0.5 rounded border-slate-300"
+                      />
+                      <span>
+                        I confirm my KYC details are accurate, I operate an active business, and I will maintain enough wallet float (by topping up) to settle cash deposits for customers.
+                      </span>
+                    </label>
+                    <button
+                      type="button"
+                      disabled={
+                        maApplySubmitting ||
+                        !maKycCheck ||
+                        maBusinessName.trim().length < 2 ||
+                        maBusinessDesc.trim().length < 20 ||
+                        !(user as any)?.isVerified ||
+                        !(user as any)?.phone
+                      }
+                      onClick={async () => {
+                        setMaApplySubmitting(true);
+                        try {
+                          await walletAPI.applyMerchantAgent({
+                            businessName: maBusinessName.trim(),
+                            businessDescription: maBusinessDesc.trim(),
+                            publicNote: maNote.trim(),
+                            kycAttestation: true,
+                          });
+                          toast.success('Application submitted');
+                          setMaKycCheck(false);
+                          loadMerchantAgent();
+                        } catch (e: any) {
+                          toast.error(e?.response?.data?.message || 'Could not submit');
+                        } finally {
+                          setMaApplySubmitting(false);
+                        }
+                      }}
+                      className="w-full rounded-lg bg-sky-600 py-2.5 text-sm font-semibold text-white hover:bg-sky-700 disabled:opacity-50"
+                    >
+                      {maApplySubmitting ? <Loader2 className="inline h-4 w-4 animate-spin" /> : 'Submit application'}
+                    </button>
+                  </div>
+                )}
+
+                {maIsApproved && maApplicationStatus !== 'suspended' && (
+                  <div className="rounded-xl border border-slate-100 bg-slate-50/80 p-4 mb-4">
+                    <label className="flex items-start gap-3 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={maEnabled}
+                        onChange={async (e) => {
+                          const v = e.target.checked;
+                          setMaEnabled(v);
+                          setMaSaving(true);
+                          try {
+                            await walletAPI.updateMerchantAgentSettings({ enabled: v, publicNote: maNote });
+                            toast.success(v ? 'Listed in agent search' : 'Hidden from agent search');
+                            loadMerchantAgent();
+                          } catch (err: any) {
+                            setMaEnabled(!v);
+                            toast.error(err?.response?.data?.message || 'Could not update');
+                          } finally {
+                            setMaSaving(false);
+                          }
+                        }}
+                        disabled={maSaving}
+                        className="mt-1 h-4 w-4 rounded border-slate-300 text-sky-600"
+                      />
+                      <span>
+                        <span className="font-semibold text-slate-900">Show me in agent search</span>
+                        <span className="block text-xs text-slate-600 mt-0.5">
+                          Users can find you for cash withdrawal. Keep wallet float via top-up for cash deposits.
+                        </span>
+                      </span>
+                    </label>
+                    <div className="mt-3">
+                      <label className="text-xs font-semibold text-slate-600">Public note</label>
+                      <input
+                        value={maNote}
+                        onChange={(e) => setMaNote(e.target.value)}
+                        placeholder="e.g. Rosebank Mall kiosk, weekdays 9–5"
+                        className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white"
+                      />
+                      <button
+                        type="button"
+                        disabled={maSaving}
+                        onClick={async () => {
+                          setMaSaving(true);
+                          try {
+                            await walletAPI.updateMerchantAgentSettings({ enabled: maEnabled, publicNote: maNote });
+                            toast.success('Saved');
+                            loadMerchantAgent();
+                          } catch (err: any) {
+                            toast.error(err?.response?.data?.message || 'Could not save');
+                          } finally {
+                            setMaSaving(false);
+                          }
+                        }}
+                        className="mt-2 rounded-lg bg-slate-800 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-900 disabled:opacity-50"
+                      >
+                        Save note
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {maPending && maPending.asCustomer && maPending.asCustomer.length > 0 && (
+                  <div className="mb-4 rounded-lg border border-emerald-100 bg-emerald-50/50 p-3">
+                    <p className="text-xs font-semibold text-emerald-800 uppercase mb-2">Pending deposit approvals</p>
+                    <div className="space-y-2">
+                      {maPending.asCustomer.map((tx: any) => (
+                        <div key={tx._id} className="flex flex-wrap items-center justify-between gap-2 text-sm">
+                          <span className="text-slate-700">
+                            {(tx.agent as any)?.name || (tx.agent as any)?.username} — R{Number(tx.amount).toFixed(2)}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              try {
+                                await walletAPI.approveAgentDeposit(String(tx._id));
+                                toast.success('Deposit approved');
+                                fetchWalletData();
+                                loadMerchantAgent();
+                              } catch (e: any) {
+                                toast.error(e?.response?.data?.message || 'Failed');
+                              }
+                            }}
+                            className="rounded-md bg-emerald-600 px-2 py-1 text-xs font-semibold text-white hover:bg-emerald-700"
+                          >
+                            Approve
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {maPending && maPending.asAgent && maPending.asAgent.length > 0 && (
+                  <div className="mb-4 rounded-lg border border-amber-100 bg-amber-50/50 p-3">
+                    <p className="text-xs font-semibold text-amber-900 uppercase mb-2">Waiting on customer (cash deposit)</p>
+                    <p className="text-xs text-amber-800 mb-2">They must approve in the app after you sent the SMS link.</p>
+                    <div className="space-y-1 text-sm text-slate-700">
+                      {maPending.asAgent.map((tx: any) => (
+                        <div key={tx._id}>
+                          {(tx.customer as any)?.name || (tx.customer as any)?.username} — R{Number(tx.amount).toFixed(2)}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className={`grid gap-4 ${maIsApproved ? 'md:grid-cols-2' : 'md:grid-cols-1'}`}>
+                  {maIsApproved && (
+                  <div className="rounded-xl border border-slate-100 p-3">
+                    <p className="text-sm font-semibold text-slate-900 mb-2">Agent: record cash deposit</p>
+                    <p className="text-xs text-slate-600 mb-3">Customer paid you cash — enter their username and amount. They get an SMS to approve crediting their wallet (moves float from your wallet). You must have enough balance.</p>
+                    <input
+                      placeholder="Customer username"
+                      value={maDepositUser}
+                      onChange={(e) => setMaDepositUser(e.target.value)}
+                      className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm mb-2"
+                    />
+                    <input
+                      type="number"
+                      placeholder="Amount (ZAR)"
+                      value={maDepositAmount}
+                      onChange={(e) => setMaDepositAmount(e.target.value)}
+                      className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm mb-2"
+                    />
+                    <button
+                      type="button"
+                      disabled={maDepositSubmitting || !maIsApproved}
+                      onClick={async () => {
+                        const amount = parseFloat(maDepositAmount);
+                        if (!amount || amount < 10) {
+                          toast.error('Minimum R10');
+                          return;
+                        }
+                        if (!maDepositUser.trim()) {
+                          toast.error('Enter customer username');
+                          return;
+                        }
+                        setMaDepositSubmitting(true);
+                        try {
+                          await walletAPI.initiateAgentDeposit({
+                            customerUsername: maDepositUser.trim(),
+                            amount,
+                          });
+                          toast.success('SMS sent to customer');
+                          setMaDepositAmount('');
+                          loadMerchantAgent();
+                        } catch (e: any) {
+                          toast.error(e?.response?.data?.message || 'Failed');
+                        } finally {
+                          setMaDepositSubmitting(false);
+                        }
+                      }}
+                      className="w-full rounded-lg bg-sky-500 py-2 text-sm font-semibold text-white hover:bg-sky-600 disabled:opacity-50"
+                    >
+                      {maDepositSubmitting ? <Loader2 className="inline h-4 w-4 animate-spin" /> : 'Send approval SMS'}
+                    </button>
+                  </div>
+                  )}
+
+                  <div className="rounded-xl border border-slate-100 p-3">
+                    <p className="text-sm font-semibold text-slate-900 mb-2">Withdraw: get cash from an agent</p>
+                    <p className="text-xs text-slate-600 mb-3">Wallet balance is sent to the agent immediately — meet them to collect cash. Only use agents you trust.</p>
+                    <input
+                      placeholder="Search agents by name…"
+                      value={maAgentSearch}
+                      onChange={(e) => setMaAgentSearch(e.target.value)}
+                      className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm mb-2"
+                    />
+                    <select
+                      value={maWithdrawAgentId}
+                      onChange={(e) => setMaWithdrawAgentId(e.target.value)}
+                      className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm mb-2 bg-white"
+                    >
+                      <option value="">Select agent</option>
+                      {maAgents
+                        .filter((a) => String(a._id) !== String(user?._id || user?.id))
+                        .map((a) => (
+                          <option key={a._id} value={a._id}>
+                            {a.name}
+                            {a.username ? ` (@${a.username})` : ''}
+                            {a.publicNote ? ` — ${a.publicNote.slice(0, 40)}` : ''}
+                          </option>
+                        ))}
+                    </select>
+                    <input
+                      type="number"
+                      placeholder="Amount (ZAR)"
+                      value={maWithdrawAmount}
+                      onChange={(e) => setMaWithdrawAmount(e.target.value)}
+                      className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm mb-2"
+                    />
+                    <button
+                      type="button"
+                      disabled={maWithdrawSubmitting}
+                      onClick={async () => {
+                        const amount = parseFloat(maWithdrawAmount);
+                        if (!amount || amount < 10) {
+                          toast.error('Minimum R10');
+                          return;
+                        }
+                        if (!maWithdrawAgentId) {
+                          toast.error('Select an agent');
+                          return;
+                        }
+                        if (amount > balance) {
+                          toast.error('Insufficient balance');
+                          return;
+                        }
+                        setMaWithdrawSubmitting(true);
+                        try {
+                          await walletAPI.initiateAgentWithdrawal({ agentId: maWithdrawAgentId, amount });
+                          toast.success('Funds sent to agent — collect cash from them');
+                          setMaWithdrawAmount('');
+                          fetchWalletData();
+                          loadMerchantAgent();
+                        } catch (e: any) {
+                          toast.error(e?.response?.data?.message || 'Failed');
+                        } finally {
+                          setMaWithdrawSubmitting(false);
+                        }
+                      }}
+                      className="w-full rounded-lg border-2 border-sky-500 py-2 text-sm font-semibold text-sky-600 hover:bg-sky-50 disabled:opacity-50"
+                    >
+                      {maWithdrawSubmitting ? <Loader2 className="inline h-4 w-4 animate-spin" /> : 'Send to agent & arrange pickup'}
+                    </button>
+                  </div>
+                </div>
+
+                {maIsApproved && maHistory.some((h: any) => h.kind === 'cash_withdrawal' && String(h.agent?._id || h.agent) === String(user?._id || user?.id) && !h.handoverConfirmedAt) && (
+                  <div className="mt-4 rounded-lg border border-slate-200 bg-white p-3">
+                    <p className="text-xs font-semibold text-slate-700 mb-2">Confirm cash handed out (withdrawals)</p>
+                    <div className="space-y-2">
+                      {maHistory
+                        .filter(
+                          (h: any) =>
+                            h.kind === 'cash_withdrawal' &&
+                            String(h.agent?._id || h.agent) === String(user?._id || user?.id) &&
+                            !h.handoverConfirmedAt
+                        )
+                        .slice(0, 8)
+                        .map((h: any) => (
+                          <div key={h._id} className="flex flex-wrap items-center justify-between gap-2 text-sm">
+                            <span className="text-slate-600">
+                              {(h.customer as any)?.name || (h.customer as any)?.username} — R{Number(h.amount).toFixed(2)}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                try {
+                                  await walletAPI.confirmAgentHandover(String(h._id));
+                                  toast.success('Recorded');
+                                  loadMerchantAgent();
+                                } catch (e: any) {
+                                  toast.error(e?.response?.data?.message || 'Failed');
+                                }
+                              }}
+                              className="rounded-md bg-slate-700 px-2 py-1 text-xs font-medium text-white hover:bg-slate-800"
+                            >
+                              Cash handed
+                            </button>
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
               {/* Cards - PayGate PayVault */}
               <div className="rounded-2xl border border-white/60 bg-white/80 p-4 sm:p-5 shadow-xl shadow-sky-50 backdrop-blur">
                 <div className="mb-4 flex items-center justify-between">
@@ -655,8 +1195,12 @@ function WalletDashboard() {
                       setAddCardLoading(true);
                       try {
                         const res = await walletAPI.addCard();
-                        if (res.data?.paymentUrl) window.location.href = res.data.paymentUrl;
-                        else toast.error('Could not add card');
+                        if (res.data?.paymentUrl || res.data?.payGateRedirect) {
+                          openPayGatePayment({
+                            paymentUrl: res.data?.paymentUrl,
+                            payGateRedirect: res.data?.payGateRedirect,
+                          });
+                        } else toast.error('Could not add card');
                       } catch (e: any) {
                         toast.error(e?.response?.data?.message || 'Could not add card');
                       } finally {
@@ -993,7 +1537,9 @@ function WalletDashboard() {
 export default function WalletPage() {
   return (
     <ProtectedRoute>
-      <WalletDashboard />
+      <Suspense fallback={<div className="min-h-screen bg-gradient-to-br from-sky-50 via-blue-50 to-white" />}>
+        <WalletDashboard />
+      </Suspense>
     </ProtectedRoute>
   );
 }

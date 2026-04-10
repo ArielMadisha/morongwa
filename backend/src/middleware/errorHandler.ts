@@ -17,8 +17,9 @@ export const errorHandler = (
   err: Error | AppError,
   req: Request,
   res: Response,
-  _next: NextFunction
+  next: NextFunction
 ): void => {
+  void next;
   const statusCode = err instanceof AppError ? err.statusCode : 500;
   const message = err.message || "Internal server error";
 

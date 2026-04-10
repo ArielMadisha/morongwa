@@ -1,7 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { authAPI, setAuthToken } from "../lib/api";
-import { User } from "../types";
+import { Role, User } from "../types";
 
 const TOKEN_KEY = "morongwa.mobile.token";
 const USER_KEY = "morongwa.mobile.user";
@@ -9,8 +9,17 @@ const USER_KEY = "morongwa.mobile.user";
 type AuthContextType = {
   user: User | null;
   loading: boolean;
-  login: (identifier: string, password: string, mode: "email" | "username" | "phone") => Promise<void>;
-  register: (payload: { name: string; email: string; password: string; role: string[] }) => Promise<void>;
+  login: (identifier: string, password: string, mode?: "email" | "username" | "phone") => Promise<void>;
+  register: (payload: {
+    name: string;
+    email?: string;
+    username?: string;
+    password: string;
+    role: string[];
+    dateOfBirth?: string;
+    phone?: string;
+    otpToken?: string;
+  }) => Promise<void>;
   logout: () => Promise<void>;
 };
 
@@ -39,8 +48,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           const res = await authAPI.me();
           const me = res.data?.user ?? null;
           if (me) {
-            setUser(me);
-            await AsyncStorage.setItem(USER_KEY, JSON.stringify(me));
+                       const normalized: User = {
+              ...me,
+              _id: me._id ?? me.id,
+              id: me.id ?? me._id,
+              role: Array.isArray(me.role) ? me.role : me.role != null ? [me.role as Role] : undefined
+            };
+            setUser(normalized);
+            await AsyncStorage.setItem(USER_KEY, JSON.stringify(normalized));
           }
         } catch {
           await AsyncStorage.multiRemove([TOKEN_KEY, USER_KEY]);
@@ -56,17 +71,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
-  const login = async (
-    identifier: string,
-    password: string,
-    mode: "email" | "username" | "phone"
-  ) => {
+  const login = async (identifier: string, password: string, mode?: "email" | "username" | "phone") => {
+    const raw = identifier.trim();
+    const detectedMode =
+      mode ??
+      (/^\+?\d[\d\s()-]{8,}$/.test(raw)
+        ? "phone"
+        : raw.includes("@")
+        ? "email"
+        : "username");
     const payload =
-      mode === "phone"
-        ? { phone: identifier, password }
-        : mode === "username"
-        ? { username: identifier.trim().toLowerCase(), password }
-        : { email: identifier.trim().toLowerCase(), password };
+      detectedMode === "phone"
+        ? { phone: raw, password }
+        : detectedMode === "username"
+        ? { username: raw.toLowerCase(), password }
+        : { email: raw.toLowerCase(), password };
     const res = await authAPI.login(payload);
     const token = res.data?.token as string;
     const loggedInUser = res.data?.user as User;
@@ -78,7 +97,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(loggedInUser);
   };
 
-  const register = async (payload: { name: string; email: string; password: string; role: string[] }) => {
+  const register = async (payload: {
+    name: string;
+    email?: string;
+    username?: string;
+    password: string;
+    role: string[];
+    dateOfBirth?: string;
+    phone?: string;
+    otpToken?: string;
+  }) => {
     const res = await authAPI.register(payload);
     const token = res.data?.token as string;
     const registeredUser = res.data?.user as User;

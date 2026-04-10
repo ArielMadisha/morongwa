@@ -30,6 +30,8 @@ import {
   Megaphone,
   Image,
   Music2,
+  BarChart2,
+  TrendingUp,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -287,6 +289,34 @@ function AdminDashboard() {
         <div className="mt-8 rounded-2xl border border-white/60 bg-white/80 p-6 shadow-xl shadow-sky-50 backdrop-blur">
           <div className="mb-6 flex items-center justify-between">
             <div>
+              <p className="text-xs uppercase tracking-[0.35em] text-sky-600">Finance</p>
+              <h2 className="mt-1 text-2xl font-semibold text-slate-900">Money metrics</h2>
+              <p className="mt-1 text-xs text-slate-500">Wallet float, PayGate inflow, direct disbursement, requests, admin fee.</p>
+            </div>
+          </div>
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+            {[
+              { label: 'Wallet float', value: `R${Number(stats?.moneyMetrics?.wallet?.floatTotal || 0).toFixed(2)}`, sub: 'Current total wallet balances' },
+              { label: 'PayGate successful', value: `R${Number(stats?.moneyMetrics?.paygate?.successfulAmount || 0).toFixed(2)}`, sub: `${Number(stats?.moneyMetrics?.paygate?.successfulCount || 0)} tx` },
+              { label: 'Direct disbursed', value: `R${Number(stats?.moneyMetrics?.directWalletSend?.successfulAmount || 0).toFixed(2)}`, sub: `${Number(stats?.moneyMetrics?.directWalletSend?.successfulCount || 0)} tx` },
+              { label: 'Direct pending', value: `R${Number(stats?.moneyMetrics?.directWalletSend?.pendingAmount || 0).toFixed(2)}`, sub: `${Number(stats?.moneyMetrics?.directWalletSend?.pendingCount || 0)} tx awaiting` },
+              { label: 'Money requests paid', value: `R${Number(stats?.moneyMetrics?.moneyRequests?.paidAmount || 0).toFixed(2)}`, sub: `${Number(stats?.moneyMetrics?.moneyRequests?.paidCount || 0)} requests` },
+              { label: 'Money requests pending', value: `R${Number(stats?.moneyMetrics?.moneyRequests?.pendingAmount || 0).toFixed(2)}`, sub: `${Number(stats?.moneyMetrics?.moneyRequests?.pendingCount || 0)} open` },
+              { label: 'Admin PayGate fee earned', value: `R${Number(stats?.moneyMetrics?.adminCommission?.paygateFeeCreditsAmount || 0).toFixed(2)}`, sub: `${Number(stats?.moneyMetrics?.adminCommission?.paygateFeeCreditsCount || 0)} fee credits` },
+              { label: 'Expected fee vs successful', value: `R${Number(stats?.moneyMetrics?.adminCommission?.expectedFeeAmountFromSuccessfulPaygate || 0).toFixed(2)}`, sub: `R${Number(stats?.moneyMetrics?.adminCommission?.paygateFlatFee || 0).toFixed(2)} per tx` },
+            ].map((card) => (
+              <div key={card.label} className="rounded-xl border border-slate-100 bg-white/90 p-4 shadow-sm">
+                <p className="text-xs uppercase tracking-[0.2em] text-slate-500">{card.label}</p>
+                <p className="mt-2 text-2xl font-semibold text-slate-900">{card.value}</p>
+                <p className="mt-1 text-xs font-medium text-sky-700">{card.sub}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="mt-8 rounded-2xl border border-white/60 bg-white/80 p-6 shadow-xl shadow-sky-50 backdrop-blur">
+          <div className="mb-6 flex items-center justify-between">
+            <div>
               <p className="text-xs uppercase tracking-[0.35em] text-sky-600">Tools</p>
               <h2 className="mt-1 text-2xl font-semibold text-slate-900">Quick actions</h2>
             </div>
@@ -295,14 +325,17 @@ function AdminDashboard() {
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
             {[
               { href: '/admin/users', icon: Users, title: 'Manage users', desc: 'View, suspend, activate accounts', color: 'sky' },
+              { href: '/admin/merchant-agents', icon: Wallet, title: 'Merchant agents', desc: 'Approve KYC’d cash agents (ACBPayWallet)', color: 'cyan' },
               { href: '/admin/runners', icon: Car, title: 'Runner applications', desc: 'Verify PDP and vehicle documents', color: 'cyan' },
               { href: '/admin/adverts', icon: Megaphone, title: 'Adverts', desc: 'Create and manage platform adverts', color: 'purple' },
               { href: '/admin/landing-backgrounds', icon: Image, title: 'Landing backgrounds', desc: 'Upload login/register page background images', color: 'sky' },
               { href: '/admin/tasks', icon: Package, title: 'Manage tasks', desc: 'Monitor & cancel tasks', color: 'emerald' },
               { href: '/admin/suppliers', icon: Building2, title: 'Suppliers / Sellers', desc: 'Verify company & individual sellers', color: 'cyan' },
               { href: '/admin/orders', icon: ShoppingBag, title: 'Marketplace orders', desc: 'Checkout & wallet orders', color: 'purple' },
+              { href: '/admin/money-metrics', icon: TrendingUp, title: 'Money metrics', desc: 'Date range: PayGate, wallet, requests, fees (CSV)', color: 'emerald' },
+              { href: '/admin/dropshipping-profit', icon: BarChart2, title: 'Dropshipping profit', desc: 'COGS, fees, net margin by order & period', color: 'emerald' },
               { href: '/admin/products', icon: Package, title: 'Marketplace products', desc: 'Load and manage products for sale', color: 'emerald' },
-              { href: '/admin/dropship', icon: Truck, title: 'CJ Dropshipping', desc: 'Search, import & manage CJ products', color: 'cyan' },
+              { href: '/admin/dropship', icon: Truck, title: 'Dropshipping', desc: 'Search, import & manage products', color: 'cyan' },
               { href: '/admin/tv', icon: Tv, title: 'QwertyTV', desc: 'Moderate posts, comments & reports', color: 'purple' },
               { href: '/admin/music', icon: Music2, title: 'QwertyMusic', desc: 'Load songs/albums, manage music catalog', color: 'purple' },
               { href: '/admin/artists', icon: Users, title: 'Artist accounts', desc: 'Create artist/publisher accounts, approve applications', color: 'indigo' },

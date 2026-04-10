@@ -46,16 +46,45 @@ router.get("/genres", (_req, res: Response) => {
   res.json({ data: MUSIC_GENRES });
 });
 
-/** GET /api/music/songs - list songs and albums (public). Query: type=song|album */
+/** GET /api/music/songs - list songs and albums (public). Query: type=song|album, page, limit, random=1 */
 router.get("/songs", async (req, res: Response, next) => {
   try {
     const type = req.query.type as string | undefined;
+    const page = Math.max(parseInt((req.query.page as string) || "1", 10) || 1, 1);
+    const limit = Math.min(Math.max(parseInt((req.query.limit as string) || "20", 10) || 20, 1), 100);
+    const random = req.query.random === "1" || req.query.random === "true";
+    const skip = (page - 1) * limit;
     const filter = type === "song" || type === "album" ? { type } : {};
-    const songs = await Song.find(filter)
-      .sort({ createdAt: -1 })
-      .populate("userId", "name")
-      .lean();
-    res.json({ data: songs });
+    const total = await Song.countDocuments(filter);
+
+    let songs: any[] = [];
+    if (random) {
+      songs = await Song.aggregate([
+        { $match: filter },
+        { $sample: { size: limit } },
+        { $sort: { createdAt: -1 } },
+        {
+          $lookup: {
+            from: "users",
+            localField: "userId",
+            foreignField: "_id",
+            as: "userId",
+            pipeline: [{ $project: { name: 1 } }],
+          },
+        },
+        { $unwind: { path: "$userId", preserveNullAndEmptyArrays: true } },
+      ]);
+    } else {
+      songs = await Song.find(filter)
+        .sort({ createdAt: -1, _id: -1 })
+        .skip(skip)
+        .limit(limit)
+        .populate("userId", "name")
+        .lean();
+    }
+
+    const hasMore = random ? songs.length > 0 : skip + songs.length < total;
+    res.json({ data: songs, page, limit, total, hasMore });
   } catch (err) {
     next(err);
   }

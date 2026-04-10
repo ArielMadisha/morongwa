@@ -11,6 +11,7 @@ import Order from "../data/models/Order";
 import Payment from "../data/models/Payment";
 import StoredCard from "../data/models/StoredCard";
 import CheckoutSession from "../data/models/CheckoutSession";
+import MerchantAgentCashTx from "../data/models/MerchantAgentCashTx";
 import { authenticate, AuthRequest } from "../middleware/auth";
 import {
   topupSchema,
@@ -22,15 +23,27 @@ import {
   payMoneyRequestSchema,
   payWithCardSchema,
   checkoutPaySchema,
+  merchantAgentListingSchema,
+  merchantAgentApplySchema,
+  merchantAgentDepositInitSchema,
+  merchantAgentDepositApproveSchema,
+  merchantAgentWithdrawSchema,
+  merchantAgentHandoverSchema,
 } from "../utils/validators";
 import { AppError } from "../middleware/errorHandler";
 import { getPaginationParams } from "../utils/helpers";
 import { initiatePayment } from "../services/payment";
 import { sendSms } from "../services/otpDelivery";
+import { generateMoneyRequestActionToken, settleMoneyRequestFromWallet, initiateTopupForMoneyRequest } from "../services/moneyRequestService";
 
 const router = express.Router();
 const PAYMENT_OTP_SECRET = process.env.OTP_SECRET || "otp-secret-change-me";
 const PAYMENT_OTP_EXPIRY_MS = 5 * 60 * 1000;
+
+function sameToken(a?: string, b?: string): boolean {
+  if (!a || !b) return false;
+  return a.trim().toLowerCase() === b.trim().toLowerCase();
+}
 
 // Get wallet balance
 router.get("/balance", authenticate, async (req: AuthRequest, res: Response, next) => {
@@ -108,10 +121,10 @@ router.post("/topup", authenticate, async (req: AuthRequest, res: Response, next
       amount,
       reference,
       email: req.user!.email,
-      returnUrl: `${process.env.FRONTEND_URL || "http://localhost:3000"}${safeReturnPath}`,
+      returnUrl: `${process.env.FRONTEND_URL || "http://localhost:3000"}${safeReturnPath}${safeReturnPath.includes("?") ? "&" : "?"}pgType=topup&pgRef=${encodeURIComponent(reference)}`,
       notifyUrl: `${process.env.BACKEND_URL || "http://localhost:4000"}/api/payments/webhook`,
     });
-    if (!paymentResult.success || !paymentResult.paymentUrl) {
+    if (!paymentResult.success || (!paymentResult.paymentUrl && !paymentResult.payGateRedirect)) {
       throw new AppError(paymentResult.error || "Payment initiation failed", 500);
     }
 
@@ -124,7 +137,11 @@ router.post("/topup", authenticate, async (req: AuthRequest, res: Response, next
     res.json({
       message: "Top-up initiated",
       paymentUrl: paymentResult.paymentUrl,
+      payGateRedirect: paymentResult.payGateRedirect,
       reference,
+      amount,
+      paygateFeeZar: paymentResult.paygateFeeZar,
+      chargedZar: paymentResult.chargedZar,
     });
   } catch (err) {
     next(err);
@@ -442,7 +459,7 @@ router.post("/add-card", authenticate, async (req: AuthRequest, res: Response, n
       vault: true,
     });
 
-    if (!paymentResult.success || !paymentResult.paymentUrl) {
+    if (!paymentResult.success || (!paymentResult.paymentUrl && !paymentResult.payGateRedirect)) {
       throw new AppError(paymentResult.error || "Could not start add-card flow", 500);
     }
 
@@ -455,7 +472,10 @@ router.post("/add-card", authenticate, async (req: AuthRequest, res: Response, n
     res.json({
       message: "Redirect to add card",
       paymentUrl: paymentResult.paymentUrl,
+      payGateRedirect: paymentResult.payGateRedirect,
       reference,
+      paygateFeeZar: paymentResult.paygateFeeZar,
+      chargedZar: paymentResult.chargedZar,
     });
   } catch (err) {
     next(err);
@@ -603,7 +623,7 @@ router.post("/pay-with-card", authenticate, async (req: AuthRequest, res: Respon
       vaultId: card.vaultId,
     });
 
-    if (!paymentResult.success || !paymentResult.paymentUrl) {
+    if (!paymentResult.success || (!paymentResult.paymentUrl && !paymentResult.payGateRedirect)) {
       throw new AppError(paymentResult.error || "Could not start payment", 500);
     }
 
@@ -616,7 +636,11 @@ router.post("/pay-with-card", authenticate, async (req: AuthRequest, res: Respon
     res.json({
       message: "Redirect to complete payment",
       paymentUrl: paymentResult.paymentUrl,
+      payGateRedirect: paymentResult.payGateRedirect,
       reference,
+      amount: pr.amount,
+      paygateFeeZar: paymentResult.paygateFeeZar,
+      chargedZar: paymentResult.chargedZar,
     });
   } catch (err) {
     next(err);
@@ -716,7 +740,7 @@ router.post("/checkout/pay", authenticate, async (req: AuthRequest, res: Respons
       vaultId: card.vaultId,
     });
 
-    if (!paymentResult.success || !paymentResult.paymentUrl) {
+    if (!paymentResult.success || (!paymentResult.paymentUrl && !paymentResult.payGateRedirect)) {
       await CheckoutSession.findByIdAndUpdate(session._id, { status: "failed" });
       throw new AppError(paymentResult.error || "Could not start payment", 500);
     }
@@ -724,6 +748,10 @@ router.post("/checkout/pay", authenticate, async (req: AuthRequest, res: Respons
     res.json({
       success: true,
       paymentUrl: paymentResult.paymentUrl,
+      payGateRedirect: paymentResult.payGateRedirect,
+      amount,
+      paygateFeeZar: paymentResult.paygateFeeZar,
+      chargedZar: paymentResult.chargedZar,
     });
   } catch (err) {
     next(err);
@@ -750,6 +778,98 @@ router.get("/checkout/session/:sessionId", authenticate, async (req: AuthRequest
 });
 
 // --- Request money ---
+
+// Public request-money link preview (no login required)
+router.get("/request-public/:requestId", async (req: AuthRequest, res: Response, next) => {
+  try {
+    const requestId = String(req.params.requestId || "").trim();
+    const token = String(req.query.token || "").trim();
+    if (!requestId || !token) throw new AppError("Invalid payment request link", 400);
+
+    const mr = await MoneyRequest.findById(requestId)
+      .populate("fromUser", "name username")
+      .lean();
+    if (!mr) throw new AppError("Payment request not found", 404);
+    if (!sameToken((mr as any).actionToken, token)) throw new AppError("Invalid payment request token", 403);
+
+    const requester = (mr as any).fromUser as { name?: string; username?: string } | undefined;
+    const payerWallet = await Wallet.findOne({ user: (mr as any).toUser }).select("balance").lean();
+    const canPayWithWallet = Number(payerWallet?.balance || 0) >= Number((mr as any).amount || 0);
+    const expired = new Date() > new Date((mr as any).expiresAt);
+
+    res.json({
+      requestId: String((mr as any)._id),
+      amount: Number((mr as any).amount || 0),
+      message: (mr as any).message || "",
+      status: (mr as any).status,
+      requesterName: requester?.name || requester?.username || "User",
+      canPayWithWallet: (mr as any).status === "pending" && !expired && canPayWithWallet,
+      expiresAt: (mr as any).expiresAt,
+      expired,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Public pay action for request-money link (single-link flow)
+router.post("/request-public/:requestId/pay", async (req: AuthRequest, res: Response, next) => {
+  try {
+    const requestId = String(req.params.requestId || "").trim();
+    const token = String(req.body?.token || "").trim();
+    if (!requestId || !token) throw new AppError("Invalid payment request link", 400);
+
+    const mr = await MoneyRequest.findById(requestId);
+    if (!mr) throw new AppError("Payment request not found", 404);
+    if (!sameToken((mr as any).actionToken, token)) throw new AppError("Invalid payment request token", 403);
+
+    if (mr.status !== "pending") {
+      return res.json({
+        code: "ALREADY_PROCESSED",
+        message: mr.status === "paid" ? "This payment request is already paid." : "This payment request is no longer pending.",
+        status: mr.status,
+      });
+    }
+    if (new Date() > mr.expiresAt) {
+      mr.status = "expired";
+      await mr.save();
+      throw new AppError("Request has expired", 400);
+    }
+
+    const payerUser = await User.findById(mr.toUser).select("email").lean();
+    if (!payerUser) throw new AppError("Payer account not found", 404);
+
+    const settled = await settleMoneyRequestFromWallet({ mr, payeeId: mr.toUser as any });
+    if (settled.ok) {
+      return res.json({
+        code: "PAID_WALLET",
+        message: "Payment sent successfully",
+        amount: mr.amount,
+      });
+    }
+    if (settled.reason === "INSUFFICIENT_BALANCE") {
+      const fallbackEmail = String(process.env.ADMIN_EMAIL || "payments@qwertymates.com");
+      const top = await initiateTopupForMoneyRequest({
+        mr,
+        payeeId: mr.toUser as any,
+        payeeEmail: String((payerUser as any)?.email || fallbackEmail),
+      });
+      return res.status(200).json({
+        code: "TOPUP_REQUIRED",
+        message: top.paymentUrl || top.payGateRedirect
+          ? "Insufficient balance. A PayGate payment link is ready."
+          : "Insufficient balance. PayGate link could not be created right now.",
+        shortfall: top.shortfall,
+        topupReference: top.reference,
+        paymentUrl: top.paymentUrl,
+        payGateRedirect: top.payGateRedirect,
+      });
+    }
+    throw new AppError(settled.reason, 400);
+  } catch (err) {
+    next(err);
+  }
+});
 
 // Create money request (requester wants to receive from payee; payee gets WhatsApp/SMS)
 router.post("/request-money", authenticate, async (req: AuthRequest, res: Response, next) => {
@@ -779,6 +899,7 @@ router.post("/request-money", authenticate, async (req: AuthRequest, res: Respon
     const requesterName = (requester as any)?.name || (requester as any)?.username || "Someone";
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
 
+    const actionToken = generateMoneyRequestActionToken().toLowerCase();
     const moneyRequest = await MoneyRequest.create({
       fromUser,
       toUser: toUserIdResolved,
@@ -788,10 +909,18 @@ router.post("/request-money", authenticate, async (req: AuthRequest, res: Respon
       notifyChannel,
       expiresAt,
       reference: `REQ-${Date.now()}-${Math.round(Math.random() * 1e6)}`,
+      actionToken,
     });
 
-    const link = `${process.env.FRONTEND_URL || "http://localhost:3000"}/wallet?payRequest=${moneyRequest._id}`;
-    const text = `${requesterName} is requesting R${amount.toFixed(2)} from you via ACBPayWallet. ${message ? `Message: ${message}. ` : ""}Pay now: ${link}`;
+    const baseFe = String(process.env.FRONTEND_URL || "http://localhost:3000").replace(/\/$/, "");
+    const webLink = `${baseFe}/pay/request?requestId=${moneyRequest._id}&token=${encodeURIComponent(actionToken)}`;
+    const text = [
+      `${requesterName} requested R${amount.toFixed(2)} from you via ACBPayWallet.`,
+      message ? `Message: ${message}` : "",
+      `Pay now: ${webLink}`,
+    ]
+      .filter(Boolean)
+      .join(" ");
     const channel = notifyChannel === "sms" ? "sms" : "whatsapp";
     await sendSms({ phone: (payee as any).phone, text, channel });
 
@@ -826,46 +955,32 @@ router.post("/pay-request", authenticate, async (req: AuthRequest, res: Response
       throw new AppError("Request has expired", 400);
     }
 
-    const payerWallet = await Wallet.findOne({ user: payeeId });
-    const recipientWallet = await Wallet.findOne({ user: mr.fromUser });
-    if (!payerWallet || payerWallet.balance < mr.amount) {
-      throw new AppError("Insufficient balance", 400);
+    const settled = await settleMoneyRequestFromWallet({ mr, payeeId });
+    if (settled.ok) {
+      return res.json({
+        message: "Payment sent successfully",
+        amount: mr.amount,
+        balance: settled.payerBalance,
+      });
     }
-    const recWallet = recipientWallet || (await Wallet.create({ user: mr.fromUser }));
-
-    payerWallet.balance -= mr.amount;
-    payerWallet.transactions.push({
-      type: "debit",
-      amount: -mr.amount,
-      reference: mr.reference,
-      createdAt: new Date(),
-    });
-    await payerWallet.save();
-
-    recWallet.balance += mr.amount;
-    recWallet.transactions.push({
-      type: "credit",
-      amount: mr.amount,
-      reference: mr.reference,
-      createdAt: new Date(),
-    });
-    await recWallet.save();
-
-    mr.status = "paid";
-    mr.paidAt = new Date();
-    await mr.save();
-
-    await AuditLog.create({
-      action: "WALLET_PAY_REQUEST",
-      user: payeeId,
-      meta: { amount: mr.amount, fromUser: mr.fromUser, requestId },
-    });
-
-    res.json({
-      message: "Payment sent successfully",
-      amount: mr.amount,
-      balance: payerWallet.balance,
-    });
+    if (settled.reason === "INSUFFICIENT_BALANCE") {
+      const payerUser = await User.findById(payeeId).select("email").lean();
+      const fallbackEmail = String(process.env.ADMIN_EMAIL || "payments@qwertymates.com");
+      const top = await initiateTopupForMoneyRequest({
+        mr,
+        payeeId,
+        payeeEmail: String((payerUser as any)?.email || req.user!.email || fallbackEmail),
+      });
+      return res.status(200).json({
+        code: "TOPUP_REQUIRED",
+        message: "Insufficient balance. Top up to complete this request payment.",
+        shortfall: top.shortfall,
+        topupReference: top.reference,
+        paymentUrl: top.paymentUrl,
+        payGateRedirect: top.payGateRedirect,
+      });
+    }
+    throw new AppError(settled.reason, 400);
   } catch (err) {
     next(err);
   }
@@ -880,6 +995,500 @@ router.get("/money-requests", authenticate, async (req: AuthRequest, res: Respon
       .limit(50)
       .lean();
     res.json(requests);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// --- Merchant agents (cash-in / cash-out for non-banked users) ---
+
+const DEPOSIT_EXPIRY_MS = 24 * 60 * 60 * 1000;
+
+/** Approved application (includes legacy users who enabled agent before approval workflow). */
+function isWalletMerchantAgentApproved(u: any): boolean {
+  const ma = u?.merchantAgent;
+  if (!ma) return false;
+  if (ma.applicationStatus === "suspended" || ma.applicationStatus === "rejected" || ma.applicationStatus === "pending") {
+    return false;
+  }
+  if (ma.applicationStatus === "approved") return true;
+  if (ma.enabled && (ma.applicationStatus === undefined || ma.applicationStatus === null)) return true;
+  return false;
+}
+
+function canOperateAsMerchantAgent(u: any): boolean {
+  if (!u?.isVerified) return false;
+  if (u.suspended || u.locked || !u.active) return false;
+  return isWalletMerchantAgentApproved(u);
+}
+
+router.get("/merchant-agent/me", authenticate, async (req: AuthRequest, res: Response, next) => {
+  try {
+    const user = await User.findById(req.user!._id);
+    if (!user) throw new AppError("User not found", 404);
+    const ma = (user as any).merchantAgent || {};
+    // Grandfather: early adopters who toggled agent on before applications existed
+    if (ma.enabled && ma.applicationStatus === undefined && !ma.appliedAt) {
+      (user as any).merchantAgent = {
+        ...ma,
+        applicationStatus: "approved",
+        reviewedAt: ma.reviewedAt || new Date(),
+      };
+      await user.save();
+    }
+    const m = (user as any).merchantAgent || {};
+    const status = m.applicationStatus ?? "none";
+    res.json({
+      enabled: !!m.enabled,
+      publicNote: typeof m.publicNote === "string" ? m.publicNote : "",
+      applicationStatus: status,
+      businessName: m.businessName || "",
+      businessDescription: m.businessDescription || "",
+      rejectionReason: m.rejectionReason || "",
+      appliedAt: m.appliedAt || null,
+      reviewedAt: m.reviewedAt || null,
+      kycAttestedAt: m.kycAttestedAt || null,
+      isVerified: !!(user as any).isVerified,
+      canApply:
+        !!(user as any).isVerified &&
+        !!(user as any).phone &&
+        status !== "pending" &&
+        status !== "approved" &&
+        status !== "suspended" &&
+        (status === "none" || status === "rejected"),
+      isApproved: status === "approved" || isWalletMerchantAgentApproved(user),
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post("/merchant-agent/apply", authenticate, async (req: AuthRequest, res: Response, next) => {
+  try {
+    const { error } = merchantAgentApplySchema.validate(req.body);
+    if (error) throw new AppError(error.details[0].message, 400);
+    const { businessName, businessDescription, publicNote, kycAttestation } = req.body as {
+      businessName: string;
+      businessDescription: string;
+      publicNote?: string;
+      kycAttestation: boolean;
+    };
+    if (!kycAttestation) throw new AppError("KYC attestation required", 400);
+
+    const user = await User.findById(req.user!._id);
+    if (!user) throw new AppError("User not found", 404);
+    if (!(user as any).isVerified) {
+      throw new AppError("Account must be KYC-verified before applying. Complete verification in your profile.", 403);
+    }
+    if (!(user as any).phone?.trim()) {
+      throw new AppError("Add a phone number on your profile before applying.", 400);
+    }
+
+    const ma = (user as any).merchantAgent || {};
+    const st = ma.applicationStatus || "none";
+    if (st === "pending") throw new AppError("Application already pending review", 400);
+    if (st === "approved") throw new AppError("You are already an approved merchant agent", 400);
+    if (st === "suspended") throw new AppError("Your agent status is suspended. Contact support.", 403);
+
+    (user as any).merchantAgent = {
+      ...ma,
+      applicationStatus: "pending",
+      businessName: businessName.trim().slice(0, 120),
+      businessDescription: businessDescription.trim().slice(0, 2000),
+      publicNote: typeof publicNote === "string" ? publicNote.trim().slice(0, 200) : "",
+      kycAttestedAt: new Date(),
+      appliedAt: new Date(),
+      enabled: false,
+      rejectionReason: undefined,
+    };
+    await user.save();
+
+    await AuditLog.create({
+      action: "MERCHANT_AGENT_APPLY",
+      user: req.user!._id,
+      meta: { businessName: (user as any).merchantAgent.businessName },
+    });
+
+    res.status(201).json({
+      message: "Application submitted. We will notify you after admin review.",
+      applicationStatus: "pending",
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.patch("/merchant-agent/me", authenticate, async (req: AuthRequest, res: Response, next) => {
+  try {
+    const { error } = merchantAgentListingSchema.validate(req.body);
+    if (error) throw new AppError(error.details[0].message, 400);
+    const { enabled, publicNote } = req.body as { enabled: boolean; publicNote?: string };
+    const user = await User.findById(req.user!._id);
+    if (!user) throw new AppError("User not found", 404);
+    if (!canOperateAsMerchantAgent(user)) {
+      throw new AppError("Only approved merchant agents can update listing settings", 403);
+    }
+    const ma = (user as any).merchantAgent || {};
+    (user as any).merchantAgent = {
+      ...ma,
+      enabled,
+      publicNote: typeof publicNote === "string" ? publicNote.trim().slice(0, 200) : "",
+    };
+    await user.save();
+    await AuditLog.create({
+      action: "MERCHANT_AGENT_LISTING",
+      user: req.user!._id,
+      meta: { enabled, hasNote: !!(publicNote && String(publicNote).trim()) },
+    });
+    res.json({
+      enabled,
+      publicNote: (user as any).merchantAgent?.publicNote || "",
+      applicationStatus: (user as any).merchantAgent?.applicationStatus,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get("/merchant-agents", authenticate, async (req: AuthRequest, res: Response, next) => {
+  try {
+    const q = typeof req.query.q === "string" ? req.query.q.trim() : "";
+    const limit = Math.min(30, Math.max(1, parseInt(String(req.query.limit || "20"), 10) || 20));
+    const filter: Record<string, unknown> = {
+      isVerified: true,
+      suspended: { $ne: true },
+      active: true,
+      "merchantAgent.enabled": true,
+      "merchantAgent.applicationStatus": { $nin: ["suspended", "rejected", "pending", "none"] },
+      $or: [
+        { "merchantAgent.applicationStatus": "approved" },
+        { "merchantAgent.applicationStatus": { $exists: false } },
+      ],
+    };
+    if (q.length >= 2) {
+      const rx = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+      filter.$or = [{ username: rx }, { name: rx }];
+    }
+    const agents = await User.find(filter)
+      .select("_id name username merchantAgent")
+      .limit(limit)
+      .lean();
+    res.json(
+      agents.map((a: any) => ({
+        _id: a._id,
+        name: a.name,
+        username: a.username,
+        publicNote: a.merchantAgent?.publicNote || "",
+      }))
+    );
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Agent: customer gave cash — agent moves wallet float to customer after customer approves in app
+router.post("/merchant-agent/deposit/initiate", authenticate, async (req: AuthRequest, res: Response, next) => {
+  try {
+    const { error } = merchantAgentDepositInitSchema.validate(req.body);
+    if (error) throw new AppError(error.details[0].message, 400);
+    const agentUser = await User.findById(req.user!._id);
+    if (!agentUser || !canOperateAsMerchantAgent(agentUser)) {
+      throw new AppError("Approved merchant agent with verified KYC required. Top up wallet float to transact.", 403);
+    }
+
+    const { customerUserId, customerUsername, amount } = req.body as {
+      customerUserId?: string;
+      customerUsername?: string;
+      amount: number;
+    };
+
+    let customerId = customerUserId;
+    if (customerUsername && !customerUserId) {
+      const u = await User.findOne({ username: String(customerUsername).toLowerCase().trim() }).select("_id").lean();
+      if (!u) throw new AppError("Customer not found", 404);
+      customerId = u._id.toString();
+    }
+    if (!customerId) throw new AppError("Customer required", 400);
+    if (String(customerId) === String(req.user!._id)) throw new AppError("Cannot deposit to yourself", 400);
+
+    const customer = await User.findById(customerId).select("phone name username").lean();
+    if (!customer) throw new AppError("Customer not found", 404);
+    if (!(customer as any).phone) throw new AppError("Customer must add a phone number to receive SMS approval", 400);
+
+    const agentWallet = await Wallet.findOne({ user: req.user!._id });
+    if (!agentWallet || agentWallet.balance < amount) {
+      throw new AppError("Insufficient wallet float — top up your agent wallet first", 400);
+    }
+
+    const reference = `AGENT-DEP-${Date.now()}-${Math.round(Math.random() * 1e6)}`;
+    const expiresAt = new Date(Date.now() + DEPOSIT_EXPIRY_MS);
+
+    const tx = await MerchantAgentCashTx.create({
+      kind: "cash_deposit",
+      status: "pending_customer",
+      agent: req.user!._id,
+      customer: customerId,
+      amount,
+      reference,
+      expiresAt,
+    });
+
+    const agentName = (agentUser as any)?.name || (agentUser as any)?.username || "An agent";
+    const link = `${process.env.FRONTEND_URL || "http://localhost:3000"}/wallet?agentCashTx=${tx._id}`;
+    const text = `${agentName} requests to credit R${amount.toFixed(2)} to your ACBPayWallet (cash deposit you paid them). Approve in app: ${link} Expires in 24h.`;
+    await sendSms({ phone: (customer as any).phone, text, channel: "sms" });
+
+    await AuditLog.create({
+      action: "MERCHANT_AGENT_DEPOSIT_INIT",
+      user: req.user!._id,
+      meta: { txId: tx._id, customerId, amount },
+    });
+
+    res.status(201).json({
+      txId: tx._id,
+      amount,
+      expiresAt,
+      message: "Approval SMS sent to customer",
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post("/merchant-agent/deposit/approve", authenticate, async (req: AuthRequest, res: Response, next) => {
+  try {
+    const { error } = merchantAgentDepositApproveSchema.validate(req.body);
+    if (error) throw new AppError(error.details[0].message, 400);
+    const { txId } = req.body;
+
+    const mtx = await MerchantAgentCashTx.findById(txId);
+    if (!mtx) throw new AppError("Transaction not found", 404);
+    if (mtx.kind !== "cash_deposit" || mtx.status !== "pending_customer") {
+      throw new AppError("Invalid or already processed transaction", 400);
+    }
+    if (String(mtx.customer) !== String(req.user!._id)) {
+      throw new AppError("You are not the customer for this deposit", 403);
+    }
+    if (new Date() > mtx.expiresAt) {
+      mtx.status = "expired";
+      await mtx.save();
+      throw new AppError("This deposit request has expired", 400);
+    }
+
+    const agentWallet = await Wallet.findOne({ user: mtx.agent });
+    const customerWallet = await Wallet.findOne({ user: mtx.customer });
+    if (!agentWallet || agentWallet.balance < mtx.amount) {
+      throw new AppError("Agent no longer has sufficient balance", 400);
+    }
+    const custWallet = customerWallet || (await Wallet.create({ user: mtx.customer }));
+
+    const ref = mtx.reference;
+    agentWallet.balance -= mtx.amount;
+    agentWallet.transactions.push({
+      type: "debit",
+      amount: -mtx.amount,
+      reference: ref,
+      createdAt: new Date(),
+    });
+    await agentWallet.save();
+
+    custWallet.balance += mtx.amount;
+    custWallet.transactions.push({
+      type: "credit",
+      amount: mtx.amount,
+      reference: ref,
+      createdAt: new Date(),
+    });
+    await custWallet.save();
+
+    mtx.status = "completed";
+    mtx.completedAt = new Date();
+    await mtx.save();
+
+    await AuditLog.create({
+      action: "MERCHANT_AGENT_DEPOSIT_DONE",
+      user: req.user!._id,
+      meta: { txId: mtx._id, amount: mtx.amount, agent: mtx.agent },
+    });
+
+    res.json({ message: "Cash deposit credited to your wallet", balance: custWallet.balance });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Customer: move wallet balance to agent — collect physical cash from agent
+router.post("/merchant-agent/withdrawal/initiate", authenticate, async (req: AuthRequest, res: Response, next) => {
+  try {
+    const { error } = merchantAgentWithdrawSchema.validate(req.body);
+    if (error) throw new AppError(error.details[0].message, 400);
+    const { agentId, amount } = req.body as { agentId: string; amount: number };
+
+    if (String(agentId) === String(req.user!._id)) throw new AppError("Choose another agent", 400);
+
+    const agent = await User.findById(agentId)
+      .select("merchantAgent name username phone isVerified suspended locked active")
+      .lean();
+    if (!agent || !canOperateAsMerchantAgent(agent)) {
+      throw new AppError("That user is not an active approved merchant agent (KYC + admin approval required)", 400);
+    }
+
+    const customerWallet = await Wallet.findOne({ user: req.user!._id });
+    if (!customerWallet || customerWallet.balance < amount) {
+      throw new AppError("Insufficient balance", 400);
+    }
+
+    let agentWallet = await Wallet.findOne({ user: agentId });
+    if (!agentWallet) agentWallet = await Wallet.create({ user: agentId });
+
+    const reference = `AGENT-WD-${Date.now()}-${Math.round(Math.random() * 1e6)}`;
+    const now = new Date();
+
+    customerWallet.balance -= amount;
+    customerWallet.transactions.push({
+      type: "debit",
+      amount: -amount,
+      reference,
+      createdAt: now,
+    });
+    await customerWallet.save();
+
+    agentWallet.balance += amount;
+    agentWallet.transactions.push({
+      type: "credit",
+      amount,
+      reference,
+      createdAt: now,
+    });
+    await agentWallet.save();
+
+    const customer = await User.findById(req.user!._id).select("name username phone").lean();
+    const mtx = await MerchantAgentCashTx.create({
+      kind: "cash_withdrawal",
+      status: "completed",
+      agent: agentId,
+      customer: req.user!._id,
+      amount,
+      reference,
+      expiresAt: now,
+      completedAt: now,
+    });
+
+    const custLabel = (customer as any)?.name || (customer as any)?.username || "Customer";
+    if ((agent as any).phone) {
+      const text = `${custLabel} sent R${amount.toFixed(2)} to you for ACBPayWallet cash withdrawal — hand over cash when they visit. Ref ${reference}`;
+      await sendSms({ phone: (agent as any).phone, text, channel: "sms" });
+    }
+    if ((customer as any)?.phone) {
+      const text = `R${amount.toFixed(2)} sent to agent ${(agent as any).name || (agent as any).username} for cash pickup. Ref ${reference}. Meet them to collect cash.`;
+      await sendSms({ phone: (customer as any).phone, text, channel: "sms" });
+    }
+
+    await AuditLog.create({
+      action: "MERCHANT_AGENT_WITHDRAWAL",
+      user: req.user!._id,
+      meta: { txId: mtx._id, agentId, amount },
+    });
+
+    res.json({
+      message: "Funds sent to agent — collect your cash from them in person",
+      balance: customerWallet.balance,
+      txId: mtx._id,
+      reference,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post("/merchant-agent/handover", authenticate, async (req: AuthRequest, res: Response, next) => {
+  try {
+    const { error } = merchantAgentHandoverSchema.validate(req.body);
+    if (error) throw new AppError(error.details[0].message, 400);
+    const { txId } = req.body;
+
+    const mtx = await MerchantAgentCashTx.findById(txId);
+    if (!mtx) throw new AppError("Transaction not found", 404);
+    if (mtx.kind !== "cash_withdrawal" || mtx.status !== "completed") {
+      throw new AppError("Invalid transaction", 400);
+    }
+    if (String(mtx.agent) !== String(req.user!._id)) {
+      throw new AppError("Only the agent can confirm handover", 403);
+    }
+    if (mtx.handoverConfirmedAt) {
+      return res.json({ message: "Already confirmed" });
+    }
+    mtx.handoverConfirmedAt = new Date();
+    await mtx.save();
+    await AuditLog.create({
+      action: "MERCHANT_AGENT_HANDOVER",
+      user: req.user!._id,
+      meta: { txId: mtx._id },
+    });
+    res.json({ message: "Cash handover recorded" });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get("/merchant-agent/tx/:id", authenticate, async (req: AuthRequest, res: Response, next) => {
+  try {
+    const mtx = await MerchantAgentCashTx.findById(req.params.id)
+      .populate("agent", "name username")
+      .populate("customer", "name username")
+      .lean();
+    if (!mtx) throw new AppError("Transaction not found", 404);
+    const uid = String(req.user!._id);
+    if (String((mtx as any).agent) !== uid && String((mtx as any).customer) !== uid) {
+      throw new AppError("Unauthorized", 403);
+    }
+    res.json(mtx);
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get("/merchant-agent/pending", authenticate, async (req: AuthRequest, res: Response, next) => {
+  try {
+    const uid = req.user!._id;
+    const asCustomer = await MerchantAgentCashTx.find({
+      customer: uid,
+      status: "pending_customer",
+      kind: "cash_deposit",
+    })
+      .populate("agent", "name username")
+      .sort({ createdAt: -1 })
+      .limit(20)
+      .lean();
+    const asAgent = await MerchantAgentCashTx.find({
+      agent: uid,
+      status: "pending_customer",
+      kind: "cash_deposit",
+    })
+      .populate("customer", "name username")
+      .sort({ createdAt: -1 })
+      .limit(20)
+      .lean();
+    res.json({ asCustomer, asAgent });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get("/merchant-agent/history", authenticate, async (req: AuthRequest, res: Response, next) => {
+  try {
+    const uid = req.user!._id;
+    const limit = Math.min(50, Math.max(1, parseInt(String(req.query.limit || "25"), 10) || 25));
+    const rows = await MerchantAgentCashTx.find({
+      $or: [{ agent: uid }, { customer: uid }],
+      status: { $in: ["completed", "expired", "cancelled"] },
+    })
+      .populate("agent", "name username")
+      .populate("customer", "name username")
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .lean();
+    res.json(rows);
   } catch (err) {
     next(err);
   }

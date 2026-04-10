@@ -1,6 +1,5 @@
 import express, { Request, Response } from "express";
 import Advert from "../data/models/Advert";
-import { AppError } from "../middleware/errorHandler";
 
 const router = express.Router();
 

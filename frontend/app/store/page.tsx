@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { useAuth } from '@/contexts/AuthContext';
@@ -14,6 +14,9 @@ import { ProfileHeaderButton } from '@/components/ProfileHeaderButton';
 import { useCartAndStores, invalidateCartStoresCache } from '@/lib/useCartAndStores';
 import { MobileBottomNav } from '@/components/MobileBottomNav';
 import StoreHeader from '@/components/StoreHeader';
+import { formatCurrencyAmount } from '@/lib/formatCurrency';
+import { WALL_EXPECT_REFRESH_KEY } from '@/lib/wallRefresh';
+import { useCurrency } from '@/contexts/CurrencyContext';
 
 interface MyStore {
   _id: string;
@@ -47,38 +50,18 @@ export default function MyStorePage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState({ name: '', address: '', email: '', cellphone: '', whatsapp: '' });
   const [saving, setSaving] = useState(false);
+  const { currency: localCurrency, rates } = useCurrency();
   const handleLogout = () => {
     logout();
     router.push('/');
   };
 
-  useEffect(() => {
-    fetchStores();
-    fetchWall();
-    fetchSupplierProducts();
-  }, []);
+  const authUserId =
+    user?._id != null ? String(user._id) : user?.id != null ? String(user.id) : '';
 
-  // Refetch when tab becomes visible (e.g. returning from adding a product)
-  useEffect(() => {
-    const onVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        fetchWall();
-        fetchStores();
-        fetchSupplierProducts();
-      }
-    };
-    document.addEventListener('visibilitychange', onVisibilityChange);
-    return () => document.removeEventListener('visibilitychange', onVisibilityChange);
-  }, []);
+  const [refreshingWall, setRefreshingWall] = useState(false);
 
-  // No store = redirect to marketplace; store is only created when user resells a product
-  useEffect(() => {
-    if (!loading && stores.length === 0) {
-      router.replace('/marketplace');
-    }
-  }, [loading, stores.length, router]);
-
-  const fetchStores = async () => {
+  const fetchStores = useCallback(async () => {
     try {
       const res = await storesAPI.getMyStores();
       const list = res.data?.data ?? res.data ?? [];
@@ -86,32 +69,26 @@ export default function MyStorePage() {
     } catch {
       toast.error('Failed to load your stores');
       setStores([]);
-    } finally {
-      setLoading(false);
     }
-  };
+  }, []);
 
-  const [refreshingWall, setRefreshingWall] = useState(false);
-  const fetchWall = async () => {
+  const fetchWall = useCallback(async () => {
     try {
       const res = await resellerAPI.getMyWall();
       const data = res.data?.data ?? res.data;
       const products = data?.products ?? [];
       setWallProducts(Array.isArray(products) ? products : []);
-    } catch {
+    } catch (e: unknown) {
+      const status = (e as { response?: { status?: number } })?.response?.status;
+      console.warn('[MyStore] reseller wall/me failed', status);
       setWallProducts([]);
+      if (status && status !== 401) {
+        toast.error('Could not load your resell products. Tap refresh or try again.');
+      }
     }
-  };
+  }, []);
 
-  const refreshAll = async () => {
-    setRefreshingWall(true);
-    invalidateCartStoresCache();
-    await Promise.all([fetchStores(), fetchWall(), fetchSupplierProducts()]);
-    setRefreshingWall(false);
-    toast.success('Refreshed');
-  };
-
-  const fetchSupplierProducts = async () => {
+  const fetchSupplierProducts = useCallback(async () => {
     try {
       const res = await suppliersAPI.getMyProducts();
       const list = res.data?.data ?? res.data ?? [];
@@ -119,6 +96,77 @@ export default function MyStorePage() {
     } catch {
       setSupplierProducts([]);
     }
+  }, []);
+
+  // Load (and reload) when the authenticated user id is known — avoids an empty wall from a race
+  // where this page mounted before auth/token was fully ready (recurring empty My Store).
+  useEffect(() => {
+    if (!authUserId) {
+      setLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setLoading(true);
+    Promise.all([fetchStores(), fetchWall(), fetchSupplierProducts()]).finally(() => {
+      if (!cancelled) setLoading(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [authUserId, fetchStores, fetchWall, fetchSupplierProducts]);
+
+  // After add-to-wall, wall/me can briefly lag (replica / timing) — retry a few times.
+  useEffect(() => {
+    if (!authUserId || typeof window === 'undefined') return;
+    if (sessionStorage.getItem(WALL_EXPECT_REFRESH_KEY) !== '1') return;
+    sessionStorage.removeItem(WALL_EXPECT_REFRESH_KEY);
+    const t1 = setTimeout(() => void fetchWall(), 400);
+    const t2 = setTimeout(() => void fetchWall(), 1100);
+    const t3 = setTimeout(() => void fetchWall(), 2600);
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+      clearTimeout(t3);
+    };
+  }, [authUserId, fetchWall]);
+
+  // Refetch when tab becomes visible (e.g. returning from adding a product)
+  useEffect(() => {
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        void Promise.all([fetchWall(), fetchStores(), fetchSupplierProducts()]);
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', onVisibilityChange);
+  }, [fetchWall, fetchStores, fetchSupplierProducts]);
+
+  // bfcache restore (browser back) can show stale empty wall
+  useEffect(() => {
+    const onPageShow = (e: PageTransitionEvent) => {
+      if (e.persisted && authUserId) {
+        void Promise.all([fetchWall(), fetchStores(), fetchSupplierProducts()]);
+      }
+    };
+    window.addEventListener('pageshow', onPageShow);
+    return () => window.removeEventListener('pageshow', onPageShow);
+  }, [authUserId, fetchWall, fetchStores, fetchSupplierProducts]);
+
+  // Only redirect after both stores and wall have loaded; if the user has wall products (resell), stay on MyStore.
+  useEffect(() => {
+    if (loading) return;
+    const hasWallItems = wallProducts.length > 0;
+    if (stores.length === 0 && !hasWallItems) {
+      router.replace('/marketplace');
+    }
+  }, [loading, stores.length, wallProducts.length, router]);
+
+  const refreshAll = async () => {
+    setRefreshingWall(true);
+    invalidateCartStoresCache();
+    await Promise.all([fetchStores(), fetchWall(), fetchSupplierProducts()]);
+    setRefreshingWall(false);
+    toast.success('Refreshed');
   };
 
   const startEdit = (store: MyStore) => {
@@ -156,6 +204,18 @@ export default function MyStorePage() {
       setSaving(false);
     }
   };
+  const toViewerCurrency = (amount: number, sourceCurrency: string) => {
+    const from = String(sourceCurrency || 'USD').toUpperCase();
+    const to = String(localCurrency || from).toUpperCase();
+    if (!Number.isFinite(amount)) return formatCurrencyAmount(0, to || 'ZAR');
+    if (from === to) return formatCurrencyAmount(amount, to);
+    const fromRate = Number(rates?.[from] ?? 0);
+    const toRate = Number(rates?.[to] ?? 0);
+    if (!(fromRate > 0) || !(toRate > 0)) return formatCurrencyAmount(amount, from);
+    const usd = amount / fromRate;
+    const converted = Math.round(usd * toRate * 100) / 100;
+    return formatCurrencyAmount(converted, to);
+  };
 
   return (
     <ProtectedRoute>
@@ -165,7 +225,7 @@ export default function MyStorePage() {
           <div className="px-4 sm:px-6 lg:px-8 py-3 sm:py-4">
             <div className="flex items-center justify-between gap-3 sm:gap-4 min-w-0">
               <Link href="/wall" className="shrink-0 flex items-center" aria-label="Home">
-                <img src="/qwertymates-logo-icon.png" alt="Qwertymates" className="h-9 w-9 object-contain lg:hidden" />
+                <img src="/qwertymates-logo-icon.png" alt="Qwertymates" className="h-11 w-11 sm:h-12 sm:w-12 object-contain lg:hidden shrink-0" />
                 <img src="/qwertymates-logo.png" alt="Qwertymates" className="h-9 w-auto object-contain hidden lg:block" />
               </Link>
               <AppSidebarMenuButton onClick={() => setMenuOpen((v) => !v)} />
@@ -192,7 +252,7 @@ export default function MyStorePage() {
           </div>
         </header>
 
-        <div className="flex flex-1 min-h-0">
+        <div className="flex min-h-0 min-w-0 w-full flex-1">
           <AppSidebar
             variant="wall"
             userName={user?.name}
@@ -206,7 +266,7 @@ export default function MyStorePage() {
             hideLogo
             belowHeader
           />
-          <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+          <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain">
             {!loading && stores.length > 0 ? (
               <>
                 {/* When user has both supplier and reseller stores, show single unified header (prefer supplier store) */}
@@ -331,6 +391,8 @@ export default function MyStorePage() {
                 const hasResellerStore = stores.some((s) => s.type === 'reseller');
                 const showSupplierProducts = hasSupplierStore;
                 const validWallProducts = wallProducts.filter((wp) => wp.product);
+                /** Show QwertyHub resell grid if we have products on the wall, even if /stores/me is slow or missing the reseller row. */
+                const showResellerHub = hasResellerStore || validWallProducts.length > 0;
 
                 return (
                   <>
@@ -354,7 +416,7 @@ export default function MyStorePage() {
                             <Link key={p._id} href={`/marketplace/product/${p._id}`} className="group flex flex-col rounded-xl border border-slate-100 overflow-hidden bg-white shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200">
                               <div className="aspect-square bg-slate-100 overflow-hidden relative">
                                 {p.images?.[0] ? (
-                                  <img src={getImageUrl(p.images[0])} alt="" className="h-full w-full object-cover group-hover:scale-105 transition-transform duration-200" />
+                                  <img src={getImageUrl(p.images[0])} alt="" className="h-full w-full object-cover group-hover:scale-105 transition-transform duration-200" data-pin-nopin="true" />
                                 ) : (
                                   <div className="h-full w-full flex items-center justify-center text-slate-400"><Package className="h-12 w-12" /></div>
                                 )}
@@ -363,7 +425,7 @@ export default function MyStorePage() {
                               <div className="p-4 flex-1 flex flex-col">
                                 <p className="font-medium text-slate-800 line-clamp-2">{p.title}</p>
                                 <p className="text-base text-brand-600 font-semibold mt-2">
-                                  {new Intl.NumberFormat('en-ZA', { style: 'currency', currency: p.currency || 'ZAR' }).format(price)}
+                                  {toViewerCurrency(price, p.currency || 'ZAR')}
                                 </p>
                               </div>
                             </Link>
@@ -382,7 +444,7 @@ export default function MyStorePage() {
                         </Link>
                       </div>
                     ) : null}
-                    {hasResellerStore && (
+                    {showResellerHub && (
                       <>
                         {validWallProducts.length > 0 ? (
                           <div className={showSupplierProducts ? 'mt-10' : ''}>
@@ -393,11 +455,12 @@ export default function MyStorePage() {
                           const markup = wp.resellerCommissionPct ?? 5;
                           const basePrice = getEffectivePrice(p);
                           const resellerPrice = Math.round(basePrice * (1 + markup / 100) * 100) / 100;
+                          const rowKey = typeof wp.productId === 'string' ? wp.productId : String((wp.productId as { _id?: string })?._id ?? p._id);
                           return (
-                            <Link key={wp.productId} href={`/marketplace/product/${p._id}${(user as any)?._id || (user as any)?.id ? `?resellerId=${(user as any)._id || (user as any).id}&resellerCommissionPct=${wp.resellerCommissionPct ?? 5}` : ''}`} className="group flex flex-col rounded-xl border border-slate-100 overflow-hidden bg-white shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200">
+                            <Link key={rowKey} href={`/marketplace/product/${p._id}${(user as any)?._id || (user as any)?.id ? `?resellerId=${(user as any)._id || (user as any).id}&resellerCommissionPct=${wp.resellerCommissionPct ?? 5}` : ''}`} className="group flex flex-col rounded-xl border border-slate-100 overflow-hidden bg-white shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200">
                               <div className="aspect-square bg-slate-100 overflow-hidden">
                                 {p.images?.[0] ? (
-                                  <img src={getImageUrl(p.images[0])} alt="" className="h-full w-full object-cover group-hover:scale-105 transition-transform duration-200" />
+                                  <img src={getImageUrl(p.images[0])} alt="" className="h-full w-full object-cover group-hover:scale-105 transition-transform duration-200" data-pin-nopin="true" />
                                 ) : (
                                   <div className="h-full w-full flex items-center justify-center text-slate-400 text-sm">No image</div>
                                 )}
@@ -405,7 +468,7 @@ export default function MyStorePage() {
                               <div className="p-4 flex-1 flex flex-col">
                                 <p className="font-medium text-slate-800 line-clamp-2">{p.title}</p>
                                 <p className="text-base text-brand-600 font-semibold mt-2">
-                                  {new Intl.NumberFormat('en-ZA', { style: 'currency', currency: p.currency || 'ZAR' }).format(resellerPrice)}
+                                  {toViewerCurrency(resellerPrice, p.currency || 'ZAR')}
                                 </p>
                               </div>
                             </Link>

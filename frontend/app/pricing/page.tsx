@@ -151,7 +151,7 @@ export default function PricingPage() {
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-2">
               <Link href={user ? '/wall' : '/'} className="shrink-0 flex items-center" aria-label="Home">
-                <img src="/qwertymates-logo-icon.png" alt="Qwertymates" className="h-9 w-9 object-contain lg:hidden" />
+                <img src="/qwertymates-logo-icon.png" alt="Qwertymates" className="h-16 w-16 sm:h-[4.25rem] sm:w-[4.25rem] object-contain lg:hidden shrink-0" />
                 <img src="/qwertymates-logo.png" alt="Qwertymates" className="h-9 w-auto object-contain hidden lg:block" />
               </Link>
               {user && <AppSidebarMenuButton onClick={() => setMenuOpen((v) => !v)} />}
@@ -164,7 +164,7 @@ export default function PricingPage() {
           </div>
         </div>
       </header>
-      <div className="flex flex-1 min-h-0">
+      <div className="flex min-h-0 min-w-0 w-full flex-1">
         {user && (
           <AppSidebar
             variant="wall"

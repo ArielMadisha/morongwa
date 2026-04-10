@@ -3,12 +3,13 @@
 import { useState, useEffect } from 'react';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { adminAPI } from '@/lib/api';
+import { formatCurrencyAmount } from '@/lib/formatCurrency';
 import Link from 'next/link';
 import { ArrowLeft, ShoppingBag, Loader2, Package } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 function formatPrice(price: number) {
-  return new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(price);
+  return formatCurrencyAmount(price, 'ZAR');
 }
 
 interface OrderRow {
@@ -23,24 +24,40 @@ interface OrderRow {
 }
 
 export default function AdminOrdersPage() {
+  const PAGE_SIZE = 100;
   const [orders, setOrders] = useState<OrderRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalOrders, setTotalOrders] = useState(0);
   const [statusFilter, setStatusFilter] = useState<string>('');
 
   useEffect(() => {
-    fetchOrders();
+    fetchOrders(1);
   }, [statusFilter]);
 
-  const fetchOrders = async () => {
+  const fetchOrders = async (targetPage = 1, append = false) => {
+    if (append) setLoadingMore(true);
+    else setLoading(true);
     try {
-      const res = await adminAPI.getOrders({ status: statusFilter || undefined });
+      const res = await adminAPI.getOrders({ status: statusFilter || undefined, page: targetPage, limit: PAGE_SIZE });
       const list = res.data?.orders ?? res.data ?? [];
-      setOrders(Array.isArray(list) ? list : []);
+      const next = Array.isArray(list) ? list : [];
+      setOrders((prev) => (append ? [...prev, ...next] : next));
+      const pagination = res.data?.pagination;
+      const pages = Number(pagination?.pages || 1);
+      const currentPage = Number(pagination?.page || targetPage || 1);
+      const total = Number(pagination?.total || next.length || 0);
+      setTotalPages(Number.isFinite(pages) && pages > 0 ? pages : 1);
+      setPage(Number.isFinite(currentPage) && currentPage > 0 ? currentPage : 1);
+      setTotalOrders(Number.isFinite(total) && total >= 0 ? total : 0);
     } catch {
       toast.error('Failed to load orders');
-      setOrders([]);
+      if (!append) setOrders([]);
     } finally {
-      setLoading(false);
+      if (append) setLoadingMore(false);
+      else setLoading(false);
     }
   };
 
@@ -53,6 +70,9 @@ export default function AdminOrdersPage() {
               <p className="text-xs uppercase tracking-widest text-sky-600">Qwertymates</p>
               <h1 className="mt-1 text-3xl font-semibold text-slate-900">Marketplace orders</h1>
               <p className="mt-1 text-sm text-slate-600">Checkout / wallet orders from the marketplace.</p>
+              <p className="mt-2 text-xs text-slate-500">
+                Showing {orders.length} of {totalOrders} orders (page {page} of {totalPages}, {PAGE_SIZE} per page)
+              </p>
             </div>
             <Link href="/admin" className="inline-flex items-center gap-2 rounded-full border border-sky-100 bg-white/80 px-4 py-2 text-sm font-semibold text-slate-800 shadow-sm hover:shadow-md">
               <ArrowLeft className="h-4 w-4" /> Back to admin
@@ -63,7 +83,7 @@ export default function AdminOrdersPage() {
         <main className="mx-auto max-w-6xl px-6 py-8">
           <div className="mb-6 flex gap-2">
             {['', 'pending_payment', 'paid', 'processing', 'delivered'].map((s) => (
-              <button key={s || 'all'} type="button" onClick={() => setStatusFilter(s)} className={`rounded-lg px-4 py-2 text-sm font-medium ${statusFilter === s ? 'bg-sky-600 text-white' : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50'}`}>
+              <button key={s || 'all'} type="button" onClick={() => { setStatusFilter(s); setPage(1); }} className={`rounded-lg px-4 py-2 text-sm font-medium ${statusFilter === s ? 'bg-sky-600 text-white' : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50'}`}>
                 {s === 'pending_payment' ? 'Pending payment' : s === 'paid' ? 'Paid' : s === 'processing' ? 'Processing' : s === 'delivered' ? 'Delivered' : 'All'}
               </button>
             ))}
@@ -80,8 +100,9 @@ export default function AdminOrdersPage() {
                 No orders found.
               </div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full">
+              <div>
+                <div className="overflow-x-auto">
+                  <table className="w-full">
                   <thead className="bg-slate-50 border-b border-slate-100">
                     <tr>
                       <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700">Buyer</th>
@@ -105,7 +126,38 @@ export default function AdminOrdersPage() {
                       </tr>
                     ))}
                   </tbody>
-                </table>
+                  </table>
+                </div>
+                <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 bg-white/70 px-4 py-3">
+                  <p className="text-xs text-slate-500">Page {page} of {totalPages}</p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => fetchOrders(page - 1)}
+                      disabled={page <= 1 || loading || loadingMore}
+                      className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                    >
+                      Previous page
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => fetchOrders(page + 1)}
+                      disabled={page >= totalPages || loading || loadingMore}
+                      className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-1.5 text-sm font-medium text-sky-700 hover:bg-sky-100 disabled:opacity-50"
+                    >
+                      Next page
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => fetchOrders(page + 1, true)}
+                      disabled={page >= totalPages || loading || loadingMore}
+                      className="inline-flex items-center gap-2 rounded-lg bg-sky-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-sky-700 disabled:opacity-50"
+                    >
+                      {loadingMore ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                      Load more
+                    </button>
+                  </div>
+                </div>
               </div>
             )}
           </div>

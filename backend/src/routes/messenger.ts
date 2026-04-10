@@ -215,7 +215,7 @@ router.get("/task/:taskId", authenticate, async (req: AuthRequest, res: Response
       throw new AppError("Unauthorized", 403);
     }
 
-    const { page, limit } = req.query;
+    const { limit } = req.query;
     const limitNum = limit ? parseInt(limit as string) : 50;
 
     const messages = await getTaskMessages(req.params.taskId, limitNum);

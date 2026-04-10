@@ -11,6 +11,7 @@ dotenv.config();
 import { logger } from "./services/monitoring";
 import { initializeNotificationService } from "./services/notification";
 import { initializeChatService } from "./services/chat";
+import { initializeWebRTCSignaling } from "./services/webrtcSignaling";
 import { securityMiddleware, requestLogger, validateInput } from "./middleware/security";
 import { apiLimiter } from "./middleware/rateLimit";
 import { errorHandler, notFoundHandler } from "./middleware/errorHandler";
@@ -38,33 +39,52 @@ import cartRoutes from "./routes/cart";
 import checkoutRoutes from "./routes/checkout";
 import resellerRoutes from "./routes/reseller";
 import storesRoutes from "./routes/stores";
+import waFlowRoutes from "./routes/waFlow";
+import waRedirectRoutes from "./routes/waRedirect";
+import webrtcRoutes from "./routes/webrtc";
+import landingBackgroundRoutes from "./routes/landingBackgrounds";
 import { ensureDefaultPolicies } from "./services/policyService";
 import { ensureDefaultProducts } from "./services/marketplaceSeed";
+import { ensureDefaultLandingBackgrounds } from "./services/landingBackgroundSeed";
 
 const app: Application = express();
+/** Behind nginx/Cloudflare, restores real client IP for rate limits and logs. */
+app.set("trust proxy", process.env.TRUST_PROXY === "0" ? false : 1);
 const server = http.createServer(app);
 
-// Allowed CORS origins (supports both common dev ports)
+/** CORS: browsers send Origin for api.qwertymates.com calls from the web app. Include apex + www + FRONTEND_URL. */
 const allowedOrigins = [
   "http://localhost:3000",
   "http://localhost:3001",
+  "https://qwertymates.com",
+  "https://www.qwertymates.com",
   process.env.FRONTEND_URL,
+  ...(process.env.CORS_EXTRA_ORIGINS || process.env.ALLOWED_ORIGINS || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean),
 ].filter(Boolean) as string[];
+const uniqueAllowedOrigins = [...new Set(allowedOrigins)];
+
+const corsOriginOption =
+  uniqueAllowedOrigins.length > 0 ? uniqueAllowedOrigins : "http://localhost:3000";
 
 // Socket.IO setup with CORS
 const io = new SocketServer(server, {
   cors: {
-    origin: allowedOrigins.length ? allowedOrigins : "http://localhost:3000",
+    origin: corsOriginOption,
     methods: ["GET", "POST"],
     credentials: true,
   },
 });
 
 // Middleware
-app.use(cors({
-  origin: allowedOrigins.length ? allowedOrigins : "http://localhost:3000",
-  credentials: true,
-}));
+app.use(
+  cors({
+    origin: corsOriginOption,
+    credentials: true,
+  })
+);
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(...securityMiddleware);
@@ -109,6 +129,10 @@ app.use("/api/cart", cartRoutes);
 app.use("/api/checkout", checkoutRoutes);
 app.use("/api/reseller", resellerRoutes);
 app.use("/api/stores", storesRoutes);
+app.use("/api/wa", waRedirectRoutes);
+app.use("/api/wa/flow", waFlowRoutes);
+app.use("/api/webrtc", webrtcRoutes);
+app.use("/api/landing-backgrounds", landingBackgroundRoutes);
 
 // Error handling
 app.use(notFoundHandler);
@@ -118,6 +142,7 @@ app.use(errorHandler);
 const initializeServices = () => {
   initializeNotificationService(io);
   initializeChatService(io);
+  initializeWebRTCSignaling(io);
   logger.info("Services initialized successfully");
 };
 
@@ -133,6 +158,8 @@ const startServer = async () => {
     await ensureDefaultPolicies();
     // Seed marketplace products if none exist (idempotent)
     await ensureDefaultProducts();
+    // Seed login/register background rows if none exist (idempotent)
+    await ensureDefaultLandingBackgrounds();
 
     // Initialize services
     initializeServices();
@@ -141,6 +168,7 @@ const startServer = async () => {
     server.listen(PORT, () => {
       logger.info(`🚀 Server running on port ${PORT}`);
       logger.info(`📝 Environment: ${process.env.NODE_ENV || "development"}`);
+      logger.info(`🌐 CORS origins: ${uniqueAllowedOrigins.join(", ")}`);
       logger.info(`🔗 API: http://localhost:${PORT}/api`);
       logger.info(`💬 Socket.IO: http://localhost:${PORT}`);
     });

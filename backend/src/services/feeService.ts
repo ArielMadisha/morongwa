@@ -63,11 +63,9 @@ class FeeCalculationService {
       isPeakHours = false,
       weight = 0,
       isUrgent = false,
-      country = "ZA",
     } = input;
 
     // Convert base fees from ZAR to target currency
-    const exchangeRate = this.exchangeRates[currency] || 1.0;
     const bookingFee = this.convertCurrency(
       this.baseFees.bookingFeeZAR,
       "ZAR",

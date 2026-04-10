@@ -12,14 +12,10 @@ import { AppSidebar, AppSidebarMenuButton } from '@/components/AppSidebar';
 import { AdvertSlot } from '@/components/AdvertSlot';
 import { MobileBottomNav } from '@/components/MobileBottomNav';
 import { ProfileHeaderButton } from '@/components/ProfileHeaderButton';
+import { formatCurrencyAmount } from '@/lib/formatCurrency';
 
 function formatPrice(price: number, currency: string) {
-  return new Intl.NumberFormat('en-ZA', {
-    style: 'currency',
-    currency: currency || 'ZAR',
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(price);
+  return formatCurrencyAmount(price, currency || 'ZAR');
 }
 
 function SearchContent() {
@@ -94,14 +90,14 @@ function SearchContent() {
           ]).then(([mainUsers, suggested]) => {
             const seen = new Set<string>();
             const merged: any[] = [];
-            for (const u of mainUsers) {
+            for (const u of mainUsers as any[]) {
               const id = u._id?._id ?? u._id ?? u.id;
               if (id && !seen.has(id)) {
                 seen.add(id);
                 merged.push(u);
               }
             }
-            for (const u of suggested) {
+            for (const u of suggested as any[]) {
               const id = u._id?._id ?? u._id ?? u.id;
               if (id && !seen.has(id)) {
                 seen.add(id);
@@ -111,7 +107,7 @@ function SearchContent() {
             return merged;
           }),
           tvAPI
-            .getFeed({ limit: 40, q: search })
+            .getFeed({ limit: 40, q: search, sort: 'newest' })
             .then((res) => {
               const list = res.data?.data ?? res.data ?? [];
               return Array.isArray(list) ? list : [];
@@ -183,7 +179,7 @@ function SearchContent() {
         <div className="px-4 sm:px-6 lg:px-8 py-3 sm:py-4">
           <div className="flex items-center justify-between gap-3 sm:gap-4 min-w-0">
             <Link href={homeLink} className="shrink-0 flex items-center" aria-label="Home">
-              <img src="/qwertymates-logo-icon.png" alt="Qwertymates" className="h-9 w-9 object-contain lg:hidden" />
+              <img src="/qwertymates-logo-icon.png" alt="Qwertymates" className="h-16 w-16 sm:h-[4.25rem] sm:w-[4.25rem] object-contain lg:hidden shrink-0" />
               <img src="/qwertymates-logo.png" alt="Qwertymates" className="h-9 w-auto object-contain hidden lg:block" />
             </Link>
             {user && <AppSidebarMenuButton onClick={() => setMenuOpen((v) => !v)} />}
@@ -204,7 +200,7 @@ function SearchContent() {
         </div>
       </header>
 
-      <div className="flex flex-1 min-h-0">
+      <div className="flex min-h-0 min-w-0 w-full flex-1">
         {user && (
           <AppSidebar
             variant="wall"
@@ -220,8 +216,8 @@ function SearchContent() {
             belowHeader
           />
         )}
-        <div className="flex-1 flex gap-0 min-h-0 overflow-y-auto overflow-x-hidden">
-          <main className="flex-1 min-w-0 px-4 sm:px-6 lg:px-8 py-6 pb-24 lg:pb-6">
+        <div className="flex-1 flex flex-col lg:flex-row gap-0 min-h-0 overflow-y-auto overflow-x-hidden">
+          <main className="flex-1 min-w-0 px-4 sm:px-6 lg:px-8 py-6 pb-24 lg:pb-6 order-2 lg:order-none w-full">
             {q.trim().length < 1 ? (
               <div className="rounded-2xl border border-slate-200 bg-white/90 p-12 text-center">
                 <Search className="h-16 w-16 text-slate-300 mx-auto mb-4" />
@@ -455,7 +451,7 @@ function SearchContent() {
                       setMacgyverResponse(null);
                       try {
                         const res = await macgyverAPI.ask(query);
-                        const data = res.data?.data;
+                        const data: any = res.data?.data;
                         if (data?.type === 'search' && data?.query) {
                           setQ(data.query);
                           router.push(`/search?q=${encodeURIComponent(data.query)}`);

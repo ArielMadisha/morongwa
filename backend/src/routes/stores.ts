@@ -1,9 +1,12 @@
 import express, { Response } from "express";
+import fs from "fs";
+import path from "path";
 import Store from "../data/models/Store";
 import { authenticate, AuthRequest } from "../middleware/auth";
 import { AppError } from "../middleware/errorHandler";
 import { slugify } from "../utils/helpers";
 import { upload } from "../middleware/upload";
+import { moderateMedia } from "../services/contentModeration";
 
 const router = express.Router();
 
@@ -68,6 +71,19 @@ router.post(
       const file = (req as any).file as Express.Multer.File | undefined;
       if (!file || !file.mimetype?.startsWith("image/")) {
         throw new AppError("A valid image file is required", 400);
+      }
+      const filePath = (file as any).path || path.join(__dirname, "../../uploads", file.filename);
+      const mod = await moderateMedia(filePath, file.mimetype);
+      if (!mod.safe || mod.sensitive) {
+        try {
+          fs.unlinkSync(filePath);
+        } catch {
+          /* ignore */
+        }
+        throw new AppError(
+          mod.reason || "Image rejected. Nudity or suggestive content is not allowed.",
+          400
+        );
       }
       const store = await Store.findOne({ _id: id, userId: req.user!._id });
       if (!store) throw new AppError("Store not found", 404);

@@ -4,8 +4,11 @@ import helmet from "helmet";
 import mongoSanitize from "express-mongo-sanitize";
 import { logger } from "../services/monitoring";
 
+/** Allow web app (qwertymates.com / www) to use API + uploads from api.* (same-site, different origin). */
 export const securityMiddleware = [
-  helmet(),
+  helmet({
+    crossOriginResourcePolicy: { policy: "same-site" },
+  }),
   mongoSanitize(),
 ];
 
@@ -31,7 +34,8 @@ export const validateInput = (req: Request, res: Response, next: NextFunction): 
   const suspiciousPatterns = [
     /<script/i,
     /javascript:/i,
-    /on\w+\s*=/i,
+    // Match inline handler attributes like "onclick=", not normal words containing "on...".
+    /\bon\w+\s*=/i,
     /\$\{/,
   ];
 

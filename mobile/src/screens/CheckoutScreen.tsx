@@ -12,6 +12,7 @@ import {
   View
 } from "react-native";
 import { checkoutAPI } from "../lib/api";
+import { currencyForCountry, detectCountryCode, formatMoney } from "../lib/geoCurrency";
 
 type CheckoutScreenProps = {
   onBack: () => void;
@@ -25,18 +26,12 @@ type QuoteData = {
   currency?: string;
 };
 
-function formatPrice(price: number, currency = "ZAR") {
-  return new Intl.NumberFormat("en-ZA", {
-    style: "currency",
-    currency,
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0
-  }).format(price || 0);
-}
-
 export function CheckoutScreen({ onBack, onPaid }: CheckoutScreenProps) {
+  const detectedCountry = detectCountryCode();
+  const deviceCurrency = currencyForCountry(detectedCountry);
   const [fulfillment, setFulfillment] = useState<"delivery" | "collection">("delivery");
   const [deliveryAddress, setDeliveryAddress] = useState("");
+  const [deliveryCountry] = useState(detectedCountry);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [quote, setQuote] = useState<QuoteData | null>(null);
@@ -99,6 +94,7 @@ export function CheckoutScreen({ onBack, onPaid }: CheckoutScreenProps) {
     return (
       <View style={styles.center}>
         <ActivityIndicator size="small" color="#22c55e" />
+        <Text style={styles.loadingText}>Loading checkout...</Text>
       </View>
     );
   }
@@ -118,7 +114,10 @@ export function CheckoutScreen({ onBack, onPaid }: CheckoutScreenProps) {
       }
     >
       <View style={styles.headerRow}>
-        <Text style={styles.title}>Checkout</Text>
+        <View style={styles.headerCopy}>
+          <Text style={styles.title}>Checkout</Text>
+          <Text style={styles.countryText}>Delivery country: {deliveryCountry}</Text>
+        </View>
         <Pressable onPress={onBack} style={styles.backBtn}>
           <Text style={styles.backText}>Back</Text>
         </Pressable>
@@ -135,17 +134,20 @@ export function CheckoutScreen({ onBack, onPaid }: CheckoutScreenProps) {
       </View>
       <View style={styles.card}>
         <Text style={styles.sectionTitle}>Order summary</Text>
+        <View style={styles.currencyPill}>
+          <Text style={styles.currencyPillText}>{quote?.currency || deviceCurrency}</Text>
+        </View>
         <View style={styles.line}>
           <Text style={styles.lineLabel}>Subtotal</Text>
-          <Text style={styles.lineValue}>{formatPrice(quote?.subtotal || 0, quote?.currency)}</Text>
+          <Text style={styles.lineValue}>{formatMoney(quote?.subtotal || 0, quote?.currency || deviceCurrency)}</Text>
         </View>
         <View style={styles.line}>
           <Text style={styles.lineLabel}>Shipping</Text>
-          <Text style={styles.lineValue}>{formatPrice(quote?.shipping || 0, quote?.currency)}</Text>
+          <Text style={styles.lineValue}>{formatMoney(quote?.shipping || 0, quote?.currency || deviceCurrency)}</Text>
         </View>
         <View style={styles.totalLine}>
           <Text style={styles.totalLabel}>Total</Text>
-          <Text style={styles.totalValue}>{formatPrice(quote?.total || 0, quote?.currency)}</Text>
+          <Text style={styles.totalValue}>{formatMoney(quote?.total || 0, quote?.currency || deviceCurrency)}</Text>
         </View>
       </View>
       {errorText ? <Text style={styles.errorText}>{errorText}</Text> : null}
@@ -173,7 +175,13 @@ const styles = StyleSheet.create({
   center: {
     flex: 1,
     justifyContent: "center",
-    alignItems: "center"
+    alignItems: "center",
+    gap: 8
+  },
+  loadingText: {
+    color: "#93c5fd",
+    fontSize: 12,
+    fontWeight: "600"
   },
   content: {
     gap: 10,
@@ -182,12 +190,26 @@ const styles = StyleSheet.create({
   headerRow: {
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "center"
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#2563eb",
+    backgroundColor: "#1d4ed8",
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 10
+  },
+  headerCopy: {
+    gap: 2
   },
   title: {
     color: "#f8fafc",
     fontSize: 20,
     fontWeight: "700"
+  },
+  countryText: {
+    color: "#dbeafe",
+    fontSize: 11,
+    fontWeight: "600"
   },
   backBtn: {
     borderWidth: 1,
@@ -213,6 +235,20 @@ const styles = StyleSheet.create({
     color: "#e2e8f0",
     fontWeight: "700",
     fontSize: 14
+  },
+  currencyPill: {
+    alignSelf: "flex-start",
+    borderWidth: 1,
+    borderColor: "#334155",
+    backgroundColor: "#0f172a",
+    borderRadius: 999,
+    paddingHorizontal: 9,
+    paddingVertical: 3
+  },
+  currencyPillText: {
+    color: "#93c5fd",
+    fontSize: 11,
+    fontWeight: "700"
   },
   segmentRow: {
     flexDirection: "row",
@@ -282,7 +318,13 @@ const styles = StyleSheet.create({
   },
   errorText: {
     color: "#fca5a5",
-    fontSize: 12
+    fontSize: 12,
+    borderWidth: 1,
+    borderColor: "#7f1d1d",
+    backgroundColor: "#450a0a",
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8
   },
   payRow: {
     flexDirection: "row",

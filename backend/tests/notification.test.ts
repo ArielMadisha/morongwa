@@ -1,16 +1,26 @@
 import { sendNotification } from '../src/services/notification';
-import User from '../src/data/models/User';
+
+jest.mock('../src/data/models/Notification', () => ({
+  __esModule: true,
+  default: {
+    create: jest.fn().mockResolvedValue({ _id: 'n1', type: 'TEST', message: 'Hello' }),
+  },
+}));
 
 describe('Notification service', () => {
   jest.setTimeout(10000);
 
-  it('sends email with ethereal transport without throwing', async () => {
+  it('sendNotification resolves without throwing (DB mocked)', async () => {
     process.env.MAILER = 'ethereal';
 
-    // Create a dummy user object (no DB required for this simple test)
-    const user = new User({ name: 'Test User', email: 'test+ethereal@example.com', role: ['client'] });
-    await user.validate();
-
-    await expect(sendNotification({ userId: null as any, type: 'TEST', message: 'Hello', channel: 'email', email: { subject: 'Hi', html: '<p>Hi</p>' } })).resolves.toBeUndefined();
+    await expect(
+      sendNotification({
+        userId: null as any,
+        type: 'TEST',
+        message: 'Hello',
+        channel: 'email',
+        email: { subject: 'Hi', html: '<p>Hi</p>' },
+      })
+    ).resolves.toBeUndefined();
   });
 });

@@ -12,6 +12,8 @@ export interface IMoneyRequest extends Document {
   declinedAt?: Date;
   expiresAt: Date;
   reference?: string;
+  /** Secret for WhatsApp `PAYREQ <token>` and web `wallet?payRequest=&token=` — not the Mongo _id. */
+  actionToken?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -28,11 +30,13 @@ const MoneyRequestSchema = new Schema<IMoneyRequest>(
     declinedAt: { type: Date },
     expiresAt: { type: Date, required: true },
     reference: { type: String },
+    actionToken: { type: String },
   },
   { timestamps: true }
 );
 
 MoneyRequestSchema.index({ toUser: 1, status: 1 });
 MoneyRequestSchema.index({ fromUser: 1, status: 1 });
+MoneyRequestSchema.index({ actionToken: 1 }, { unique: true, sparse: true });
 
 export default mongoose.model<IMoneyRequest>("MoneyRequest", MoneyRequestSchema);

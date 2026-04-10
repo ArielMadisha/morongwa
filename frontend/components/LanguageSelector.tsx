@@ -4,21 +4,24 @@ import { useState } from 'react';
 import { Languages } from 'lucide-react';
 import { useTranslation } from '@/contexts/TranslationContext';
 
-export function LanguageSelector() {
+export function LanguageSelector({ compact }: { compact?: boolean }) {
   const { targetLanguage, setTargetLanguage, languages } = useTranslation();
   const [open, setOpen] = useState(false);
+  const label = languages.find((l) => l.code === targetLanguage)?.name ?? targetLanguage;
 
   return (
     <div className="relative">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-2 px-2 py-1.5 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-slate-900"
-        title="Translation language"
+        className={`flex items-center gap-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-slate-900 ${
+          compact ? 'px-2 py-2 w-full justify-start text-left' : 'px-2 py-1.5'
+        }`}
+        title={compact ? `Translation: ${label}` : 'Translation language'}
       >
-        <Languages className="h-4 w-4" />
-        <span className="text-sm font-medium hidden sm:inline">
-          {languages.find((l) => l.code === targetLanguage)?.name ?? targetLanguage}
+        <Languages className="h-4 w-4 shrink-0" />
+        <span className={`text-sm font-medium ${compact ? 'truncate' : 'hidden sm:inline'}`}>
+          {label}
         </span>
       </button>
       {open && (

@@ -7,6 +7,7 @@ import toast from 'react-hot-toast';
 import { Wallet, CreditCard, Loader2 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { walletAPI } from '@/lib/api';
+import { openPayGatePayment } from '@/lib/payGateRedirect';
 
 function PayEmbedContent() {
   const searchParams = useSearchParams();
@@ -72,8 +73,8 @@ function PayEmbedContent() {
       });
       const data = res.data;
 
-      if (data?.paymentUrl) {
-        if (isEmbedded) {
+      if (data?.paymentUrl || data?.payGateRedirect) {
+        if (isEmbedded && data.paymentUrl) {
           const popup = window.open(data.paymentUrl, 'acbpaywallet_3ds', 'width=500,height=600,scrollbars=yes');
           if (!popup) {
             toast.error('Popup blocked. Please allow popups for this site and try again.');
@@ -99,8 +100,10 @@ function PayEmbedContent() {
               setPaying(null);
             }
           }, 500);
-        } else {
+        } else if (data.paymentUrl) {
           window.location.href = data.paymentUrl;
+        } else {
+          openPayGatePayment({ payGateRedirect: data.payGateRedirect });
         }
         return;
       }

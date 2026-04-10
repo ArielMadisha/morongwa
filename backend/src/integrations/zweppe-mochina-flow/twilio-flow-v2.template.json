@@ -1,0 +1,549 @@
+{
+  "description": "Morongwa WhatsApp Flow v2 (template, clean labels)",
+  "initial_state": "Trigger",
+  "flags": { "allow_concurrent_calls": true },
+  "states": [
+    {
+      "name": "Trigger",
+      "type": "trigger",
+      "transitions": [
+        { "event": "incomingMessage", "next": "check_user" },
+        { "event": "incomingCall" },
+        { "event": "incomingConversationMessage" },
+        { "event": "incomingRequest" },
+        { "event": "incomingParent" }
+      ],
+      "properties": { "offset": { "x": 0, "y": 0 } }
+    },
+    {
+      "name": "check_user",
+      "type": "make-http-request",
+      "transitions": [
+        { "event": "success", "next": "check_user_split" },
+        { "event": "failed", "next": "error_message" }
+      ],
+      "properties": {
+        "offset": { "x": 0, "y": 170 },
+        "method": "POST",
+        "content_type": "application/x-www-form-urlencoded;charset=utf-8",
+        "url": "https://api.qwertymates.com/api/wa/flow/check-user",
+        "parameters": [
+          { "key": "phone", "value": "{{trigger.message.From}}" },
+          { "key": "option", "value": "{{trigger.message.Body}}" }
+        ],
+        "add_twilio_auth": false
+      }
+    },
+    {
+      "name": "check_user_split",
+      "type": "split-based-on",
+      "transitions": [
+        {
+          "event": "match",
+          "next": "ask_full_name",
+          "conditions": [{ "friendly_name": "new user", "arguments": ["{{widgets.check_user.parsed.code}}"], "type": "equal_to", "value": "USER_NOT_FOUND" }]
+        },
+        {
+          "event": "match",
+          "next": "ask_profile_pic",
+          "conditions": [{ "friendly_name": "missing avatar", "arguments": ["{{widgets.check_user.parsed.code}}"], "type": "equal_to", "value": "PROFILE_PICTURE_REQUIRED" }]
+        },
+        { "event": "match", "next": "menu_entry_response", "conditions": [{ "friendly_name": "ready", "arguments": ["{{widgets.check_user.parsed.code}}"], "type": "equal_to", "value": "USER_READY_18_PLUS" }] },
+        { "event": "match", "next": "menu_entry_response", "conditions": [{ "friendly_name": "ready under18", "arguments": ["{{widgets.check_user.parsed.code}}"], "type": "equal_to", "value": "USER_READY_UNDER_18" }] },
+        { "event": "noMatch", "next": "error_message" }
+      ],
+      "properties": { "input": "{{widgets.check_user.parsed.code}}", "offset": { "x": 0, "y": 340 } }
+    },
+    {
+      "name": "menu_entry_response",
+      "type": "send-message",
+      "transitions": [
+        { "event": "sent", "next": "main_menu" },
+        { "event": "failed", "next": "main_menu" }
+      ],
+      "properties": {
+        "offset": { "x": 170, "y": 460 },
+        "service": "{{trigger.message.InstanceSid}}",
+        "channel": "{{trigger.message.ChannelSid}}",
+        "from": "{{flow.channel.address}}",
+        "message_type": "custom",
+        "to": "{{contact.channel.address}}",
+        "body": "{{widgets.check_user.parsed.menu}}"
+      }
+    },
+    {
+      "name": "ask_full_name",
+      "type": "send-and-wait-for-reply",
+      "transitions": [
+        { "event": "incomingMessage", "next": "ask_dob" },
+        { "event": "timeout" },
+        { "event": "deliveryFailure" }
+      ],
+      "properties": {
+        "offset": { "x": -470, "y": 520 },
+        "service": "{{trigger.message.InstanceSid}}",
+        "channel": "{{trigger.message.ChannelSid}}",
+        "from": "{{flow.channel.address}}",
+        "message_type": "custom",
+        "body": "Welcome to Qwertymates! Please enter your full name.",
+        "timeout": "600"
+      }
+    },
+    {
+      "name": "ask_dob",
+      "type": "send-and-wait-for-reply",
+      "transitions": [
+        { "event": "incomingMessage", "next": "ask_password" },
+        { "event": "timeout" },
+        { "event": "deliveryFailure" }
+      ],
+      "properties": {
+        "offset": { "x": -470, "y": 720 },
+        "service": "{{trigger.message.InstanceSid}}",
+        "channel": "{{trigger.message.ChannelSid}}",
+        "from": "{{flow.channel.address}}",
+        "message_type": "custom",
+        "body": "Enter your date of birth in this format: YYYY-MM-DD",
+        "timeout": "600"
+      }
+    },
+    {
+      "name": "ask_password",
+      "type": "send-and-wait-for-reply",
+      "transitions": [
+        { "event": "incomingMessage", "next": "ask_profile_pic" },
+        { "event": "timeout" },
+        { "event": "deliveryFailure" }
+      ],
+      "properties": {
+        "offset": { "x": -470, "y": 1120 },
+        "service": "{{trigger.message.InstanceSid}}",
+        "channel": "{{trigger.message.ChannelSid}}",
+        "from": "{{flow.channel.address}}",
+        "message_type": "custom",
+        "body": "Set your password.",
+        "timeout": "600"
+      }
+    },
+    {
+      "name": "ask_profile_pic",
+      "type": "send-and-wait-for-reply",
+      "transitions": [
+        { "event": "incomingMessage", "next": "profile_pic_split" },
+        { "event": "timeout" },
+        { "event": "deliveryFailure" }
+      ],
+      "properties": {
+        "offset": { "x": -120, "y": 520 },
+        "service": "{{trigger.message.InstanceSid}}",
+        "channel": "{{trigger.message.ChannelSid}}",
+        "from": "{{flow.channel.address}}",
+        "message_type": "custom",
+        "body": "Please upload your profile picture here on WhatsApp.",
+        "timeout": "900"
+      }
+    },
+    {
+      "name": "profile_pic_split",
+      "type": "split-based-on",
+      "transitions": [
+        {
+          "event": "match",
+          "next": "ask_profile_pic",
+          "conditions": [
+            {
+              "friendly_name": "media missing",
+              "arguments": ["{{widgets.ask_profile_pic.inbound.MediaUrl0}}"],
+              "type": "is_blank",
+              "value": "Is Blank"
+            }
+          ]
+        },
+        { "event": "noMatch", "next": "profile_pic_route_split" }
+      ],
+      "properties": {
+        "input": "{{widgets.ask_profile_pic.inbound.MediaUrl0}}",
+        "offset": { "x": -120, "y": 730 }
+      }
+    },
+    {
+      "name": "profile_pic_route_split",
+      "type": "split-based-on",
+      "transitions": [
+        {
+          "event": "match",
+          "next": "profile_picture_update_api",
+          "conditions": [
+            {
+              "friendly_name": "existing user avatar update",
+              "arguments": ["{{widgets.check_user.parsed.code}}"],
+              "type": "equal_to",
+              "value": "PROFILE_PICTURE_REQUIRED"
+            }
+          ]
+        },
+        { "event": "noMatch", "next": "register_api" }
+      ],
+      "properties": {
+        "input": "{{widgets.check_user.parsed.code}}",
+        "offset": { "x": -120, "y": 830 }
+      }
+    },
+    {
+      "name": "profile_picture_update_api",
+      "type": "make-http-request",
+      "transitions": [
+        { "event": "success", "next": "check_user" },
+        { "event": "failed", "next": "error_message" }
+      ],
+      "properties": {
+        "offset": { "x": 120, "y": 1010 },
+        "method": "POST",
+        "content_type": "application/x-www-form-urlencoded;charset=utf-8",
+        "url": "https://api.qwertymates.com/api/wa/flow/profile-picture/update",
+        "parameters": [
+          { "key": "phone", "value": "{{trigger.message.From}}" },
+          { "key": "avatarMediaUrl", "value": "{{widgets.ask_profile_pic.inbound.MediaUrl0}}" }
+        ],
+        "add_twilio_auth": false
+      }
+    },
+    {
+      "name": "register_api",
+      "type": "make-http-request",
+      "transitions": [
+        { "event": "success", "next": "register_split" },
+        { "event": "failed", "next": "register_error" }
+      ],
+      "properties": {
+        "offset": { "x": -120, "y": 930 },
+        "method": "POST",
+        "content_type": "application/x-www-form-urlencoded;charset=utf-8",
+        "url": "https://api.qwertymates.com/api/wa/flow/register",
+        "parameters": [
+          { "key": "phone", "value": "{{trigger.message.From}}" },
+          { "key": "name", "value": "{{widgets.ask_full_name.inbound.Body}}" },
+          { "key": "dateOfBirth", "value": "{{widgets.ask_dob.inbound.Body}}" },
+          { "key": "password", "value": "{{widgets.ask_password.inbound.Body}}" },
+          { "key": "avatarMediaUrl", "value": "{{widgets.ask_profile_pic.inbound.MediaUrl0}}" }
+        ],
+        "add_twilio_auth": false
+      }
+    },
+    {
+      "name": "register_split",
+      "type": "split-based-on",
+      "transitions": [
+        {
+          "event": "match",
+          "next": "check_user",
+          "conditions": [{ "friendly_name": "register success", "arguments": ["{{widgets.register_api.parsed.code}}"], "type": "equal_to", "value": "REGISTER_SUCCESS" }]
+        },
+        { "event": "noMatch", "next": "register_error" }
+      ],
+      "properties": { "input": "{{widgets.register_api.parsed.code}}", "offset": { "x": -120, "y": 1110 } }
+    },
+    {
+      "name": "register_error",
+      "type": "send-message",
+      "transitions": [
+        { "event": "sent", "next": "ask_full_name" },
+        { "event": "failed" }
+      ],
+      "properties": {
+        "offset": { "x": -330, "y": 1290 },
+        "service": "{{trigger.message.InstanceSid}}",
+        "channel": "{{trigger.message.ChannelSid}}",
+        "from": "{{flow.channel.address}}",
+        "message_type": "custom",
+        "to": "{{contact.channel.address}}",
+        "body": "{{widgets.register_api.parsed.message}}"
+      }
+    },
+    {
+      "name": "main_menu",
+      "type": "send-and-wait-for-reply",
+      "transitions": [
+        { "event": "incomingMessage", "next": "main_menu_api" },
+        { "event": "timeout" },
+        { "event": "deliveryFailure" }
+      ],
+      "properties": {
+        "offset": { "x": 340, "y": 560 },
+        "service": "{{trigger.message.InstanceSid}}",
+        "channel": "{{trigger.message.ChannelSid}}",
+        "from": "{{flow.channel.address}}",
+        "message_type": "custom",
+        "body": "\u200b",
+        "timeout": "300"
+      }
+    },
+    {
+      "name": "main_menu_api",
+      "type": "make-http-request",
+      "transitions": [
+        { "event": "success", "next": "main_menu_split" },
+        { "event": "failed", "next": "main_menu" }
+      ],
+      "properties": {
+        "offset": { "x": 340, "y": 760 },
+        "method": "POST",
+        "content_type": "application/x-www-form-urlencoded;charset=utf-8",
+        "url": "https://api.qwertymates.com/api/wa/flow/menu",
+        "parameters": [
+          { "key": "phone", "value": "{{trigger.message.From}}" },
+          { "key": "option", "value": "{{widgets.main_menu.inbound.Body}}" }
+        ],
+        "add_twilio_auth": false
+      }
+    },
+    {
+      "name": "main_menu_split",
+      "type": "split-based-on",
+      "transitions": [
+        {
+          "event": "match",
+          "next": "sell_info_silent_response",
+          "conditions": [
+            {
+              "friendly_name": "sell silent fallback from raw body",
+              "arguments": ["{{widgets.main_menu_api.body}}"],
+              "type": "contains",
+              "value": "SELL_INFO_SILENT"
+            }
+          ]
+        },
+        {
+          "event": "match",
+          "next": "sell_info_silent_response",
+          "conditions": [
+            {
+              "friendly_name": "sell silent (REST sends intro + products + menu)",
+              "arguments": ["{{widgets.main_menu_api.parsed.code}}"],
+              "type": "equal_to",
+              "value": "SELL_INFO_SILENT"
+            }
+          ]
+        },
+        {
+          "event": "match",
+          "next": "sell_info_response",
+          "conditions": [{ "friendly_name": "sell info", "arguments": ["{{widgets.main_menu_api.parsed.code}}"], "type": "equal_to", "value": "SELL_INFO" }]
+        },
+        {
+          "event": "match",
+          "next": "wallet_menu",
+          "conditions": [{ "friendly_name": "wallet menu", "arguments": ["{{widgets.main_menu_api.parsed.code}}"], "type": "equal_to", "value": "ACBPAY_MENU" }]
+        },
+        { "event": "noMatch", "next": "main_menu_response" }
+      ],
+      "properties": { "input": "{{widgets.main_menu_api.parsed.code}}", "offset": { "x": 340, "y": 940 } }
+    },
+    {
+      "name": "sell_info_silent_response",
+      "type": "send-message",
+      "transitions": [{ "event": "sent" }, { "event": "failed" }],
+      "properties": {
+        "offset": { "x": 740, "y": 900 },
+        "service": "{{trigger.message.InstanceSid}}",
+        "channel": "{{trigger.message.ChannelSid}}",
+        "from": "{{flow.channel.address}}",
+        "message_type": "custom",
+        "to": "{{contact.channel.address}}",
+        "body": "\u200b"
+      }
+    },
+    {
+      "name": "sell_info_response",
+      "type": "send-message",
+      "transitions": [{ "event": "sent" }, { "event": "failed" }],
+      "properties": {
+        "offset": { "x": 740, "y": 1030 },
+        "service": "{{trigger.message.InstanceSid}}",
+        "channel": "{{trigger.message.ChannelSid}}",
+        "from": "{{flow.channel.address}}",
+        "message_type": "custom",
+        "to": "{{contact.channel.address}}",
+        "body": "{{widgets.main_menu_api.parsed.message}}"
+      }
+    },
+    {
+      "name": "sell_info_media_split",
+      "type": "split-based-on",
+      "transitions": [
+        {
+          "event": "match",
+          "next": "main_menu_response",
+          "conditions": [
+            {
+              "friendly_name": "media missing",
+              "arguments": ["{{widgets.main_menu_api.parsed.mediaUrl}}"],
+              "type": "is_blank",
+              "value": "Is Blank"
+            }
+          ]
+        },
+        { "event": "noMatch", "next": "sell_info_media_message" }
+      ],
+      "properties": { "input": "{{widgets.main_menu_api.parsed.mediaUrl}}", "offset": { "x": 510, "y": 1020 } }
+    },
+    {
+      "name": "sell_info_media_message",
+      "type": "send-message",
+      "transitions": [
+        { "event": "sent", "next": "main_menu" },
+        { "event": "failed", "next": "main_menu_response" }
+      ],
+      "properties": {
+        "offset": { "x": 760, "y": 1120 },
+        "service": "{{trigger.message.InstanceSid}}",
+        "channel": "{{trigger.message.ChannelSid}}",
+        "from": "{{flow.channel.address}}",
+        "message_type": "custom",
+        "to": "{{contact.channel.address}}",
+        "body": "{{widgets.main_menu_api.parsed.message}}",
+        "media_url": "{{widgets.main_menu_api.parsed.mediaUrl}}"
+      }
+    },
+    {
+      "name": "main_menu_response",
+      "type": "send-message",
+      "transitions": [
+        { "event": "sent", "next": "main_menu" },
+        { "event": "failed", "next": "main_menu" }
+      ],
+      "properties": {
+        "offset": { "x": 580, "y": 1120 },
+        "service": "{{trigger.message.InstanceSid}}",
+        "channel": "{{trigger.message.ChannelSid}}",
+        "from": "{{flow.channel.address}}",
+        "message_type": "custom",
+        "to": "{{contact.channel.address}}",
+        "body": "{{widgets.main_menu_api.parsed.message}}"
+      }
+    },
+    {
+      "name": "wallet_menu",
+      "type": "send-and-wait-for-reply",
+      "transitions": [
+        { "event": "incomingMessage", "next": "wallet_menu_api" },
+        { "event": "timeout" },
+        { "event": "deliveryFailure" }
+      ],
+      "properties": {
+        "offset": { "x": 60, "y": 1120 },
+        "service": "{{trigger.message.InstanceSid}}",
+        "channel": "{{trigger.message.ChannelSid}}",
+        "from": "{{flow.channel.address}}",
+        "message_type": "custom",
+        "body": "{{widgets.main_menu_api.parsed.message}}",
+        "timeout": "300"
+      }
+    },
+    {
+      "name": "wallet_menu_api",
+      "type": "make-http-request",
+      "transitions": [
+        { "event": "success", "next": "wallet_menu_split" },
+        { "event": "failed", "next": "wallet_menu" }
+      ],
+      "properties": {
+        "offset": { "x": 60, "y": 1310 },
+        "method": "POST",
+        "content_type": "application/x-www-form-urlencoded;charset=utf-8",
+        "url": "https://api.qwertymates.com/api/wa/flow/wallet/menu-action",
+        "parameters": [
+          { "key": "phone", "value": "{{trigger.message.From}}" },
+          { "key": "option", "value": "{{widgets.wallet_menu.inbound.Body}}" }
+        ],
+        "add_twilio_auth": false
+      }
+    },
+    {
+      "name": "wallet_menu_split",
+      "type": "split-based-on",
+      "transitions": [
+        {
+          "event": "match",
+          "next": "wallet_back_to_main",
+          "conditions": [
+            {
+              "friendly_name": "back to main menu",
+              "arguments": ["{{widgets.wallet_menu_api.parsed.code}}"],
+              "type": "equal_to",
+              "value": "BACK_TO_MENU"
+            }
+          ]
+        },
+        { "event": "noMatch", "next": "wallet_menu_response" }
+      ],
+      "properties": { "input": "{{widgets.wallet_menu_api.parsed.code}}", "offset": { "x": 60, "y": 1400 } }
+    },
+    {
+      "name": "wallet_back_to_main",
+      "type": "send-message",
+      "transitions": [
+        { "event": "sent", "next": "main_menu" },
+        { "event": "failed", "next": "main_menu" }
+      ],
+      "properties": {
+        "offset": { "x": -220, "y": 1490 },
+        "service": "{{trigger.message.InstanceSid}}",
+        "channel": "{{trigger.message.ChannelSid}}",
+        "from": "{{flow.channel.address}}",
+        "message_type": "custom",
+        "to": "{{contact.channel.address}}",
+        "body": "{{widgets.wallet_menu_api.parsed.message}}"
+      }
+    },
+    {
+      "name": "wallet_menu_response",
+      "type": "send-message",
+      "transitions": [
+        { "event": "sent", "next": "wallet_menu" },
+        { "event": "failed" }
+      ],
+      "properties": {
+        "offset": { "x": 60, "y": 1490 },
+        "service": "{{trigger.message.InstanceSid}}",
+        "channel": "{{trigger.message.ChannelSid}}",
+        "from": "{{flow.channel.address}}",
+        "message_type": "custom",
+        "to": "{{contact.channel.address}}",
+        "body": "{{widgets.wallet_menu_api.parsed.message}}"
+      }
+    },
+    {
+      "name": "error_message",
+      "type": "send-message",
+      "transitions": [{ "event": "sent" }, { "event": "failed" }],
+      "properties": {
+        "offset": { "x": 760, "y": 260 },
+        "service": "{{trigger.message.InstanceSid}}",
+        "channel": "{{trigger.message.ChannelSid}}",
+        "from": "{{flow.channel.address}}",
+        "message_type": "custom",
+        "to": "{{contact.channel.address}}",
+        "body": "Sorry, something went wrong. Please try again."
+      }
+    },
+    {
+      "name": "recover_flow",
+      "type": "send-and-wait-for-reply",
+      "transitions": [
+        { "event": "incomingMessage", "next": "check_user" },
+        { "event": "timeout" },
+        { "event": "deliveryFailure" }
+      ],
+      "properties": {
+        "offset": { "x": 980, "y": 560 },
+        "service": "{{trigger.message.InstanceSid}}",
+        "channel": "{{trigger.message.ChannelSid}}",
+        "from": "{{flow.channel.address}}",
+        "message_type": "custom",
+        "body": "Session refreshed. Please choose an option from the menu (1-8).",
+        "timeout": "300"
+      }
+    }
+  ]
+}

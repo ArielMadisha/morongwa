@@ -166,7 +166,7 @@ export default function SupplierSettingsPage() {
               </li>
               <li>
                 <Link href="/policies/pricing-fees" className="text-sky-600 hover:text-sky-700 hover:underline">
-                  Pricing & Fees
+                  Pricing &amp; Commissions
                 </Link>
               </li>
               <li>

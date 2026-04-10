@@ -20,6 +20,14 @@ export const initializeWebRTCSignaling = (socketServer: SocketServer): void => {
   webrtcNs.on("connection", (socket) => {
     logger.info("WebRTC client connected", { socketId: socket.id });
 
+    /** Receive calls while not yet in the DM socket room (ring user by id). */
+    socket.on("join-user-presence", (data: { userId: string }) => {
+      const { userId } = data;
+      if (!userId) return;
+      socket.join(`user-${userId}`);
+      (socket as any).presenceUserId = userId;
+    });
+
     socket.on("join-call-room", (data: { roomId: string; userId: string }) => {
       const { roomId, userId } = data;
       if (!roomId || !userId) return;
@@ -42,51 +50,100 @@ export const initializeWebRTCSignaling = (socketServer: SocketServer): void => {
       (socket as any).userId = undefined;
     });
 
-    socket.on("call-request", (data: { roomId: string; callerId: string; callerName?: string }) => {
-      const { roomId, callerId, callerName } = data;
-      if (!roomId || !callerId) return;
-      socket.to(roomId).emit("call-request", { callerId, callerName, socketId: socket.id });
-    });
+    socket.on(
+      "call-request",
+      (data: { roomId: string; callerId: string; callerName?: string; calleeId?: string }) => {
+        const { roomId, callerId, callerName, calleeId } = data;
+        if (!roomId || !callerId) return;
+        const payload = { callerId, callerName, roomId, socketId: socket.id };
+        if (calleeId) {
+          webrtcNs.to(`user-${calleeId}`).emit("call-request", payload);
+        } else {
+          socket.to(roomId).emit("call-request", payload);
+        }
+      }
+    );
 
-    socket.on("call-accept", (data: { roomId: string; calleeId: string; calleeName?: string }) => {
-      const { roomId, calleeId, calleeName } = data;
+    socket.on(
+      "call-accept",
+      (data: { roomId: string; calleeId: string; calleeName?: string; callerId?: string }) => {
+        const { roomId, calleeId, calleeName, callerId } = data;
+        if (!roomId || !calleeId) return;
+        const payload = { calleeId, calleeName, roomId, socketId: socket.id };
+        if (callerId) {
+          webrtcNs.to(`user-${callerId}`).emit("call-accept", payload);
+        } else {
+          socket.to(roomId).emit("call-accept", payload);
+        }
+      }
+    );
+
+    socket.on("call-reject", (data: { roomId: string; calleeId: string; callerId?: string }) => {
+      const { roomId, calleeId, callerId } = data;
       if (!roomId || !calleeId) return;
-      socket.to(roomId).emit("call-accept", { calleeId, calleeName, socketId: socket.id });
+      const payload = { calleeId, roomId, socketId: socket.id };
+      if (callerId) {
+        webrtcNs.to(`user-${callerId}`).emit("call-reject", payload);
+      } else {
+        socket.to(roomId).emit("call-reject", payload);
+      }
     });
 
-    socket.on("call-reject", (data: { roomId: string; calleeId: string }) => {
-      const { roomId, calleeId } = data;
-      if (!roomId || !calleeId) return;
-      socket.to(roomId).emit("call-reject", { calleeId, socketId: socket.id });
-    });
-
-    socket.on("call-cancel", (data: { roomId: string; callerId: string }) => {
-      const { roomId, callerId } = data;
+    socket.on("call-cancel", (data: { roomId: string; callerId: string; calleeId?: string }) => {
+      const { roomId, callerId, calleeId } = data;
       if (!roomId || !callerId) return;
-      socket.to(roomId).emit("call-cancel", { callerId, socketId: socket.id });
+      const payload = { callerId, roomId, socketId: socket.id };
+      if (calleeId) {
+        webrtcNs.to(`user-${calleeId}`).emit("call-cancel", payload);
+      } else {
+        socket.to(roomId).emit("call-cancel", payload);
+      }
     });
 
-    socket.on("webrtc-offer", (data: { roomId: string; toUserId: string; offer: RTCSessionDescriptionLike }) => {
+    const forwardOffer = (data: { roomId: string; toUserId: string; offer: RTCSessionDescriptionLike }) => {
       const { roomId, toUserId, offer } = data;
       if (!roomId || !offer || !toUserId) return;
-      webrtcNs.to(`user-${toUserId}`).emit("webrtc-offer", { fromUserId: (socket as any).userId, toUserId, offer });
-    });
+      const fromUserId = (socket as any).userId;
+      const payload = { fromUserId, toUserId, offer, roomId };
+      webrtcNs.to(`user-${toUserId}`).emit("webrtc-offer", payload);
+    };
 
-    socket.on("webrtc-answer", (data: { roomId: string; toUserId: string; answer: RTCSessionDescriptionLike }) => {
+    const forwardAnswer = (data: { roomId: string; toUserId: string; answer: RTCSessionDescriptionLike }) => {
       const { roomId, toUserId, answer } = data;
       if (!roomId || !answer || !toUserId) return;
-      webrtcNs.to(`user-${toUserId}`).emit("webrtc-answer", { fromUserId: (socket as any).userId, toUserId, answer });
-    });
+      const fromUserId = (socket as any).userId;
+      const payload = { fromUserId, toUserId, answer, roomId };
+      webrtcNs.to(`user-${toUserId}`).emit("webrtc-answer", payload);
+    };
 
-    socket.on("webrtc-ice-candidate", (data: { roomId: string; toUserId: string; candidate: RTCIceCandidateLike }) => {
+    const forwardIce = (data: { roomId: string; toUserId: string; candidate: RTCIceCandidateLike }) => {
       const { roomId, toUserId, candidate } = data;
       if (!roomId || !candidate || !toUserId) return;
-      webrtcNs.to(`user-${toUserId}`).emit("webrtc-ice-candidate", {
-        fromUserId: (socket as any).userId,
-        toUserId,
-        candidate,
-      });
-    });
+      const fromUserId = (socket as any).userId;
+      const payload = { fromUserId, toUserId, candidate, roomId };
+      webrtcNs.to(`user-${toUserId}`).emit("webrtc-ice-candidate", payload);
+    };
+
+    const forwardHangup = (data: { roomId: string; toUserId: string }) => {
+      const { roomId, toUserId } = data;
+      if (!roomId || !toUserId) return;
+      const fromUserId = (socket as any).userId;
+      const payload = { fromUserId, toUserId, roomId };
+      webrtcNs.to(`user-${toUserId}`).emit("webrtc-hangup", payload);
+    };
+
+    socket.on("webrtc-offer", forwardOffer);
+    socket.on("offer", forwardOffer);
+
+    socket.on("webrtc-answer", forwardAnswer);
+    socket.on("answer", forwardAnswer);
+
+    socket.on("webrtc-ice-candidate", forwardIce);
+    socket.on("ice-candidate", forwardIce);
+    socket.on("ice", forwardIce);
+
+    socket.on("webrtc-hangup", forwardHangup);
+    socket.on("hangup", forwardHangup);
 
     socket.on("disconnect", () => {
       const roomId = (socket as any).callRoomId;

@@ -2,6 +2,7 @@
 import dotenv from "dotenv";
 import express, { Application } from "express";
 import http from "http";
+import fs from "fs";
 import path from "path";
 import { Server as SocketServer } from "socket.io";
 import cors from "cors";
@@ -50,37 +51,71 @@ import translateRoutes from "./src/routes/translate";
 import macgyverRoutes from "./src/routes/macgyver";
 import webhookRoutes from "./src/routes/webhooks";
 import fxRoutes from "./src/routes/fx";
+import waFlowRoutes from "./src/routes/waFlow";
+import webrtcRoutes from "./src/routes/webrtc";
 import { getCardPaymentConfigIssues } from "./src/services/payment";
 import { ensureDefaultPolicies } from "./src/services/policyService";
 import { seedPricingConfig } from "./src/services/pricingConfig";
 import { ensureDefaultProducts } from "./src/services/marketplaceSeed";
 import { ensureSampleAdvert } from "./src/services/advertSeed";
+import { ensureDefaultLandingBackgrounds } from "./src/services/landingBackgroundSeed";
 
 const app: Application = express();
+/** Behind nginx/Cloudflare, restore client IP for rate limiting and logging. */
+app.set("trust proxy", process.env.TRUST_PROXY === "0" ? false : 1);
 const server = http.createServer(app);
 
-// Allowed CORS origins (supports both common dev ports)
-const allowedOrigins = [
+// CORS: browsers require Access-Control-Allow-Origin for api.* from web apps + Expo web (any loopback port).
+const corsExtra = (process.env.CORS_EXTRA_ORIGINS || process.env.ALLOWED_ORIGINS || "")
+  .split(/[,\s]+/)
+  .map((s) => s.trim())
+  .filter(Boolean);
+const staticAllowedOrigins = [
   "http://localhost:3000",
   "http://localhost:3001",
   "http://localhost:8081",
+  "http://localhost:8087",
+  "http://127.0.0.1:8081",
+  "http://127.0.0.1:8087",
+  "https://qwertymates.com",
+  "https://www.qwertymates.com",
   process.env.FRONTEND_URL,
+  ...corsExtra,
 ].filter(Boolean) as string[];
+const staticOriginSet = new Set(staticAllowedOrigins);
+
+/** Expo / Next / Vite often use different localhost ports; allow any loopback http origin for dev clients. */
+function isLoopbackHttpOrigin(origin: string): boolean {
+  return /^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(origin);
+}
+
+function isCorsAllowedOrigin(origin: string | undefined): boolean {
+  if (!origin) return true;
+  if (staticOriginSet.has(origin)) return true;
+  if (isLoopbackHttpOrigin(origin)) return true;
+  return false;
+}
 
 // Socket.IO setup with CORS
 const io = new SocketServer(server, {
   cors: {
-    origin: allowedOrigins.length ? allowedOrigins : "http://localhost:3000",
+    origin: (origin, cb) => {
+      cb(null, isCorsAllowedOrigin(origin));
+    },
     methods: ["GET", "POST"],
     credentials: true,
   },
 });
 
 // Middleware
-app.use(cors({
-  origin: allowedOrigins.length ? allowedOrigins : "http://localhost:3000",
-  credentials: true,
-}));
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      callback(null, isCorsAllowedOrigin(origin));
+    },
+    credentials: true,
+  })
+);
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(...securityMiddleware);
@@ -101,8 +136,19 @@ app.use("/api", (req, res, next) => {
   next();
 });
 
-// Static files (uploads) - allow cross-origin so frontend can load when proxied or direct
-const uploadsDir = path.join(__dirname, "uploads");
+// Static files (uploads) - resolve correctly in both ts-node (dev) and dist (prod).
+const uploadsDirCandidates = [
+  path.join(process.cwd(), "uploads"),
+  path.join(__dirname, "uploads"),
+  path.join(__dirname, "..", "uploads"),
+];
+const uploadsDir = uploadsDirCandidates.find((p) => {
+  try {
+    return fs.existsSync(p);
+  } catch {
+    return false;
+  }
+}) || uploadsDirCandidates[0];
 app.use("/uploads", (req, res, next) => {
   res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -154,6 +200,8 @@ const routePairs: [string, express.RequestHandler | undefined][] = [
   ["/api/macgyver", macgyverRoutes],
   ["/api/webhooks", webhookRoutes],
   ["/api/fx", fxRoutes],
+  ["/api/webrtc", webrtcRoutes],
+  ["/api/wa/flow", waFlowRoutes],
 ];
 for (const [path, handler] of routePairs) {
   if (handler == null) {
@@ -185,6 +233,7 @@ const startServer = async () => {
     await seedPricingConfig();
     await ensureDefaultProducts();
     await ensureSampleAdvert();
+    await ensureDefaultLandingBackgrounds();
   } catch (error) {
     logger.error("Database not available (server will start; API will return 503 until DB is up):", error);
   }

@@ -25,6 +25,25 @@ export const otpSendLimiter = rateLimit({
   legacyHeaders: false,
 });
 
+/** Password reset request limiter (email/SMS/WhatsApp delivery abuse protection). */
+export const passwordResetLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: process.env.NODE_ENV === "development" ? 20 : 5,
+  message: "Too many password reset requests. Please try again later.",
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+/** Registration limiter: counts successful + failed attempts to prevent farming accounts. */
+export const registerLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: process.env.NODE_ENV === "development" ? 30 : 8,
+  message: "Too many registration attempts. Please try again later.",
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: false,
+});
+
 export const strictLimiter = rateLimit({
   windowMs: 60 * 60 * 1000, // 1 hour
   max: 10,

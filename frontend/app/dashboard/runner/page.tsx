@@ -22,7 +22,9 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import ProtectedRoute from '@/components/ProtectedRoute';
-import { AppSidebar, AppSidebarMenuButton } from '@/components/AppSidebar';
+import { AppSidebar } from '@/components/AppSidebar';
+import { AppShellHeader } from '@/components/AppShellHeader';
+import { formatCurrencyAmount } from '@/lib/formatCurrency';
 import { SearchButton } from '@/components/SearchButton';
 import { ProfileHeaderButton } from '@/components/ProfileHeaderButton';
 import { tasksAPI, productsAPI, usersAPI, getImageUrl } from '@/lib/api';
@@ -216,31 +218,25 @@ function RunnerDashboard() {
 
   return (
     <div className="min-h-screen flex flex-col bg-gradient-to-br from-sky-50 via-blue-50 to-white text-slate-900">
-      {/* Full-width frozen header - same as QwertyHub */}
-      <header className="sticky top-0 z-40 w-full bg-white/95 backdrop-blur-md border-b border-slate-100 shadow-sm flex-shrink-0">
-        <div className="px-4 sm:px-6 lg:px-8 py-3 sm:py-4">
-          <div className="flex items-center justify-between gap-3 sm:gap-4 min-w-0">
-            <Link href="/wall" className="shrink-0 flex items-center" aria-label="Home">
-              <img src="/qwertymates-logo-icon.png" alt="Qwertymates" className="h-9 w-9 object-contain lg:hidden" />
-              <img src="/qwertymates-logo.png" alt="Qwertymates" className="h-9 w-auto object-contain hidden lg:block" />
-            </Link>
-            <AppSidebarMenuButton onClick={() => setMenuOpen((v) => !v)} />
-            <div className="flex items-center gap-2 min-w-0 shrink-0">
-              <div className="h-8 w-8 rounded-lg bg-brand-50 flex items-center justify-center shrink-0">
-                <Box className="h-4 w-4 text-brand-600" />
-              </div>
-              <h1 className="text-base sm:text-lg font-semibold text-slate-900 truncate">Runner Cockpit</h1>
+      <AppShellHeader
+        onMenuClick={() => setMenuOpen((v) => !v)}
+        center={
+          <>
+            <div className="h-8 w-8 rounded-lg bg-brand-50 flex items-center justify-center shrink-0">
+              <Box className="h-4 w-4 text-brand-600" />
             </div>
-            <div className="flex-1 min-w-0" />
-            <div className="flex items-center gap-2 shrink-0">
-              <SearchButton />
-              <ProfileHeaderButton />
-            </div>
-          </div>
-        </div>
-      </header>
+            <h1 className="text-base sm:text-lg font-semibold text-slate-900 min-w-0 break-words">Runner Cockpit</h1>
+          </>
+        }
+        actions={
+          <>
+            <SearchButton />
+            <ProfileHeaderButton />
+          </>
+        }
+      />
 
-      <div className="flex flex-1 min-h-0">
+      <div className="flex min-h-0 min-w-0 w-full flex-1">
         <AppSidebar
           variant="runner"
           userName={user?.name}
@@ -254,9 +250,9 @@ function RunnerDashboard() {
           hideLogo
           belowHeader
         />
-        <div className="flex-1 flex flex-col min-w-0 overflow-visible">
-        <div className="flex-1 flex gap-0 pt-6 min-h-0">
-      <main className="flex-1 min-w-0 max-w-6xl w-full mx-auto px-4 sm:px-6 lg:px-8 pb-24 lg:pb-0">
+        <div className="flex-1 flex flex-col min-w-0 overflow-x-hidden">
+        <div className="flex w-full min-w-0 flex-1 flex-col lg:flex-row gap-0 pt-3 sm:pt-6 min-h-0">
+      <main className="order-2 lg:order-none flex-1 min-w-0 w-full max-w-6xl mx-auto px-3 sm:px-6 lg:px-8 pb-24 lg:pb-0 box-border">
         {!hasRunnerRole && (
           <div className="mb-8 rounded-2xl border-2 border-sky-200 bg-sky-50/80 p-8">
             <h2 className="text-xl font-bold text-slate-900 mb-2">Become a verified runner</h2>
@@ -294,9 +290,11 @@ function RunnerDashboard() {
           </div>
         )}
         {needsVerification && (
-          <div className="mb-8 rounded-2xl border-2 border-amber-200 bg-amber-50/80 p-8">
-            <h2 className="text-xl font-bold text-slate-900 mb-2">Complete runner verification</h2>
-            <p className="text-slate-600 mb-6">Upload your documents for admin approval. You need PDP and at least one vehicle to become verified.</p>
+          <div className="mb-8 rounded-2xl border-2 border-amber-200 bg-amber-50/80 p-4 sm:p-8 w-full min-w-0 max-w-full">
+            <h2 className="text-xl font-bold text-slate-900 mb-2 break-words">Complete runner verification</h2>
+            <p className="text-slate-600 mb-6 text-sm sm:text-base leading-relaxed break-words">
+              Upload your documents for admin approval. You need PDP and at least one vehicle to become verified.
+            </p>
             <div className="grid sm:grid-cols-2 gap-6">
               <div className="p-5 rounded-xl bg-white border border-amber-100">
                 <h3 className="font-semibold text-slate-900 mb-2 flex items-center gap-2">
@@ -519,11 +517,11 @@ function RunnerDashboard() {
                       <div className="mt-1">
                         {p.discountPrice != null && p.discountPrice < p.price ? (
                           <>
-                            <span className="font-bold text-sky-600">{new Intl.NumberFormat('en-ZA', { style: 'currency', currency: p.currency || 'ZAR' }).format(p.discountPrice)}</span>
-                            <span className="ml-1 text-sm text-slate-400 line-through">{new Intl.NumberFormat('en-ZA', { style: 'currency', currency: p.currency || 'ZAR' }).format(p.price)}</span>
+                            <span className="font-bold text-sky-600">{formatCurrencyAmount(p.discountPrice, p.currency || 'ZAR')}</span>
+                            <span className="ml-1 text-sm text-slate-400 line-through">{formatCurrencyAmount(p.price, p.currency || 'ZAR')}</span>
                           </>
                         ) : (
-                          <p className="font-bold text-slate-900">{new Intl.NumberFormat('en-ZA', { style: 'currency', currency: p.currency || 'ZAR' }).format(p.price)}</p>
+                          <p className="font-bold text-slate-900">{formatCurrencyAmount(p.price, p.currency || 'ZAR')}</p>
                         )}
                       </div>
                     </div>

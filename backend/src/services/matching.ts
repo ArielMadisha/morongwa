@@ -2,7 +2,6 @@
 import Task, { ITask } from "../data/models/Task";
 import User from "../data/models/User";
 import Review from "../data/models/Review";
-import { calculateDistance } from "../utils/helpers";
 import { logger } from "./monitoring";
 
 interface MatchCriteria {
@@ -95,8 +94,6 @@ export const suggestTasksForRunner = async (
   criteria: MatchCriteria = {}
 ): Promise<ITask[]> => {
   try {
-    const maxDistance = criteria.maxDistance || 50;
-
     const tasks = await Task.find({ status: "posted" })
       .populate("client", "name")
       .sort({ createdAt: -1 })

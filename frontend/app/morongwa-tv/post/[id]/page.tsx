@@ -132,7 +132,7 @@ export default function PostPage() {
                 <ArrowLeft className="h-5 w-5" />
               </Link>
               <Link href="/wall" className="shrink-0 flex items-center" aria-label="Home">
-                <img src="/qwertymates-logo-icon.png" alt="Qwertymates" className="h-8 w-8 object-contain lg:hidden" />
+                <img src="/qwertymates-logo-icon.png" alt="Qwertymates" className="h-16 w-16 sm:h-[4.25rem] sm:w-[4.25rem] object-contain lg:hidden shrink-0" />
                 <img src="/qwertymates-logo.png" alt="Qwertymates" className="h-8 w-auto object-contain hidden lg:block" />
               </Link>
               <AppSidebarMenuButton onClick={() => setMenuOpen((v) => !v)} />
@@ -146,7 +146,7 @@ export default function PostPage() {
           </div>
         </header>
 
-        <div className="flex flex-1 min-h-0">
+        <div className="flex min-h-0 min-w-0 w-full flex-1">
           <AppSidebar
             variant="wall"
             userName={user?.name}
@@ -159,8 +159,8 @@ export default function PostPage() {
             hideLogo
             belowHeader
           />
-          <div className="flex-1 flex flex-col lg:flex-row gap-0 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain max-w-[1920px] mx-auto w-full scrollbar-thin">
-            <main className="flex-1 min-w-0 px-4 sm:px-6 lg:px-8 py-4 pb-24 lg:pb-6 min-h-0">
+          <div className="flex-1 flex flex-col lg:flex-row gap-0 min-h-0 min-w-0 overflow-hidden max-w-[1920px] mx-auto w-full lg:items-stretch">
+            <main className="flex-1 min-w-0 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain [scrollbar-width:thin] px-4 sm:px-6 lg:px-8 py-4 pb-24 lg:pb-6">
               <div className="max-w-full">
                 {loading ? (
                   <div className="flex justify-center py-24">
@@ -195,13 +195,15 @@ export default function PostPage() {
               </div>
             </main>
             {!isFullscreen && (
-              <VideoSidebar
-                items={relatedVideos}
-                currentPostId={postId}
-                loading={relatedLoading}
-                creatorId={item?.creatorId ? (typeof item.creatorId === 'object' ? (item.creatorId as any)._id : item.creatorId) : undefined}
-                creatorName={item?.creatorId && typeof item.creatorId === 'object' ? (item.creatorId as any).name : undefined}
-              />
+              <div className="w-full shrink-0 min-h-0 flex flex-col max-h-[45vh] lg:max-h-none lg:h-full lg:w-[320px] xl:w-[360px]">
+                <VideoSidebar
+                  items={relatedVideos}
+                  currentPostId={postId}
+                  loading={relatedLoading}
+                  creatorId={item?.creatorId ? (typeof item.creatorId === 'object' ? (item.creatorId as any)._id : item.creatorId) : undefined}
+                  creatorName={item?.creatorId && typeof item.creatorId === 'object' ? (item.creatorId as any).name : undefined}
+                />
+              </div>
             )}
           </div>
         </div>

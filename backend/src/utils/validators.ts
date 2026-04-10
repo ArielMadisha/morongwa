@@ -149,8 +149,10 @@ export const settingSchema = Joi.object({
 });
 
 export const passwordResetRequestSchema = Joi.object({
-  email: Joi.string().email().required(),
-});
+  email: Joi.string().email().optional(),
+  identifier: Joi.string().min(5).max(120).optional(),
+  channel: Joi.string().valid("auto", "email", "sms", "whatsapp").default("auto"),
+}).or("email", "identifier");
 
 export const passwordResetSchema = Joi.object({
   token: Joi.string().required(),
@@ -160,4 +162,39 @@ export const passwordResetSchema = Joi.object({
 export const paginationSchema = Joi.object({
   page: Joi.number().min(1).default(1),
   limit: Joi.number().min(1).max(100).default(20),
+});
+
+/** Approved agents only: visibility + public note */
+export const merchantAgentListingSchema = Joi.object({
+  enabled: Joi.boolean().required(),
+  publicNote: Joi.string().max(200).allow("").optional(),
+});
+
+/** Submit / re-submit merchant agent application */
+export const merchantAgentApplySchema = Joi.object({
+  businessName: Joi.string().min(2).max(120).required(),
+  businessDescription: Joi.string().min(20).max(2000).required(),
+  publicNote: Joi.string().max(200).allow("").optional(),
+  kycAttestation: Joi.boolean().valid(true).required().messages({
+    "any.only": "You must confirm KYC and business details",
+  }),
+});
+
+export const merchantAgentDepositInitSchema = Joi.object({
+  customerUserId: Joi.string().optional(),
+  customerUsername: Joi.string().min(2).max(30).optional(),
+  amount: Joi.number().min(10).max(50000).required(),
+}).or("customerUserId", "customerUsername");
+
+export const merchantAgentDepositApproveSchema = Joi.object({
+  txId: Joi.string().required(),
+});
+
+export const merchantAgentWithdrawSchema = Joi.object({
+  agentId: Joi.string().required(),
+  amount: Joi.number().min(10).max(50000).required(),
+});
+
+export const merchantAgentHandoverSchema = Joi.object({
+  txId: Joi.string().required(),
 });

@@ -42,8 +42,12 @@ export function VideoSidebar({ items, currentPostId, loading, creatorId, creator
   const filtered = items.filter((i) => i._id !== currentPostId && (i.type === 'video' || i.type === 'carousel'));
 
   return (
-    <aside className={`flex-shrink-0 ${embedded ? 'w-full min-h-0' : 'w-full lg:w-[320px] xl:w-[360px] lg:overflow-visible'}`}>
-      <div className="rounded-t-2xl lg:rounded-2xl bg-white border border-slate-200 shadow-sm overflow-hidden">
+    <aside
+      className={`flex flex-col min-h-0 h-full flex-shrink-0 ${
+        embedded ? 'w-full' : 'w-full lg:w-[320px] xl:w-[360px]'
+      }`}
+    >
+      <div className="flex flex-col min-h-0 h-full max-h-full rounded-t-2xl lg:rounded-2xl bg-white border border-slate-200 shadow-sm overflow-hidden">
         {loading ? (
           <div className="flex items-center justify-center py-16">
             <Loader2 className="h-10 w-10 animate-spin text-sky-500" />
@@ -54,9 +58,9 @@ export function VideoSidebar({ items, currentPostId, loading, creatorId, creator
             <p className="text-sm">No other videos yet</p>
           </div>
         ) : (
-          <>
-            <div className="px-4 py-3 border-b border-slate-100 bg-slate-50">
-              <div className="flex gap-2 overflow-x-auto scrollbar-thin pb-1">
+          <div className="flex flex-col min-h-0 flex-1">
+            <div className="shrink-0 px-4 py-3 border-b border-slate-100 bg-slate-50">
+              <div className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:thin]">
                 <span className="shrink-0 px-3 py-1.5 rounded-lg bg-sky-500 text-white text-sm font-medium">
                   All
                 </span>
@@ -70,7 +74,9 @@ export function VideoSidebar({ items, currentPostId, loading, creatorId, creator
                 )}
               </div>
             </div>
-            <div className="divide-y divide-slate-100">
+            {/* Single scroll region for the list — avoids nested scrollbars with parent wrappers */}
+            <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain [scrollbar-width:thin]">
+              <div className="divide-y divide-slate-100">
               {filtered.map((item) => {
                 const thumb = item.mediaUrls?.[0] || item.images?.[0];
                 const creator = item.creatorId as { _id?: string; name?: string; avatar?: string } | undefined;
@@ -136,8 +142,9 @@ export function VideoSidebar({ items, currentPostId, loading, creatorId, creator
                   </Link>
                 );
               })}
+              </div>
             </div>
-          </>
+          </div>
         )}
       </div>
     </aside>

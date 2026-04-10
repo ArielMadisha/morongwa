@@ -5,6 +5,11 @@ export interface User {
   name: string;
   email: string;
   username?: string;
+  phone?: string;
+  /** ISO 3166-1 alpha-2 from phone */
+  countryCode?: string;
+  /** ISO 4217 — derived from phone + platform rules */
+  preferredCurrency?: string;
   // Roles assigned to the user (always an array)
   role: Array<'client' | 'runner' | 'admin' | 'superadmin'>;
   avatar?: string;

@@ -10,10 +10,12 @@ import { invalidateCartStoresCache, useCartAndStores } from '@/lib/useCartAndSto
 import ProtectedRoute from '@/components/ProtectedRoute';
 import { useAuth } from '@/contexts/AuthContext';
 import { useCurrency } from '@/contexts/CurrencyContext';
-import { AppSidebar, AppSidebarMenuButton } from '@/components/AppSidebar';
+import { AppSidebar } from '@/components/AppSidebar';
+import { AppShellHeader } from '@/components/AppShellHeader';
 import { AdvertSlot } from '@/components/AdvertSlot';
 import { MobileBottomNav } from '@/components/MobileBottomNav';
 import { ProfileHeaderButton } from '@/components/ProfileHeaderButton';
+import { formatCurrencyAmount } from '@/lib/formatCurrency';
 
 interface CartItem {
   productId: string;
@@ -46,12 +48,7 @@ interface CartMusicItem {
 }
 
 function formatPriceLocal(price: number, currency: string) {
-  return new Intl.NumberFormat('en-ZA', {
-    style: 'currency',
-    currency: currency || 'ZAR',
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(price);
+  return formatCurrencyAmount(price, currency || 'ZAR');
 }
 
 function CartPageContent() {
@@ -139,29 +136,24 @@ function CartPageContent() {
 
   return (
     <div className="min-h-screen flex flex-col bg-gradient-to-br from-sky-50 via-blue-50 to-white text-slate-900">
-      <header className="sticky top-0 z-40 w-full bg-white/95 backdrop-blur-md border-b border-slate-100 shadow-sm flex-shrink-0">
-        <div className="px-4 sm:px-6 lg:px-8 py-3 sm:py-4">
-          <div className="flex items-center justify-between gap-3 sm:gap-4 min-w-0">
-            <Link href="/wall" className="shrink-0 flex items-center" aria-label="Home">
-              <img src="/qwertymates-logo-icon.png" alt="Qwertymates" className="h-9 w-9 object-contain lg:hidden" />
-              <img src="/qwertymates-logo.png" alt="Qwertymates" className="h-9 w-auto object-contain hidden lg:block" />
-            </Link>
-            <AppSidebarMenuButton onClick={() => setMenuOpen((v) => !v)} />
-            <div className="flex items-center gap-2 min-w-0 shrink-0">
-              <div className="h-8 w-8 rounded-lg bg-brand-50 flex items-center justify-center shrink-0">
-                <ShoppingCart className="h-4 w-4 text-brand-600" />
-              </div>
-              <h1 className="text-base sm:text-lg font-semibold text-slate-900 truncate">Cart</h1>
+      <AppShellHeader
+        onMenuClick={() => setMenuOpen((v) => !v)}
+        center={
+          <>
+            <div className="h-8 w-8 rounded-lg bg-brand-50 flex items-center justify-center shrink-0">
+              <ShoppingCart className="h-4 w-4 text-brand-600" />
             </div>
-            <div className="flex-1 min-w-0" />
-            <div className="flex items-center gap-2 shrink-0">
-              <SearchButton />
-              <ProfileHeaderButton />
-            </div>
-          </div>
-        </div>
-      </header>
-      <div className="flex flex-1 min-h-0">
+            <h1 className="text-base sm:text-lg font-semibold text-slate-900 min-w-0 break-words">Cart</h1>
+          </>
+        }
+        actions={
+          <>
+            <SearchButton />
+            <ProfileHeaderButton />
+          </>
+        }
+      />
+      <div className="flex min-h-0 min-w-0 w-full flex-1">
         <AppSidebar
           variant="wall"
           userName={user?.name}
@@ -175,15 +167,17 @@ function CartPageContent() {
           hideLogo
           belowHeader
         />
-        <div className="flex-1 flex gap-0 min-h-0 overflow-y-auto overflow-x-hidden">
-          <main className="flex-1 min-w-0 max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-6 pb-24 lg:pb-6">
-          <div className="flex items-center gap-3 mb-8">
-            <div className="h-12 w-12 rounded-2xl bg-blue-100 border border-blue-200 flex items-center justify-center">
+        <div className="flex min-h-0 flex-1 flex-col gap-0 overflow-y-auto overflow-x-hidden lg:flex-row">
+          <main className="relative z-0 order-2 box-border w-full min-w-0 max-w-4xl flex-1 mx-auto px-3 sm:px-6 lg:px-8 py-5 sm:py-6 pb-24 lg:pb-6 lg:order-none">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3 mb-8 min-w-0">
+            <div className="h-12 w-12 rounded-2xl bg-blue-100 border border-blue-200 flex items-center justify-center shrink-0">
               <ShoppingCart className="h-6 w-6 text-blue-600" />
             </div>
-            <div>
-              <h1 className="text-3xl font-bold text-slate-900">Your cart</h1>
-              <p className="text-slate-600">Review items and proceed to checkout</p>
+            <div className="min-w-0 flex-1">
+              <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 break-words">Your cart</h1>
+              <p className="text-slate-600 text-sm sm:text-base leading-relaxed break-words">
+                Review items and proceed to checkout
+              </p>
             </div>
           </div>
 

@@ -345,7 +345,7 @@ export const QWERTYMATES_FAQS: QwertymatesFAQ[] = [
   {
     patterns: ["policies", "terms", "privacy", "policy", "legal"],
     answer:
-      "Qwertymates has policies at /policies: Terms of Service, Privacy Policy, Cookies, Pricing & Fees, Escrow & Payouts, Community Guidelines (Acceptable Use), and more. Go to Policies in the sidebar.",
+      "Qwertymates has policies at /policies: Terms of Service, Privacy Policy, Cookies, Pricing Fees & Commissions (tasks vs QwertyHub), Escrow & Payouts, Community Guidelines (Acceptable Use), and more. Go to Policies in the sidebar.",
   },
 ];
 

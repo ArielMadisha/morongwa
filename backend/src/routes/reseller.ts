@@ -1,7 +1,7 @@
 import express, { Response } from "express";
+import mongoose from "mongoose";
 import ResellerWall from "../data/models/ResellerWall";
 import Product from "../data/models/Product";
-import Supplier from "../data/models/Supplier";
 import User from "../data/models/User";
 import Store from "../data/models/Store";
 import TVPost from "../data/models/TVPost";
@@ -11,68 +11,225 @@ import { slugify } from "../utils/helpers";
 
 const router = express.Router();
 
+/** 24-char hex only — mongoose's ObjectId.isValid() wrongly accepts 12-char strings and can break $in queries. */
+function strictObjectIdHex(s: string | null | undefined): string | null {
+  if (s == null || typeof s !== "string") return null;
+  const t = s.trim();
+  return /^[a-fA-F0-9]{24}$/.test(t) ? t : null;
+}
+
+/** Match ResellerWall by resellerId whether stored as ObjectId or string (avoids duplicate / missed rows). */
+function resellerWallFilter(resellerId: mongoose.Types.ObjectId | string) {
+  const hex = strictObjectIdHex(String(resellerId));
+  if (!hex) return { resellerId };
+  const oid = new mongoose.Types.ObjectId(hex);
+  return { $or: [{ resellerId: oid }, { resellerId: hex }] };
+}
+
+/** Stable hex string for a wall product ref (ObjectId, populated doc, or string). */
+function wallProductIdToHex(pid: unknown): string | null {
+  if (pid == null) return null;
+  if (typeof pid === "string") {
+    return strictObjectIdHex(pid);
+  }
+  if (typeof pid === "object") {
+    const o = pid as { _id?: unknown };
+    if (o._id != null) {
+      return strictObjectIdHex(String(o._id));
+    }
+  }
+  try {
+    return strictObjectIdHex(String(pid));
+  } catch {
+    return null;
+  }
+}
+
+function isPopulatedProductDoc(pid: unknown): pid is Record<string, unknown> {
+  return (
+    typeof pid === "object" &&
+    pid != null &&
+    "_id" in pid &&
+    typeof (pid as { title?: unknown }).title === "string"
+  );
+}
+
+/** BSON-safe number (Decimal128 / legacy types from some imports). */
+function coerceNumber(v: unknown): number {
+  if (typeof v === "number" && Number.isFinite(v)) return v;
+  if (v != null && typeof v === "object" && typeof (v as { toString?: () => string }).toString === "function") {
+    const n = parseFloat((v as { toString: () => string }).toString());
+    if (Number.isFinite(n)) return n;
+  }
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
+
+/** JSON-safe product for API (avoids 500 from non-serializable lean docs). */
+function sanitizeWallProduct(raw: any): any {
+  if (!raw || typeof raw !== "object") return null;
+  try {
+    const id = raw._id != null ? String(raw._id) : undefined;
+    let supplierId: unknown = raw.supplierId;
+    if (supplierId && typeof supplierId === "object" && supplierId !== null && "storeName" in supplierId) {
+      supplierId = { storeName: (supplierId as { storeName?: string }).storeName };
+    } else if (supplierId != null && typeof supplierId === "object") {
+      supplierId = { _id: String((supplierId as { _id?: unknown })._id ?? "") };
+    }
+    return {
+      _id: id,
+      title: String(raw.title ?? ""),
+      slug: String(raw.slug ?? ""),
+      images: Array.isArray(raw.images) ? raw.images.map((x: unknown) => String(x)) : [],
+      price: coerceNumber(raw.price),
+      discountPrice:
+        raw.discountPrice != null && raw.discountPrice !== ""
+          ? coerceNumber(raw.discountPrice)
+          : undefined,
+      currency: String(raw.currency ?? "ZAR"),
+      allowResell: !!raw.allowResell,
+      supplierId,
+      supplierSource: raw.supplierSource,
+      active: raw.active !== false,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Same wall rows as /wall/me — include inactive products so reseller storefronts stay in sync. */
+async function buildWallProductsResponse(resellerId: string) {
+  try {
+    const ridHex = strictObjectIdHex(resellerId);
+    if (!ridHex) {
+      return { resellerId, products: [] as any[], reseller: null as null | { name?: string; _id: unknown } };
+    }
+    const resellerOid = new mongoose.Types.ObjectId(ridHex);
+
+    const wall = await ResellerWall.findOne(resellerWallFilter(resellerOid))
+      .populate("products.productId")
+      .lean();
+    if (!wall) {
+      return { resellerId, products: [] as any[], reseller: null as null | { name?: string; _id: unknown } };
+    }
+
+    const wallRows = wall.products as any[];
+    const hexIds = [...new Set(wallRows.map((p) => wallProductIdToHex(p.productId)).filter(Boolean))] as string[];
+
+    let products: any[] = [];
+    try {
+      products = await Product.find({ _id: { $in: hexIds } })
+        .populate("supplierId", "storeName")
+        .lean();
+    } catch {
+      for (const h of hexIds) {
+        try {
+          const one = await Product.findById(h).populate("supplierId", "storeName").lean();
+          if (one) products.push(one);
+        } catch {
+          /* skip bad id */
+        }
+      }
+    }
+
+    const productMap = new Map<string, any>(products.map((p: any) => [String(p._id), p]));
+
+    const missingHex = hexIds.filter((h) => !productMap.has(h));
+    if (missingHex.length > 0) {
+      await Promise.all(
+        missingHex.map(async (h) => {
+          try {
+            const one = await Product.findById(h).populate("supplierId", "storeName").lean();
+            if (one) productMap.set(String((one as any)._id), one);
+          } catch {
+            /* skip bad id */
+          }
+        })
+      );
+    }
+
+    const wallProducts = wallRows
+      .map((wp) => {
+        const pid = wp.productId;
+        const hex = wallProductIdToHex(pid);
+        const raw =
+          (hex ? productMap.get(hex) : null) ?? (isPopulatedProductDoc(pid) ? pid : null);
+        const product = raw != null ? sanitizeWallProduct(raw) : null;
+        const productIdOut = hex ?? (raw && (raw as any)._id != null ? String((raw as any)._id) : pid);
+        return {
+          productId: productIdOut != null ? String(productIdOut) : "",
+          product,
+          resellerCommissionPct: wp.resellerCommissionPct ?? 5,
+          addedAt: wp.addedAt,
+        };
+      })
+      .filter((wp) => wp.product != null);
+
+    const reseller = await User.findById(resellerOid).select("name email").lean();
+    return {
+      resellerId: String(wall.resellerId),
+      products: wallProducts.map((wp) => ({
+        ...wp,
+        addedAt:
+          wp.addedAt instanceof Date
+            ? wp.addedAt.toISOString()
+            : wp.addedAt != null
+              ? String(wp.addedAt)
+              : undefined,
+      })),
+      reseller: reseller ? { name: reseller.name, _id: String((reseller as any)._id) } : null,
+    };
+  } catch (err) {
+    console.error("[reseller] buildWallProductsResponse", err);
+    return {
+      resellerId,
+      products: [] as any[],
+      reseller: null as null | { name?: string; _id: unknown },
+    };
+  }
+}
+
+// Must be registered BEFORE /wall/:userId — otherwise "me" is captured as :userId and CastError breaks My Store.
+router.get("/wall/me", authenticate, async (req: AuthRequest, res: Response, next) => {
+  try {
+    const uid = String(req.user?._id ?? "");
+    if (!strictObjectIdHex(uid)) {
+      throw new AppError("Invalid session", 401);
+    }
+    const base = await buildWallProductsResponse(uid);
+    const resellerId = String(base.resellerId ?? uid);
+    const reseller = base.reseller
+      ? { name: base.reseller.name, _id: String((base.reseller as { _id?: unknown })._id) }
+      : { name: req.user!.name, _id: String(req.user!._id) };
+    res.json({
+      data: {
+        resellerId,
+        products: base.products ?? [],
+        reseller,
+      },
+    });
+  } catch (err) {
+    console.error("[reseller] GET /wall/me", err);
+    const uid = String(req.user?._id ?? "");
+    if (err instanceof AppError) {
+      return next(err);
+    }
+    res.json({
+      data: {
+        resellerId: uid,
+        products: [],
+        reseller: { name: req.user?.name ?? "", _id: uid },
+      },
+    });
+  }
+});
+
 // Get reseller wall by userId (public)
 router.get("/wall/:userId", async (req: express.Request, res: Response, next) => {
   try {
     const { userId } = req.params;
-    const wall = await ResellerWall.findOne({ resellerId: userId })
-      .populate("products.productId")
-      .lean();
-    if (!wall) {
-      return res.json({
-        data: {
-          resellerId: userId,
-          products: [],
-          reseller: null,
-        },
-      });
-    }
-
-    const productIds = (wall.products as any[])
-      .map((p) => p.productId)
-      .filter(Boolean)
-      .map((p) => (p as any)._id);
-    const products = await Product.find({
-      _id: { $in: productIds },
-      active: true,
-    })
-      .populate("supplierId", "storeName")
-      .lean();
-
-    const supplierIds = [...new Set(products.map((p: any) => p.supplierId?._id ?? p.supplierId).filter(Boolean))];
-    const approvedSupplierIds = await Supplier.find({ status: "approved", _id: { $in: supplierIds } })
-      .select("_id")
-      .lean()
-      .then((docs) => docs.map((d) => d._id.toString()));
-
-    const productMap = new Map(products.map((p: any) => [p._id.toString(), p]));
-    const wallProducts = (wall.products as any[])
-      .map((wp) => {
-        const product = productMap.get((wp.productId as any)?._id?.toString?.() ?? wp.productId?.toString?.());
-        if (!product) return null;
-        const src = (product as any).supplierSource;
-        const isExternal = ["cj", "spocket", "eprolo"].includes(src);
-        const isApproved = isExternal || approvedSupplierIds.includes((product as any).supplierId?._id?.toString?.() ?? (product as any).supplierId?.toString?.());
-        if (!isApproved) return null;
-        const pct = wp.resellerCommissionPct ?? 5;
-        return {
-          productId: (product as any)._id,
-          product: product,
-          resellerCommissionPct: pct,
-          addedAt: wp.addedAt,
-        };
-      })
-      .filter(Boolean);
-
-    const reseller = await User.findById(userId).select("name email").lean();
-
-    res.json({
-      data: {
-        resellerId: wall.resellerId,
-        products: wallProducts,
-        reseller: reseller ? { name: reseller.name, _id: (reseller as any)._id } : null,
-      },
-    });
+    const data = await buildWallProductsResponse(userId);
+    res.json({ data });
   } catch (err) {
     next(err);
   }
@@ -125,11 +282,27 @@ router.post("/wall/add/:productId", authenticate, async (req: AuthRequest, res: 
       });
     }
 
-    let wall = await ResellerWall.findOne({ resellerId: req.user!._id });
+    let wall = await ResellerWall.findOne(resellerWallFilter(req.user!._id));
     if (!wall) wall = await ResellerWall.create({ resellerId: req.user!._id, products: [] });
 
     const exists = wall.products.some((p) => (p.productId as any).toString() === productId);
     if (exists) {
+      if (!store) {
+        const userDoc = await User.findById(req.user!._id).select("username name").lean();
+        const username = (userDoc as any)?.username;
+        const existingSupplierStore = await Store.findOne({ userId: req.user!._id, type: "supplier" }).lean();
+        const baseName = existingSupplierStore?.name ?? (username ? `${username}'s Store` : "My Store");
+        const baseSlug = username ? `${username}-store` : "my-store";
+        let slug = slugify(baseSlug);
+        let n = 1;
+        while (await Store.findOne({ slug })) slug = `${slugify(baseSlug)}-${++n}`;
+        await Store.create({
+          userId: req.user!._id,
+          name: baseName,
+          slug,
+          type: "reseller",
+        });
+      }
       return res.json({ message: "Product already on your wall", data: { products: wall.products } });
     }
 
@@ -152,6 +325,7 @@ router.post("/wall/add/:productId", authenticate, async (req: AuthRequest, res: 
         productId: product._id,
         caption: product.title || "Reselling product",
         status: "approved",
+        fromResellerWall: true,
       }).catch(() => {});
     }
 
@@ -165,7 +339,7 @@ router.post("/wall/add/:productId", authenticate, async (req: AuthRequest, res: 
 router.delete("/wall/remove/:productId", authenticate, async (req: AuthRequest, res: Response, next) => {
   try {
     const { productId } = req.params;
-    const wall = await ResellerWall.findOne({ resellerId: req.user!._id });
+    const wall = await ResellerWall.findOne(resellerWallFilter(req.user!._id));
     if (!wall) throw new AppError("Wall not found", 404);
 
     wall.products = wall.products.filter((p) => (p.productId as any).toString() !== productId);
@@ -180,55 +354,6 @@ router.delete("/wall/remove/:productId", authenticate, async (req: AuthRequest, 
     }).catch(() => {});
 
     res.json({ message: "Product removed from wall", data: { products: wall.products } });
-  } catch (err) {
-    next(err);
-  }
-});
-
-// Get my wall (auth)
-router.get("/wall/me", authenticate, async (req: AuthRequest, res: Response, next) => {
-  try {
-    const wall = await ResellerWall.findOne({ resellerId: req.user!._id })
-      .populate("products.productId")
-      .lean();
-    if (!wall) {
-      return res.json({ data: { resellerId: req.user!._id, products: [], reseller: { name: req.user!.name, _id: req.user!._id } } });
-    }
-
-    const productIds = (wall.products as any[])
-      .map((p) => {
-        const pid = p.productId;
-        if (!pid) return null;
-        return pid && typeof pid === "object" && "_id" in pid ? (pid as any)._id : pid;
-      })
-      .filter(Boolean);
-    // Include inactive products so reseller sees items they added (supplier may have deactivated)
-    const products = await Product.find({ _id: { $in: productIds } })
-      .populate("supplierId", "storeName")
-      .lean();
-    const productMap = new Map(products.map((p: any) => [String(p._id), p]));
-    const wallProducts = (wall.products as any[])
-      .map((wp) => {
-        const pid = wp.productId;
-        const id = pid && typeof pid === "object" && "_id" in pid ? (pid as any)._id : pid;
-        const idStr = id ? String(id) : "";
-        const product = productMap.get(idStr) ?? (pid && typeof pid === "object" && "title" in pid ? pid : null);
-        return {
-          productId: id ?? pid,
-          product,
-          resellerCommissionPct: wp.resellerCommissionPct ?? 5,
-          addedAt: wp.addedAt,
-        };
-      })
-      .filter((wp) => wp.product != null);
-
-    res.json({
-      data: {
-        resellerId: wall.resellerId,
-        products: wallProducts,
-        reseller: { name: req.user!.name, _id: req.user!._id },
-      },
-    });
   } catch (err) {
     next(err);
   }

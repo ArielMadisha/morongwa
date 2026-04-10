@@ -1,24 +1,53 @@
 import React, { useState } from "react";
-import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import {
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+  Linking,
+  useWindowDimensions,
+} from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import * as Haptics from "expo-haptics";
+import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "../contexts/AuthContext";
+import { AuthLandingLayout } from "../components/AuthLandingLayout";
+import { authScreenStyles as S } from "../theme/authScreenStyles";
 
 type Props = {
   onGoRegister: () => void;
 };
 
+const SITE_ORIGIN = "https://www.qwertymates.com";
+
 export function LoginScreen({ onGoRegister }: Props) {
   const { login } = useAuth();
-  const [mode, setMode] = useState<"email" | "username" | "phone">("email");
+  const insets = useSafeAreaInsets();
+  const { height: winH } = useWindowDimensions();
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
+  const topPad = Math.max(insets.top, 12) + 8;
+  const minScrollH = Math.max(winH - topPad, 480);
+
   const submit = async () => {
     setError("");
+    if (!identifier.trim() || !password) {
+      setError("Enter identifier and password");
+      return;
+    }
+    if (Platform.OS !== "web") {
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
     setBusy(true);
     try {
-      await login(identifier, password, mode);
+      await login(identifier, password);
     } catch (err: any) {
       setError(err?.response?.data?.error || err?.message || "Login failed");
     } finally {
@@ -26,58 +55,114 @@ export function LoginScreen({ onGoRegister }: Props) {
     }
   };
 
+  const openForgotPassword = () => {
+    void Linking.openURL(`${SITE_ORIGIN}/forgot-password`).catch(() => {});
+  };
+
   return (
-    <View style={styles.card}>
-      <Text style={styles.heading}>Welcome back</Text>
-      <View style={styles.modeRow}>
-        <Pressable onPress={() => setMode("email")} style={[styles.modeBtn, mode === "email" && styles.active]}>
-          <Text style={styles.modeText}>Email</Text>
-        </Pressable>
-        <Pressable onPress={() => setMode("username")} style={[styles.modeBtn, mode === "username" && styles.active]}>
-          <Text style={styles.modeText}>Username</Text>
-        </Pressable>
-        <Pressable onPress={() => setMode("phone")} style={[styles.modeBtn, mode === "phone" && styles.active]}>
-          <Text style={styles.modeText}>Phone</Text>
-        </Pressable>
-      </View>
-      <TextInput
-        value={identifier}
-        onChangeText={setIdentifier}
-        autoCapitalize="none"
-        placeholder={mode === "phone" ? "Phone" : mode === "username" ? "Username" : "Email"}
-        placeholderTextColor="#94a3b8"
-        style={styles.input}
-      />
-      <TextInput
-        value={password}
-        onChangeText={setPassword}
-        autoCapitalize="none"
-        secureTextEntry
-        placeholder="Password"
-        placeholderTextColor="#94a3b8"
-        style={styles.input}
-      />
-      {error ? <Text style={styles.error}>{error}</Text> : null}
-      <Pressable onPress={submit} disabled={busy} style={styles.primaryBtn}>
-        <Text style={styles.primaryText}>{busy ? "Signing in..." : "Sign in"}</Text>
-      </Pressable>
-      <Pressable onPress={onGoRegister}>
-        <Text style={styles.link}>Create account</Text>
-      </Pressable>
-    </View>
+    <KeyboardAvoidingView
+      style={S.flex}
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
+      keyboardVerticalOffset={Platform.OS === "ios" ? 8 : 0}
+    >
+      <ScrollView
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={[
+          S.scrollContent,
+          { paddingBottom: Math.max(insets.bottom, 24), minHeight: minScrollH },
+        ]}
+      >
+        <AuthLandingLayout topInset={topPad}>
+          <View style={S.card}>
+            <View style={S.cardHeader}>
+              <Text style={S.cardTitle}>Welcome back</Text>
+              <Text style={S.cardSubtitle}>Sign in to your Qwertymates account</Text>
+            </View>
+
+            <Text style={S.fieldLabel}>Username/Email/Phone</Text>
+            <View style={[S.inputShell, error ? S.inputShellError : null]}>
+              <Ionicons name="mail-outline" size={20} color="#94a3b8" style={S.inputIcon} />
+              <TextInput
+                value={identifier}
+                onChangeText={(t) => {
+                  setIdentifier(t);
+                  if (error) setError("");
+                }}
+                autoCapitalize="none"
+                autoCorrect={false}
+                textContentType="username"
+                autoComplete="username"
+                placeholder="Username/Email/Phone"
+                placeholderTextColor="#94a3b8"
+                style={S.input}
+                returnKeyType="next"
+              />
+            </View>
+
+            <Text style={S.fieldLabel}>Password</Text>
+            <View style={[S.inputShell, error ? S.inputShellError : null]}>
+              <Ionicons name="lock-closed-outline" size={20} color="#94a3b8" style={S.inputIcon} />
+              <TextInput
+                value={password}
+                onChangeText={(t) => {
+                  setPassword(t);
+                  if (error) setError("");
+                }}
+                autoCapitalize="none"
+                secureTextEntry
+                textContentType="password"
+                autoComplete="password"
+                placeholder="••••••••"
+                placeholderTextColor="#94a3b8"
+                style={S.input}
+                returnKeyType="go"
+                onSubmitEditing={submit}
+              />
+            </View>
+
+            {error ? <Text style={S.error}>{error}</Text> : null}
+
+            <Pressable
+              onPress={submit}
+              disabled={busy}
+              style={({ pressed }) => [
+                S.primaryBtn,
+                pressed && S.primaryBtnPressed,
+                busy && S.primaryBtnDisabled,
+              ]}
+              android_ripple={{ color: "rgba(255,255,255,0.25)" }}
+            >
+              {busy ? (
+                <Text style={S.primaryText}>Signing in…</Text>
+              ) : (
+                <>
+                  <Text style={S.primaryText}>Sign in</Text>
+                  <Ionicons name="arrow-forward" size={20} color="#ffffff" style={S.btnIcon} />
+                </>
+              )}
+            </Pressable>
+
+            <Pressable onPress={openForgotPassword} style={styles.linkBlock} hitSlop={12}>
+              <Text style={S.linkText}>Forgot your password?</Text>
+            </Pressable>
+
+            <View style={S.registerRow}>
+              <Text style={S.mutedInline}>Don&apos;t have an account? </Text>
+              <Pressable onPress={onGoRegister} hitSlop={12}>
+                <Text style={S.linkTextBold}>Register now</Text>
+              </Pressable>
+            </View>
+          </View>
+        </AuthLandingLayout>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  card: { gap: 12 },
-  heading: { color: "#f8fafc", fontSize: 24, fontWeight: "700" },
-  modeRow: { flexDirection: "row", gap: 8 },
-  modeBtn: { borderWidth: 1, borderColor: "#334155", borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8 },
-  active: { borderColor: "#22c55e", backgroundColor: "#052e16" },
-  modeText: { color: "#e2e8f0", fontSize: 12, fontWeight: "600" },
-  input: { borderWidth: 1, borderColor: "#334155", borderRadius: 10, padding: 12, color: "#f8fafc" },
-  error: { color: "#fca5a5" },
-  primaryBtn: { backgroundColor: "#22c55e", borderRadius: 10, paddingVertical: 12, alignItems: "center" },
-  primaryText: { color: "#052e16", fontWeight: "700" },
-  link: { color: "#93c5fd", textAlign: "center", marginTop: 4 }
+  linkBlock: {
+    alignItems: "center",
+    paddingVertical: 16,
+  },
 });

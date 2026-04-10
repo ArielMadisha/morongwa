@@ -1,0 +1,29 @@
+# Linux VPS (e.g. DigitalOcean Droplet)
+# Copy to deploy-server.config in the project root (gitignored).
+#
+#   cp deploy-server.config.example deploy-server.config
+#
+# Password-based deploy: also copy deploy-server.secrets.example -> deploy-server.secrets
+# and run: cd backend && node scripts/publishFrontendRemote.mjs --rebuild
+#
+# Optional: DEPLOY_SSH_KEY for key-based ssh/rsync (PowerShell deploy scripts).
+
+# Host only IP or hostname (if you set DEPLOY_SSH_USER separately):
+# DEPLOY_SSH_HOST=165.227.237.142
+# DEPLOY_SSH_USER=root
+
+# Or combined (same as ssh user@host):
+DEPLOY_SSH_HOST=root@165.227.237.142
+
+DEPLOY_SSH_PORT=22
+DEPLOY_REMOTE_PATH=/var/www/morongwa
+
+# Used by publishFrontendRemote.mjs and pushBackendFullRemote.mjs (Docker)
+MORONGWA_STAGING_PARENT=/root
+MORONGWA_LIVE_DIR=/var/www/morongwa
+# Optional: backend folder if not MORONGWA_LIVE_DIR/backend (remote tarball extracts here)
+# MORONGWA_BACKEND_HOST_PATH=/var/www/morongwa/backend
+# Optional: docker name for API container (default morongwa-api-test)
+# MORONGWA_API_DOCKER_NAME=morongwa-api-test
+
+# DEPLOY_SSH_KEY=~/.ssh/id_ed25519

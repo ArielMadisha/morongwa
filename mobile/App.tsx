@@ -6,6 +6,7 @@ import { AuthProvider, useAuth } from "./src/contexts/AuthContext";
 import { HomeScreen } from "./src/screens/HomeScreen";
 import { LoginScreen } from "./src/screens/LoginScreen";
 import { RegisterScreen } from "./src/screens/RegisterScreen";
+import { socialTheme } from "./src/theme/socialTheme";
 
 export default function App() {
   return (
@@ -15,7 +16,7 @@ export default function App() {
           <View style={styles.container}>
             <AuthGate />
           </View>
-          <StatusBar style="light" />
+          <StatusBar style="dark" />
         </SafeAreaView>
       </AuthProvider>
     </SafeAreaProvider>
@@ -29,17 +30,21 @@ function AuthGate() {
   if (loading) {
     return (
       <View style={styles.loadingWrap}>
-        <ActivityIndicator size="large" color="#22c55e" />
+        <ActivityIndicator size="large" color={socialTheme.brandBlue} />
         <Text style={styles.loadingText}>Loading your session...</Text>
       </View>
     );
   }
 
   if (!user) {
-    return authScreen === "login" ? (
-      <LoginScreen onGoRegister={() => setAuthScreen("register")} />
-    ) : (
-      <RegisterScreen onGoLogin={() => setAuthScreen("login")} />
+    return (
+      <View style={styles.authShell}>
+        {authScreen === "login" ? (
+          <LoginScreen onGoRegister={() => setAuthScreen("register")} />
+        ) : (
+          <RegisterScreen onGoLogin={() => setAuthScreen("login")} />
+        )}
+      </View>
     );
   }
 
@@ -49,15 +54,21 @@ function AuthGate() {
 const styles = StyleSheet.create({
   safe: {
     flex: 1,
-    backgroundColor: "#0f172a"
+    backgroundColor: socialTheme.canvas
   },
   container: {
     flex: 1,
     width: "100%",
-    maxWidth: 560,
+    maxWidth: 520,
     alignSelf: "center",
     paddingHorizontal: 12,
-    paddingTop: 12
+    paddingTop: 8,
+    paddingBottom: 8
+  },
+  authShell: {
+    flex: 1,
+    width: "100%",
+    paddingHorizontal: 4
   },
   loadingWrap: {
     flex: 1,
@@ -66,7 +77,7 @@ const styles = StyleSheet.create({
     gap: 12
   },
   loadingText: {
-    color: "#cbd5e1",
+    color: socialTheme.textSecondary,
     fontSize: 15
   }
 });

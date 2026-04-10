@@ -1,6 +1,7 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
   Image,
   Modal,
@@ -8,36 +9,37 @@ import {
   RefreshControl,
   StyleSheet,
   Text,
-  TextInput,
   View
 } from "react-native";
 import { cartAPI, productsAPI, toAbsoluteMediaUrl } from "../lib/api";
+import { currencyForCountry, detectCountryCode, formatMoney } from "../lib/geoCurrency";
+import { appTypography, socialTheme } from "../theme/socialTheme";
 import { Product } from "../types";
-
-function formatPrice(price: number, currency = "ZAR") {
-  return new Intl.NumberFormat("en-ZA", {
-    style: "currency",
-    currency,
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0
-  }).format(price || 0);
-}
 
 type HubScreenProps = {
   onAddedToCart?: () => void;
   onGoToCart?: () => void;
+  /** Open product detail when set (e.g. from QwertyWorld / MacGyver). */
+  openProductId?: string | null;
+  onConsumedOpenProductId?: () => void;
 };
 
-export function HubScreen({ onAddedToCart, onGoToCart }: HubScreenProps) {
+export function HubScreen({
+  onAddedToCart,
+  onGoToCart,
+  openProductId,
+  onConsumedOpenProductId
+}: HubScreenProps) {
+  const deviceCurrency = currencyForCountry(detectCountryCode());
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [query, setQuery] = useState("");
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [addQty, setAddQty] = useState(1);
   const [adding, setAdding] = useState(false);
   const [detailError, setDetailError] = useState("");
+  const [quickCartProductId, setQuickCartProductId] = useState<string | null>(null);
 
   const loadProducts = useCallback(async () => {
     try {
@@ -56,14 +58,21 @@ export function HubScreen({ onAddedToCart, onGoToCart }: HubScreenProps) {
     void loadProducts();
   }, [loadProducts]);
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return products;
-    return products.filter((p) => {
-      const text = [p.title, p.slug].filter(Boolean).join(" ").toLowerCase();
-      return text.includes(q);
-    });
-  }, [products, query]);
+  const addOneToCartFromGrid = async (productId: string) => {
+    if (!productId || quickCartProductId) return;
+    setQuickCartProductId(productId);
+    try {
+      await cartAPI.add(productId, 1);
+      onAddedToCart?.();
+    } catch (err: any) {
+      Alert.alert(
+        "Cart",
+        err?.response?.data?.error || err?.response?.data?.message || "Could not add to cart."
+      );
+    } finally {
+      setQuickCartProductId(null);
+    }
+  };
 
   const openProduct = async (id: string) => {
     setDetailsLoading(true);
@@ -85,6 +94,36 @@ export function HubScreen({ onAddedToCart, onGoToCart }: HubScreenProps) {
     }
   };
 
+  useEffect(() => {
+    if (!openProductId?.trim()) return;
+    let cancelled = false;
+    const id = openProductId.trim();
+    void (async () => {
+      setDetailsLoading(true);
+      setDetailError("");
+      setAddQty(1);
+      setSelectedProduct(null);
+      try {
+        const res = await productsAPI.getByIdOrSlug(id);
+        const p = res.data?.data;
+        if (cancelled) return;
+        if (p?._id) {
+          setSelectedProduct(p);
+        } else {
+          setDetailError("Product not found.");
+        }
+      } catch {
+        if (!cancelled) setDetailError("Could not load product details.");
+      } finally {
+        if (!cancelled) setDetailsLoading(false);
+      }
+      if (!cancelled) onConsumedOpenProductId?.();
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [openProductId, onConsumedOpenProductId]);
+
   const addToCart = async () => {
     if (!selectedProduct?._id || adding || addQty < 1) return;
     setAdding(true);
@@ -104,6 +143,7 @@ export function HubScreen({ onAddedToCart, onGoToCart }: HubScreenProps) {
     return (
       <View style={styles.center}>
         <ActivityIndicator size="small" color="#22c55e" />
+        <Text style={styles.loadingText}>Loading products...</Text>
       </View>
     );
   }
@@ -111,7 +151,7 @@ export function HubScreen({ onAddedToCart, onGoToCart }: HubScreenProps) {
   return (
     <>
       <FlatList
-        data={filtered}
+        data={products}
         keyExtractor={(item) => item._id}
         contentContainerStyle={styles.listContent}
         numColumns={2}
@@ -126,18 +166,6 @@ export function HubScreen({ onAddedToCart, onGoToCart }: HubScreenProps) {
             tintColor="#22c55e"
           />
         }
-        ListHeaderComponent={
-          <View style={styles.header}>
-            <Text style={styles.title}>QwertyHub</Text>
-            <TextInput
-              value={query}
-              onChangeText={setQuery}
-              placeholder="Search products..."
-              placeholderTextColor="#64748b"
-              style={styles.searchInput}
-            />
-          </View>
-        }
         ListEmptyComponent={<Text style={styles.emptyText}>No products available.</Text>}
         renderItem={({ item }) => {
           const imageUrl = toAbsoluteMediaUrl(item.images?.[0]);
@@ -149,6 +177,34 @@ export function HubScreen({ onAddedToCart, onGoToCart }: HubScreenProps) {
               : item.price;
           return (
             <Pressable style={styles.card} onPress={() => void openProduct(item._id)}>
+              <View style={styles.cardBadgeRow}>
+                <View style={styles.resellBadge}>
+                  <Text style={styles.resellBadgeText}>RESELL</Text>
+                </View>
+                <Pressable
+                  onPress={() => void addOneToCartFromGrid(item._id)}
+                  disabled={
+                    quickCartProductId !== null ||
+                    (typeof item.stock === "number" && item.stock <= 0)
+                  }
+                  style={({ pressed }) => [
+                    styles.cartChip,
+                    (typeof item.stock === "number" && item.stock <= 0) && styles.cartChipDisabled,
+                    pressed && quickCartProductId === null && styles.cartChipPressed
+                  ]}
+                  accessibilityRole="button"
+                  accessibilityLabel="Add one to cart"
+                >
+                  <Text
+                    style={[
+                      styles.cartChipText,
+                      (typeof item.stock === "number" && item.stock <= 0) && styles.cartChipTextDisabled
+                    ]}
+                  >
+                    {quickCartProductId === item._id ? "…" : "+Cart-"}
+                  </Text>
+                </Pressable>
+              </View>
               {imageUrl ? (
                 <Image source={{ uri: imageUrl }} resizeMode="cover" style={styles.productImage} />
               ) : (
@@ -157,7 +213,7 @@ export function HubScreen({ onAddedToCart, onGoToCart }: HubScreenProps) {
               <Text style={styles.productTitle} numberOfLines={2}>
                 {item.title}
               </Text>
-              <Text style={styles.productPrice}>{formatPrice(effectivePrice, item.currency)}</Text>
+              <Text style={styles.productPrice}>{formatMoney(effectivePrice, item.currency || deviceCurrency)}</Text>
               {typeof item.stock === "number" ? (
                 <Text style={styles.productStock}>{item.stock > 0 ? `Stock ${item.stock}` : "Out of stock"}</Text>
               ) : null}
@@ -165,6 +221,7 @@ export function HubScreen({ onAddedToCart, onGoToCart }: HubScreenProps) {
           );
         }}
       />
+
       <Modal
         visible={detailsLoading || !!selectedProduct || !!detailError}
         transparent
@@ -196,15 +253,18 @@ export function HubScreen({ onAddedToCart, onGoToCart }: HubScreenProps) {
                   <Text style={styles.modalDesc}>{selectedProduct.description}</Text>
                 ) : null}
                 <Text style={styles.modalPrice}>
-                  {formatPrice(
+                  {formatMoney(
                     typeof selectedProduct.discountPrice === "number" &&
                       selectedProduct.discountPrice >= 0 &&
                       selectedProduct.discountPrice < selectedProduct.price
                       ? selectedProduct.discountPrice
                       : selectedProduct.price,
-                    selectedProduct.currency
+                    selectedProduct.currency || deviceCurrency
                   )}
                 </Text>
+                <View style={styles.modalCurrencyPill}>
+                  <Text style={styles.modalCurrencyPillText}>{selectedProduct.currency || deviceCurrency}</Text>
+                </View>
                 <View style={styles.qtyRow}>
                   <Pressable
                     onPress={() => setAddQty((v) => Math.max(1, v - 1))}
@@ -277,111 +337,160 @@ const styles = StyleSheet.create({
   center: {
     flex: 1,
     justifyContent: "center",
-    alignItems: "center"
+    alignItems: "center",
+    gap: 8
+  },
+  loadingText: {
+    ...appTypography.meta,
+    color: socialTheme.textSecondary,
+    fontWeight: "600"
   },
   listContent: {
     gap: 10,
+    paddingTop: 4,
     paddingBottom: 14
-  },
-  header: {
-    gap: 8,
-    marginBottom: 4
-  },
-  title: {
-    color: "#f8fafc",
-    fontSize: 20,
-    fontWeight: "700"
-  },
-  searchInput: {
-    borderWidth: 1,
-    borderColor: "#334155",
-    borderRadius: 10,
-    backgroundColor: "#0f172a",
-    color: "#f8fafc",
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 13
   },
   row: {
     gap: 10
   },
   card: {
     flex: 1,
-    borderWidth: 1,
-    borderColor: "#1f2937",
-    backgroundColor: "#111827",
-    borderRadius: 12,
-    padding: 9,
-    gap: 7
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: socialTheme.borderHairline,
+    backgroundColor: socialTheme.surface,
+    borderRadius: 16,
+    padding: 10,
+    gap: 8,
+    shadowColor: "#0f172a",
+    shadowOpacity: 0.05,
+    shadowRadius: 9,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 1
+  },
+  cardBadgeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    width: "100%",
+    gap: 8
+  },
+  resellBadge: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: socialTheme.brandBlue,
+    borderRadius: 999,
+    backgroundColor: socialTheme.brandBlueSoft,
+    paddingHorizontal: 7,
+    paddingVertical: 2
+  },
+  resellBadgeText: {
+    ...appTypography.badge,
+    color: socialTheme.brandBlue
+  },
+  cartChip: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: socialTheme.brandBlue,
+    borderRadius: 999,
+    backgroundColor: socialTheme.brandBlueSoft,
+    paddingHorizontal: 7,
+    paddingVertical: 2
+  },
+  cartChipPressed: {
+    opacity: 0.88
+  },
+  cartChipDisabled: {
+    opacity: 0.45,
+    borderColor: socialTheme.borderHairline,
+    backgroundColor: socialTheme.surfaceMuted
+  },
+  cartChipText: {
+    ...appTypography.badge,
+    color: socialTheme.brandBlue
+  },
+  cartChipTextDisabled: {
+    color: socialTheme.textMuted
   },
   productImage: {
     width: "100%",
     height: 122,
-    borderRadius: 9,
-    backgroundColor: "#0b1220"
+    borderRadius: 10,
+    backgroundColor: socialTheme.surfaceMuted
   },
   imageFallback: {
-    borderWidth: 1,
-    borderColor: "#334155"
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: socialTheme.borderHairline
   },
   productTitle: {
-    color: "#e2e8f0",
-    fontWeight: "600",
-    fontSize: 13,
-    minHeight: 34
+    ...appTypography.titleSm,
+    color: socialTheme.textPrimary,
+    minHeight: 36
   },
   productPrice: {
-    color: "#86efac",
-    fontSize: 13,
-    fontWeight: "700"
+    ...appTypography.price,
+    color: socialTheme.brandBlue
   },
   productStock: {
-    color: "#94a3b8",
-    fontSize: 11
+    ...appTypography.meta,
+    color: socialTheme.textSecondary
   },
   emptyText: {
-    color: "#94a3b8",
+    ...appTypography.meta,
+    color: socialTheme.textSecondary,
     textAlign: "center",
-    marginTop: 20
+    marginTop: 20,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: socialTheme.borderHairline,
+    backgroundColor: socialTheme.surface,
+    borderRadius: 12,
+    paddingVertical: 10
   },
   modalBackdrop: {
     flex: 1,
-    backgroundColor: "rgba(2,6,23,0.8)",
+    backgroundColor: "rgba(15,23,42,0.35)",
     justifyContent: "center",
     padding: 16
   },
   modalCard: {
-    borderWidth: 1,
-    borderColor: "#1e293b",
-    backgroundColor: "#0f172a",
-    borderRadius: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: socialTheme.borderHairline,
+    backgroundColor: socialTheme.surface,
+    borderRadius: 16,
     padding: 12,
     gap: 9
   },
   modalTitle: {
-    color: "#f8fafc",
-    fontWeight: "700",
-    fontSize: 16
+    ...appTypography.titleMd,
+    color: socialTheme.textPrimary
   },
   modalImage: {
     width: "100%",
     height: 190,
     borderRadius: 10,
-    backgroundColor: "#0b1220"
+    backgroundColor: "#f1f5f9"
   },
   modalProductTitle: {
-    color: "#e2e8f0",
-    fontWeight: "700",
-    fontSize: 15
+    ...appTypography.titleMd,
+    color: socialTheme.textPrimary
   },
   modalDesc: {
-    color: "#cbd5e1",
-    fontSize: 13
+    ...appTypography.meta,
+    color: socialTheme.textSecondary
   },
   modalPrice: {
-    color: "#86efac",
-    fontWeight: "700",
-    fontSize: 14
+    ...appTypography.price,
+    color: socialTheme.brandBlue
+  },
+  modalCurrencyPill: {
+    alignSelf: "flex-start",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: socialTheme.borderHairline,
+    backgroundColor: socialTheme.brandBlueSoft,
+    borderRadius: 999,
+    paddingHorizontal: 9,
+    paddingVertical: 3
+  },
+  modalCurrencyPillText: {
+    ...appTypography.labelSm,
+    color: socialTheme.brandBlue
   },
   qtyRow: {
     flexDirection: "row",
@@ -392,22 +501,22 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "#334155",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: socialTheme.borderHairline,
     alignItems: "center",
     justifyContent: "center"
   },
   qtyBtnText: {
-    color: "#e2e8f0",
-    fontWeight: "700",
-    fontSize: 16
+    ...appTypography.titleMd,
+    fontSize: 18,
+    lineHeight: 22,
+    color: socialTheme.textPrimary
   },
   qtyValue: {
-    color: "#e2e8f0",
+    ...appTypography.price,
+    color: socialTheme.textPrimary,
     width: 30,
-    textAlign: "center",
-    fontWeight: "700",
-    fontSize: 14
+    textAlign: "center"
   },
   modalActions: {
     flexDirection: "row",
@@ -415,44 +524,45 @@ const styles = StyleSheet.create({
   },
   modalCancelBtn: {
     flex: 1,
-    borderWidth: 1,
-    borderColor: "#334155",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: socialTheme.borderHairline,
     borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
     paddingVertical: 10
   },
   modalCancelText: {
-    color: "#cbd5e1",
+    ...appTypography.meta,
+    color: socialTheme.textSecondary,
     fontWeight: "700"
   },
   modalPrimaryBtn: {
     flex: 1,
-    borderWidth: 1,
-    borderColor: "#0ea5e9",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: socialTheme.brandBlue,
     borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
     paddingVertical: 10
   },
   modalPrimaryText: {
-    color: "#7dd3fc",
-    fontWeight: "700"
+    ...appTypography.titleMd,
+    color: socialTheme.brandBlue
   },
   goCartBtn: {
-    borderWidth: 1,
-    borderColor: "#22c55e",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: socialTheme.borderHairline,
     borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
     paddingVertical: 9
   },
   goCartText: {
-    color: "#86efac",
-    fontWeight: "700"
+    ...appTypography.titleMd,
+    color: socialTheme.brandBlue
   },
   errorText: {
-    color: "#fca5a5",
-    fontSize: 12
+    ...appTypography.meta,
+    color: "#dc2626"
   }
 });

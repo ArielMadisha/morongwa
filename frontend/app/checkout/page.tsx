@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { Suspense, useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { CreditCard, Wallet, MapPin, ArrowLeft, Loader2, ShoppingBag } from 'lucide-react';
@@ -12,9 +12,11 @@ import { AppSidebar, AppSidebarMenuButton } from '@/components/AppSidebar';
 import { MobileBottomNav } from '@/components/MobileBottomNav';
 import { SearchButton } from '@/components/SearchButton';
 import toast from 'react-hot-toast';
+import { formatCurrencyAmount } from '@/lib/formatCurrency';
+import { openPayGatePayment } from '@/lib/payGateRedirect';
 
 function formatPrice(price: number) {
-  return new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(price);
+  return formatCurrencyAmount(price, 'ZAR');
 }
 
 function formatCreditAmount(value: number) {
@@ -22,7 +24,7 @@ function formatCreditAmount(value: number) {
   return `R${safe.toFixed(0)}`;
 }
 
-export default function CheckoutPage() {
+function CheckoutPageContent() {
   const { user, logout } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -32,6 +34,8 @@ export default function CheckoutPage() {
     subtotal: number;
     shipping: number;
     shippingBreakdown?: Array<{ supplierId: string; storeName?: string; shippingCost: number }>;
+    shippingQuoteType?: 'live_quote' | 'configured_tariff';
+    shippingNote?: string;
     total: number;
     currency: string;
     itemCount: number;
@@ -69,7 +73,10 @@ export default function CheckoutPage() {
     setPaying(true);
     checkoutAPI.pay(paymentMethod, deliveryAddress, deliveryCountry).then((res) => {
       const d = res.data?.data ?? res.data;
-      if (d?.paymentUrl) { window.location.href = d.paymentUrl; return; }
+      if (d?.paymentUrl || d?.payGateRedirect) {
+        openPayGatePayment({ paymentUrl: d.paymentUrl, payGateRedirect: d.payGateRedirect });
+        return;
+      }
       if (d?.status === 'paid') {
         toast.success(d?.message || 'Payment complete');
         if (d?.orderId) window.location.href = `/checkout/order/${d.orderId}`;
@@ -112,7 +119,7 @@ export default function CheckoutPage() {
           <div className="px-4 sm:px-6 lg:px-8 py-3 sm:py-4">
             <div className="flex items-center justify-between gap-3 sm:gap-4 min-w-0">
               <Link href="/wall" className="shrink-0 flex items-center" aria-label="Home">
-                <img src="/qwertymates-logo-icon.png" alt="Qwertymates" className="h-9 w-9 object-contain lg:hidden" />
+                <img src="/qwertymates-logo-icon.png" alt="Qwertymates" className="h-16 w-16 sm:h-[4.25rem] sm:w-[4.25rem] object-contain lg:hidden shrink-0" />
                 <img src="/qwertymates-logo.png" alt="Qwertymates" className="h-9 w-auto object-contain hidden lg:block" />
               </Link>
               <AppSidebarMenuButton onClick={() => setMenuOpen((v) => !v)} />
@@ -127,7 +134,7 @@ export default function CheckoutPage() {
             </div>
           </div>
         </header>
-        <div className="flex flex-1 min-h-0">
+        <div className="flex min-h-0 min-w-0 w-full flex-1">
           <AppSidebar
             variant="wall"
             userName={user?.name}
@@ -141,8 +148,8 @@ export default function CheckoutPage() {
             hideLogo
             belowHeader
           />
-          <div className="flex-1 flex gap-0 min-h-0 overflow-y-auto overflow-x-hidden">
-            <main className="flex-1 min-w-0 max-w-2xl mx-auto px-4 sm:px-6 lg:px-8 py-6 pb-24 lg:pb-6">
+          <div className="flex-1 flex flex-col lg:flex-row gap-0 min-h-0 overflow-y-auto overflow-x-hidden">
+            <main className="flex-1 min-w-0 max-w-2xl mx-auto px-4 sm:px-6 lg:px-8 py-6 pb-24 lg:pb-6 order-2 lg:order-none w-full">
           <Link href="/cart" className="inline-flex items-center gap-2 text-sky-600 hover:text-sky-700 mb-6 text-sm font-medium"><ArrowLeft className="h-4 w-4" /> Back to cart</Link>
           <h1 className="text-2xl font-bold text-slate-900 mb-6">Checkout</h1>
           <div className="space-y-6 mb-8">
@@ -201,6 +208,12 @@ export default function CheckoutPage() {
                   <span>{formatPrice(quote.shipping)}</span>
                 </div>
               )}
+              <p className="text-xs text-slate-500 mt-2">
+                {quote.shippingNote ||
+                  (quote.shippingQuoteType === 'live_quote'
+                    ? 'Shipping includes live courier quote(s) and supplier tariffs.'
+                    : 'Shipping is calculated from supplier tariffs.')}
+              </p>
               <div className="border-t border-slate-200 pt-3 flex justify-between font-bold text-slate-900 text-lg">
                 <span>Total</span>
                 <span>{formatPrice(quote.total)}</span>
@@ -237,5 +250,21 @@ export default function CheckoutPage() {
         <MobileBottomNav cartCount={cartCount} hasStore={hasStore} />
       </div>
     </ProtectedRoute>
+  );
+}
+
+export default function CheckoutPage() {
+  return (
+    <Suspense
+      fallback={
+        <ProtectedRoute>
+          <div className="min-h-screen bg-gradient-to-br from-sky-50 to-white flex items-center justify-center">
+            <Loader2 className="h-12 w-12 text-sky-600 animate-spin" />
+          </div>
+        </ProtectedRoute>
+      }
+    >
+      <CheckoutPageContent />
+    </Suspense>
   );
 }

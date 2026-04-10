@@ -4,10 +4,8 @@
  */
 
 import Order from "../data/models/Order";
-import Product from "../data/models/Product";
 import CourierRule from "../data/models/CourierRule";
-import { getSupplierAdapter } from "./suppliers/supplierService";
-import type { IOrder } from "../data/models/Order";
+import { getSupplierAdapterById } from "./suppliers/supplierService";
 
 export interface ForwardResult {
   orderId: string;
@@ -20,6 +18,7 @@ export interface ForwardResult {
 export async function forwardOrderToExternalSupplier(orderId: string): Promise<ForwardResult[]> {
   const order = await Order.findById(orderId)
     .populate("items.productId")
+    .populate("buyerId", "name email phone")
     .lean();
   if (!order || order.status !== "paid") {
     return [];
@@ -39,7 +38,8 @@ export async function forwardOrderToExternalSupplier(orderId: string): Promise<F
 
     const ext = product.externalData || {};
     const firstVariant = Array.isArray(ext.variants) ? ext.variants[0] : null;
-    const vid = firstVariant?.vid || ext.defaultVariantId;
+    // CJ: vid, EPROLO: variantsid (stored as vid in normalized raw)
+    const vid = firstVariant?.vid || firstVariant?.id || ext.defaultVariantId;
     const sku = firstVariant?.variantSku || product.sku;
 
     const arr = bySupplier.get(extId) || [];
@@ -61,13 +61,17 @@ export async function forwardOrderToExternalSupplier(orderId: string): Promise<F
   const address = delivery?.address || "";
   const [line1, ...rest] = address.split(",").map((s: string) => s.trim());
   const countryCode = delivery?.countryCode || parseCountryFromAddress(address) || "ZA";
+  const buyer = (order as any).buyerId;
+  const buyerName = buyer?.name || "Customer";
+  const buyerPhone = buyer?.phone || delivery?.phone;
+  const buyerEmail = buyer?.email;
 
   const courierRule = await CourierRule.findOne({ country: countryCode, active: true }).lean();
   const logisticName = courierRule?.courier || "DHL";
   const fromCountryCode = courierRule?.preferredSupplier === "cj" ? "CN" : "CN";
 
   for (const [extSupplierId, items] of bySupplier) {
-    const adapter = await getSupplierAdapter("cj");
+    const adapter = await getSupplierAdapterById(extSupplierId);
     if (!adapter) {
       results.push({
         orderId,
@@ -90,7 +94,7 @@ export async function forwardOrderToExternalSupplier(orderId: string): Promise<F
         orderId,
         externalSupplierId: extSupplierId,
         success: false,
-        message: "Product missing variant ID/SKU for CJ",
+        message: "Product missing variant ID/SKU for external supplier",
       });
       continue;
     }
@@ -99,7 +103,7 @@ export async function forwardOrderToExternalSupplier(orderId: string): Promise<F
       const res = await adapter.createOrder({
         orderNumber: `QM-${orderId}`,
         shipping: {
-          name: "Customer",
+          name: buyerName,
           address: line1 || address,
           address2: rest.join(", "),
           city: "City",
@@ -107,7 +111,8 @@ export async function forwardOrderToExternalSupplier(orderId: string): Promise<F
           country: countryCode,
           countryCode,
           zip: "",
-          phone: delivery?.phone,
+          phone: buyerPhone,
+          email: buyerEmail,
         },
         products,
         logisticName,

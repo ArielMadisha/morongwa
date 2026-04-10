@@ -22,6 +22,68 @@ interface Policy {
   publishedAt: string;
 }
 
+const CATEGORY_ORDER = [
+  'legal',
+  'privacy',
+  'pricing',
+  'payments',
+  'contracts',
+  'conduct',
+  'safety',
+  'security',
+  'accessibility',
+  'support',
+  'platform',
+];
+
+const POLICY_SLUG_ORDER = [
+  'terms-of-service',
+  'privacy-policy',
+  'cookies-tracking',
+  'pricing-fees',
+  'escrow-payouts',
+  'refunds-cancellations',
+  'runner-agreement',
+  'client-terms',
+  'acceptable-use',
+  'ratings-reviews',
+  'safety-restricted-tasks',
+  'intellectual-property',
+  'security-vulnerability',
+  'accessibility',
+  'consumer-complaints',
+  'escrow-and-payout-policy',
+  'refunds-and-cancellations-policy',
+  'marketplace',
+  'suppliers-manufacturers',
+  'morongwa-tv',
+  'third-party-dropshipping-suppliers',
+];
+
+const POLICY_VERSION_OVERRIDE: Record<string, number> = {
+  'terms-of-service': 7,
+  'privacy-policy': 7,
+  'cookies-tracking': 1,
+  'pricing-fees': 4,
+  'escrow-payouts': 1,
+  'refunds-cancellations': 6,
+  'runner-agreement': 1,
+  'client-terms': 1,
+  'acceptable-use': 6,
+  'ratings-reviews': 1,
+  'safety-restricted-tasks': 1,
+  'intellectual-property': 2,
+  'security-vulnerability': 1,
+  'accessibility': 1,
+  'consumer-complaints': 1,
+  'escrow-and-payout-policy': 1,
+  'refunds-and-cancellations-policy': 6,
+  'marketplace': 13,
+  'suppliers-manufacturers': 1,
+  'morongwa-tv': 1,
+  'third-party-dropshipping-suppliers': 1,
+};
+
 export default function PoliciesPage() {
   const { user } = useAuth();
   const { cartCount, hasStore } = useCartAndStores(!!user);
@@ -53,7 +115,23 @@ export default function PoliciesPage() {
       p.tags.some((t) => t.toLowerCase().includes(filter.toLowerCase()))
   );
 
-  const categories = Array.from(new Set(policies.map((p) => p.category)));
+  const categories = Array.from(new Set(policies.map((p) => p.category))).sort((a, b) => {
+    const ai = CATEGORY_ORDER.indexOf(a.toLowerCase());
+    const bi = CATEGORY_ORDER.indexOf(b.toLowerCase());
+    const safeA = ai === -1 ? Number.MAX_SAFE_INTEGER : ai;
+    const safeB = bi === -1 ? Number.MAX_SAFE_INTEGER : bi;
+    if (safeA !== safeB) return safeA - safeB;
+    return a.localeCompare(b);
+  });
+
+  const sortedFilteredPolicies = [...filteredPolicies].sort((a, b) => {
+    const ai = POLICY_SLUG_ORDER.indexOf(a.slug);
+    const bi = POLICY_SLUG_ORDER.indexOf(b.slug);
+    const safeA = ai === -1 ? Number.MAX_SAFE_INTEGER : ai;
+    const safeB = bi === -1 ? Number.MAX_SAFE_INTEGER : bi;
+    if (safeA !== safeB) return safeA - safeB;
+    return a.title.localeCompare(b.title);
+  });
 
   if (loading) {
     return (
@@ -73,7 +151,7 @@ export default function PoliciesPage() {
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-2">
               <Link href={user ? '/wall' : '/'} className="shrink-0 flex items-center" aria-label="Home">
-                <img src="/qwertymates-logo-icon.png" alt="Qwertymates" className="h-9 w-9 object-contain lg:hidden" />
+                <img src="/qwertymates-logo-icon.png" alt="Qwertymates" className="h-16 w-16 sm:h-[4.25rem] sm:w-[4.25rem] object-contain lg:hidden shrink-0" />
                 <img src="/qwertymates-logo.png" alt="Qwertymates" className="h-9 w-auto object-contain hidden lg:block" />
               </Link>
               {user && <AppSidebarMenuButton onClick={() => setMenuOpen((v) => !v)} />}
@@ -86,7 +164,7 @@ export default function PoliciesPage() {
           </div>
         </div>
       </header>
-      <div className="flex flex-1 min-h-0">
+      <div className="flex min-h-0 min-w-0 w-full flex-1">
         {user && (
           <AppSidebar
             variant="wall"
@@ -162,13 +240,13 @@ export default function PoliciesPage() {
 
         {/* Policies Grid */}
         <div className="grid md:grid-cols-2 gap-6">
-          {filteredPolicies.length === 0 ? (
+          {sortedFilteredPolicies.length === 0 ? (
             <div className="md:col-span-2 text-center py-12">
               <Archive className="h-12 w-12 text-slate-300 mx-auto mb-4" />
               <p className="text-slate-600">No policies found matching your search</p>
             </div>
           ) : (
-            filteredPolicies.map((policy) => (
+            sortedFilteredPolicies.map((policy) => (
               <Link key={policy.slug} href={`/policies/${policy.slug}`}>
                 <div className="group bg-white rounded-xl shadow-sm hover:shadow-lg transition-all p-6 border border-slate-100 hover:border-sky-200 cursor-pointer h-full">
                   <div className="flex items-start justify-between mb-3">
@@ -205,7 +283,9 @@ export default function PoliciesPage() {
                   </div>
 
                   <div className="flex items-center justify-between pt-4 border-t border-slate-100">
-                    <span className="text-xs text-slate-500">v{policy.latestPublishedVersion}</span>
+                    <span className="text-xs text-slate-500">
+                      v{POLICY_VERSION_OVERRIDE[policy.slug] ?? policy.latestPublishedVersion}
+                    </span>
                     <button
                       onClick={(e) => {
                         e.preventDefault();

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Music2, CheckCircle, Clock, Upload, Loader2, X } from 'lucide-react';
@@ -48,6 +48,12 @@ export default function QwertyMusicPage() {
   const [addingId, setAddingId] = useState<string | null>(null);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [playingId, setPlayingId] = useState<string | null>(null);
+  const [songsPage, setSongsPage] = useState(1);
+  const [songsHasMore, setSongsHasMore] = useState(true);
+  const [loadingMoreSongs, setLoadingMoreSongs] = useState(false);
+  const songsLimit = 20;
+  const songsSentinelRef = useRef<HTMLDivElement>(null);
+  const songsContainerRef = useRef<HTMLDivElement>(null);
 
   const handleAudioPlay = (songId: string, currentAudio: HTMLAudioElement) => {
     setPlayingId(songId);
@@ -65,13 +71,32 @@ export default function QwertyMusicPage() {
     musicAPI.getGenres().then((r) => setGenres(r.data?.data ?? [])).catch(() => setGenres([]));
   }, []);
 
+  const loadSongs = useCallback(async (pageNum = 1, append = false, random = false) => {
+    if (pageNum === 1 && !append) setLoadingSongs(true);
+    else setLoadingMoreSongs(true);
+    try {
+      const r = await musicAPI.getSongs({ type: 'song', page: pageNum, limit: songsLimit, random });
+      const rows = Array.isArray(r.data?.data) ? r.data.data : [];
+      if (append) {
+        setSongs((prev) => [...prev, ...rows]);
+      } else {
+        setSongs(rows);
+      }
+      const hasMore = random ? rows.length > 0 : Boolean(r.data?.hasMore ?? false);
+      setSongsHasMore(hasMore);
+      if (!random) setSongsPage(pageNum);
+    } catch {
+      if (!append) setSongs([]);
+      setSongsHasMore(false);
+    } finally {
+      setLoadingSongs(false);
+      setLoadingMoreSongs(false);
+    }
+  }, []);
+
   useEffect(() => {
-    setLoadingSongs(true);
-    musicAPI.getSongs({ type: 'song' })
-      .then((r) => setSongs(r.data?.data ?? []))
-      .catch(() => setSongs([]))
-      .finally(() => setLoadingSongs(false));
-  }, [uploadOpen]);
+    void loadSongs(1);
+  }, [uploadOpen, loadSongs]);
 
   useEffect(() => {
     musicAPI.getMyPurchases()
@@ -81,6 +106,33 @@ export default function QwertyMusicPage() {
       })
       .catch(() => setPurchasedIds(new Set()));
   }, [songs.length]);
+
+  const loadMoreSongs = useCallback(async () => {
+    if (loadingSongs || loadingMoreSongs) return;
+    if (songsHasMore) {
+      await loadSongs(songsPage + 1, true, false);
+      return;
+    }
+    // Keep feed continuous after pagination is exhausted.
+    await loadSongs(1, true, true);
+  }, [loadingSongs, loadingMoreSongs, songsHasMore, songsPage, loadSongs]);
+
+  useEffect(() => {
+    const container = songsContainerRef.current;
+    const sentinel = songsSentinelRef.current;
+    if (!container || !sentinel) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const first = entries[0];
+        if (first?.isIntersecting && songs.length > 0 && !loadingSongs && !loadingMoreSongs) {
+          void loadMoreSongs();
+        }
+      },
+      { root: container, rootMargin: '320px 0px', threshold: 0.01 }
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [songs.length, loadingSongs, loadingMoreSongs, loadMoreSongs]);
 
   const handleLogout = () => {
     logout();
@@ -218,7 +270,7 @@ export default function QwertyMusicPage() {
           <div className="px-4 sm:px-6 lg:px-8 py-2 sm:py-3">
             <div className="flex items-center gap-2 sm:gap-4 min-w-0">
               <Link href="/wall" className="shrink-0 flex items-center" aria-label="Home">
-                <img src="/qwertymates-logo-icon.png" alt="Qwertymates" className="h-8 w-8 object-contain lg:hidden" />
+                <img src="/qwertymates-logo-icon.png" alt="Qwertymates" className="h-16 w-16 sm:h-[4.25rem] sm:w-[4.25rem] object-contain lg:hidden shrink-0" />
                 <img src="/qwertymates-logo.png" alt="Qwertymates" className="h-8 w-auto object-contain hidden lg:block" />
               </Link>
               <AppSidebarMenuButton onClick={() => setMenuOpen((v) => !v)} />
@@ -238,7 +290,7 @@ export default function QwertyMusicPage() {
           </div>
         </header>
 
-        <div className="flex flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain">
+        <div className="flex min-h-0 min-w-0 w-full flex-1">
           <AppSidebar
             variant="wall"
             userName={user?.name}
@@ -251,10 +303,9 @@ export default function QwertyMusicPage() {
             setMenuOpen={setMenuOpen}
             hideLogo
             belowHeader
-            allowPageScroll
           />
-          <div className="flex-1 flex gap-0 min-h-0">
-            <main className="flex-1 min-w-0 px-4 sm:px-6 lg:px-8 py-4 pb-24 lg:pb-6">
+          <div ref={songsContainerRef} className="flex-1 flex flex-col lg:flex-row gap-0 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain">
+            <main className="flex-1 min-w-0 px-4 sm:px-6 lg:px-8 py-4 pb-24 lg:pb-6 order-2 lg:order-none w-full">
               <div className="max-w-6xl mx-auto">
                 {/* Songs Grid */}
                 <div>
@@ -355,6 +406,11 @@ export default function QwertyMusicPage() {
                           )}
                         </div>
                       ))}
+                    </div>
+                  )}
+                  {!loadingSongs && songs.length > 0 && (
+                    <div ref={songsSentinelRef} className="flex justify-center py-6 min-h-[64px]">
+                      {loadingMoreSongs ? <Loader2 className="h-8 w-8 animate-spin text-sky-500" /> : <div className="h-4" aria-hidden />}
                     </div>
                   )}
                 </div>

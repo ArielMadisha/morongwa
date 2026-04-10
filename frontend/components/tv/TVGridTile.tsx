@@ -2,13 +2,13 @@
 
 import { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import {
   Eye,
   Heart,
   MessageCircle,
   Share2,
   Repeat2,
-  Send,
   Flag,
   Bookmark,
   MoreHorizontal,
@@ -26,6 +26,7 @@ import {
   Link2,
   Code,
   User,
+  UserPlus,
   HeartHandshake,
   Music2,
   Maximize2,
@@ -40,17 +41,13 @@ import { SetPictureOptionsModal } from '@/components/SetPictureOptionsModal';
 import { VideoSidebar } from './VideoSidebar';
 import { TranslateText } from '@/components/TranslateText';
 import { useCurrency } from '@/contexts/CurrencyContext';
+import { formatCurrencyAmount } from '@/lib/formatCurrency';
 
 const WATERMARK_IMG = '/watermark-qwertymates.svg';
 const WATERMARK_DURATION = 3; // seconds at start and end
 
 function formatPrice(price: number, currency: string) {
-  return new Intl.NumberFormat('en-ZA', {
-    style: 'currency',
-    currency: currency || 'ZAR',
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(price);
+  return formatCurrencyAmount(price, currency || 'ZAR');
 }
 
 /** Add to Cart / Download for songs with purchase enabled */
@@ -202,6 +199,8 @@ export interface TVGridItem {
   allowResell?: boolean;
   /** Reseller commission % when post is from reseller wall (3–7) */
   resellerCommissionPct?: number;
+  /** Set when TV post was created from Add to MyStore (reseller listing) */
+  fromResellerWall?: boolean;
 }
 
 function formatPostPeriod(createdAt?: string) {
@@ -245,16 +244,12 @@ interface TVGridTileProps {
 }
 
 function formatPriceLocal(price: number, currency: string) {
-  return new Intl.NumberFormat('en-ZA', {
-    style: 'currency',
-    currency: currency || 'ZAR',
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 2,
-  }).format(price);
+  return formatCurrencyAmount(price, currency || 'ZAR');
 }
 
 export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, onCommentAdded, onDelete, isVisible = true, currentUserId, onSetProfilePicFromUrl, onSetStripBackgroundFromUrl, variant = 'feed', relatedVideos }: TVGridTileProps) {
-  const { formatPrice: formatInLocal } = useCurrency();
+  const router = useRouter();
+  const { currency: localCurrency, rates } = useCurrency();
   const [watermarkPhase, setWatermarkPhase] = useState<'start' | 'middle' | 'end'>('start');
   const [reportOpen, setReportOpen] = useState(false);
   const [reportReason, setReportReason] = useState('');
@@ -266,7 +261,8 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
   const expandedVideoRef = useRef<HTMLVideoElement>(null);
   const [pictureOptionsOpen, setPictureOptionsOpen] = useState(false);
   const [captionExpanded, setCaptionExpanded] = useState(false);
-  const [textPostExpanded, setTextPostExpanded] = useState(false);
+  const [textHeadingExpanded, setTextHeadingExpanded] = useState(false);
+  const [textBodyExpanded, setTextBodyExpanded] = useState(false);
   const [postMenuOpen, setPostMenuOpen] = useState(false);
   const [donateModalOpen, setDonateModalOpen] = useState(false);
   const [donateAmount, setDonateAmount] = useState('');
@@ -275,6 +271,7 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
   const [donateBalanceLoading, setDonateBalanceLoading] = useState(false);
   const [isAudioPlaying, setIsAudioPlaying] = useState(false);
   const [sensitiveRevealed, setSensitiveRevealed] = useState(false);
+  const [followNonce, setFollowNonce] = useState(0);
   const videoRef = useRef<HTMLVideoElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
 
@@ -298,6 +295,8 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
   const mediaUrl = isProductTile
     ? (item.images?.[0] || '')
     : (item.mediaUrls?.[carouselIndex] || item.mediaUrls?.[0] || (item.productId as any)?.images?.[0] || '');
+  /** Same-origin /uploads paths and legacy API URLs — prefer getImageUrl, never drop a valid relative URL. */
+  const resolvedMediaSrc = mediaUrl ? getImageUrl(mediaUrl) || mediaUrl : '';
 
   // TikTok-style watermark: show at start (first 3s) and end (last 3s)
   useEffect(() => {
@@ -394,6 +393,26 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
       .finally(() => setDonateBalanceLoading(false));
   }, [donateModalOpen]);
 
+  const startTopupAndQueueDonation = async (amount: number) => {
+    const current = Math.max(0, Number(donateBalance ?? 0));
+    const shortfall = Math.max(0, amount - current);
+    if (shortfall <= 0) return false;
+    const topupAmount = Math.max(10, Math.ceil(shortfall));
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(
+        'pending_donation',
+        JSON.stringify({ recipientId: creatorIdResolved, amount, createdAt: Date.now() })
+      );
+    }
+    const res = await walletAPI.topUp(topupAmount, '/wallet?pendingDonate=1');
+    const paymentUrl = res.data?.paymentUrl;
+    if (paymentUrl) {
+      window.location.href = paymentUrl;
+      return true;
+    }
+    return false;
+  };
+
   const handleDonate = (mode: 'wallet' | 'topup' = 'wallet') => {
     const amount = parseFloat(donateAmount);
     if (!creatorIdResolved || !currentUserId || isNaN(amount) || amount < 1) return;
@@ -401,25 +420,13 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
     setDonateSending(true);
     (async () => {
       if (mode === 'topup') {
-        const current = Math.max(0, Number(donateBalance ?? 0));
-        const shortfall = Math.max(0, amount - current);
-        if (shortfall > 0) {
-          const topupAmount = Math.max(10, Math.ceil(shortfall));
-          if (typeof window !== 'undefined') {
-            localStorage.setItem(
-              'pending_donation',
-              JSON.stringify({ recipientId: creatorIdResolved, amount, createdAt: Date.now() })
-            );
-          }
-          const res = await walletAPI.topUp(topupAmount, '/wallet?pendingDonate=1');
-          const paymentUrl = res.data?.paymentUrl;
-          if (paymentUrl) {
-            window.location.href = paymentUrl;
-            return;
-          }
-        }
+        const redirected = await startTopupAndQueueDonation(amount);
+        if (redirected) return;
       } else if ((donateBalance ?? 0) < amount) {
-        throw new Error('Insufficient wallet balance');
+        // Auto-fallback to PayGate checkout when wallet is short.
+        const redirected = await startTopupAndQueueDonation(amount);
+        if (redirected) return;
+        throw new Error('Insufficient wallet balance. Could not start PayGate checkout.');
       }
       await walletAPI.donate(amount, creatorIdResolved);
       setDonateBalance((prev) => Math.max(0, Number(prev ?? 0) - amount));
@@ -462,11 +469,217 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
 
   const productId = isProductTile ? item._id : item.productId?._id;
   const hasSeller = isProductTile || !!item.productId?.supplierId;
+  const canResellProduct =
+    !!(item as { allowResell?: boolean }).allowResell ||
+    !!(item.productId as { allowResell?: boolean } | undefined)?.allowResell;
+
+  /** QwertyHub `product_tile` = original catalog (keep Resell). `product` posts from MyStore / reseller wall = already marked up — hide Resell for everyone (no daisy-chain). */
+  const isSecondTierResellerListing =
+    !isProductTile &&
+    item.type === 'product' &&
+    !!productId &&
+    (item.resellerCommissionPct != null || item.fromResellerWall === true);
+  const showResellButton = canResellProduct && !isSecondTierResellerListing;
+  const openTextPost = () => router.push(`/morongwa-tv/post/${item._id}`);
+  const toViewerCurrency = (amount: number, sourceCurrency: string) => {
+    const from = String(sourceCurrency || 'USD').toUpperCase();
+    const to = String(localCurrency || from).toUpperCase();
+    if (!Number.isFinite(amount)) return formatCurrencyAmount(0, to || 'ZAR');
+    if (from === to) return formatCurrencyAmount(amount, to);
+    const fromRate = Number(rates?.[from] ?? 0);
+    const toRate = Number(rates?.[to] ?? 0);
+    if (!(fromRate > 0) || !(toRate > 0)) return formatCurrencyAmount(amount, from);
+    const usd = amount / fromRate;
+    const converted = Math.round(usd * toRate * 100) / 100;
+    return formatCurrencyAmount(converted, to);
+  };
+
+  /** ⋯ menu: top placement on feed; bottom placement on QwertyTV grid (opens upward). */
+  const postOverflowMenu = (placement: 'top' | 'bottom') => {
+    if (isProductTile) return null;
+    const openUp = placement === 'bottom';
+    return (
+      <div className="relative shrink-0">
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            setPostMenuOpen((v) => !v);
+            setReportOpen(false);
+          }}
+          className={
+            openUp
+              ? 'flex min-h-[36px] min-w-[36px] items-center justify-center rounded-lg p-2 text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900'
+              : 'rounded-full p-2 text-white/90 transition-colors hover:bg-white/20 hover:text-white'
+          }
+          aria-label="More options"
+        >
+          <MoreHorizontal className="h-5 w-5" />
+        </button>
+        {postMenuOpen && (
+          <>
+            <div className="fixed inset-0 z-[55]" onClick={() => setPostMenuOpen(false)} aria-hidden="true" />
+            <div
+              className={`absolute right-0 z-[60] min-w-[220px] rounded-xl border border-slate-200 bg-white py-1 shadow-xl ${
+                openUp ? 'bottom-full mb-1' : 'top-full mt-1'
+              }`}
+            >
+              <button
+                onClick={() => {
+                  setPostMenuOpen(false);
+                  setReportOpen(true);
+                }}
+                className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-rose-600 hover:bg-rose-50"
+              >
+                <Flag className="h-4 w-4" /> Report
+              </button>
+              {isOwnPost && (
+                <button
+                  onClick={async () => {
+                    setPostMenuOpen(false);
+                    if (!confirm('Delete this post? This cannot be undone.')) return;
+                    try {
+                      await tvAPI.deletePost(item._id);
+                      toast.success('Post deleted');
+                      onDelete?.(item._id);
+                    } catch (e: any) {
+                      toast.error(e.response?.data?.message || 'Failed to delete post');
+                    }
+                  }}
+                  className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-rose-600 hover:bg-rose-50"
+                >
+                  <Trash2 className="h-4 w-4" /> Delete post
+                </button>
+              )}
+              {!isOwnPost && item.creatorId?._id && currentUserId && (
+                <>
+                  <button
+                    onClick={async () => {
+                      setPostMenuOpen(false);
+                      try {
+                        await followsAPI.friendRequest(item.creatorId!._id);
+                        toast.success('Friend request sent');
+                        setFollowNonce((n) => n + 1);
+                      } catch (e: any) {
+                        toast.error(e.response?.data?.message || 'Failed to send friend request');
+                      }
+                    }}
+                    className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-50"
+                  >
+                    <UserPlus className="h-4 w-4" /> Friend request
+                  </button>
+                  <button
+                    onClick={async () => {
+                      setPostMenuOpen(false);
+                      try {
+                        await followsAPI.unfollow(item.creatorId!._id);
+                        toast.success('Unfollowed');
+                        setFollowNonce((n) => n + 1);
+                      } catch (e: any) {
+                        toast.error(e.response?.data?.message || 'Failed to unfollow');
+                      }
+                    }}
+                    className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-rose-600 hover:bg-rose-50"
+                  >
+                    Unfollow
+                  </button>
+                </>
+              )}
+              <div className="my-1 border-t border-slate-100" />
+              <button
+                onClick={() => {
+                  setPostMenuOpen(false);
+                  toast.success('Added to favorites');
+                }}
+                className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-50"
+              >
+                <Star className="h-4 w-4" /> Add to favorites
+              </button>
+              <Link
+                href={item.creatorId?._id ? `/morongwa-tv/user/${item.creatorId._id}` : '/morongwa-tv'}
+                onClick={() => setPostMenuOpen(false)}
+                className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-50"
+              >
+                <ExternalLink className="h-4 w-4" /> Go to post
+              </Link>
+              <button
+                onClick={() => {
+                  setPostMenuOpen(false);
+                  handleShare();
+                }}
+                className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-50"
+              >
+                <Share2 className="h-4 w-4" /> Share to...
+              </button>
+              <button
+                onClick={() => {
+                  setPostMenuOpen(false);
+                  const url = typeof window !== 'undefined' ? `${window.location.origin}/wall` : '';
+                  navigator.clipboard.writeText(url || `${window.location.origin}/wall`);
+                  toast.success('Link copied');
+                }}
+                className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-50"
+              >
+                <Link2 className="h-4 w-4" /> Copy link
+              </button>
+              <button
+                onClick={() => {
+                  setPostMenuOpen(false);
+                  toast.success('Embed code copied');
+                }}
+                className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-50"
+              >
+                <Code className="h-4 w-4" /> Embed
+              </button>
+              {!isOwnPost && item.creatorId?._id && (
+                <Link
+                  href={`/morongwa-tv/user/${item.creatorId._id}`}
+                  onClick={() => setPostMenuOpen(false)}
+                  className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-50"
+                >
+                  <User className="h-4 w-4" /> About this account
+                </Link>
+              )}
+              <div className="my-1 border-t border-slate-100" />
+              <button
+                onClick={() => setPostMenuOpen(false)}
+                className="w-full px-4 py-2.5 text-center text-sm text-slate-600 hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    );
+  };
 
   return (
-    <div className="rounded-lg overflow-hidden bg-white border border-slate-100 shadow-sm flex flex-col">
-      {/* Media container - smaller max for grid so icon bar fits below. Text posts use auto height. */}
-      <div className={`relative w-full mx-auto bg-slate-900 ${isTextPost ? 'aspect-auto min-h-[200px]' : `aspect-square ${variant === 'grid' ? 'max-h-[min(260px,42vw)]' : 'max-h-[min(580px,62vh)]'}`}`}>
+    <div
+      className={`rounded-lg overflow-hidden bg-white border border-slate-100 shadow-sm flex flex-col ${
+        variant === 'grid' ? 'flex-1 min-h-0 h-full' : ''
+      } ${isTextPost ? 'cursor-pointer' : ''}`}
+      onClick={isTextPost ? openTextPost : undefined}
+      onKeyDown={isTextPost ? (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          openTextPost();
+        }
+      } : undefined}
+      role={isTextPost ? 'button' : undefined}
+      tabIndex={isTextPost ? 0 : undefined}
+      aria-label={isTextPost ? 'Open text post' : undefined}
+    >
+      {/* Grid: media grows to fill tile height above the action bar; feed keeps square aspect cap. */}
+      <div
+        className={`relative w-full mx-auto bg-slate-900 ${
+          variant === 'grid'
+            ? 'flex-1 min-h-0 w-full min-w-0'
+            : isTextPost
+              ? 'aspect-auto min-h-[200px]'
+              : `aspect-square max-h-[min(580px,62vh)]`
+        }`}
+      >
       {/* Media */}
       {isAudioPost ? (
         <div className="relative w-full h-full bg-slate-900 overflow-hidden">
@@ -476,7 +689,7 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
               <img
                 src={getImageUrl(item.artworkUrl || (item.songId as any)?.artworkUrl)}
                 alt={item.caption || item.heading || (item.songId as any)?.title || 'Song'}
-                className="w-full h-full object-contain"
+                className={`w-full h-full ${variant === 'grid' ? 'object-cover' : 'object-contain'}`}
               />
             ) : (
               <div className="w-full h-full flex items-center justify-center bg-slate-800">
@@ -494,10 +707,11 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
             )}
             <audio
               ref={audioRef}
-              src={getImageUrl(mediaUrl) || mediaUrl}
+              src={resolvedMediaSrc}
               controls
               playsInline
               className="w-full max-w-full h-9 [&::-webkit-media-controls-panel]:bg-transparent"
+              style={{ touchAction: 'pan-y' }}
               onPlay={(e) => {
                 setIsAudioPlaying(true);
                 document.querySelectorAll('audio').forEach((el) => {
@@ -520,7 +734,19 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
           )}
         </div>
       ) : isTextPost ? (
-        <div className="w-full min-h-full flex flex-col pt-14 px-5 pb-5 sm:pt-16 sm:px-6 sm:pb-6 bg-white text-left">
+        <div
+          className="w-full min-h-full flex flex-col pt-14 px-5 pb-5 sm:pt-16 sm:px-6 sm:pb-6 bg-white text-left cursor-pointer"
+          onClick={() => router.push(`/morongwa-tv/post/${item._id}`)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              router.push(`/morongwa-tv/post/${item._id}`);
+            }
+          }}
+          role="button"
+          tabIndex={0}
+          aria-label="Open text post"
+        >
           {(item.heading || item.subject || item.caption) && (
             <div className="flex flex-col gap-3">
               {(() => {
@@ -529,36 +755,57 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
                 const headline = item.heading || firstLine;
                 const body = item.heading ? rawBody : rawBody.split('\n').slice(1).join('\n').trim();
                 const hasBody = body.length > 0;
-                const TRUNCATE_LEN = 280;
-                const shouldTruncate = hasBody && body.length > TRUNCATE_LEN;
-                const showTruncated = shouldTruncate && !textPostExpanded;
-                const displayBody = showTruncated ? body.slice(0, TRUNCATE_LEN).trim() + '...' : body;
+                const HEADING_TRUNCATE_LEN = 52;
+                const BODY_TRUNCATE_LEN = 150;
+                const shouldTruncateHeading = !!headline && headline.length > HEADING_TRUNCATE_LEN;
+                const shouldTruncateBody = hasBody && body.length > BODY_TRUNCATE_LEN;
+                const displayHeading = shouldTruncateHeading && !textHeadingExpanded
+                  ? `${headline.slice(0, HEADING_TRUNCATE_LEN).trim()}...`
+                  : headline;
+                const displayBody = shouldTruncateBody && !textBodyExpanded
+                  ? `${body.slice(0, BODY_TRUNCATE_LEN).trim()}...`
+                  : body;
                 return (
                   <>
                     {headline && (
-                      <h3 className="text-base sm:text-lg font-bold text-slate-900 uppercase tracking-tight leading-snug">
-                        {headline}
-                      </h3>
+                      <div>
+                        <h3 className="text-base sm:text-lg font-bold text-slate-900 uppercase tracking-tight leading-snug">
+                          {displayHeading}
+                        </h3>
+                        {shouldTruncateHeading && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              setTextHeadingExpanded((v) => !v);
+                            }}
+                            className="mt-1 text-xs font-semibold text-sky-600 hover:text-sky-700"
+                          >
+                            {textHeadingExpanded ? 'less...' : 'more...'}
+                          </button>
+                        )}
+                      </div>
                     )}
                     {hasBody && (
-                      <>
+                      <div>
                         <p className="text-slate-700 text-[15px] leading-[1.6] whitespace-pre-wrap">
                           {displayBody}
                         </p>
-                        {shouldTruncate && (
+                        {shouldTruncateBody && (
                           <button
                             type="button"
-                            onClick={(e) => { e.stopPropagation(); setTextPostExpanded((v) => !v); }}
-                            className="self-center flex items-center gap-1 text-pink-500 hover:text-pink-600 font-semibold text-sm mt-1"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              setTextBodyExpanded((v) => !v);
+                            }}
+                            className="mt-1 text-xs font-semibold text-sky-600 hover:text-sky-700"
                           >
-                            {textPostExpanded ? (
-                              <>SHOW LESS <ChevronUp className="h-4 w-4" /></>
-                            ) : (
-                              <>SHOW MORE <ChevronDown className="h-4 w-4" /></>
-                            )}
+                            {textBodyExpanded ? 'less...' : 'more...'}
                           </button>
                         )}
-                      </>
+                      </div>
                     )}
                     {!headline && !hasBody && (
                       <p className="text-slate-500 text-sm">Text post</p>
@@ -573,11 +820,16 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
           )}
         </div>
       ) : isProductTile ? (
-        <div className="relative w-full h-full">
+        <div className="relative isolate w-full h-full z-0">
           <Link href={`/marketplace/product/${item._id}`} className="block w-full h-full">
             <div className="w-full h-full flex items-center justify-center bg-slate-800">
-              {mediaUrl ? (
-                <img src={getImageUrl(mediaUrl)} alt={item.title || 'Product'} className={`w-full h-full object-cover ${filterClass}`} />
+              {resolvedMediaSrc ? (
+                <img
+                  src={resolvedMediaSrc}
+                  alt={item.title || 'Product'}
+                  className={`w-full h-full object-cover relative z-10 ${filterClass}`}
+                  data-pin-nopin="true"
+                />
               ) : (
                 <Package className="h-16 w-16 text-slate-500" />
               )}
@@ -624,6 +876,7 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
         <button
           type="button"
           className="relative w-full h-full cursor-pointer block focus:outline-none group overflow-hidden"
+          style={{ touchAction: 'pan-y' }}
           onClick={(e) => {
             e.stopPropagation();
             if (item.sensitive && !sensitiveRevealed) {
@@ -635,11 +888,12 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
         >
           <video
             ref={videoRef}
-            src={getImageUrl(mediaUrl) || mediaUrl}
+            src={resolvedMediaSrc}
             playsInline
             loop
             muted
             className={`w-full h-full object-cover ${filterClass} ${item.sensitive && !sensitiveRevealed ? 'blur-2xl scale-110' : ''}`}
+            style={{ touchAction: 'pan-y' }}
           />
           {item.sensitive && !sensitiveRevealed ? (
             <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 z-20">
@@ -665,11 +919,12 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
               href={`/marketplace/product/${productId}${creatorIdResolved ? `?resellerId=${creatorIdResolved}` : ''}`}
               className="relative w-full h-full cursor-pointer block focus:outline-none"
             >
-              {getImageUrl(mediaUrl) ? (
+              {resolvedMediaSrc ? (
                 <img
-                  src={getImageUrl(mediaUrl)}
+                  src={resolvedMediaSrc}
                   alt={item.caption || (item.productId as any)?.title || 'Product'}
-                  className={`w-full h-full object-contain ${filterClass} ${item.sensitive && !sensitiveRevealed ? 'blur-2xl scale-110' : ''}`}
+                  className={`w-full h-full ${variant === 'grid' ? 'object-cover' : 'object-contain'} ${filterClass} ${item.sensitive && !sensitiveRevealed ? 'blur-2xl scale-110' : ''}`}
+                  data-pin-nopin="true"
                 />
               ) : (
                 <div className="w-full h-full flex items-center justify-center bg-slate-800">
@@ -702,11 +957,12 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
                 }
               }}
             >
-              {getImageUrl(mediaUrl) ? (
+              {resolvedMediaSrc ? (
                 <img
-                  src={getImageUrl(mediaUrl)}
+                  src={resolvedMediaSrc}
                   alt={item.caption || item.heading || 'Post'}
-                  className={`w-full h-full object-contain ${filterClass} ${item.sensitive && !sensitiveRevealed ? 'blur-2xl scale-110' : ''}`}
+                  className={`w-full h-full ${variant === 'grid' ? 'object-cover' : 'object-contain'} ${filterClass} ${item.sensitive && !sensitiveRevealed ? 'blur-2xl scale-110' : ''}`}
+                  data-pin-nopin="true"
                 />
               ) : (
                 <div className="w-full h-full flex items-center justify-center bg-slate-800">
@@ -764,154 +1020,75 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
         </div>
       )}
 
-      {/* Top overlay: user top-left, follow top-right */}
-      <div className="absolute inset-x-0 top-0 p-3 bg-gradient-to-b from-black/50 to-transparent flex justify-between items-start gap-2 z-10">
-        <div className="flex items-center gap-2 min-w-0 flex-1">
+      {/* Top overlay: grid = date + follow only (⋯ moved to bottom bar); feed = date + ⋯ + follow */}
+      <div
+        className={`absolute inset-x-0 top-0 z-10 flex justify-between items-start gap-2 p-3 ${
+          variant === 'grid'
+            ? 'bg-gradient-to-b from-black/80 via-black/45 to-transparent pb-4'
+            : 'bg-gradient-to-b from-black/50 to-transparent'
+        }`}
+      >
+        <div className="flex min-w-0 flex-1 items-center gap-2">
           <Link
-            href={isOwnPost ? '/store' : (item.creatorId?._id || item.creatorId) ? `/morongwa-tv/user/${item.creatorId?._id ?? item.creatorId}` : '/morongwa-tv'}
-            className="flex items-center gap-2 min-w-0"
+            href={isOwnPost ? '/store' : (item.creatorId?._id || item.creatorId) ? `/user/${item.creatorId?._id ?? item.creatorId}` : '/wall'}
+            className="flex min-w-0 items-center gap-2"
+            onClick={(e) => e.stopPropagation()}
           >
-            <div className="h-8 w-8 rounded-full bg-slate-600 flex-shrink-0 overflow-hidden border-2 border-white/30">
+            <div className="h-8 w-8 flex-shrink-0 overflow-hidden rounded-full border-2 border-white/40 bg-slate-600 shadow-md ring-1 ring-black/20">
               {item.creatorId?.avatar ? (
-                <img src={getImageUrl(item.creatorId.avatar)} alt="" className="w-full h-full object-cover" />
+                <img src={getImageUrl(item.creatorId.avatar)} alt="" className="h-full w-full object-cover" />
               ) : (
-                <span className="flex items-center justify-center w-full h-full text-white">
+                <span className="flex h-full w-full items-center justify-center text-white">
                   <User className="h-4 w-4" />
                 </span>
               )}
             </div>
             <div className="min-w-0">
-              <p className="text-white text-sm font-semibold truncate">{isProductTile ? item.title : creatorName}</p>
+              <p
+                className={`truncate text-sm font-semibold text-white ${
+                  variant === 'grid' ? 'drop-shadow-[0_1px_3px_rgba(0,0,0,0.95)]' : ''
+                }`}
+              >
+                {creatorName}
+              </p>
             </div>
           </Link>
         </div>
-        <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
+        <div
+          className={`shrink-0 ${variant === 'grid' ? 'flex flex-col items-end gap-2' : 'flex items-center gap-1'}`}
+          onClick={(e) => e.stopPropagation()}
+        >
           {postPeriod && (
-            <span className="text-white/90 text-xs font-medium mr-1">{postPeriod}</span>
+            <span
+              className={
+                variant === 'grid'
+                  ? 'max-w-[min(100%,7.5rem)] shrink-0 text-right text-[9px] font-semibold leading-tight tracking-tight text-white drop-shadow-[0_1px_3px_rgba(0,0,0,0.95)] sm:text-[10px] md:text-[11px]'
+                  : 'mr-1 text-xs font-medium text-white/90'
+              }
+            >
+              {postPeriod}
+            </span>
           )}
-          {!isProductTile && (
-            <div className="relative">
-              <button
-                type="button"
-                onClick={(e) => { e.stopPropagation(); setPostMenuOpen((v) => !v); setReportOpen(false); }}
-                className="p-2 rounded-full text-white/90 hover:text-white hover:bg-white/20 transition-colors"
-                aria-label="More options"
-              >
-                <MoreHorizontal className="h-5 w-5" />
-              </button>
-              {postMenuOpen && (
-                <>
-                  <div className="fixed inset-0 z-10" onClick={() => setPostMenuOpen(false)} aria-hidden="true" />
-                  <div className="absolute right-0 top-full mt-1 py-1 bg-white rounded-xl border border-slate-200 shadow-xl z-20 min-w-[220px]">
-                    <button
-                      onClick={() => { setPostMenuOpen(false); setReportOpen(true); }}
-                      className="w-full px-4 py-2.5 text-left text-sm text-rose-600 hover:bg-rose-50 flex items-center gap-2"
-                    >
-                      <Flag className="h-4 w-4" /> Report
-                    </button>
-                    {isOwnPost && (
-                      <button
-                        onClick={async () => {
-                          setPostMenuOpen(false);
-                          if (!confirm('Delete this post? This cannot be undone.')) return;
-                          try {
-                            await tvAPI.deletePost(item._id);
-                            toast.success('Post deleted');
-                            onDelete?.(item._id);
-                          } catch (e: any) {
-                            toast.error(e.response?.data?.message || 'Failed to delete post');
-                          }
-                        }}
-                        className="w-full px-4 py-2.5 text-left text-sm text-rose-600 hover:bg-rose-50 flex items-center gap-2"
-                      >
-                        <Trash2 className="h-4 w-4" /> Delete post
-                      </button>
-                    )}
-                    {!isOwnPost && item.creatorId?._id && currentUserId && (
-                      <button
-                        onClick={async () => {
-                          setPostMenuOpen(false);
-                          try {
-                            await followsAPI.unfollow(item.creatorId!._id);
-                            toast.success('Unfollowed');
-                          } catch (e: any) {
-                            toast.error(e.response?.data?.message || 'Failed to unfollow');
-                          }
-                        }}
-                        className="w-full px-4 py-2.5 text-left text-sm text-rose-600 hover:bg-rose-50 flex items-center gap-2"
-                      >
-                        Unfollow
-                      </button>
-                    )}
-                    <div className="border-t border-slate-100 my-1" />
-                    <button
-                      onClick={() => { setPostMenuOpen(false); toast.success('Added to favorites'); }}
-                      className="w-full px-4 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
-                    >
-                      <Star className="h-4 w-4" /> Add to favorites
-                    </button>
-                    <Link
-                      href={item.creatorId?._id ? `/morongwa-tv/user/${item.creatorId._id}` : '/morongwa-tv'}
-                      onClick={() => setPostMenuOpen(false)}
-                      className="w-full px-4 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2 block"
-                    >
-                      <ExternalLink className="h-4 w-4" /> Go to post
-                    </Link>
-                    <button
-                      onClick={() => { setPostMenuOpen(false); handleShare(); }}
-                      className="w-full px-4 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
-                    >
-                      <Share2 className="h-4 w-4" /> Share to...
-                    </button>
-                    <button
-                      onClick={() => {
-                        setPostMenuOpen(false);
-                        const url = typeof window !== 'undefined' ? `${window.location.origin}/wall` : '';
-                        navigator.clipboard.writeText(url || `${window.location.origin}/wall`);
-                        toast.success('Link copied');
-                      }}
-                      className="w-full px-4 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
-                    >
-                      <Link2 className="h-4 w-4" /> Copy link
-                    </button>
-                    <button
-                      onClick={() => { setPostMenuOpen(false); toast.success('Embed code copied'); }}
-                      className="w-full px-4 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
-                    >
-                      <Code className="h-4 w-4" /> Embed
-                    </button>
-                    {!isOwnPost && item.creatorId?._id && (
-                      <Link
-                        href={`/morongwa-tv/user/${item.creatorId._id}`}
-                        onClick={() => setPostMenuOpen(false)}
-                        className="w-full px-4 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2 block"
-                      >
-                        <User className="h-4 w-4" /> About this account
-                      </Link>
-                    )}
-                    <div className="border-t border-slate-100 my-1" />
-                    <button
-                      onClick={() => setPostMenuOpen(false)}
-                      className="w-full px-4 py-2.5 text-center text-sm text-slate-600 hover:bg-slate-50"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </>
-              )}
-            </div>
-          )}
+          {variant !== 'grid' && postOverflowMenu('top')}
           {!isProductTile && item.creatorId?._id && !isOwnPost && (
-            <FollowButton targetUserId={item.creatorId._id} currentUserId={currentUserId} className="!px-3 !py-1.5 !text-xs !rounded-lg bg-black/40 text-white border border-white/30 hover:bg-black/60" />
+            <FollowButton
+              key={followNonce}
+              targetUserId={item.creatorId._id}
+              currentUserId={currentUserId}
+              className={
+                variant === 'grid'
+                  ? '!border !border-sky-600 !bg-sky-500 !px-3 !py-1.5 !text-xs !font-semibold !text-white shadow-md !rounded-lg hover:!bg-sky-600'
+                  : '!rounded-lg !bg-black/40 !px-3 !py-1.5 !text-xs border border-white/30 bg-black/40 text-white hover:bg-black/60'
+              }
+            />
           )}
         </div>
       </div>
 
-      {/* Product actions overlay (Resell, Buy, Enquire - keep on media for product tiles) */}
-      {/* Resell only on original library products (product_tile); hide when from reseller's post */}
-      {(isProductTile || productId) && (
-        <div className="absolute inset-x-0 bottom-0 p-3 bg-gradient-to-t from-black/60 to-transparent flex flex-wrap gap-1.5 z-10">
-          {isProductTile && ((item as any).allowResell || (item.productId as any)?.allowResell) && (
+      {/* Product actions overlay (Resell, Buy, Enquire) — product_tile + product posts with productId */}
+      {(isProductTile || productId) && !donateModalOpen && (
+        <div className="absolute inset-x-0 bottom-0 p-3 bg-gradient-to-t from-black/60 to-transparent flex flex-wrap gap-1.5 z-[60] pointer-events-auto">
+          {productId && showResellButton && (
             <Link
               href={`/marketplace/product/${productId || item._id}?view=resell`}
               className="inline-flex items-center justify-center px-2 py-1 rounded-lg bg-white/20 text-white text-xs font-medium hover:bg-white/30"
@@ -939,11 +1116,15 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
 
       {/* Watermark - bottom right */}
       {!isProductTile && showWatermark && (
-        <div className="absolute bottom-2 right-2 pointer-events-none z-0 flex justify-end">
+        <div className="absolute -bottom-0.5 -right-0.5 pointer-events-none z-10 flex justify-end">
           <img
             src={WATERMARK_IMG}
             alt="Qwertymates"
-            className="h-6 sm:h-7 w-auto object-contain object-right drop-shadow-lg"
+            className={
+              variant === 'grid'
+                ? 'h-9 sm:h-11 w-auto object-contain object-right drop-shadow-lg'
+                : 'h-6 sm:h-7 w-auto object-contain object-right drop-shadow-lg'
+            }
             style={{ filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.5))' }}
           />
         </div>
@@ -951,81 +1132,45 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
 
       {/* Watermark badge (always visible subtle) when not in start/end phase for videos */}
       {!isProductTile && !showWatermark && item.hasWatermark !== false && (
-        <div className="absolute bottom-2 right-2 pointer-events-none z-0 opacity-70 flex justify-end">
+        <div className="absolute -bottom-0.5 -right-0.5 pointer-events-none z-10 opacity-70 flex justify-end">
           <img
             src={WATERMARK_IMG}
             alt="Qwertymates"
-            className="h-4 sm:h-5 w-auto object-contain object-right"
+            className={
+              variant === 'grid'
+                ? 'h-8 sm:h-10 w-auto object-contain object-right'
+                : 'h-4 sm:h-5 w-auto object-contain object-right'
+            }
           />
         </div>
       )}
       </div>
 
-      {/* QwertyTV grid: action icons below each video - hidden for product posts */}
+      {/* QwertyTV grid only: views + share + ⋯ menu (feed/post keep full toolbar elsewhere) */}
       {!isProductPost && variant === 'grid' && (
-        <div className="flex-shrink-0 min-h-[44px] px-2 py-1.5 border-t border-slate-100 flex items-center justify-start gap-2 sm:gap-3 flex-wrap bg-white">
-          {isVideo && (
-            <span className="flex items-center gap-1 min-h-[36px] min-w-[36px] justify-center py-1 px-1 text-slate-600" title="Views">
-              <Eye className="h-4 w-4 sm:h-5 sm:w-5" />
-              <span className="text-xs font-medium">{(item.viewCount ?? 0) >= 1000 ? `${((item.viewCount ?? 0) / 1000).toFixed(1)}K` : item.viewCount ?? 0}</span>
-            </span>
-          )}
-          <button
-            onClick={(e) => { e.stopPropagation(); onLike?.(item._id, !liked); }}
-            className={`flex items-center gap-1 min-h-[36px] min-w-[36px] justify-center py-1 px-1 rounded-lg transition-colors cursor-pointer touch-manipulation ${
-              liked ? 'text-rose-500' : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <Heart className={`h-4 w-4 sm:h-5 sm:w-5 ${liked ? 'fill-current' : ''}`} />
-            <span className="text-xs font-medium">{(item.likeCount ?? 0) >= 1000 ? `${((item.likeCount ?? 0) / 1000).toFixed(1)}K` : item.likeCount ?? 0}</span>
-          </button>
-          <button
-            onClick={(e) => { e.stopPropagation(); setCommentModalOpen(true); }}
-            className="flex items-center gap-1 min-h-[36px] min-w-[36px] justify-center py-1 px-1 rounded-lg text-slate-600 hover:text-slate-900 transition-colors cursor-pointer touch-manipulation"
-            title="Comments"
-          >
-            <MessageCircle className="h-4 w-4 sm:h-5 sm:w-5" />
-            <span className="text-xs font-medium">{item.commentCount ?? 0}</span>
-          </button>
-          <button
-            onClick={(e) => { e.stopPropagation(); handleShare(); }}
-            className="min-h-[36px] min-w-[36px] flex items-center justify-center py-1 rounded-lg text-slate-600 hover:text-slate-900 transition-colors cursor-pointer touch-manipulation"
-            title="Share"
-          >
-            <Share2 className="h-4 w-4 sm:h-5 sm:w-5" />
-          </button>
-          {onRepost && (
+        <div className="flex min-h-[44px] flex-shrink-0 items-center justify-between gap-2 border-t border-slate-100 bg-white px-2 py-1.5">
+          <div className="flex min-w-0 items-center gap-3 sm:gap-4">
+            {isVideo && (
+              <span className="flex min-h-[36px] items-center justify-center gap-1 px-1 py-1 text-slate-600" title="Views">
+                <Eye className="h-4 w-4 sm:h-5 sm:w-5" />
+                <span className="text-xs font-medium">
+                  {(item.viewCount ?? 0) >= 1000 ? `${((item.viewCount ?? 0) / 1000).toFixed(1)}K` : item.viewCount ?? 0}
+                </span>
+              </span>
+            )}
             <button
-              onClick={(e) => { e.stopPropagation(); onRepost(item._id); }}
-              className="min-h-[36px] min-w-[36px] flex items-center justify-center py-1 rounded-lg text-slate-600 hover:text-slate-900 transition-colors cursor-pointer touch-manipulation"
-              title="Repost"
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleShare();
+              }}
+              className="flex min-h-[36px] min-w-[36px] cursor-pointer items-center justify-center rounded-lg py-1 text-slate-600 transition-colors hover:text-slate-900 touch-manipulation"
+              title="Share"
             >
-              <Repeat2 className="h-4 w-4 sm:h-5 sm:w-5" />
+              <Share2 className="h-4 w-4 sm:h-5 sm:w-5" />
             </button>
-          )}
-          <Link
-            href="/messages"
-            className="min-h-[36px] min-w-[36px] flex items-center justify-center py-1 rounded-lg text-slate-600 hover:text-slate-900 transition-colors touch-manipulation"
-            title="Send"
-          >
-            <Send className="h-4 w-4 sm:h-5 sm:w-5" />
-          </Link>
-          {!isOwnPost && creatorIdResolved && currentUserId && (
-            <button
-              onClick={(e) => { e.stopPropagation(); setDonateModalOpen(true); }}
-              className="min-h-[36px] min-w-[36px] flex items-center justify-center py-1 rounded-lg text-slate-600 hover:text-slate-900 transition-colors cursor-pointer touch-manipulation"
-              title="Donate"
-            >
-              <HeartHandshake className="h-4 w-4 sm:h-5 sm:w-5" />
-            </button>
-          )}
-          <button
-            onClick={(e) => { e.stopPropagation(); toast.success('Saved'); }}
-            className="min-h-[36px] min-w-[36px] flex items-center justify-center py-1 rounded-lg text-slate-600 hover:text-slate-900 transition-colors cursor-pointer touch-manipulation"
-            title="Save"
-          >
-            <Bookmark className="h-4 w-4 sm:h-5 sm:w-5" />
-          </button>
+          </div>
+          {postOverflowMenu('bottom')}
         </div>
       )}
 
@@ -1037,7 +1182,7 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
               {item.hashtags.map((tag) => (
                 <Link
                   key={tag}
-                  href={`/wall?q=%23${encodeURIComponent(tag)}`}
+                  href={`/hashtag/${encodeURIComponent(tag)}`}
                   className="px-2 py-1 rounded-lg bg-sky-100 text-sky-700 text-xs font-medium hover:bg-sky-200 transition-colors"
                   onClick={(e) => e.stopPropagation()}
                 >
@@ -1087,13 +1232,6 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
                   <Repeat2 className="h-4 w-4 sm:h-5 sm:w-5" />
                 </button>
               )}
-              <Link
-                href="/messages"
-                className="min-h-[36px] min-w-[36px] sm:min-h-0 sm:min-w-0 flex items-center justify-center py-1 rounded-lg text-slate-600 hover:text-slate-900 transition-colors touch-manipulation"
-                title="Send to message"
-              >
-                <Send className="h-4 w-4 sm:h-5 sm:w-5" />
-              </Link>
               {!isOwnPost && creatorIdResolved && currentUserId && (
                 <button
                   onClick={(e) => { e.stopPropagation(); setDonateModalOpen(true); }}
@@ -1225,7 +1363,7 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
               if (resellerPct != null && creatorIdResolved) {
                 displayPrice = Math.round(displayPrice * (1 + resellerPct / 100) * 100) / 100;
               }
-              return prod.currency === 'USD' ? formatInLocal(displayPrice) : formatPriceLocal(displayPrice, prod.currency);
+              return toViewerCurrency(displayPrice, prod.currency);
             })()}
           </p>
         </Link>
@@ -1270,7 +1408,7 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
       {/* Video expand modal - YouTube-style: video left, sidebar right; fullscreen hides sidebar */}
       {!isProductTile && isVideo && videoExpandOpen && (
         <div
-          className={`fixed inset-0 z-50 flex ${relatedVideos?.length && !isFullscreen ? 'bg-white flex-col lg:flex-row' : 'bg-black/95 flex-col items-center justify-center'}`}
+          className={`fixed inset-0 z-50 flex ${relatedVideos?.length && !isFullscreen ? 'overflow-hidden bg-white flex-col lg:flex-row lg:items-stretch' : 'bg-black/95 flex-col items-center justify-center'}`}
           onClick={() => {
             setVideoExpandOpen(false);
             expandedVideoRef.current?.pause();
@@ -1311,7 +1449,7 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
           >
             <video
               ref={expandedVideoRef}
-              src={getImageUrl(mediaUrl) || mediaUrl}
+              src={resolvedMediaSrc}
               controls
               autoPlay
               loop
@@ -1362,14 +1500,6 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
                   <Repeat2 className="h-5 w-5 sm:h-6 sm:w-6" />
                 </button>
               )}
-              <Link
-                href="/messages"
-                className={`min-h-[40px] min-w-[40px] flex items-center justify-center rounded-lg transition-colors cursor-pointer touch-manipulation ${relatedVideos?.length && !isFullscreen ? 'text-slate-600 hover:text-slate-900' : 'text-white/90 hover:text-white'}`}
-                title="Send"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <Send className="h-5 w-5 sm:h-6 sm:w-6" />
-              </Link>
               {!isOwnPost && creatorIdResolved && currentUserId && (
                 <button
                   onClick={(e) => { e.stopPropagation(); setDonateModalOpen(true); }}
@@ -1382,7 +1512,10 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
             </div>
           </div>
           {relatedVideos && relatedVideos.length > 0 && !isFullscreen && (
-            <div className="flex flex-col w-full lg:w-[320px] xl:w-[360px] flex-shrink-0 min-h-0 overflow-y-auto lg:border-l lg:border-slate-200 max-h-[40vh] lg:max-h-none" onClick={(e) => e.stopPropagation()}>
+            <div
+              className="flex flex-col w-full min-h-0 shrink-0 lg:h-full lg:w-[320px] xl:w-[360px] max-h-[42vh] lg:max-h-none lg:border-l lg:border-slate-200"
+              onClick={(e) => e.stopPropagation()}
+            >
               <VideoSidebar
                 items={relatedVideos}
                 currentPostId={item._id}
@@ -1414,9 +1547,10 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
             onClick={(e) => e.stopPropagation()}
           >
             <img
-              src={getImageUrl(mediaUrl)}
+              src={resolvedMediaSrc}
               alt={item.caption || 'Post'}
               className={`max-w-full max-h-[90vh] object-contain ${filterClass}`}
+              data-pin-nopin="true"
             />
             {isCarousel && (item.mediaUrls?.length ?? 0) > 1 && (
               <>
@@ -1474,7 +1608,7 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
 
       {/* Donate modal */}
       {donateModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => { setDonateModalOpen(false); setDonateAmount(''); }}>
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/60 p-4" onClick={() => { setDonateModalOpen(false); setDonateAmount(''); }}>
           <div className="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6" onClick={(e) => e.stopPropagation()}>
             <h2 className="text-lg font-semibold text-slate-900 mb-2">Donate to {creatorName}</h2>
             <p className="text-sm text-slate-600 mb-2">Amount will be deducted from your wallet and sent to the creator.</p>

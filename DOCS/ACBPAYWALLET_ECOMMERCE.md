@@ -1,5 +1,7 @@
 # ACBPayWallet Payment Page for E-commerce
 
+For **in-person cash agents** (KYC, admin approval, float requirements), see **[ACBPAYWALLET_MERCHANT_AGENTS.md](./ACBPAYWALLET_MERCHANT_AGENTS.md)**.
+
 Merchants can integrate ACBPayWallet so their website customers can pay using wallet balance or stored cards. **Embed (PayGate PayWeb3 style)** keeps the buyer on your site; **redirect** sends them to the payment page.
 
 ## Embed (recommended)

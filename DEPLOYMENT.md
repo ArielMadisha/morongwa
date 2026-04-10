@@ -1,87 +1,84 @@
-# Deployment Guide
+# Deployment guide
 
-> **Note:** Linode sync has been disabled. Use Vercel/Render or manual deployment instead.
+Use a Linux VPS (e.g. **DigitalOcean Droplet**) or any host with Node.js 20+ (LTS recommended), plus MongoDB Atlas or a self-hosted MongoDB instance.
 
-## Linode Deployment (Disabled)
-
-### Prerequisites
-
-- Linode server with Node.js 18+ and npm
-- SSH access to your Linode
-- MongoDB (local on Linode or MongoDB Atlas)
-
-### 1. One-time server setup
+## One-time server setup
 
 ```bash
-# On your Linode server
-sudo apt update && sudo apt install -y nodejs npm
-# Or use nvm for Node 18+
-curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.0/install.sh | bash
-nvm install 18
+# On the droplet
+sudo apt update && sudo apt install -y nodejs npm git nginx
+# Prefer Node 20+ (nvm or NodeSource)
 
-# Install PM2 for process management
 npm install -g pm2
 
-# Create app directory
 sudo mkdir -p /var/www/morongwa
 sudo chown $USER:$USER /var/www/morongwa
 ```
 
-### 2. Configure deploy config
+## Configure deploy config (project root)
 
 ```bash
-# From project root
-cp deploy-linode.config.example deploy-linode.config
-
-# Edit deploy-linode.config
-# LINODE_HOST=root@your-linode-ip
-# LINODE_PATH=/var/www/morongwa
+cp deploy-server.config.example deploy-server.config
+# Edit: DEPLOY_SSH_HOST=root@your.droplet.ip
+#       DEPLOY_REMOTE_PATH=/var/www/morongwa
 ```
 
-### 3. Sync to Linode
+## Full production deploy (backend + frontend + WhatsApp)
 
-**Using Git Bash or WSL (recommended on Windows):**
+From **`backend/`**, one command pushes the API (Docker rebuild + restart), publishes the **Twilio Studio** WhatsApp flow, then rebuilds and refreshes the **Next.js** frontend on the server:
 
 ```bash
-bash scripts/deploy-to-linode.sh
+cd backend
+npm run deploy:production
 ```
 
-**Using PowerShell:**
+Needs **`deploy-server.config`** and **`deploy-server.secrets`** at the repo root, and **`backend/.env`** with Twilio vars for the flow step: `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_STUDIO_FLOW_SID`.
+
+Individual steps: `npm run deploy:backend-remote`, `npm run deploy:twilio-flow`, `npm run deploy:frontend-remote:rebuild`.
+
+## Sync and build on the server
+
+**Git Bash or WSL:**
+
+```bash
+bash scripts/deploy-to-server.sh
+```
+
+**PowerShell (requires `rsync` in PATH):**
 
 ```powershell
-.\scripts\deploy-to-linode.ps1
+.\scripts\deploy-to-server.ps1
 ```
 
-**Manual sync (if scripts fail):**
+**Frontend-only Docker flow (see `backend/scripts/remote_refresh_frontend_test.sh`):**
+
+Password in a **local gitignored file** (never commit):
 
 ```bash
-rsync -avz --exclude=node_modules --exclude=.next --exclude=dist --exclude=.git \
-  ./ root@YOUR_LINODE_IP:/var/www/morongwa/
+cp deploy-server.config.example deploy-server.config
+cp deploy-server.secrets.example deploy-server.secrets
+# Edit both files; put the SSH password only in deploy-server.secrets
 
-ssh root@YOUR_LINODE_IP "cd /var/www/morongwa/backend && npm install && npm run build"
-ssh root@YOUR_LINODE_IP "cd /var/www/morongwa/frontend && npm install && npm run build"
+cd backend
+npm run deploy:frontend-remote:rebuild
 ```
 
-### 4. Environment on Linode
+Key-based SSH (no password file):
 
-Create `.env` files on the server:
-
-```bash
-# backend/.env
-MONGODB_URI=mongodb://localhost:27017/morongwa
-JWT_SECRET=your-production-secret
-PORT=4000
-FRONTEND_URL=https://yourdomain.com
-NODE_ENV=production
-
-# frontend/.env.local
-NEXT_PUBLIC_API_URL=https://api.yourdomain.com/api
+```powershell
+.\scripts\publish-frontend-test.ps1 -SshTarget root@your.droplet.ip -RebuildTar
 ```
 
-### 5. Start services with PM2
+## Environment on the server
 
 ```bash
-# On Linode
+# backend/.env — production URLs, MONGO_URI, secrets, etc.
+# frontend/.env.local or set NEXT_PUBLIC_API_URL at build time
+```
+
+## PM2 example
+
+```bash
 cd /var/www/morongwa
 pm2 start backend/dist/server.js --name morongwa-api
 pm2 start "npm run start" --name morongwa-web --cwd frontend
@@ -89,33 +86,14 @@ pm2 save
 pm2 startup
 ```
 
-### 6. Nginx reverse proxy (optional)
+## Nginx reverse proxy (example)
 
-```nginx
-# /etc/nginx/sites-available/morongwa
-server {
-    listen 80;
-    server_name yourdomain.com;
-    location / {
-        proxy_pass http://127.0.0.1:3000;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection 'upgrade';
-    }
-}
-server {
-    listen 80;
-    server_name api.yourdomain.com;
-    location / {
-        proxy_pass http://127.0.0.1:4000;
-    }
-}
-```
+Point `qwertymates.com` at your Next port (e.g. 3000 or 3010) and `api.qwertymates.com` at the API port (e.g. 4000).
 
----
+## Other options
 
-## Other deployment options
-
+- **Frontend**: Vercel (`vercel --prod` from `frontend/`)
 - **Backend**: Render, Railway, Fly.io
-- **Frontend**: Vercel (`vercel --prod` from frontend/)
 - **Database**: MongoDB Atlas
+
+See repository root **README.md** for the high-level link to this file.

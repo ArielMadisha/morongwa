@@ -2,7 +2,6 @@ import express, { Response } from "express";
 import Product from "../data/models/Product";
 import ProductEnquiry from "../data/models/ProductEnquiry";
 import ProductEnquiryMessage from "../data/models/ProductEnquiryMessage";
-import Supplier from "../data/models/Supplier";
 import { authenticate, AuthRequest } from "../middleware/auth";
 import { AppError } from "../middleware/errorHandler";
 import { sendNotification } from "../services/notification";

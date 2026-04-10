@@ -8,6 +8,7 @@ import { Wallet, CreditCard, Loader2, ArrowLeft } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { walletAPI } from '@/lib/api';
 import AuthBackground from '@/components/AuthBackground';
+import { openPayGatePayment } from '@/lib/payGateRedirect';
 
 function PayPageContent() {
   const router = useRouter();
@@ -62,8 +63,8 @@ function PayPageContent() {
         cardId,
       });
       const data = res.data;
-      if (data?.paymentUrl) {
-        window.location.href = data.paymentUrl;
+      if (data?.paymentUrl || data?.payGateRedirect) {
+        openPayGatePayment({ paymentUrl: data.paymentUrl, payGateRedirect: data.payGateRedirect });
         return;
       }
       if (data?.redirectUrl) {

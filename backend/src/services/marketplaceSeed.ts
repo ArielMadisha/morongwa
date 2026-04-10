@@ -5,6 +5,7 @@ import Product from "../data/models/Product";
 import Store from "../data/models/Store";
 import { logger } from "./monitoring";
 import { slugify } from "../utils/helpers";
+import { countPublicListableProducts, isProductPubliclyListable } from "./publicProductListing";
 
 const SAMPLE_PRODUCTS = [
   { title: "Organic Honey 500g", slug: "organic-honey-500g", price: 89.99, category: "Food", tags: ["organic", "local"] },
@@ -22,8 +23,9 @@ const SAMPLE_PRODUCTS = [
 ];
 
 export async function ensureDefaultProducts(): Promise<void> {
-  const count = await Product.countDocuments();
-  if (count > 0) {
+  /** Seed when DB is empty OR when nothing matches the public catalog filter (e.g. only pending suppliers). */
+  const listable = await countPublicListableProducts();
+  if (listable > 0) {
     return;
   }
 
@@ -83,8 +85,24 @@ export async function ensureDefaultProducts(): Promise<void> {
         ratingAvg: 4.5,
         ratingCount: 0,
         active: true,
+        supplierSource: "internal",
       });
       logger.info(`Seeded product: ${p.slug}`);
+      continue;
+    }
+    const listableOne = await isProductPubliclyListable(existing);
+    if (!listableOne) {
+      await Product.updateOne(
+        { _id: existing._id },
+        {
+          $set: {
+            supplierId,
+            active: true,
+            supplierSource: "internal",
+          },
+        }
+      );
+      logger.info(`Attached sample product to approved supplier for public listing: ${p.slug}`);
     }
   }
 }

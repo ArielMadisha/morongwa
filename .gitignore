@@ -18,9 +18,20 @@ SUPERADMIN_CREDENTIALS.md
 .env.production
 .env.*
 !.env.example
-deploy-linode.config
+!**/.env.production.example
+!**/.env.deploy.example
+# Deploy SSH / host config (may contain passwords)
+deploy-server.config
+deploy-server.secrets
+**/deploy-server.config
+**/deploy-server.secrets
+# App secrets at any depth
 backend/.env
+backend/.env.*
 frontend/.env
+frontend/.env.*
+mobile/.env
+mobile/.env.*
 .env.development.local
 .env.test.local
 .env.production.local
@@ -37,7 +48,16 @@ Thumbs.db
 # VS Code
 .vscode/
 
+# Expo local state
+.expo/
+mobile/.expo/
+
 # Lock files
 package-lock.json
 pnpm-lock.yaml
 yarn.lock
+
+# Local deploy artifacts (regenerate with scripts/publish-frontend-test.ps1)
+morongwa-frontend-only.tgz
+_morongwa_full_deploy.tgz
+_pack_frontend/

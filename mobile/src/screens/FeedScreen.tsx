@@ -1,4 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Video, ResizeMode } from "expo-av";
+import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import {
   Alert,
@@ -7,7 +9,6 @@ import {
   Easing,
   FlatList,
   Image,
-  Linking,
   Modal,
   PanResponder,
   Platform,
@@ -24,10 +25,22 @@ import {
 import * as Clipboard from "expo-clipboard";
 import { ActionChip } from "../components/ActionChip";
 import { ModalCard } from "../components/ModalCard";
+import { StoriesStrip } from "../components/StoriesStrip";
+import { feedLight, socialTheme } from "../theme/socialTheme";
 import { usePersistentMap } from "../hooks/usePersistentMap";
 import { usePendingActionQueue } from "../hooks/usePendingActionQueue";
-import { advertsAPI, followsAPI, toAbsoluteMediaUrl, tvAPI, usersAPI } from "../lib/api";
-import { Advert, TVComment, TVPost, User, UserProfileStats } from "../types";
+import {
+  advertsAPI,
+  cartAPI,
+  followsAPI,
+  productsAPI,
+  resellerAPI,
+  toAbsoluteMediaUrl,
+  tvAPI,
+  usersAPI
+} from "../lib/api";
+import { currencyForCountry, detectCountryCode, formatMoney } from "../lib/geoCurrency";
+import { Advert, Product, TVComment, TVPost, User, UserProfileStats } from "../types";
 
 type FeedListItem =
   | { kind: "post"; id: string; post: TVPost }
@@ -38,6 +51,16 @@ type FeedScreenProps = {
   currentUserId?: string;
   savedOnly?: boolean;
   onSavedCountChange?: (count: number) => void;
+  /** Wall = landing feed (newest, minimal chrome). TV = video-only feed with optional paging. */
+  variant?: "default" | "wall" | "tvVideo";
+  /** Inner content height from parent `onLayout`; enables full-screen paging for QwertyTV. */
+  viewportHeight?: number;
+  /** When the parent renders the fixed status strip, hide the in-feed stories header. */
+  hideStoriesHeader?: boolean;
+  /** First story chip (“Create”) — open create post (parent owns modal). */
+  onPressCreateStory?: () => void;
+  /** Notify parent after cart changes (e.g. refresh cart badge). */
+  onCartUpdated?: () => void;
 };
 
 type InteractionToast = {
@@ -153,7 +176,243 @@ const HAPTIC_MAP: Record<
   queue_retry_pending: { kind: "impact", value: Haptics.ImpactFeedbackStyle.Medium }
 };
 
-export function FeedScreen({ userName, currentUserId, savedOnly = false, onSavedCountChange }: FeedScreenProps) {
+const productFetchCache = new Map<string, Promise<Product | null>>();
+function getCachedProduct(productId: string): Promise<Product | null> {
+  if (!productFetchCache.has(productId)) {
+    productFetchCache.set(
+      productId,
+      productsAPI.getByIdOrSlug(productId).then((r) => r.data?.data ?? null)
+    );
+  }
+  return productFetchCache.get(productId)!;
+}
+
+function useCachedProduct(productId?: string) {
+  const [product, setProduct] = useState<Product | null>(null);
+  useEffect(() => {
+    if (!productId) {
+      setProduct(null);
+      return;
+    }
+    let cancelled = false;
+    void getCachedProduct(productId).then((p) => {
+      if (!cancelled) setProduct(p);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [productId]);
+  return product;
+}
+
+function FeedProductOverlayRow({
+  post,
+  onCartUpdated
+}: {
+  post: TVPost;
+  onCartUpdated?: () => void;
+}) {
+  const pid = post.productId;
+  const product = useCachedProduct(pid);
+  const [busy, setBusy] = useState(false);
+  if (!pid) return null;
+
+  const showResell = !!(product && product.allowResell && !post.fromResellerWall);
+  const outOfStock = !!(product && typeof product.stock === "number" && product.stock <= 0);
+  const cartReady = !!product && !outOfStock;
+
+  const addCart = async () => {
+    if (busy || !product || outOfStock) return;
+    setBusy(true);
+    try {
+      await cartAPI.add(product._id, 1);
+      onCartUpdated?.();
+    } catch (err: unknown) {
+      const msg =
+        (err as { response?: { data?: { message?: string } } })?.response?.data?.message ||
+        "Could not add to cart.";
+      Alert.alert("Cart", String(msg));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const doResell = async () => {
+    if (busy || !product) return;
+    setBusy(true);
+    try {
+      await resellerAPI.addProductToWall(product._id);
+      Alert.alert("Resell", "Product added to your reseller wall.");
+      onCartUpdated?.();
+    } catch (err: unknown) {
+      const msg =
+        (err as { response?: { data?: { message?: string } } })?.response?.data?.message ||
+        "Could not add to your wall.";
+      Alert.alert("Resell", String(msg));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <View style={feedProductStyles.overlayRow} pointerEvents="box-none">
+      {showResell ? (
+        <Pressable
+          onPress={() => void doResell()}
+          disabled={busy}
+          style={[feedProductStyles.pill, feedProductStyles.resellPill]}
+        >
+          <Text style={feedProductStyles.resellText}>RESELL</Text>
+        </Pressable>
+      ) : (
+        <View style={feedProductStyles.pillSpacer} />
+      )}
+      <Pressable
+        onPress={() => void addCart()}
+        disabled={busy || !cartReady}
+        style={[
+          feedProductStyles.pill,
+          feedProductStyles.cartPill,
+          (!cartReady || outOfStock) && feedProductStyles.cartPillDisabled
+        ]}
+      >
+        <Text
+          style={[
+            feedProductStyles.cartText,
+            (!cartReady || outOfStock) && feedProductStyles.cartTextDisabled
+          ]}
+        >
+          {!product ? "…" : busy ? "…" : "+cart-"}
+        </Text>
+      </Pressable>
+    </View>
+  );
+}
+
+/** Title + price bottom-right after description (product feed layout). */
+function FeedProductBelowMedia({ post, titleFallback }: { post: TVPost; titleFallback: string }) {
+  const product = useCachedProduct(post.productId);
+  const deviceCurrency = currencyForCountry(detectCountryCode());
+  const displayTitle =
+    product?.title || post.heading || post.caption || post.subject || titleFallback;
+  const effective =
+    product &&
+    typeof product.discountPrice === "number" &&
+    product.discountPrice >= 0 &&
+    product.discountPrice < product.price
+      ? product.discountPrice
+      : product?.price;
+
+  return (
+    <View style={feedProductStyles.belowMediaRow}>
+      <Text
+        style={feedProductStyles.productCardTitle}
+        selectable
+        numberOfLines={5}
+      >
+        {displayTitle}
+      </Text>
+      {product && typeof effective === "number" ? (
+        <Text style={feedProductStyles.priceHero} selectable>
+          {formatMoney(effective, product.currency || deviceCurrency)}
+        </Text>
+      ) : (
+        <View style={feedProductStyles.priceRowPlaceholder}>
+          <ActivityIndicator size="small" color="#2563eb" />
+        </View>
+      )}
+    </View>
+  );
+}
+
+const feedProductStyles = StyleSheet.create({
+  overlayRow: {
+    position: "absolute",
+    top: 8,
+    left: 8,
+    right: 8,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start"
+  },
+  pill: {
+    borderWidth: StyleSheet.hairlineWidth * 2,
+    borderColor: "#2563eb",
+    backgroundColor: "rgba(255,255,255,0.95)",
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 7
+  },
+  pillSpacer: {
+    minWidth: 1
+  },
+  resellPill: {},
+  resellText: {
+    color: "#1d4ed8",
+    fontWeight: "800",
+    fontSize: 11,
+    letterSpacing: 0.6,
+    textTransform: "uppercase"
+  },
+  cartPill: {},
+  cartPillDisabled: {
+    opacity: 0.5
+  },
+  cartText: {
+    color: "#1d4ed8",
+    fontWeight: "800",
+    fontSize: 12,
+    letterSpacing: 0.2
+  },
+  cartTextDisabled: {
+    color: "#64748b"
+  },
+  belowMediaRow: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    justifyContent: "space-between",
+    gap: 10,
+    marginTop: 6
+  },
+  productCardTitle: {
+    flex: 1,
+    minWidth: 0,
+    color: "#262626",
+    fontSize: 15,
+    fontWeight: "600",
+    lineHeight: 20,
+    paddingRight: 4
+  },
+  priceHero: {
+    flexShrink: 0,
+    color: "#2563eb",
+    fontSize: 24,
+    fontWeight: "800",
+    letterSpacing: -0.3,
+    textAlign: "right",
+    lineHeight: 28
+  },
+  priceRowPlaceholder: {
+    flexShrink: 0,
+    minHeight: 28,
+    minWidth: 28,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingVertical: 4
+  }
+});
+
+export function FeedScreen({
+  userName,
+  currentUserId,
+  savedOnly = false,
+  onSavedCountChange,
+  variant = "default",
+  viewportHeight = 0,
+  hideStoriesHeader = false,
+  onPressCreateStory,
+  onCartUpdated
+}: FeedScreenProps) {
   const { width } = useWindowDimensions();
   const compactUI = width < 390;
   const [posts, setPosts] = useState<TVPost[]>([]);
@@ -258,6 +517,8 @@ export function FeedScreen({ userName, currentUserId, savedOnly = false, onSaved
   const queueModalOpacity = useRef(new Animated.Value(0)).current;
 
   const hasMore = !savedOnly && posts.length < total;
+  const usePaging = variant === "tvVideo" && !savedOnly && viewportHeight > 200;
+  const showAdverts = !savedOnly && variant === "default";
 
   useEffect(() => {
     onSavedCountChange?.(Object.keys(savedMap).length);
@@ -361,11 +622,13 @@ export function FeedScreen({ userName, currentUserId, savedOnly = false, onSaved
           await loadSavedPosts();
           return;
         }
+        const effectiveSort = variant === "wall" ? "newest" : sort;
         const res = await tvAPI.getFeed({
           page: targetPage,
           limit: FEED_LIMIT,
-          sort,
-          q: searchQuery.trim() || undefined
+          sort: effectiveSort,
+          q: variant === "wall" ? undefined : searchQuery.trim() || undefined,
+          type: variant === "tvVideo" && !savedOnly ? "video" : undefined
         });
         const data = res.data?.data ?? [];
         const feedPosts = Array.isArray(data) ? data : [];
@@ -384,17 +647,17 @@ export function FeedScreen({ userName, currentUserId, savedOnly = false, onSaved
         setLoadingMore(false);
       }
     },
-    [isCreatorHidden, loadSavedPosts, savedOnly, sort, searchQuery]
+    [isCreatorHidden, loadSavedPosts, savedOnly, sort, searchQuery, variant]
   );
 
   useEffect(() => {
     loadFeed(1, false);
-    if (!savedOnly) {
+    if (!savedOnly && variant === "default") {
       loadAdverts();
     } else {
       setAdverts([]);
     }
-  }, [loadFeed, loadAdverts, savedOnly]);
+  }, [loadFeed, loadAdverts, savedOnly, variant]);
 
   useEffect(() => {
     const timeout = setTimeout(() => {
@@ -417,7 +680,7 @@ export function FeedScreen({ userName, currentUserId, savedOnly = false, onSaved
     if (savedOnly) {
       await loadSavedPosts();
     } else {
-      await Promise.all([loadFeed(1, false), loadAdverts()]);
+      await Promise.all([loadFeed(1, false), variant === "default" ? loadAdverts() : Promise.resolve()]);
     }
     setRefreshing(false);
   };
@@ -425,7 +688,12 @@ export function FeedScreen({ userName, currentUserId, savedOnly = false, onSaved
   const items = useMemo<FeedListItem[]>(() => {
     const merged: FeedListItem[] = [];
     posts.forEach((post, index) => {
-      if (!savedOnly && index > 0 && index % ADVERT_INTERVAL === 0 && adverts.length > 0) {
+      if (
+        showAdverts &&
+        index > 0 &&
+        index % ADVERT_INTERVAL === 0 &&
+        adverts.length > 0
+      ) {
         const advert = adverts[index % adverts.length];
         if (advert) {
           merged.push({ kind: "advert", id: `advert-${advert._id}-${index}`, advert });
@@ -434,7 +702,7 @@ export function FeedScreen({ userName, currentUserId, savedOnly = false, onSaved
       merged.push({ kind: "post", id: post._id, post });
     });
     return merged;
-  }, [posts, adverts, savedOnly]);
+  }, [posts, adverts, showAdverts]);
 
   const loadMore = () => {
     const now = Date.now();
@@ -1051,6 +1319,26 @@ export function FeedScreen({ userName, currentUserId, savedOnly = false, onSaved
     setProfileHistory([]);
   };
 
+  /** Unique creators from the loaded feed — used by the stories strip (IG-style). */
+  const storyCreators = useMemo(() => {
+    const seen = new Set<string>();
+    const out: { id: string; name?: string; avatar?: string }[] = [];
+    for (const p of posts) {
+      const id = getCreatorUserId(p);
+      if (!id || (currentUserId && id === currentUserId)) continue;
+      if (seen.has(id)) continue;
+      seen.add(id);
+      const creator = typeof p.creatorId === "object" ? (p.creatorId as User) : undefined;
+      out.push({
+        id,
+        name: creator?.name,
+        avatar: creator?.avatar
+      });
+      if (out.length >= 20) break;
+    }
+    return out;
+  }, [posts, currentUserId]);
+
   const openConnections = async (type: "followers" | "following") => {
     if (!profileId) return;
     setConnectionsType(type);
@@ -1319,19 +1607,29 @@ export function FeedScreen({ userName, currentUserId, savedOnly = false, onSaved
   const renderItem = useCallback(({ item }: { item: FeedListItem }) => {
     if (item.kind === "advert") {
       const imageUrl = toAbsoluteMediaUrl(item.advert.imageUrl);
-      return (
+      const inner = (
         <Pressable
           style={styles.card}
-          onPress={() => item.advert.linkUrl && Linking.openURL(item.advert.linkUrl).catch(() => null)}
+          onPress={() => {
+            if (!item.advert.linkUrl) return;
+            Alert.alert(item.advert.title, "Sponsored — copy the link to open it in your browser.", [
+              { text: "Cancel", style: "cancel" },
+              {
+                text: "Copy link",
+                onPress: () => void Clipboard.setStringAsync(item.advert.linkUrl!).catch(() => null)
+              }
+            ]);
+          }}
           accessibilityRole="button"
-          accessibilityLabel={`Open sponsored post: ${item.advert.title}`}
-          accessibilityHint="Opens the sponsor link in your browser"
+          accessibilityLabel={`Sponsored post: ${item.advert.title}`}
+          accessibilityHint="Copy sponsor link"
         >
           <Text style={styles.adLabel}>Sponsored</Text>
           {imageUrl ? <Image source={{ uri: imageUrl }} style={styles.heroImage} resizeMode="cover" /> : null}
           <Text style={styles.postTitle}>{item.advert.title}</Text>
         </Pressable>
       );
+      return usePaging ? <View style={{ height: viewportHeight }}>{inner}</View> : inner;
     }
 
     const { post } = item;
@@ -1340,6 +1638,7 @@ export function FeedScreen({ userName, currentUserId, savedOnly = false, onSaved
     const creatorId = derived?.creatorId;
     const mediaUrl = derived?.mediaUrl || "";
     const title = derived?.title || "Untitled post";
+    const postType = String(post.type || "").toLowerCase();
     const liked = !!derived?.liked;
     const likeBusy = !!derived?.likeBusy;
     const commentsBusy = !!derived?.commentsBusy;
@@ -1349,34 +1648,13 @@ export function FeedScreen({ userName, currentUserId, savedOnly = false, onSaved
     const showHeart = !!derived?.showHeart;
     const heartPos = derived?.heartPos || { x: 0.5, y: 0.5 };
 
-    return (
+    const card = (
       <View style={styles.card}>
-        {creatorId ? (
-          <Pressable
-            onPress={() => openProfile(creatorId, false, creator?.name)}
-            onLongPress={() =>
-              setPreviewCreator({
-                id: creatorId,
-                name: creator?.name || "User",
-                avatar: creator?.avatar
-              })
-            }
-            style={styles.metaPressable}
-            accessibilityRole="button"
-            accessibilityLabel={`Open creator profile: ${derived?.creatorName || "Unknown"}`}
-            accessibilityHint="Double tap to open profile. Long press for quick actions."
-          >
-            <Text style={styles.metaText}>
-              {derived?.creatorName || "Unknown"} • {post.type}
-            </Text>
-          </Pressable>
-        ) : (
-          <Text style={styles.metaText}>
-            {derived?.creatorName || "Unknown"} • {post.type}
-          </Text>
-        )}
         {(() => {
-          const isTextPost = post.type === "text" || (!mediaUrl && (post.subject || post.caption));
+          if (postType === "product" && post.productId) {
+            return null;
+          }
+          const isTextPost = postType === "text" || (!mediaUrl && (post.subject || post.caption));
           const rawBody = post.subject || post.caption || "";
           const firstLine = rawBody ? rawBody.split("\n")[0]?.trim().slice(0, 120) || "" : "";
           const headline = post.heading || firstLine;
@@ -1435,7 +1713,28 @@ export function FeedScreen({ userName, currentUserId, savedOnly = false, onSaved
             accessibilityLabel={`Open media for post: ${title}`}
             accessibilityHint="Double tap quickly to like this post"
           >
-            <Image source={{ uri: mediaUrl }} style={[styles.heroImage, compactUI && styles.heroImageCompact]} resizeMode="contain" />
+            {postType === "video" ? (
+              <Video
+                source={{ uri: mediaUrl }}
+                style={[
+                  styles.heroImage,
+                  compactUI && styles.heroImageCompact,
+                  usePaging && {
+                    height: Math.round(Math.max(280, viewportHeight * 0.58)),
+                    width: "100%" as const
+                  }
+                ]}
+                useNativeControls
+                resizeMode={usePaging ? ResizeMode.COVER : ResizeMode.CONTAIN}
+                isLooping
+              />
+            ) : (
+              <Image
+                source={{ uri: mediaUrl }}
+                style={[styles.heroImage, compactUI && styles.heroImageCompact]}
+                resizeMode="contain"
+              />
+            )}
             {showHeart ? (
               <Animated.View
                 pointerEvents="none"
@@ -1452,9 +1751,17 @@ export function FeedScreen({ userName, currentUserId, savedOnly = false, onSaved
                 <Text style={styles.heartIcon}>❤</Text>
               </Animated.View>
             ) : null}
+            {postType === "product" && post.productId ? (
+              <FeedProductOverlayRow post={post} onCartUpdated={onCartUpdated} />
+            ) : null}
           </Pressable>
         ) : null}
-        {mediaUrl && (post.heading || post.subject || post.caption) ? (
+        {postType === "product" && post.productId ? (
+          <FeedProductBelowMedia post={post} titleFallback={title} />
+        ) : null}
+        {mediaUrl &&
+        (post.heading || post.subject || post.caption) &&
+        postType !== "product" ? (
           <View style={styles.textPostContent}>
             {post.heading ? (
               <Text style={styles.postHeadline} numberOfLines={2}>
@@ -1477,43 +1784,64 @@ export function FeedScreen({ userName, currentUserId, savedOnly = false, onSaved
         </View>
         <View style={styles.actionsRow}>
           <ActionChip
-            label={liked ? "♥ Liked" : "♡ Like"}
             onPress={() => handleLikeToggle(post)}
             disabled={likeBusy}
             loading={likeBusy}
-            loadingColor={liked ? "#86efac" : "#e2e8f0"}
+            loadingColor={liked ? "#059669" : "#404040"}
             active={liked}
-            style={[styles.actionBtn, compactUI && styles.actionBtnCompact, likeBusy && styles.actionBtnDisabled]}
+            style={[
+              styles.actionBtnIcon,
+              compactUI && styles.actionBtnIconCompact,
+              likeBusy && styles.actionBtnDisabled
+            ]}
             activeStyle={styles.actionBtnActive}
-            textStyle={[styles.actionBtnText, compactUI && styles.actionBtnTextCompact]}
-            activeTextStyle={styles.actionBtnTextActive}
             pressedStyle={styles.pressDown}
-            accessibilityLabel={liked ? "Unlike post" : "Like post"}
+            accessibilityLabel={`${liked ? "Unlike post" : "Like post"}, ${(post.likeCount ?? 0).toLocaleString()} likes`}
             accessibilityHint="Toggles like on this post"
-          />
+          >
+            <Ionicons
+              name={liked ? "heart" : "heart-outline"}
+              size={22}
+              color={liked ? "#059669" : "#404040"}
+            />
+          </ActionChip>
           <ActionChip
-            label="💬 Comment"
             onPress={() => openComments(post)}
             disabled={commentsBusy}
             loading={commentsBusy}
-            style={[styles.actionBtn, compactUI && styles.actionBtnCompact, commentsBusy && styles.actionBtnDisabled]}
-            textStyle={[styles.actionBtnText, compactUI && styles.actionBtnTextCompact]}
+            style={[
+              styles.actionBtnIcon,
+              compactUI && styles.actionBtnIconCompact,
+              commentsBusy && styles.actionBtnDisabled
+            ]}
             pressedStyle={styles.pressDown}
-            accessibilityLabel="Open comments"
+            accessibilityLabel={`Open comments, ${(post.commentCount ?? 0).toLocaleString()} comments`}
             accessibilityHint="Opens comments for this post"
-          />
+          >
+            <Ionicons name="chatbubble-outline" size={21} color="#404040" />
+          </ActionChip>
           <ActionChip
-            label="⋯ More"
+            onPress={() => void handleSharePost(post)}
+            style={[styles.actionBtnIcon, compactUI && styles.actionBtnIconCompact]}
+            pressedStyle={styles.pressDown}
+            accessibilityLabel="Share post"
+            accessibilityHint="Share a link to this post"
+          >
+            <Ionicons name="share-outline" size={22} color="#404040" />
+          </ActionChip>
+          <ActionChip
             onPress={() => setMoreActionsPost(post)}
-            style={[styles.actionBtn, compactUI && styles.actionBtnCompact]}
-            textStyle={[styles.actionBtnText, compactUI && styles.actionBtnTextCompact]}
+            style={[styles.actionBtnIcon, compactUI && styles.actionBtnIconCompact]}
             pressedStyle={styles.pressDown}
             accessibilityLabel="Open post actions"
             accessibilityHint="Shows save, share, report, and mute options"
-          />
+          >
+            <Ionicons name="ellipsis-horizontal" size={22} color="#404040" />
+          </ActionChip>
         </View>
       </View>
     );
+    return usePaging ? <View style={{ height: viewportHeight }}>{card}</View> : card;
   }, [
     compactUI,
     expandedPostIds,
@@ -1522,12 +1850,16 @@ export function FeedScreen({ userName, currentUserId, savedOnly = false, onSaved
     getLikeScaleValue,
     handleLikeToggle,
     handleMediaTap,
+    handleSharePost,
     openComments,
     openProfile,
     postDerivedById,
     setMoreActionsPost,
     setPreviewCreator,
-    toggleExpandPost
+    toggleExpandPost,
+    usePaging,
+    viewportHeight,
+    onCartUpdated
   ]);
 
   const feedItemKeyExtractor = useCallback((item: FeedListItem) => item.id, []);
@@ -1556,70 +1888,111 @@ export function FeedScreen({ userName, currentUserId, savedOnly = false, onSaved
         contentContainerStyle={styles.listContent}
         onEndReachedThreshold={0.4}
         onEndReached={loadMore}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#22c55e" />}
+        pagingEnabled={usePaging}
+        snapToInterval={usePaging ? viewportHeight : undefined}
+        snapToAlignment="start"
+        decelerationRate={usePaging ? "fast" : undefined}
+        getItemLayout={
+          usePaging
+            ? (_data, index) => ({
+                length: viewportHeight,
+                offset: viewportHeight * index,
+                index
+              })
+            : undefined
+        }
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={socialTheme.brandBlue}
+            colors={[socialTheme.brandBlue]}
+          />
+        }
         ListHeaderComponent={
-          <View style={styles.headerTools}>
-            <View style={styles.searchRow}>
-              <TextInput
-                value={searchInput}
-                onChangeText={setSearchInput}
-                placeholder={savedOnly ? "Search saved posts..." : "Search feed..."}
-                placeholderTextColor="#64748b"
-                style={styles.searchInput}
-                autoCapitalize="none"
-                accessibilityLabel={savedOnly ? "Search saved posts" : "Search feed"}
-                accessibilityHint="Type at least two characters to filter posts"
+          <View>
+            {!hideStoriesHeader && !savedOnly && variant !== "tvVideo" ? (
+              <StoriesStrip
+                creators={storyCreators}
+                onPressSelf={
+                  onPressCreateStory
+                    ? () => onPressCreateStory()
+                    : currentUserId
+                      ? () => openProfile(String(currentUserId), false, userName)
+                      : undefined
+                }
+                onPressCreator={(id, name) => openProfile(id, false, name)}
               />
-              {searchInput ? (
-                <Pressable
-                  onPress={() => setSearchInput("")}
-                  style={styles.searchClearBtn}
-                  accessibilityRole="button"
-                  accessibilityLabel="Clear search"
-                  accessibilityHint="Clears current search text"
-                >
-                  <Text style={styles.searchClearText}>Clear</Text>
-                </Pressable>
-              ) : null}
-              <Pressable
-                onPress={() => setMuteManagerOpen(true)}
-                style={styles.searchClearBtn}
-                accessibilityRole="button"
-                accessibilityLabel={`Open muted creators list. ${Object.keys(mutedMap).length} muted`}
-                accessibilityHint="Manage muted creators on this device"
-              >
-                <Text style={styles.searchClearText}>Muted ({Object.keys(mutedMap).length})</Text>
-              </Pressable>
-              <Pressable
-                onPress={() => setQueueInspectorOpen(true)}
-                style={styles.searchClearBtn}
-                accessibilityRole="button"
-                accessibilityLabel={`Open pending actions queue. ${pendingActionsPreview.length} pending`}
-                accessibilityHint="View and retry queued actions"
-              >
-                <Text style={styles.searchClearText}>Queue ({pendingActionsPreview.length})</Text>
-              </Pressable>
-            </View>
-            {!savedOnly ? (
-              <View style={styles.sortRow}>
-                {sortOptions.map((option) => (
-                  <Pressable
-                    key={option.id}
-                    onPress={() => {
-                      if (option.id === sort) return;
-                      setSort(option.id);
-                    }}
-                    style={[styles.sortBtn, sort === option.id && styles.sortBtnActive]}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Sort by ${option.label}`}
-                    accessibilityHint="Updates feed sort order"
-                    accessibilityState={{ selected: sort === option.id }}
-                  >
-                    <Text style={[styles.sortBtnText, sort === option.id && styles.sortBtnTextActive]}>
-                      {option.label}
-                    </Text>
-                  </Pressable>
-                ))}
+            ) : null}
+            {variant === "default" || (variant === "tvVideo" && savedOnly) ? (
+              <View style={styles.headerTools}>
+                <View style={styles.searchRow}>
+                  <TextInput
+                    value={searchInput}
+                    onChangeText={setSearchInput}
+                    placeholder={savedOnly ? "Search saved posts..." : "Search feed..."}
+                    placeholderTextColor="#a3a3a3"
+                    style={styles.searchInput}
+                    autoCapitalize="none"
+                    accessibilityLabel={savedOnly ? "Search saved posts" : "Search feed"}
+                    accessibilityHint="Type at least two characters to filter posts"
+                  />
+                  {searchInput ? (
+                    <Pressable
+                      onPress={() => setSearchInput("")}
+                      style={styles.searchClearBtn}
+                      accessibilityRole="button"
+                      accessibilityLabel="Clear search"
+                      accessibilityHint="Clears current search text"
+                    >
+                      <Text style={styles.searchClearText}>Clear</Text>
+                    </Pressable>
+                  ) : null}
+                  {variant === "default" ? (
+                    <>
+                      <Pressable
+                        onPress={() => setMuteManagerOpen(true)}
+                        style={styles.searchClearBtn}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Open muted creators list. ${Object.keys(mutedMap).length} muted`}
+                        accessibilityHint="Manage muted creators on this device"
+                      >
+                        <Text style={styles.searchClearText}>Muted ({Object.keys(mutedMap).length})</Text>
+                      </Pressable>
+                      <Pressable
+                        onPress={() => setQueueInspectorOpen(true)}
+                        style={styles.searchClearBtn}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Open pending actions queue. ${pendingActionsPreview.length} pending`}
+                        accessibilityHint="View and retry queued actions"
+                      >
+                        <Text style={styles.searchClearText}>Queue ({pendingActionsPreview.length})</Text>
+                      </Pressable>
+                    </>
+                  ) : null}
+                </View>
+                {!savedOnly && variant === "default" ? (
+                  <View style={styles.sortRow}>
+                    {sortOptions.map((option) => (
+                      <Pressable
+                        key={option.id}
+                        onPress={() => {
+                          if (option.id === sort) return;
+                          setSort(option.id);
+                        }}
+                        style={[styles.sortBtn, sort === option.id && styles.sortBtnActive]}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Sort by ${option.label}`}
+                        accessibilityHint="Updates feed sort order"
+                        accessibilityState={{ selected: sort === option.id }}
+                      >
+                        <Text style={[styles.sortBtnText, sort === option.id && styles.sortBtnTextActive]}>
+                          {option.label}
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                ) : null}
               </View>
             ) : null}
           </View>
@@ -1647,7 +2020,7 @@ export function FeedScreen({ userName, currentUserId, savedOnly = false, onSaved
         ListFooterComponent={
           loadingMore ? (
             <View style={styles.footerLoading}>
-              <ActivityIndicator size="small" color="#22c55e" />
+              <ActivityIndicator size="small" color={socialTheme.brandBlue} />
             </View>
           ) : null
         }
@@ -1658,7 +2031,7 @@ export function FeedScreen({ userName, currentUserId, savedOnly = false, onSaved
           <ModalCard title="Comments" onClose={() => setCommentPost(null)} style={[styles.modalCard, compactUI && styles.modalCardCompact]}>
             {commentsLoading ? (
               <View style={styles.modalLoadingWrap}>
-                <ActivityIndicator size="small" color="#22c55e" />
+                <ActivityIndicator size="small" color={socialTheme.brandBlue} />
               </View>
             ) : (
               <FlatList
@@ -1687,7 +2060,7 @@ export function FeedScreen({ userName, currentUserId, savedOnly = false, onSaved
                 value={commentText}
                 onChangeText={setCommentText}
                 placeholder="Write a comment..."
-                placeholderTextColor="#64748b"
+                placeholderTextColor="#a3a3a3"
                 style={styles.commentInput}
                 editable={!commentSending}
                 accessibilityLabel="Write a comment"
@@ -1744,7 +2117,7 @@ export function FeedScreen({ userName, currentUserId, savedOnly = false, onSaved
               value={reportReason}
               onChangeText={setReportReason}
               placeholder="Reason (e.g. spam, abuse, harassment)"
-              placeholderTextColor="#64748b"
+              placeholderTextColor="#a3a3a3"
               style={styles.reportInput}
               editable={!reportSending}
               multiline
@@ -1787,7 +2160,7 @@ export function FeedScreen({ userName, currentUserId, savedOnly = false, onSaved
                 accessibilityHint="Submits your report to moderators"
               >
                 {reportSending ? (
-                  <ActivityIndicator size="small" color="#e2e8f0" />
+                  <ActivityIndicator size="small" color="#404040" />
                 ) : (
                   <Text style={styles.reportSubmitText}>Submit report</Text>
                 )}
@@ -2000,7 +2373,7 @@ export function FeedScreen({ userName, currentUserId, savedOnly = false, onSaved
                 value={muteSearchQuery}
                 onChangeText={setMuteSearchQuery}
                 placeholder="Search muted..."
-                placeholderTextColor="#64748b"
+                placeholderTextColor="#a3a3a3"
                 style={styles.searchInput}
                 accessibilityLabel="Search muted creators"
                 accessibilityHint="Filter muted creators by name or id"
@@ -2084,7 +2457,7 @@ export function FeedScreen({ userName, currentUserId, savedOnly = false, onSaved
                 accessibilityLabel="Retry pending actions"
                 accessibilityHint="Attempts to resend queued actions"
               >
-                {retryingQueue ? <ActivityIndicator size="small" color="#e2e8f0" /> : <Text style={styles.reportSubmitText}>Retry now</Text>}
+                {retryingQueue ? <ActivityIndicator size="small" color="#404040" /> : <Text style={styles.reportSubmitText}>Retry now</Text>}
               </Pressable>
             </View>
             <FlatList
@@ -2150,7 +2523,7 @@ export function FeedScreen({ userName, currentUserId, savedOnly = false, onSaved
             ) : null}
             {profileLoading ? (
               <View style={styles.modalLoadingWrap}>
-                <ActivityIndicator size="small" color="#22c55e" />
+                <ActivityIndicator size="small" color={socialTheme.brandBlue} />
               </View>
             ) : profileData ? (
               <View style={styles.profileWrap}>
@@ -2182,7 +2555,7 @@ export function FeedScreen({ userName, currentUserId, savedOnly = false, onSaved
                     accessibilityHint="Toggles follow status for this creator"
                   >
                     {followLoading ? (
-                      <ActivityIndicator size="small" color="#e2e8f0" />
+                      <ActivityIndicator size="small" color="#404040" />
                     ) : (
                       <Text style={styles.followBtnText}>
                         {followStatus === "accepted"
@@ -2256,7 +2629,7 @@ export function FeedScreen({ userName, currentUserId, savedOnly = false, onSaved
           >
             {connectionsLoading ? (
               <View style={styles.modalLoadingWrap}>
-                <ActivityIndicator size="small" color="#22c55e" />
+                <ActivityIndicator size="small" color={socialTheme.brandBlue} />
               </View>
             ) : (
               <FlatList
@@ -2331,7 +2704,9 @@ export function FeedScreen({ userName, currentUserId, savedOnly = false, onSaved
 const styles = StyleSheet.create({
   listContent: {
     paddingBottom: 32,
-    gap: 12
+    gap: 12,
+    backgroundColor: "#fafafa",
+    flexGrow: 1
   },
   headerTools: {
     gap: 8,
@@ -2345,23 +2720,23 @@ const styles = StyleSheet.create({
   searchInput: {
     flex: 1,
     borderWidth: 1,
-    borderColor: "#334155",
+    borderColor: "#dbdbdb",
     borderRadius: 10,
-    backgroundColor: "#0f172a",
-    color: "#f8fafc",
+    backgroundColor: "#ffffff",
+    color: "#262626",
     paddingHorizontal: 12,
     paddingVertical: 9,
     fontSize: 13
   },
   searchClearBtn: {
     borderWidth: 1,
-    borderColor: "#334155",
+    borderColor: "#dbdbdb",
     borderRadius: 8,
     paddingHorizontal: 10,
     paddingVertical: 7
   },
   searchClearText: {
-    color: "#cbd5e1",
+    color: "#525252",
     fontWeight: "600",
     fontSize: 12
   },
@@ -2372,23 +2747,23 @@ const styles = StyleSheet.create({
   },
   sortBtn: {
     borderWidth: 1,
-    borderColor: "#334155",
+    borderColor: "#dbdbdb",
     borderRadius: 999,
     paddingHorizontal: 12,
     paddingVertical: 7,
-    backgroundColor: "#0f172a"
+    backgroundColor: "#ffffff"
   },
   sortBtnActive: {
-    borderColor: "#22c55e",
-    backgroundColor: "#052e16"
+    borderColor: "#1d4ed8",
+    backgroundColor: "#eff6ff"
   },
   sortBtnText: {
-    color: "#cbd5e1",
+    color: "#525252",
     fontWeight: "600",
     fontSize: 12
   },
   sortBtnTextActive: {
-    color: "#86efac"
+    color: "#1d4ed8"
   },
   centered: {
     flex: 1,
@@ -2397,14 +2772,17 @@ const styles = StyleSheet.create({
     gap: 12
   },
   skeletonWrap: {
+    flex: 1,
     gap: 12,
-    paddingBottom: 24
+    paddingBottom: 24,
+    backgroundColor: "#fafafa",
+    paddingHorizontal: 2
   },
   skeletonCard: {
-    backgroundColor: "#111827",
+    backgroundColor: "#ffffff",
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: "#1f2937",
+    borderColor: "#e5e7eb",
     padding: 12,
     gap: 10
   },
@@ -2412,50 +2790,50 @@ const styles = StyleSheet.create({
     width: "35%",
     height: 10,
     borderRadius: 6,
-    backgroundColor: "#1f2937"
+    backgroundColor: "#e5e7eb"
   },
   skeletonLineLong: {
     width: "75%",
     height: 14,
     borderRadius: 6,
-    backgroundColor: "#1f2937"
+    backgroundColor: "#e5e7eb"
   },
   skeletonMedia: {
     width: "100%",
     height: 220,
     borderRadius: 10,
-    backgroundColor: "#1f2937"
+    backgroundColor: "#e5e7eb"
   },
   skeletonLineMid: {
     width: "50%",
     height: 10,
     borderRadius: 6,
-    backgroundColor: "#1f2937"
+    backgroundColor: "#e5e7eb"
   },
   emptyWrap: {
     gap: 10
   },
   mutedHintBtn: {
     borderWidth: 1,
-    borderColor: "#334155",
+    borderColor: "#dbdbdb",
     borderRadius: 10,
     paddingHorizontal: 12,
     paddingVertical: 8
   },
   mutedHintText: {
-    color: "#cbd5e1",
+    color: "#525252",
     fontSize: 12,
     textAlign: "center"
   },
   subtleText: {
-    color: "#94a3b8",
+    color: "#8e8e8e",
     textAlign: "center"
   },
   card: {
-    backgroundColor: "#111827",
+    backgroundColor: "#ffffff",
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: "#1f2937",
+    borderColor: "#e5e7eb",
     padding: 10,
     gap: 7
   },
@@ -2465,15 +2843,50 @@ const styles = StyleSheet.create({
     fontWeight: "700"
   },
   metaText: {
-    color: "#93c5fd",
+    color: "#2563eb",
     fontSize: 12,
-    fontWeight: "600"
+    fontWeight: "600",
+    maxWidth: 180
   },
   metaPressable: {
     alignSelf: "flex-start"
   },
+  metaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    maxWidth: "100%"
+  },
+  metaCreatorBadge: {
+    borderWidth: 1,
+    borderColor: "#93c5fd",
+    backgroundColor: "#ffffff",
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    maxWidth: 236
+  },
+  metaCreatorText: {
+    color: "#2563eb",
+    fontSize: 12,
+    fontWeight: "800"
+  },
+  metaTypeBadge: {
+    borderWidth: 1,
+    borderColor: "#bfdbfe",
+    backgroundColor: "#eff6ff",
+    borderRadius: 999,
+    paddingHorizontal: 7,
+    paddingVertical: 2
+  },
+  metaTypeText: {
+    color: "#1d4ed8",
+    fontSize: 11,
+    fontWeight: "700",
+    textTransform: "capitalize"
+  },
   postTitle: {
-    color: "#f8fafc",
+    color: "#262626",
     fontSize: 15,
     fontWeight: "600"
   },
@@ -2483,14 +2896,14 @@ const styles = StyleSheet.create({
     paddingVertical: 2
   },
   postHeadline: {
-    color: "#f8fafc",
+    color: "#262626",
     fontSize: 17,
     fontWeight: "700",
     marginBottom: 8,
     lineHeight: 22
   },
   postBody: {
-    color: "#e2e8f0",
+    color: "#404040",
     fontSize: 15,
     lineHeight: 22,
     marginBottom: 4
@@ -2502,7 +2915,7 @@ const styles = StyleSheet.create({
     marginTop: 2
   },
   showMoreText: {
-    color: "#93c5fd",
+    color: "#2563eb",
     fontSize: 13,
     fontWeight: "600"
   },
@@ -2510,7 +2923,7 @@ const styles = StyleSheet.create({
     width: "100%",
     height: 220,
     borderRadius: 10,
-    backgroundColor: "#0b1220"
+    backgroundColor: "#f3f4f6"
   },
   heroImageCompact: {
     height: 190
@@ -2535,25 +2948,29 @@ const styles = StyleSheet.create({
     textShadowRadius: 6
   },
   hashes: {
-    color: "#86efac",
+    color: "#059669",
     fontSize: 12
   },
   stats: {
-    color: "#cbd5e1",
+    color: "#525252",
     fontSize: 12
   },
   statsRow: {
     flexDirection: "row",
-    alignItems: "center"
+    alignItems: "center",
+    flexWrap: "wrap",
+    marginTop: 2,
+    marginBottom: 8
   },
   actionsRow: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 6
+    gap: 6,
+    alignItems: "center"
   },
   actionBtn: {
     borderWidth: 1,
-    borderColor: "#334155",
+    borderColor: "#dbdbdb",
     borderRadius: 8,
     paddingHorizontal: 9,
     paddingVertical: 5.5,
@@ -2561,6 +2978,24 @@ const styles = StyleSheet.create({
     minHeight: 34,
     alignItems: "center",
     justifyContent: "center"
+  },
+  /** Icon-only feed actions (like, comment, share, more). */
+  actionBtnIcon: {
+    borderWidth: 1,
+    borderColor: "#dbdbdb",
+    borderRadius: 10,
+    minWidth: 44,
+    minHeight: 44,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+    alignItems: "center",
+    justifyContent: "center"
+  },
+  actionBtnIconCompact: {
+    minWidth: 40,
+    minHeight: 40,
+    paddingHorizontal: 8,
+    paddingVertical: 8
   },
   actionBtnCompact: {
     minWidth: 60,
@@ -2575,10 +3010,10 @@ const styles = StyleSheet.create({
   },
   actionBtnActive: {
     borderColor: "#22c55e",
-    backgroundColor: "#052e16"
+    backgroundColor: "#ecfdf5"
   },
   actionBtnText: {
-    color: "#e2e8f0",
+    color: "#404040",
     fontWeight: "600",
     fontSize: 12
   },
@@ -2586,7 +3021,7 @@ const styles = StyleSheet.create({
     fontSize: 11
   },
   actionBtnTextActive: {
-    color: "#86efac"
+    color: "#059669"
   },
   moreActionsGrid: {
     flexDirection: "row",
@@ -2601,15 +3036,15 @@ const styles = StyleSheet.create({
   },
   modalBackdrop: {
     flex: 1,
-    backgroundColor: "rgba(2,6,23,0.8)",
+    backgroundColor: "rgba(0,0,0,0.45)",
     justifyContent: "center",
     padding: 16
   },
   modalCard: {
-    backgroundColor: "#0f172a",
+    backgroundColor: "#ffffff",
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: "#1e293b",
+    borderColor: "#e5e7eb",
     maxHeight: "85%",
     padding: 12,
     gap: 9
@@ -2629,7 +3064,7 @@ const styles = StyleSheet.create({
     gap: 10
   },
   modalTitle: {
-    color: "#f8fafc",
+    color: "#262626",
     fontWeight: "700",
     fontSize: 16
   },
@@ -2640,11 +3075,11 @@ const styles = StyleSheet.create({
     justifyContent: "center"
   },
   breadcrumbText: {
-    color: "#94a3b8",
+    color: "#8e8e8e",
     fontSize: 12
   },
   breadcrumbCurrentText: {
-    color: "#cbd5e1",
+    color: "#525252",
     fontWeight: "600"
   },
   breadcrumbRow: {
@@ -2653,11 +3088,11 @@ const styles = StyleSheet.create({
     flexWrap: "wrap"
   },
   breadcrumbSep: {
-    color: "#64748b",
+    color: "#a3a3a3",
     fontSize: 12
   },
   modalClose: {
-    color: "#93c5fd",
+    color: "#2563eb",
     fontWeight: "600"
   },
   modalLoadingWrap: {
@@ -2668,7 +3103,7 @@ const styles = StyleSheet.create({
   },
   commentItem: {
     borderBottomWidth: 1,
-    borderBottomColor: "#1e293b",
+    borderBottomColor: "#e5e7eb",
     paddingVertical: 8
   },
   commentMeta: {
@@ -2678,16 +3113,16 @@ const styles = StyleSheet.create({
     gap: 8
   },
   commentAuthor: {
-    color: "#bfdbfe",
+    color: "#1d4ed8",
     fontWeight: "600",
     fontSize: 12
   },
   commentTime: {
-    color: "#94a3b8",
+    color: "#8e8e8e",
     fontSize: 11
   },
   commentText: {
-    color: "#e2e8f0",
+    color: "#404040",
     fontSize: 13
   },
   commentComposer: {
@@ -2698,9 +3133,9 @@ const styles = StyleSheet.create({
   commentInput: {
     flex: 1,
     borderWidth: 1,
-    borderColor: "#334155",
+    borderColor: "#dbdbdb",
     borderRadius: 10,
-    color: "#f8fafc",
+    color: "#262626",
     paddingHorizontal: 10,
     paddingVertical: 8
   },
@@ -2714,14 +3149,14 @@ const styles = StyleSheet.create({
     opacity: 0.6
   },
   commentSendText: {
-    color: "#052e16",
+    color: "#ffffff",
     fontWeight: "700"
   },
   reportInput: {
     borderWidth: 1,
-    borderColor: "#334155",
+    borderColor: "#dbdbdb",
     borderRadius: 10,
-    color: "#f8fafc",
+    color: "#262626",
     paddingHorizontal: 10,
     paddingVertical: 10,
     minHeight: 96,
@@ -2734,41 +3169,41 @@ const styles = StyleSheet.create({
   },
   reportCategoryBtn: {
     borderWidth: 1,
-    borderColor: "#334155",
+    borderColor: "#dbdbdb",
     borderRadius: 999,
     paddingHorizontal: 10,
     paddingVertical: 6
   },
   reportCategoryBtnActive: {
     borderColor: "#22c55e",
-    backgroundColor: "#052e16"
+    backgroundColor: "#ecfdf5"
   },
   reportCategoryText: {
-    color: "#cbd5e1",
+    color: "#525252",
     fontSize: 11,
     fontWeight: "600",
     textTransform: "capitalize"
   },
   reportCategoryTextActive: {
-    color: "#86efac"
+    color: "#059669"
   },
   reportBlockBtn: {
     borderWidth: 1,
-    borderColor: "#334155",
+    borderColor: "#dbdbdb",
     borderRadius: 10,
     paddingHorizontal: 10,
     paddingVertical: 8
   },
   reportBlockBtnActive: {
-    borderColor: "#a16207",
-    backgroundColor: "#451a03"
+    borderColor: "#f59e0b",
+    backgroundColor: "#fffbeb"
   },
   reportBlockText: {
-    color: "#cbd5e1",
+    color: "#525252",
     fontSize: 12
   },
   reportBlockTextActive: {
-    color: "#fde68a"
+    color: "#92400e"
   },
   reportActionsRow: {
     flexDirection: "row",
@@ -2777,33 +3212,33 @@ const styles = StyleSheet.create({
   reportCancelBtn: {
     flex: 1,
     borderWidth: 1,
-    borderColor: "#334155",
+    borderColor: "#dbdbdb",
     borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
     paddingVertical: 10
   },
   reportCancelText: {
-    color: "#cbd5e1",
+    color: "#525252",
     fontWeight: "700"
   },
   reportSubmitBtn: {
     flex: 1,
     borderWidth: 1,
-    borderColor: "#7f1d1d",
-    backgroundColor: "#450a0a",
+    borderColor: "#fecaca",
+    backgroundColor: "#fef2f2",
     borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
     paddingVertical: 10
   },
   reportSubmitText: {
-    color: "#fecaca",
+    color: "#b91c1c",
     fontWeight: "700"
   },
   mediaViewerBackdrop: {
     flex: 1,
-    backgroundColor: "rgba(2,6,23,0.95)",
+    backgroundColor: "rgba(0,0,0,0.92)",
     justifyContent: "center",
     alignItems: "center",
     padding: 12
@@ -2826,11 +3261,11 @@ const styles = StyleSheet.create({
   },
   mediaNavBtn: {
     borderWidth: 1,
-    borderColor: "#334155",
+    borderColor: "#dbdbdb",
     borderRadius: 8,
     paddingHorizontal: 10,
     paddingVertical: 6,
-    backgroundColor: "rgba(15,23,42,0.75)"
+    backgroundColor: "rgba(255,255,255,0.92)"
   },
   mediaViewerImage: {
     width: "100%",
@@ -2845,15 +3280,15 @@ const styles = StyleSheet.create({
     width: 72,
     height: 72,
     borderRadius: 36,
-    backgroundColor: "#1f2937"
+    backgroundColor: "#e5e7eb"
   },
   profileName: {
-    color: "#f8fafc",
+    color: "#262626",
     fontWeight: "700",
     fontSize: 18
   },
   profileHandle: {
-    color: "#93c5fd",
+    color: "#2563eb",
     fontSize: 13
   },
   profileStatsRow: {
@@ -2870,37 +3305,37 @@ const styles = StyleSheet.create({
     paddingVertical: 2
   },
   profileStatValue: {
-    color: "#e2e8f0",
+    color: "#404040",
     fontWeight: "700",
     fontSize: 16
   },
   profileStatLabel: {
-    color: "#94a3b8",
+    color: "#8e8e8e",
     fontSize: 11
   },
   profileSubStats: {
-    color: "#cbd5e1",
+    color: "#525252",
     fontSize: 12,
     textAlign: "center"
   },
   profileRetryBtn: {
     marginTop: 10,
     borderWidth: 1,
-    borderColor: "#334155",
+    borderColor: "#dbdbdb",
     borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 8
   },
   profileRetryText: {
-    color: "#cbd5e1",
+    color: "#525252",
     fontWeight: "700",
     fontSize: 12
   },
   followBtn: {
     marginTop: 6,
     borderWidth: 1,
-    borderColor: "#334155",
-    backgroundColor: "#1e293b",
+    borderColor: "#dbdbdb",
+    backgroundColor: "#e5e7eb",
     borderRadius: 999,
     minWidth: 120,
     alignItems: "center",
@@ -2910,14 +3345,14 @@ const styles = StyleSheet.create({
   },
   followBtnActive: {
     borderColor: "#22c55e",
-    backgroundColor: "#052e16"
+    backgroundColor: "#ecfdf5"
   },
   followBtnPending: {
-    borderColor: "#a16207",
-    backgroundColor: "#451a03"
+    borderColor: "#f59e0b",
+    backgroundColor: "#fffbeb"
   },
   followBtnText: {
-    color: "#e2e8f0",
+    color: "#404040",
     fontWeight: "700",
     fontSize: 12
   },
@@ -2927,36 +3362,36 @@ const styles = StyleSheet.create({
     gap: 10,
     paddingVertical: 8,
     borderBottomWidth: 1,
-    borderBottomColor: "#1e293b"
+    borderBottomColor: "#e5e7eb"
   },
   connectionItemPressed: {
-    backgroundColor: "#111827",
+    backgroundColor: "#f5f5f5",
     borderRadius: 8
   },
   connectionAvatar: {
     width: 38,
     height: 38,
     borderRadius: 19,
-    backgroundColor: "#1f2937"
+    backgroundColor: "#e5e7eb"
   },
   connectionAvatarFallback: {
     borderWidth: 1,
-    borderColor: "#334155"
+    borderColor: "#dbdbdb"
   },
   connectionTextWrap: {
     flex: 1
   },
   connectionName: {
-    color: "#f8fafc",
+    color: "#262626",
     fontSize: 14,
     fontWeight: "600"
   },
   connectionHandle: {
-    color: "#94a3b8",
+    color: "#8e8e8e",
     fontSize: 12
   },
   connectionChevron: {
-    color: "#64748b",
+    color: "#a3a3a3",
     fontSize: 24,
     lineHeight: 24
   },
@@ -2965,9 +3400,9 @@ const styles = StyleSheet.create({
     left: 14,
     right: 14,
     bottom: 18,
-    backgroundColor: "#0b1220",
+    backgroundColor: "#f3f4f6",
     borderWidth: 1,
-    borderColor: "#334155",
+    borderColor: "#dbdbdb",
     borderRadius: 12,
     paddingHorizontal: 12,
     paddingVertical: 10,
@@ -2977,15 +3412,15 @@ const styles = StyleSheet.create({
     gap: 10
   },
   toastWrapSuccess: {
-    borderColor: "#14532d",
-    backgroundColor: "#052e16"
+    borderColor: "#86efac",
+    backgroundColor: "#ecfdf5"
   },
   toastWrapError: {
-    borderColor: "#7f1d1d",
-    backgroundColor: "#450a0a"
+    borderColor: "#fecaca",
+    backgroundColor: "#fef2f2"
   },
   toastText: {
-    color: "#e2e8f0",
+    color: "#404040",
     flex: 1
   },
   toastRetryBtn: {
@@ -2995,7 +3430,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6
   },
   toastRetryText: {
-    color: "#dbeafe",
+    color: "#eff6ff",
     fontWeight: "700",
     fontSize: 12
   }

@@ -13,14 +13,43 @@
     ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.morongwa.app"
+      "bundleIdentifier": "com.morongwa.app",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSCameraUsageDescription": "Morongwa uses the camera for video calls with other users.",
+        "NSMicrophoneUsageDescription": "Morongwa uses the microphone for voice and video calls.",
+        "NSPhotoLibraryUsageDescription": "Morongwa needs access to your photos and videos to create QwertyTV posts (images, video, Qwertz, cover art).",
+        "NSPhotoLibraryAddUsageDescription": "Morongwa may save media to your library when you choose to export or save content."
+      }
     },
     "android": {
-      "package": "com.morongwa.app"
+      "package": "com.morongwa.app",
+      "permissions": [
+        "CAMERA",
+        "RECORD_AUDIO",
+        "INTERNET",
+        "ACCESS_NETWORK_STATE",
+        "READ_MEDIA_IMAGES",
+        "READ_MEDIA_VIDEO",
+        "READ_EXTERNAL_STORAGE"
+      ]
     },
     "extra": {
-      "apiUrl": "http://192.168.0.101:4000/api",
-      "socketUrl": "http://192.168.0.101:4000"
-    }
+      "apiUrl": "https://api.qwertymates.com/api",
+      "socketUrl": "https://api.qwertymates.com",
+      "turnUrls": "turn:165.227.237.142:3478?transport=udp,turns:165.227.237.142:5349?transport=tcp",
+      "eas": {
+        "projectId": "686960ed-6d34-446e-9872-eeafe4dfe5f1"
+      }
+    },
+    "owner": "qwertymates",
+    "plugins": [
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Morongwa needs access to your photos and videos to create QwertyTV posts (images, video, Qwertz, cover art)."
+        }
+      ]
+    ]
   }
 }

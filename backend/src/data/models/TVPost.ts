@@ -18,6 +18,8 @@ export interface ITVPost extends Document {
   hashtags?: string[];
   /** Optional product to promote */
   productId?: mongoose.Types.ObjectId;
+  /** True when post was created from a reseller adding a QwertyHub product to their wall (feed ordering + UI) */
+  fromResellerWall?: boolean;
   /** For audio posts: cover/artwork image URL */
   artworkUrl?: string;
   /** For audio posts: linked Song from QwertyMusic (enables purchase/download) */
@@ -53,6 +55,7 @@ const TVPostSchema = new Schema<ITVPost>(
     subject: { type: String },
     hashtags: { type: [String], default: [] },
     productId: { type: Schema.Types.ObjectId, ref: "Product" },
+    fromResellerWall: { type: Boolean, default: false },
     artworkUrl: { type: String },
     songId: { type: Schema.Types.ObjectId, ref: "Song" },
     filter: { type: String },

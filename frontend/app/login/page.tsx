@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, Suspense } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import { Mail, Lock, ArrowRight, Loader2, AlertCircle } from 'lucide-react';
@@ -10,13 +10,22 @@ import SiteHeader from '@/components/SiteHeader';
 import AuthBackground from '@/components/AuthBackground';
 
 function LoginForm() {
-  const searchParams = useSearchParams();
   const [emailOrPhone, setEmailOrPhone] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<{email?: string; password?: string}>({});
   const { login } = useAuth();
   const router = useRouter();
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const u = new URL(window.location.href);
+    if (!u.searchParams.has('password') && !u.searchParams.has('email')) return;
+    u.searchParams.delete('password');
+    u.searchParams.delete('email');
+    const next = u.pathname + (u.searchParams.toString() ? `?${u.searchParams}` : '') + u.hash;
+    window.history.replaceState({}, '', next);
+  }, []);
 
   const validateEmail = (e: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
   const looksLikePhone = (v: string) => v.replace(/\D/g, '').length >= 10 && !v.includes('@');
@@ -45,7 +54,12 @@ function LoginForm() {
       const useUsername = !usePhone && looksLikeUsername(emailOrPhone);
       await login(emailOrPhone.trim(), password, usePhone, useUsername);
       toast.success('Welcome back!');
-      const returnTo = searchParams.get('returnTo');
+      // Read returnTo from the URL on the client only — avoids useSearchParams() + Suspense
+      // hanging forever on some production builds.
+      let returnTo: string | null = null;
+      if (typeof window !== 'undefined') {
+        returnTo = new URLSearchParams(window.location.search).get('returnTo');
+      }
       const target = returnTo && returnTo.startsWith('/') && !returnTo.startsWith('//') ? returnTo : '/wall';
       // Allow React state and localStorage to settle before navigation
       await new Promise((r) => setTimeout(r, 50));
@@ -53,14 +67,19 @@ function LoginForm() {
     } catch (error: any) {
       const errorMsg = error.response?.data?.message || error.response?.data?.error || error.message || 'Login failed';
       const isInvalidCreds = errorMsg.toLowerCase().includes('invalid credentials') || error.response?.status === 401;
+      const isRateLimited = error.response?.status === 429;
       const displayMsg = isInvalidCreds
         ? 'Incorrect email/username/phone or password. Please try again.'
+        : isRateLimited
+        ? 'Too many requests right now. Please wait a moment, then try signing in again.'
         : error.code === 'ERR_NETWORK' || error.message?.includes('Network Error')
         ? 'Unable to connect. Please check your connection and that the server is running.'
         : errorMsg;
       toast.error(displayMsg);
       if (isInvalidCreds) {
         setErrors({ password: 'Incorrect email/username/phone or password' });
+      } else if (isRateLimited) {
+        setErrors({ password: 'Too many attempts. Please wait and retry.' });
       } else if (errorMsg.toLowerCase().includes('email') || errorMsg.toLowerCase().includes('user')) {
         setErrors({ email: 'No account found with this email' });
       } else if (errorMsg.toLowerCase().includes('password')) {
@@ -85,7 +104,7 @@ function LoginForm() {
             <p className="text-center text-sm text-slate-600">Sign in to your Qwertymates account</p>
           </div>
 
-          <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
+          <form className="mt-8 space-y-6" method="post" onSubmit={handleSubmit}>
             <div className="space-y-4">
               <div>
                 <label htmlFor="email" className="block text-sm font-medium text-slate-700 mb-1">
@@ -205,16 +224,5 @@ function LoginForm() {
 }
 
 export default function LoginPage() {
-  return (
-    <Suspense fallback={
-      <div className="min-h-screen flex flex-col bg-gradient-to-br from-sky-50 via-blue-50 to-white">
-        <SiteHeader />
-        <div className="flex-1 flex items-center justify-center">
-          <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
-        </div>
-      </div>
-    }>
-      <LoginForm />
-    </Suspense>
-  );
+  return <LoginForm />;
 }

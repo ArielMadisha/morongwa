@@ -1,4 +1,4 @@
-import React from "react";
+import React, { type ReactNode } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -10,7 +10,10 @@ import {
 } from "react-native";
 
 type ActionChipProps = {
-  label: string;
+  /** Visible text when `children` is not set. */
+  label?: string;
+  /** Icon or custom content; when set, replaces `label` (use `accessibilityLabel` for screen readers). */
+  children?: ReactNode;
   onPress: () => void;
   disabled?: boolean;
   loading?: boolean;
@@ -27,10 +30,11 @@ type ActionChipProps = {
 
 export function ActionChip({
   label,
+  children,
   onPress,
   disabled,
   loading,
-  loadingColor = "#e2e8f0",
+  loadingColor = "#64748b",
   active,
   style,
   activeStyle,
@@ -45,7 +49,7 @@ export function ActionChip({
       onPress={onPress}
       disabled={disabled}
       accessibilityRole="button"
-      accessibilityLabel={accessibilityLabel || label}
+      accessibilityLabel={accessibilityLabel || label || "Action"}
       accessibilityHint={accessibilityHint}
       accessibilityState={{ disabled: !!disabled, busy: !!loading, selected: !!active }}
       style={({ pressed }) => [
@@ -56,8 +60,10 @@ export function ActionChip({
     >
       {loading ? (
         <ActivityIndicator size="small" color={loadingColor} />
+      ) : children != null ? (
+        children
       ) : (
-        <Text style={[styles.label, textStyle, active && activeTextStyle]}>{label}</Text>
+        <Text style={[styles.label, textStyle, active && activeTextStyle]}>{label ?? ""}</Text>
       )}
     </Pressable>
   );
@@ -65,7 +71,7 @@ export function ActionChip({
 
 const styles = StyleSheet.create({
   label: {
-    color: "#e2e8f0",
+    color: "#262626",
     fontWeight: "600"
   }
 });

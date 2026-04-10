@@ -6,6 +6,11 @@ export interface User {
   name: string;
   email?: string;
   username?: string;
+  /** E.164 digits only (no +), same as backend User.phone */
+  phone?: string;
+  countryCode?: string;
+  preferredCurrency?: string;
+  stripBackgroundPic?: string;
   role?: Role[] | Role;
   avatar?: string;
 }
@@ -38,6 +43,10 @@ export interface TVPost {
   hashtags?: string[];
   mediaUrls?: string[];
   creatorId?: TVCreator | string;
+  /** Linked marketplace product when type is product */
+  productId?: string;
+  /** True when created from reseller wall (hide Resell on this post) */
+  fromResellerWall?: boolean;
   likeCount?: number;
   commentCount?: number;
   shareCount?: number;
@@ -63,6 +72,21 @@ export interface TVComment {
   createdAt?: string;
 }
 
+/** QwertyMusic catalog row (from GET /api/music/songs). */
+export interface MusicSong {
+  _id: string;
+  type: "song" | "album";
+  title: string;
+  artist: string;
+  genre: string;
+  audioUrl: string;
+  artworkUrl: string;
+  userId?: { name?: string } | string;
+  downloadEnabled?: boolean;
+  downloadPrice?: number;
+  createdAt?: string;
+}
+
 export interface Product {
   _id: string;
   title: string;
@@ -74,6 +98,21 @@ export interface Product {
   currency?: string;
   stock?: number;
   outOfStock?: boolean;
+  /** When true, buyers may resell via reseller wall */
+  allowResell?: boolean;
+}
+
+/** Seller store summary (GET /api/stores/me). */
+export interface StoreSummary {
+  _id: string;
+  name: string;
+  slug?: string;
+  address?: string;
+  email?: string;
+  cellphone?: string;
+  whatsapp?: string;
+  stripBackgroundPic?: string;
+  supplierId?: { storeName?: string; status?: string };
 }
 
 export interface CartItem {
@@ -87,5 +126,24 @@ export interface WalletTransaction {
   type: string;
   amount: number;
   reference?: string;
+  createdAt?: string;
+}
+
+export interface MessengerConversation {
+  _id: string;
+  kind?: "task" | "direct";
+  taskId?: string | null;
+  taskTitle?: string;
+  user: { _id: string; name?: string };
+  lastMessage?: string | null;
+  lastMessageTime?: string;
+  unread?: number;
+}
+
+export interface MessengerMessageRow {
+  _id: string;
+  sender?: string | { _id?: string };
+  content?: string;
+  text?: string;
   createdAt?: string;
 }

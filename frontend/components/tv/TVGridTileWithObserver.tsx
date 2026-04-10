@@ -33,8 +33,13 @@ export function TVGridTileWithObserver(props: TVGridTileWithObserverProps) {
     return () => obs.disconnect();
   }, []);
 
+  const gridStretch = props.variant === 'grid';
+
   return (
-    <div ref={ref} className="min-h-0">
+    <div
+      ref={ref}
+      className={`min-h-0 ${gridStretch ? 'flex h-full min-h-0 flex-1 flex-col' : ''}`}
+    >
       <TVGridTile {...props} isVisible={isVisible} />
     </div>
   );

@@ -14,6 +14,14 @@ module.exports = {
     // Relax some rules to prioritize safety fixes first; we'll tighten later
     '@typescript-eslint/no-explicit-any': 'warn',
     '@typescript-eslint/explicit-module-boundary-types': 'off',
-    'no-unused-vars': ['warn', { 'argsIgnorePattern': '^_' }],
+    'no-unused-vars': 'off',
+    '@typescript-eslint/no-unused-vars': [
+      'warn',
+      {
+        argsIgnorePattern: '^_',
+        varsIgnorePattern: '^_',
+        caughtErrorsIgnorePattern: '^_',
+      },
+    ],
   },
 };

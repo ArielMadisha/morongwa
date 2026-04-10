@@ -22,8 +22,8 @@ const defaultPolicies: PolicySeed[] = [
     visibility: "public",
     countryScope: ["ZA", "BW", "LS", "NA", "ZW", "ZM"],
     tags: ["contract", "marketplace", "ecta", "cpa"],
-    summary: "Master contract covering roles, task lifecycle, escrow, payouts, Morongwa-TV, marketplace products, product enquiry, and deactivation.",
-    content: `# Terms of Service\n\n**Roles:** Clients post tasks; Runners are independent contractors who accept tasks. Resellers, suppliers, and content creators can list products and share content on Morongwa-TV.\n**Task lifecycle:** posting → acceptance → completion → review. Payment is held in escrow until completion or timeout.\n**Escrow & payouts:** Funds are released when the task is marked complete and review window closes, or via timeout rules.\n**Morongwa-TV (Qwerty TV):** Content platform for videos, images, and product promotions. User-generated content is subject to Acceptable Use; automated moderation may flag sensitive material; users may report posts. Content may carry a platform watermark.\n**Marketplace products:** Products can be bought through the marketplace; product enquiry messages route to sellers for notifications.\n**Product enquiry:** Buyers may enquire about products via Messages; enquiries are routed to sellers; see Privacy Policy for message data.\n**Cancellations:** Before acceptance: full refund of fees; after acceptance: see Refunds & Cancellations policy.\n**Disputes:** Evidence-based resolution with escalation path.\n**Ratings:** Anti-fraud; manipulation may lead to removal.\n**Prohibited uses:** Illegal/unsafe tasks, harassment, discrimination, deceptive listings, platform abuse; on Morongwa-TV: sexual, pornographic, or violent content.\n**IP:** You grant Morongwa a license to host/display task and content; ownership remains with you; platform watermark may be applied to Morongwa-TV content.\n**Liability:** Platform provides a marketplace; no warranty on outcomes; capped liability per CPA.\n**Termination:** Accounts may be suspended for violations; appeal path provided.\n**Governing law:** South Africa; electronic contracting per ECTA; consumer protections per CPA.`,
+    summary: "Master contract covering roles, task lifecycle, escrow, payouts, Morongwa-TV, marketplace products, third-party dropshipping, product enquiry, and deactivation.",
+    content: `# Terms of Service\n\n**Roles:** Clients post tasks; Runners are independent contractors who accept tasks. Resellers, suppliers, and content creators can list products and share content on Morongwa-TV.\n**Task lifecycle:** posting → acceptance → completion → review. Payment is held in escrow until completion or timeout.\n**Escrow & payouts:** Funds are released when the task is marked complete and review window closes, or via timeout rules.\n**Morongwa-TV (Qwerty TV):** Content platform for videos, images, and product promotions. User-generated content is subject to Acceptable Use; automated moderation may flag sensitive material; users may report posts. Content may carry a platform watermark.\n**Marketplace products:** Products can be bought through the marketplace; product enquiry messages route to sellers for notifications.\n**Third-party dropshipping:** Some products may be fulfilled via integrated supplier platforms (e.g. CJ Dropshipping, EPROLO, Spocket). Their terms, privacy notices, and dispute processes may apply in addition to Morongwa’s; see [Third-party dropshipping suppliers](/policies/third-party-dropshipping-suppliers).\n**Product enquiry:** Buyers may enquire about products via Messages; enquiries are routed to sellers; see Privacy Policy for message data.\n**Cancellations:** Before acceptance: full refund of fees; after acceptance: see Refunds & Cancellations policy.\n**Disputes:** Evidence-based resolution with escalation path.\n**Ratings:** Anti-fraud; manipulation may lead to removal.\n**Prohibited uses:** Illegal/unsafe tasks, harassment, discrimination, deceptive listings, platform abuse; on Morongwa-TV: sexual, pornographic, or violent content.\n**IP:** You grant Morongwa a license to host/display task and content; ownership remains with you; platform watermark may be applied to Morongwa-TV content.\n**Liability:** Platform provides a marketplace; no warranty on outcomes; capped liability per CPA.\n**Termination:** Accounts may be suspended for violations; appeal path provided.\n**Governing law:** South Africa; electronic contracting per ECTA; consumer protections per CPA.`,
   },
   {
     slug: "privacy-policy",
@@ -32,8 +32,8 @@ const defaultPolicies: PolicySeed[] = [
     visibility: "public",
     countryScope: ["ZA", "BW", "LS", "NA", "ZW", "ZM"],
     tags: ["popia", "privacy", "data-subject-rights"],
-    summary: "Explains personal data use, lawful basis, rights, security safeguards, Morongwa-TV content data, product enquiry messages, and breach notices.",
-    content: `# Privacy Policy\n\nWe process personal information to operate Morongwa.\n- **Lawful basis:** performance of contract, consent (cookies/marketing), legitimate interests (fraud prevention).\n- **Data collected:** identity, contact, payment, device, location (for tasks), ratings, communications; Morongwa-TV content (videos, images, captions, likes, comments); product enquiry messages.\n- **Use:** account, task facilitation, payments, fraud checks, support; Morongwa-TV content hosting and moderation; product enquiry routing to sellers.\n- **Sharing:** payment processors (DPO/PayGate), payout banks, verification/KYC vendors, support tools as operators; product enquiry messages are shared with the relevant seller.\n- **Cross-border transfers:** safeguarded per POPIA Chapter 9; equivalents or contractual safeguards.\n- **Retention:** kept as needed for legal/operational purposes; then deleted or de-identified.\n- **Security:** encryption in transit, access controls, monitoring.\n- **Rights:** access, correction, deletion, objection, restriction; channels via app/email; response per 2025 POPIA regs.\n- **Breach notification:** we will notify the Information Regulator and affected users where required.\n- **Contact:** Information Officer details in app.`,
+    summary: "Explains personal data use, lawful basis, rights, security safeguards, Morongwa-TV content data, dropshipping partners, product enquiry messages, and breach notices.",
+    content: `# Privacy Policy\n\nWe process personal information to operate Morongwa.\n- **Lawful basis:** performance of contract, consent (cookies/marketing), legitimate interests (fraud prevention).\n- **Data collected:** identity, contact, payment, device, location (for tasks), ratings, communications; Morongwa-TV content (videos, images, captions, likes, comments); product enquiry messages.\n- **Use:** account, task facilitation, payments, fraud checks, support; Morongwa-TV content hosting and moderation; product enquiry routing to sellers.\n- **Sharing:** payment processors (DPO/PayGate), payout banks, verification/KYC vendors, support tools as operators; product enquiry messages are shared with the relevant seller.\n- **Dropshipping partners:** Where an order is fulfilled through a third-party supplier platform (e.g. CJ Dropshipping, EPROLO, Spocket), order and shipping data necessary to deliver the product may be processed by that partner under their privacy policy. See [Third-party dropshipping suppliers](/policies/third-party-dropshipping-suppliers) for official links.\n- **Cross-border transfers:** safeguarded per POPIA Chapter 9; equivalents or contractual safeguards.\n- **Retention:** kept as needed for legal/operational purposes; then deleted or de-identified.\n- **Security:** encryption in transit, access controls, monitoring.\n- **Rights:** access, correction, deletion, objection, restriction; channels via app/email; response per 2025 POPIA regs.\n- **Breach notification:** we will notify the Information Regulator and affected users where required.\n- **Contact:** Information Officer details in app.`,
   },
   {
     slug: "cookies-tracking",
@@ -47,13 +47,69 @@ const defaultPolicies: PolicySeed[] = [
   },
   {
     slug: "pricing-fees",
-    title: "Marketplace Pricing & Fees Policy",
+    title: "Pricing, Fees & Commissions Policy",
     category: "pricing",
     visibility: "public",
     countryScope: ["ZA", "BW", "LS", "NA", "ZW", "ZM"],
-    tags: ["pricing", "fees", "commission"],
-    summary: "Commission 15%, booking fee base, surcharges, product pricing (discounts, out of stock), FX disclosure, examples.",
-    content: `# Pricing & Fees\n\n- **Commission:** 15% on task price.\n- **Booking fee:** base R8 (converted locally).\n- **Surcharges:** distance beyond base radius, peak, heavy items, urgent (<2h).\n- **Products:** marketplace products may have discount prices; out-of-stock items cannot be purchased.\n- **FX:** quotes shown in local currency; conversions use disclosed FX rates.\n- **Examples:** see pricing page for live calculator.`,
+    tags: ["pricing", "fees", "commission", "tasks", "qwertyhub", "resellers"],
+    summary:
+      "Two pillars: (1) Client tasks and runners: 15% commission, booking fee, surcharges. (2) QwertyHub products: reseller margin 3-7%, listed prices, supplier/platform fees, FX.",
+    content: `# Pricing, Fees & Commissions Policy
+
+Qwertymates / Morongwa uses **two different pricing systems**. Please read the section that applies to you:
+
+- **(1) Client tasks and runners** - when a client books a **task** and a **runner** fulfils it.
+- **(2) QwertyHub (marketplace products)** - when you **buy or sell products** (suppliers, catalogue, resellers / MyStore).
+
+---
+
+## 1. Client tasks and runners (Morongwa tasks)
+
+These fees apply to **task bookings** (errands, deliveries, gigs, etc.), **not** to QwertyHub product checkout.
+
+- **Platform commission (success fee):** **15%** of the **task price** - charged when the task is approved for payout from escrow (aligned with platform configuration).
+- **Booking fee:** A fixed **service fee** at checkout. In **South Africa** the base is **R8**; in other supported countries the equivalent is **converted to local currency** using the same fee model.
+- **Surcharges (when shown):** May include distance beyond the included radius, peak periods, heavy items, or urgent turnaround - **always listed before you pay**.
+- **Discounts / task price:** The task price you agree with the runner is separate from the platform commission and booking fee.
+- **Foreign exchange:** Quotes may be shown in local currency; conversions use **disclosed FX rates** (+ small margin where stated at checkout).
+- **Worked examples & escrow:** Full breakdowns, escrow hold, and payout maths are in the **[Escrow & Payout Policy (Morongwa)](/policies/escrow-and-payout-policy)**.
+
+---
+
+## 2. QwertyHub & marketplace products
+
+This section applies to **product** purchases and sales on **QwertyHub** (including verified suppliers, integrated dropshipping catalogues, and **resellers** who use **Add to MyStore**). It does **not** use the **15% task commission** above.
+
+### Listed prices & checkout
+
+- **Shelf prices** are per product; **discount** or **sale** prices may apply where shown. **Out-of-stock** items cannot be purchased.
+- **Shipping** and **taxes** (if any) are shown or estimated at checkout before you pay.
+
+### Integrated dropshipping (e.g. CJ, EPROLO, Spocket)
+
+- Retail prices are derived from **supplier cost** plus **platform margin** rules that vary by **product category** and source. See **[Third-party dropshipping suppliers](/policies/third-party-dropshipping-suppliers)** for partner terms and disclosures.
+
+### Resellers (MyStore / wall)
+
+- When you **resell** an eligible product, you set a **reseller commission** between **3% and 7%** (default **5%**) when adding it to your store. That margin affects the **resale price** buyers pay relative to the underlying product price; see checkout and product flows for the exact calculation.
+- Only products that **allow resell** can be added. See **[Marketplace Policy (QwertyHub)](/policies/marketplace)**.
+
+### Verified suppliers
+
+- For sales fulfilled by **verified suppliers**, a **platform product fee** on successful sales may apply (configuration target **7.5%** where enabled). Any fee specific to your supplier account is confirmed in **supplier** and **checkout** flows.
+
+### FX
+
+- Catalogue prices in foreign currencies may be **converted for display** using disclosed rates; you always see totals **before payment** where the product flow supports it.
+
+---
+
+## 3. Where to get numbers
+
+- **Tasks:** Use in-app **pricing** tools where available; full fee tables and examples: **[Escrow & Payout Policy (Morongwa)](/policies/escrow-and-payout-policy)**.
+- **Products:** Totals and fees are shown at **checkout** before you confirm payment.
+
+For support, use the in-app help or **[Consumer Complaints & Dispute Resolution](/policies/consumer-complaints)**.`,
   },
   {
     slug: "escrow-payouts",
@@ -72,18 +128,64 @@ const defaultPolicies: PolicySeed[] = [
     visibility: "public",
     countryScope: ["ZA", "BW", "LS", "NA", "ZW", "ZM"],
     tags: ["marketplace", "qwertyhub", "platform", "listing", "stores"],
-    summary: "How the Morongwa marketplace (QwertyHub) works: tasks, products, stores, Morongwa-TV, product enquiry.",
+    summary: "How the Morongwa marketplace (QwertyHub) works: tasks, products, stores, third-party fulfilment, Morongwa-TV, product enquiry.",
     content: `# Marketplace Policy (QwertyHub)
 
 - **Overview:** Morongwa is a task and product marketplace. QwertyHub is the product marketplace where buyers browse products from suppliers and resellers. Morongwa-TV allows content creators to share videos and images and promote products.
 - **Tasks:** Clients post tasks with description, location, and budget; tasks must be lawful and clearly described. Runners see available tasks and may accept.
 - **Products:** Suppliers list products; resellers add products to MyStore from QwertyHub ("Add to MyStore"). Products appear in QwertyHub and on Morongwa-TV. Buyers can purchase or enquire via Messages.
+- **Third-party fulfilment:** Some catalogue items are sourced via dropshipping integrations (e.g. CJ Dropshipping, EPROLO, Spocket). Delivery, tracking, defects, and disputes may be governed by the relevant supplier’s terms and dispute processes as well as Morongwa’s policies. See [Third-party dropshipping suppliers](/policies/third-party-dropshipping-suppliers).
 - **Stores:** A store is created automatically when a user resells a product (adds to MyStore). Store owners can edit store name, address, email, cellphone, WhatsApp, and strip background. To add physical products, supplier verification is required.
 - **Product enquiry:** Buyers may send enquiries about products; messages are routed to the seller for response.
 - **Morongwa-TV:** Content creators can upload videos and images; products may be linked to posts; content is subject to automated moderation and user reporting.
-- **Pricing:** Task price, booking fee, and surcharges are shown before payment; product prices may include discounts; see Pricing & Fees policy.
+- **Pricing:** For **tasks**, task price, booking fee, and surcharges are shown before payment. For **QwertyHub** products, shelf prices, reseller margin (where applicable), and checkout totals are shown before payment; see [Pricing, Fees & Commissions Policy](/policies/pricing-fees).
 - **Completion:** For tasks, runner marks complete; client may review; funds released per Escrow & Payouts policy.
 - **Standards:** All participants must follow Acceptable Use and Community Guidelines.`,
+  },
+  {
+    slug: "third-party-dropshipping-suppliers",
+    title: "Third-party dropshipping suppliers (CJ, EPROLO, Spocket)",
+    category: "platform",
+    visibility: "public",
+    countryScope: ["ZA", "BW", "LS", "NA", "ZW", "ZM"],
+    tags: ["dropshipping", "cj", "eprolo", "spocket", "third-party", "refunds", "privacy"],
+    summary:
+      "Official links to CJ Dropshipping, EPROLO, and Spocket terms, privacy, and refund policies; how they relate to Morongwa and QwertyHub purchases.",
+    content: `# Third-party dropshipping suppliers
+
+Some products on QwertyHub may be sourced or fulfilled through **third-party dropshipping platforms** integrated with Morongwa. When that applies, **shipping, returns, refunds, and privacy processing** may be governed partly by the **supplier’s own policies** on their website—not only by Morongwa’s documents.
+
+## Relationship to Morongwa’s policies
+
+- Morongwa / Qwertymates provides marketplace discovery, ordering, and support channels as described in our [Terms of Service](/policies/terms-of-service), [Privacy Policy](/policies/privacy-policy), [Marketplace Policy (QwertyHub)](/policies/marketplace), and [Refunds, Cancellations & Cooling-off](/policies/refunds-cancellations).
+- The **warehouse, carrier, and dispute portal** for a given item may be operated by the supplier platform below. You should read their documents **in addition to** ours.
+- Third parties may update their policies without notice to us. **The authoritative text is always on their site**; we periodically review the links below.
+
+## CJ Dropshipping
+
+- [Terms of Service](https://www.cjdropshipping.com/termsofservice)
+- [User Agreement](https://www.cjdropshipping.com/user-agreement)
+- [Privacy Policy](https://www.cjdropshipping.com/privacyPolicy)
+- [Refund, resend & returns / dispute policy](https://www.cjdropshipping.com/dispute-policy.html)
+
+## EPROLO
+
+- [Terms and conditions](https://eprolo.com/project/terms-and-conditions/)
+- [Privacy policy](https://eprolo.com/project/privacy-policy/)
+- [Refund policy](https://eprolo.com/project/refund-policy/)
+
+## Spocket
+
+- [Terms of Service](https://www.spocket.co/terms-of-service)
+- [Privacy policy](https://www.spocket.co/privacy-policy)
+
+## Other suppliers
+
+Additional integrations may be added over time. When a product is supplied through another partner, we will list their policy links here or in product/checkout disclosure where appropriate.
+
+## Help
+
+For order-specific issues, use in-app support. For escalations, see [Consumer Complaints & Dispute Resolution](/policies/consumer-complaints).`,
   },
   {
     slug: "morongwa-tv",
@@ -112,8 +214,8 @@ const defaultPolicies: PolicySeed[] = [
     visibility: "public",
     countryScope: ["ZA", "BW", "LS", "NA", "ZW", "ZM"],
     tags: ["refunds", "cancellations", "cpa"],
-    summary: "When clients can cancel, what fees are refundable, cooling-off for distance sales, and timelines.",
-    content: `# Refunds & Cancellations\n\n- **Before runner acceptance:** full refund of task amount and booking fee.\n- **After acceptance before work starts:** booking fee non-refundable; task amount refundable.\n- **After work started:** pro-rated or case-by-case; see dispute flow.\n- **Cooling-off:** where applicable under CPA/ECTA for distance sales.\n- **Process:** request via app; timelines communicated in dashboard.`,
+    summary: "When clients can cancel, what fees are refundable, cooling-off for distance sales, dropship product rules, and timelines.",
+    content: `# Refunds & Cancellations\n\n- **Before runner acceptance:** full refund of task amount and booking fee.\n- **After acceptance before work starts:** booking fee non-refundable; task amount refundable.\n- **After work started:** pro-rated or case-by-case; see dispute flow.\n- **Cooling-off:** where applicable under CPA/ECTA for distance sales.\n- **Process:** request via app; timelines communicated in dashboard.\n- **Dropshipped products:** Returns and refunds may also follow the relevant supplier platform’s rules (e.g. CJ Dropshipping, EPROLO, Spocket). See [Third-party dropshipping suppliers](/policies/third-party-dropshipping-suppliers) for official links.`,
   },
   {
     slug: "runner-agreement",
@@ -497,6 +599,9 @@ When escrow is approved for release (task completion + review approval or timeou
 - If client and runner disagree on refund eligibility, Morongwa support reviews evidence (timestamps, photos, chat).
 - Decision is issued within 5 business days.
 - Decision is binding; escalation to external ombudsman available per CPA.
+
+### Marketplace & dropshipped product orders
+- Product purchases fulfilled via integrated third-party suppliers (e.g. CJ Dropshipping, EPROLO, Spocket) may follow **their** refund, resend, and dispute timelines in addition to Morongwa’s process. See [Third-party dropshipping suppliers](/policies/third-party-dropshipping-suppliers).
 
 ## 7. Data & Privacy
 

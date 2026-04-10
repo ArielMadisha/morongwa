@@ -1,9 +1,8 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import Image from 'next/image';
 import { LayoutGrid, Loader2, Plus } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import ProtectedRoute from '@/components/ProtectedRoute';
@@ -27,11 +26,64 @@ import {
   getHideProducts,
 } from '@/components/ContentPreferencesModal';
 
+/** Set to true to show the "Customize your feed" modal on first visit / re-ask cadence. */
+const SHOW_FEED_PREFERENCES_PROMPT = false;
+
+/** Used for merging feed posts with product tiles (same clock as TV posts). */
+function getFeedItemSortTime(item: TVGridItem): number {
+  if (item.createdAt) {
+    const t = new Date(item.createdAt).getTime();
+    if (!Number.isNaN(t)) return t;
+  }
+  const id = String(item._id ?? '');
+  if (/^[a-f0-9]{24}$/i.test(id)) {
+    return parseInt(id.slice(0, 8), 16) * 1000;
+  }
+  return 0;
+}
+
+function sortFeedNewestFirst(items: TVGridItem[]): TVGridItem[] {
+  return [...items].sort((a, b) => {
+    const d = getFeedItemSortTime(b) - getFeedItemSortTime(a);
+    if (d !== 0) return d;
+    return String(b._id).localeCompare(String(a._id));
+  });
+}
+
+function productIdsFromProductPosts(posts: TVGridItem[]): Set<string> {
+  const ids = new Set<string>();
+  for (const p of posts) {
+    if (p.type !== 'product') continue;
+    const pid =
+      p.productId && typeof p.productId === 'object' && (p.productId as { _id?: string })._id
+        ? String((p.productId as { _id: string })._id)
+        : undefined;
+    if (pid) ids.add(pid);
+  }
+  return ids;
+}
+
+/** Merge TV feed with QwertyHub tiles by date so new products are not stuck below older posts. */
+function mergeWallFeedWithTiles(
+  posts: TVGridItem[],
+  tiles: TVGridItem[],
+  latestFromSession: TVGridItem | null
+): TVGridItem[] {
+  const seenProductIds = productIdsFromProductPosts(posts);
+  const tilesDeduped = tiles.filter(
+    (t) => t.type === 'product_tile' && !seenProductIds.has(String(t._id))
+  );
+  const combined = sortFeedNewestFirst([...posts, ...tilesDeduped]);
+  if (!latestFromSession) return combined;
+  const rest = combined.filter((x) => x._id !== latestFromSession._id);
+  return [latestFromSession, ...rest];
+}
+
 function WallPageContent() {
   const { user, logout, refreshUser } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const searchQ = searchParams.get('q') ?? '';
+  const [searchQ, setSearchQ] = useState('');
   const [menuOpen, setMenuOpen] = useState(false);
   const [gridItems, setGridItems] = useState<TVGridItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -54,6 +106,14 @@ function WallPageContent() {
   const loadMoreSentinelRef = useRef<HTMLDivElement>(null);
   const limit = 24;
 
+  const prefillHashtag = searchParams.get('hashtag')?.replace(/^#/, '').trim() || undefined;
+  useEffect(() => {
+    setSearchQ(searchParams.get('q') ?? '');
+  }, [searchParams]);
+  useEffect(() => {
+    if (searchParams.get('create') === '1') setCreateOpen(true);
+  }, [searchParams]);
+
   const loadFeed = useCallback(
     async (pageNum = 1, append = false) => {
       if (pageNum === 1) setLoading(true);
@@ -63,16 +123,18 @@ function WallPageContent() {
         const res = await tvAPI.getFeed({
           page: pageNum,
           limit,
+          sort: 'newest',
           q: searchQ || undefined,
           hideProducts: !user ? hideProducts : undefined,
         });
       const data = res.data?.data ?? res.data ?? [];
-      const posts = Array.isArray(data) ? data : [];
+      const raw = Array.isArray(data) ? data : [];
+      const posts = sortFeedNewestFirst(raw as TVGridItem[]);
       const fetchedTotal = Number(res.data?.total ?? posts.length);
       setTotal(fetchedTotal);
       let nextCount = posts.length;
       setGridItems((prev) => {
-        const next = append ? [...prev, ...posts] : posts;
+        const next = append ? sortFeedNewestFirst([...prev, ...posts]) : posts;
         nextCount = next.length;
         return next;
       });
@@ -114,6 +176,7 @@ function WallPageContent() {
             likeCount: 0,
             commentCount: 0,
             shareCount: 0,
+            createdAt: p.createdAt ? String(p.createdAt) : undefined,
           }))
         );
       })
@@ -142,6 +205,7 @@ function WallPageContent() {
 
   // Show content preferences modal (first visit or every 30 days)
   useEffect(() => {
+    if (!SHOW_FEED_PREFERENCES_PROMPT) return;
     if (!loading && user !== undefined && shouldShowPreferencesModal(user)) {
       setPrefsModalOpen(true);
     }
@@ -271,19 +335,20 @@ function WallPageContent() {
 
   // Intersperse sponsored adverts every 6 items between posts (same dimensions as posts)
   const insertAdvertsEvery = 6;
-  // Feed first (all posts including videos in sequence), then product tiles
-  const feedWithoutLatest =
+  // TV posts + QwertyHub product tiles merged by createdAt (newest first)
+  const feedWithoutLatest = latestCreatedPost
+    ? gridItems.filter((p) => p._id !== latestCreatedPost._id)
+    : gridItems;
+  const baseItems: TVGridItem[] = mergeWallFeedWithTiles(
+    feedWithoutLatest,
+    productTiles,
     latestCreatedPost
-      ? gridItems.filter((p) => p._id !== latestCreatedPost._id)
-      : gridItems;
-  const baseItems: TVGridItem[] = latestCreatedPost
-    ? [latestCreatedPost, ...feedWithoutLatest, ...productTiles]
-    : [...gridItems, ...productTiles];
+  );
   const allItemsWithAds: (TVGridItem | { _id: string; type: 'advert'; title: string; imageUrl: string; linkUrl?: string })[] = [];
   baseItems.forEach((item, i) => {
     if (i > 0 && i % insertAdvertsEvery === 0 && adverts.length > 0) {
       const ad = adverts[Math.floor(Math.random() * adverts.length)];
-      if (ad) allItemsWithAds.push({ _id: `ad-${ad._id}`, type: 'advert', ...ad });
+      if (ad) allItemsWithAds.push({ type: 'advert', ...ad, _id: `ad-${ad._id}` });
     }
     allItemsWithAds.push(item);
   });
@@ -296,8 +361,8 @@ function WallPageContent() {
           <div className="flex items-center gap-2 sm:gap-3 w-full">
             <div className="shrink-0 flex items-center gap-1 sm:gap-2">
               <Link href="/wall" className="shrink-0 flex items-center" aria-label="Home">
-                <img src="/qwertymates-logo-icon.png" alt="Qwertymates" className="h-8 w-8 object-contain lg:hidden" />
-                <img src="/qwertymates-logo.png" alt="Qwertymates" className="h-7 w-auto max-w-[112px] sm:max-w-none object-contain hidden lg:block" />
+                <img src="/qwertymates-logo-icon.png" alt="Qwertymates" className="h-16 w-16 sm:h-[4.25rem] sm:w-[4.25rem] object-contain lg:hidden shrink-0" />
+                <img src="/qwertymates-logo.png" alt="Qwertymates" className="h-8 w-auto max-w-[132px] sm:max-w-none object-contain hidden lg:block" />
               </Link>
               <AppSidebarMenuButton onClick={() => setMenuOpen((v) => !v)} />
             </div>
@@ -313,7 +378,8 @@ function WallPageContent() {
               />
             </div>
             <div className="shrink-0 flex items-center gap-2">
-              <SearchButton />
+              {/* Mobile-only: remove the top "Ask MacGyver" pill; keep it on desktop/web */}
+              <SearchButton className="hidden lg:flex" />
               <ProfileHeaderButton />
             </div>
           </div>
@@ -321,7 +387,7 @@ function WallPageContent() {
       </header>
 
       {/* Menu (sidebar) + content below header */}
-      <div className="flex flex-1 min-h-0">
+      <div className="flex min-h-0 min-w-0 w-full flex-1">
         <AppSidebar
           variant="wall"
           userName={user?.name}
@@ -336,7 +402,7 @@ function WallPageContent() {
           belowHeader
         />
         <div ref={containerRef} className="flex-1 flex flex-col lg:flex-row lg:justify-center gap-0 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden lg:items-start">
-        <main className="min-w-0 w-full max-w-[calc(720px+4rem)] lg:w-[calc(720px+4rem)] pl-6 lg:pl-8 pb-24 lg:pb-6 order-2 lg:order-none">
+        <main className="min-w-0 w-full max-w-[calc(720px+4rem)] lg:w-[calc(720px+4rem)] pl-3 pr-3 sm:pl-6 sm:pr-0 lg:pl-8 pb-24 lg:pb-6 order-2 lg:order-none">
           {loading && allItemsWithAds.length === 0 ? (
             <div className="flex justify-center py-24 min-h-[60vh]">
               <Loader2 className="h-12 w-12 text-sky-500 animate-spin" />
@@ -402,15 +468,6 @@ function WallPageContent() {
       </div>
       <MobileBottomNav cartCount={cartCount} hasStore={hasStore} />
 
-      <Link
-        href="/messages"
-        className="fixed right-4 bottom-[8.25rem] sm:bottom-36 lg:bottom-24 z-40 flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-4 py-2 sm:py-3 rounded-full bg-white border border-slate-200 text-sky-600 shadow-lg hover:bg-slate-50 hover:border-slate-300 transition-all font-semibold"
-        aria-label="Morongwa"
-      >
-        <Image src="/messages-icon.png" alt="" width={24} height={24} className="h-4 w-4 sm:h-6 sm:w-6 shrink-0 object-contain" />
-        <span className="text-xs sm:text-base text-sky-600">Morongwa</span>
-      </Link>
-
       <ContentPreferencesModal
         open={prefsModalOpen}
         onClose={() => setPrefsModalOpen(false)}
@@ -425,6 +482,7 @@ function WallPageContent() {
       <CreatePostModal
         open={createOpen}
         onClose={() => setCreateOpen(false)}
+        prefillHashtag={prefillHashtag}
         onCreated={(created) => {
           if (created) {
             setLatestCreatedPost(created);
@@ -441,7 +499,7 @@ function WallPageContent() {
       />
 
       {enquireOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 p-4">
           <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6">
             <h2 className="text-lg font-semibold text-slate-900 mb-4">Enquire about product</h2>
             <textarea
@@ -479,7 +537,9 @@ function WallPageContent() {
 export default function WallPage() {
   return (
     <ProtectedRoute>
-      <WallPageContent />
+      <Suspense fallback={<div className="min-h-screen bg-gradient-to-br from-slate-50 to-white" />}>
+        <WallPageContent />
+      </Suspense>
     </ProtectedRoute>
   );
 }

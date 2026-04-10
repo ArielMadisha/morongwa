@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { getImageUrl } from '@/lib/api';
 
 export interface AdvertTileProps {
   _id: string;
@@ -16,12 +17,13 @@ export interface AdvertTileProps {
 export function AdvertTile({ _id, title, imageUrl, linkUrl }: AdvertTileProps) {
   const href = linkUrl || '/marketplace';
   const isExternal = href.startsWith('http');
+  const imgSrc = getImageUrl(imageUrl) || imageUrl;
 
   const content = (
     <div className="rounded-lg overflow-hidden bg-white border border-slate-100 shadow-sm flex flex-col">
       <div className="relative aspect-square w-full mx-auto bg-slate-900 max-h-[min(580px,62vh)]">
         <img
-          src={imageUrl}
+          src={imgSrc}
           alt={title}
           className="w-full h-full object-cover"
         />

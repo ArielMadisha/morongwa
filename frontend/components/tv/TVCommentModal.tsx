@@ -127,7 +127,7 @@ export function TVCommentModal({ open, onClose, item, onCommentAdded, currentUse
               <div className="flex gap-3">
                 <div className="w-16 h-16 rounded-xl overflow-hidden bg-slate-100 flex-shrink-0">
                   {isVideo ? (
-                    <video src={mediaUrl} className="w-full h-full object-cover" muted />
+                    <video src={getImageUrl(mediaUrl) || mediaUrl} className="w-full h-full object-cover" muted />
                   ) : (
                     <img src={getImageUrl(mediaUrl)} alt="" className="w-full h-full object-cover" />
                   )}

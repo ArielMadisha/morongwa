@@ -1,12 +1,18 @@
 // User model with role-based access
-import mongoose, { Schema, Document } from "mongoose";
+import mongoose, { Schema, Document, Types } from "mongoose";
 
 export interface IUser extends Document {
   name: string;
   username?: string;
   email: string;
   phone?: string;
+  /** ISO 3166-1 alpha-2 from registered phone (E.164) */
+  countryCode?: string;
+  /** ISO 4217 — derived from phone country + platform rules (EU/US → USD, IN → INR, …) */
+  preferredCurrency?: string;
   passwordHash: string;
+  /** Set by import scripts when the row came from a legacy site (used for bulk activation ops). */
+  importedFromLegacy?: boolean;
   dateOfBirth?: Date;
   role: ("client" | "runner" | "admin" | "superadmin")[];
   avatar?: string;
@@ -37,6 +43,8 @@ export interface IUser extends Document {
   isPrivate?: boolean;
   /** Currently broadcasting live - shows in statuses and LiveTV */
   isLive?: boolean;
+  /** Set when user ends a live session; LIVE badge stays visible for 24h after this time */
+  lastLiveEndedAt?: Date;
   /** Verified music artist/company/producer - can upload music to QwertyMusic */
   artistVerified?: boolean;
   /** Delivery preferences for order notifications */
@@ -46,6 +54,23 @@ export interface IUser extends Document {
     orderSms?: boolean;
     orderWhatsapp?: boolean;
   };
+  /** ACBPayWallet merchant agent — cash-in/cash-out; requires KYC, admin approval, float. */
+  merchantAgent?: {
+    enabled: boolean;
+    /** none = not applied; pending = awaiting admin; approved | rejected | suspended */
+    applicationStatus?: "none" | "pending" | "approved" | "rejected" | "suspended";
+    businessName?: string;
+    businessDescription?: string;
+    publicNote?: string;
+    /** User attested KYC/business truthfulness at application time */
+    kycAttestedAt?: Date;
+    appliedAt?: Date;
+    reviewedAt?: Date;
+    reviewedBy?: Types.ObjectId;
+    rejectionReason?: string;
+  };
+  /** WhatsApp "Explore more" (menu 2): product _ids already shown; next batch excludes these. */
+  waExploreSeenProductIds?: Types.ObjectId[];
   /** Feed content preferences – hide products, etc. */
   contentPreferences?: {
     /** When false, product posts and product tiles are hidden from feed */
@@ -65,6 +90,8 @@ const UserSchema = new Schema<IUser>(
     username: { type: String, unique: true, sparse: true, lowercase: true, trim: true },
     email: { type: String, required: true, unique: true, lowercase: true, trim: true },
     phone: { type: String, trim: true },
+    countryCode: { type: String, trim: true, uppercase: true, maxlength: 2 },
+    preferredCurrency: { type: String, trim: true, uppercase: true, maxlength: 3 },
     passwordHash: { type: String, required: true },
     dateOfBirth: { type: Date },
     role: { 
@@ -109,6 +136,7 @@ const UserSchema = new Schema<IUser>(
     runnerVerified: { type: Boolean, default: false },
     isPrivate: { type: Boolean, default: false },
     isLive: { type: Boolean, default: false },
+    lastLiveEndedAt: { type: Date },
     artistVerified: { type: Boolean, default: false },
     notificationPreferences: {
       orderMessenger: { type: Boolean, default: true },
@@ -116,11 +144,29 @@ const UserSchema = new Schema<IUser>(
       orderSms: { type: Boolean, default: false },
       orderWhatsapp: { type: Boolean, default: false },
     },
+    merchantAgent: {
+      enabled: { type: Boolean, default: false },
+      applicationStatus: {
+        type: String,
+        enum: ["none", "pending", "approved", "rejected", "suspended"],
+        default: "none",
+      },
+      businessName: { type: String, maxlength: 120 },
+      businessDescription: { type: String, maxlength: 2000 },
+      publicNote: { type: String, maxlength: 200 },
+      kycAttestedAt: { type: Date },
+      appliedAt: { type: Date },
+      reviewedAt: { type: Date },
+      reviewedBy: { type: Schema.Types.ObjectId, ref: "User" },
+      rejectionReason: { type: String, maxlength: 500 },
+    },
+    waExploreSeenProductIds: [{ type: Schema.Types.ObjectId, ref: "Product" }],
     contentPreferences: {
       showProducts: { type: Boolean, default: true },
       preferencesAskedAt: { type: Date },
       preferencesSetAt: { type: Date },
     },
+    importedFromLegacy: { type: Boolean, default: false, index: true },
     isVerified: { type: Boolean, default: false },
     active: { type: Boolean, default: true },
     suspended: { type: Boolean, default: false },

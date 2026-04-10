@@ -84,8 +84,8 @@ function LiveTVPageContent() {
           </div>
         </header>
 
-        <div className="flex-1 flex gap-0 min-h-0 overflow-hidden">
-          <main className="flex-1 min-w-0 overflow-y-auto px-4 sm:px-6 lg:px-8 py-8 pb-24 lg:pb-8">
+        <div className="flex-1 flex flex-col lg:flex-row gap-0 min-h-0 overflow-hidden min-w-0">
+          <main className="flex-1 min-w-0 overflow-y-auto px-4 sm:px-6 lg:px-8 py-8 pb-24 lg:pb-8 order-2 lg:order-none w-full">
             {loading ? (
               <div className="flex flex-col items-center justify-center py-24">
                 <Radio className="h-12 w-12 text-sky-500 animate-pulse mb-4" />

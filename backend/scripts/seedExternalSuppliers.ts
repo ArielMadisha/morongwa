@@ -38,6 +38,7 @@ const SUPPLIERS = [
     source: "eprolo" as const,
     name: "EPROLO",
     apiKeyEnv: "EPROLO_API_KEY",
+    apiSecretEnv: "EPROLO_API_SECRET",
     webhookEnv: "EPROLO_WEBHOOK_SECRET",
     shippingEnv: "EPROLO_SHIPPING_COST",
     defaultShipping: 150,
@@ -61,22 +62,24 @@ async function run() {
       continue;
     }
 
+    const apiSecret = (s as any).apiSecretEnv ? process.env[(s as any).apiSecretEnv]?.trim() : undefined;
     const webhookSecret = process.env[s.webhookEnv]?.trim() || undefined;
     const shippingCostRaw = (s as any).shippingEnv ? process.env[(s as any).shippingEnv] : undefined;
     const shippingCost = shippingCostRaw != null && shippingCostRaw !== "" ? parseInt(shippingCostRaw, 10) : (s as any).defaultShipping ?? 150;
 
+    const update: Record<string, unknown> = {
+      name: s.name,
+      apiKey: apiKey.trim(),
+      webhookSecret,
+      status: "active",
+      defaultMarkupPct: 25,
+      shippingCost: Number.isNaN(shippingCost) ? 150 : shippingCost,
+    };
+    if (apiSecret) update.apiSecret = apiSecret;
+
     await ExternalSupplier.findOneAndUpdate(
       { source: s.source },
-      {
-        $set: {
-          name: s.name,
-          apiKey: apiKey.trim(),
-          webhookSecret,
-          status: "active",
-          defaultMarkupPct: 25,
-          shippingCost: Number.isNaN(shippingCost) ? 150 : shippingCost,
-        },
-      },
+      { $set: update },
       { upsert: true, new: true }
     );
     console.log(`✅ ${s.name} (${s.source}) configured`);

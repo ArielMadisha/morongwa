@@ -34,6 +34,8 @@ interface CreatePostModalProps {
   onCreated?: (created?: any) => void;
   featuredProducts?: (Product & { _id: string })[];
   currentUserId?: string;
+  /** When opening from hashtag Join — prefill text-post hashtags (without #). */
+  prefillHashtag?: string;
 }
 
 export function CreatePostModal({
@@ -42,6 +44,7 @@ export function CreatePostModal({
   onCreated,
   featuredProducts = [],
   currentUserId,
+  prefillHashtag,
 }: CreatePostModalProps) {
   const [step, setStep] = useState<'upload' | 'details'>('upload');
   const [mediaUrls, setMediaUrls] = useState<string[]>([]);
@@ -64,6 +67,20 @@ export function CreatePostModal({
   const [selectedSongId, setSelectedSongId] = useState<string | null>(null);
   const [mySongs, setMySongs] = useState<any[]>([]);
   const [mediaSensitive, setMediaSensitive] = useState(false);
+  useEffect(() => {
+    if (!open || !prefillHashtag) return;
+    const t = prefillHashtag.replace(/^#/, '').trim();
+    if (!t) return;
+    setHashtagsInput((prev) => {
+      const parts = prev
+        .split(/[,\s]+/)
+        .map((p) => p.replace(/^#/, '').trim().toLowerCase())
+        .filter(Boolean);
+      if (parts.includes(t.toLowerCase())) return prev;
+      return prev.trim() ? `${prev.trim()}, ${t}` : t;
+    });
+  }, [open, prefillHashtag]);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const qwertzInputRef = useRef<HTMLInputElement>(null);
   const imagesInputRef = useRef<HTMLInputElement>(null);
@@ -144,20 +161,52 @@ export function CreatePostModal({
     onClose();
   };
 
-  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  /** Video button — videos only (picker must not offer photos). */
+  const handleVideoOnlySelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('video/')) {
+      toast.error('Please choose a video file');
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+    setUploading(true);
+    try {
+      const res = await tvAPI.uploadMedia(file);
+      const url = res.data?.url ?? (res.data as any)?.url;
+      const sensitive = res.data?.sensitive ?? (res.data as any)?.sensitive ?? false;
+      if (url) {
+        setMediaUrls([url]);
+        setType('video');
+        setMediaSensitive(sensitive);
+        setStep('details');
+      }
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'Upload failed');
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  /** Images / carousel — images only (single file uses same upload path as before). */
+  const handleImageCarouselSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files?.length) return;
     setUploading(true);
     try {
       if (files.length === 1) {
         const file = files[0];
-        const isVideo = file.type.startsWith('video/');
+        if (!file.type.startsWith('image/')) {
+          toast.error('Please select an image file');
+          return;
+        }
         const res = await tvAPI.uploadMedia(file);
         const url = res.data?.url ?? (res.data as any)?.url;
         const sensitive = res.data?.sensitive ?? (res.data as any)?.sensitive ?? false;
         if (url) {
           setMediaUrls([url]);
-          setType(isVideo ? 'video' : 'image');
+          setType('image');
           setMediaSensitive(sensitive);
           setStep('details');
         }
@@ -183,7 +232,6 @@ export function CreatePostModal({
       toast.error(err.response?.data?.message || 'Upload failed');
     } finally {
       setUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = '';
       if (imagesInputRef.current) imagesInputRef.current.value = '';
     }
   };
@@ -332,7 +380,7 @@ export function CreatePostModal({
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/50">
       <div className="bg-white rounded-2xl shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between p-4 border-b border-slate-100">
           <h2 className="text-lg font-semibold text-slate-900">Create post</h2>
@@ -567,7 +615,7 @@ export function CreatePostModal({
                   <Music2 className="h-10 w-10 text-sky-500 shrink-0" />
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-slate-800">Audio ready</p>
-                    <audio src={mediaUrls[0]} controls className="w-full mt-2 max-h-10" />
+                    <audio src={getImageUrl(mediaUrls[0]) || mediaUrls[0]} controls className="w-full mt-2 max-h-10" />
                   </div>
                 </div>
                 {audioStep === 'upload-details' && (
@@ -642,9 +690,9 @@ export function CreatePostModal({
                 <input
                   ref={fileInputRef}
                   type="file"
-                  accept="video/*,image/*"
+                  accept="video/*"
                   capture="environment"
-                  onChange={handleFileSelect}
+                  onChange={handleVideoOnlySelect}
                   disabled={uploading}
                   className="hidden"
                 />
@@ -680,7 +728,7 @@ export function CreatePostModal({
                   accept="image/*"
                   capture
                   multiple
-                  onChange={handleFileSelect}
+                  onChange={handleImageCarouselSelect}
                   disabled={uploading}
                   className="hidden"
                 />
@@ -726,10 +774,10 @@ export function CreatePostModal({
               {type === 'audio' ? (
                 <div className="w-full h-full flex flex-col items-center justify-center p-4 bg-slate-800">
                   <Music2 className="h-12 w-12 text-sky-400 mb-2" />
-                  <audio src={mediaUrls[0]} controls className="w-full max-w-full" />
+                  <audio src={getImageUrl(mediaUrls[0]) || mediaUrls[0]} controls className="w-full max-w-full" />
                 </div>
               ) : type === 'video' ? (
-                <video src={mediaUrls[0]} controls className="w-full h-full object-contain" />
+                <video src={getImageUrl(mediaUrls[0]) || mediaUrls[0]} controls className="w-full h-full object-contain" />
               ) : type === 'carousel' && mediaUrls.length > 1 ? (
                 <>
                   <img

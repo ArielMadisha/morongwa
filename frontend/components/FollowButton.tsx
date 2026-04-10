@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from 'react';
 import { followsAPI } from '@/lib/api';
-import { UserPlus, UserCheck, Loader2, Clock } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 const FOLLOW_STATUS_TTL_MS = 60_000;
@@ -115,7 +114,7 @@ export function FollowButton({ targetUserId, currentUserId, targetIsPrivate, cla
       type="button"
       onClick={handleClick}
       disabled={loading}
-      className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl font-medium transition disabled:opacity-60 disabled:cursor-not-allowed ${
+      className={`inline-flex items-center px-4 py-2 rounded-xl font-medium transition disabled:opacity-60 disabled:cursor-not-allowed ${
         following && !isPending
           ? 'bg-slate-200 text-slate-700 hover:bg-slate-300'
           : isPending
@@ -123,16 +122,7 @@ export function FollowButton({ targetUserId, currentUserId, targetIsPrivate, cla
             : 'bg-brand-500 text-white hover:bg-brand-600 shadow-sm'
       } ${className}`}
     >
-      {loading ? (
-        <Loader2 className="h-4 w-4 animate-spin" />
-      ) : isPending ? (
-        <Clock className="h-4 w-4" />
-      ) : following ? (
-        <UserCheck className="h-4 w-4" />
-      ) : (
-        <UserPlus className="h-4 w-4" />
-      )}
-      {loading ? 'Updating...' : isPending ? 'Requested' : following ? 'Following' : 'Follow'}
+      {loading ? 'Updating...' : isPending ? 'Request Sent' : following ? 'Following' : 'Follow'}
     </button>
   );
 }

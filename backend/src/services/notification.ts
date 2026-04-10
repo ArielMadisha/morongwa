@@ -56,7 +56,7 @@ export const initializeNotificationService = (socketServer: SocketServer): void 
     notifNs.on('connection', (socket) => {
       // clients should emit 'join' with their userId or room id to receive personal notifications
       socket.on('join', (roomId: string) => {
-        try { socket.join(roomId); } catch (e) {}
+        try { socket.join(roomId); } catch { /* best-effort join */ }
       });
     });
   } catch (e) {
@@ -69,7 +69,7 @@ export const initializeNotificationService = (socketServer: SocketServer): void 
     locNs.on('connection', (socket) => {
       // clients should emit 'join' with taskId or clientId to receive runner location updates
       socket.on('join', (roomId: string) => {
-        try { socket.join(roomId); } catch (e) {}
+        try { socket.join(roomId); } catch { /* best-effort join */ }
       });
     });
   } catch (e) {
@@ -78,16 +78,6 @@ export const initializeNotificationService = (socketServer: SocketServer): void 
 
   logger.info("Notification service initialized");
 };
-
-const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST,
-  port: parseInt(process.env.SMTP_PORT || "587"),
-  secure: false,
-  auth: {
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS,
-  },
-});
 
 interface NotificationOptions {
   userId?: string;

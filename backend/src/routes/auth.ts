@@ -7,11 +7,12 @@ import User from "../data/models/User";
 import Wallet from "../data/models/Wallet";
 import AuditLog from "../data/models/AuditLog";
 import { registerSchema, loginSchema, sendOtpSchema, verifyOtpSchema } from "../utils/validators";
-import { authLimiter, otpSendLimiter } from "../middleware/rateLimit";
+import { authLimiter, otpSendLimiter, registerLimiter } from "../middleware/rateLimit";
 import { AppError } from "../middleware/errorHandler";
 import { authenticate, AuthRequest } from "../middleware/auth";
 import { sendOtpCode } from "../services/otpDelivery";
 import { isValidForOtp, normalizePhone } from "../utils/phoneValidation";
+import { computePhoneLocale } from "../utils/phoneCountryCurrency";
 
 const router = express.Router();
 
@@ -51,6 +52,17 @@ function recordOtpSent(normalized: string): void {
   }
 }
 
+/** Backfill country + preferred currency from stored phone (same rules as login). */
+async function syncUserPhoneLocale(userId: string): Promise<void> {
+  const doc = await User.findById(userId).select("phone countryCode preferredCurrency").lean();
+  if (!doc?.phone) return;
+  if (doc.countryCode && doc.preferredCurrency) return;
+  const loc = computePhoneLocale(String(doc.phone));
+  if (loc.countryCode) {
+    await User.updateOne({ _id: userId }, { $set: loc });
+  }
+}
+
 /** Generate a URL-safe username from name. Returns unique by appending numbers if taken. */
 async function generateUniqueUsername(name: string): Promise<string> {
   const base = name
@@ -72,6 +84,19 @@ async function generateUniqueUsername(name: string): Promise<string> {
 const otpStore = new Map<string, { otpHash: string; expiresAt: number }>();
 const OTP_EXPIRY_MS = 5 * 60 * 1000; // 5 minutes
 const OTP_SECRET = process.env.OTP_SECRET || "otp-secret-change-me";
+const OTP_VERIFY_MAX_ATTEMPTS = 5;
+const otpVerifyAttempts = new Map<string, { count: number; firstAt: number }>();
+
+function getOtpVerifyAttemptEntry(phone: string): { count: number; firstAt: number } {
+  const now = Date.now();
+  const existing = otpVerifyAttempts.get(phone);
+  if (!existing || now - existing.firstAt > OTP_EXPIRY_MS) {
+    const fresh = { count: 0, firstAt: now };
+    otpVerifyAttempts.set(phone, fresh);
+    return fresh;
+  }
+  return existing;
+}
 
 // OTP provider health (safe, no secret values returned)
 router.get("/otp-health", (_req: Request, res: Response) => {
@@ -137,9 +162,19 @@ router.post("/verify-otp", authLimiter, async (req: Request, res: Response, next
     }
 
     const otpHash = crypto.createHmac("sha256", OTP_SECRET).update(otp).digest("hex");
-    if (otpHash !== stored.otpHash) throw new AppError("Invalid OTP", 400);
+    if (otpHash !== stored.otpHash) {
+      const attempts = getOtpVerifyAttemptEntry(normalized);
+      attempts.count += 1;
+      if (attempts.count >= OTP_VERIFY_MAX_ATTEMPTS) {
+        otpStore.delete(normalized);
+        otpVerifyAttempts.delete(normalized);
+        throw new AppError("Too many invalid OTP attempts. Request a new code.", 429);
+      }
+      throw new AppError("Invalid OTP", 400);
+    }
 
     otpStore.delete(normalized);
+    otpVerifyAttempts.delete(normalized);
     const otpToken = jwt.sign({ phone: normalized, verified: true }, OTP_SECRET, { expiresIn: "10m" });
     res.json({ verified: true, otpToken });
   } catch (err) {
@@ -148,12 +183,12 @@ router.post("/verify-otp", authLimiter, async (req: Request, res: Response, next
 });
 
 // Register a new user
-router.post("/register", authLimiter, async (req: Request, res: Response, next) => {
+router.post("/register", registerLimiter, async (req: Request, res: Response, next) => {
   try {
     const { error } = registerSchema.validate(req.body);
     if (error) throw new AppError(error.details[0].message, 400);
 
-    const { name, email, password, role, dateOfBirth, username, phone, otpToken } = req.body;
+    const { name, email, password, role, dateOfBirth, username, otpToken, phone: phoneRaw } = req.body;
 
     // Enforce minimum age 13
     if (dateOfBirth) {
@@ -185,6 +220,16 @@ router.post("/register", authLimiter, async (req: Request, res: Response, next) 
       }
     } else if (email) {
       finalEmail = email.toLowerCase();
+      if (typeof phoneRaw === "string" && phoneRaw.trim()) {
+        const phoneCheck = isValidForOtp(phoneRaw);
+        if (!phoneCheck.valid) throw new AppError(phoneCheck.reason || "Invalid phone", 400);
+        const normalizedPhone = normalizePhone(phoneRaw);
+        const existingPhone = await User.findOne({
+          $or: [{ phone: normalizedPhone }, { email: `wa_${normalizedPhone}@morongwa.local` }],
+        });
+        if (existingPhone) throw new AppError("Phone already registered", 400);
+        finalPhone = normalizedPhone;
+      }
     } else {
       throw new AppError("Email or phone verification required", 400);
     }
@@ -228,6 +273,10 @@ router.post("/register", authLimiter, async (req: Request, res: Response, next) 
     if (dateOfBirth) userData.dateOfBirth = new Date(dateOfBirth);
     userData.username = finalUsername;
     if (finalPhone) userData.phone = finalPhone;
+    if (finalPhone) {
+      const loc = computePhoneLocale(finalPhone);
+      if (loc.countryCode) Object.assign(userData, loc);
+    }
     const user = await User.create(userData);
 
     // Create wallet for user
@@ -243,15 +292,21 @@ router.post("/register", authLimiter, async (req: Request, res: Response, next) 
     const jwtSecret = process.env.JWT_SECRET || "default-secret-change-me";
     const token = jwt.sign({ userId: user._id }, jwtSecret, { expiresIn: "7d" });
 
+    const fresh = await User.findById(user._id).select("-passwordHash").lean();
+
     res.status(201).json({
       message: "User registered successfully",
       token,
       user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        username: (user as any).username,
-        role: user.role,
+        id: fresh?._id,
+        _id: fresh?._id,
+        name: fresh?.name,
+        email: fresh?.email,
+        username: (fresh as any)?.username,
+        role: fresh?.role,
+        phone: (fresh as any)?.phone,
+        countryCode: (fresh as any)?.countryCode,
+        preferredCurrency: (fresh as any)?.preferredCurrency,
       },
     });
   } catch (err) {
@@ -291,6 +346,15 @@ router.post("/login", authLimiter, async (req: Request, res: Response, next) => 
       throw new AppError("Invalid credentials", 401);
     }
 
+    if (user.phone && (!(user as any).countryCode || !(user as any).preferredCurrency)) {
+      const loc = computePhoneLocale(user.phone);
+      if (loc.countryCode) {
+        await User.updateOne({ _id: user._id }, { $set: loc });
+        (user as any).countryCode = loc.countryCode;
+        (user as any).preferredCurrency = loc.preferredCurrency;
+      }
+    }
+
     const jwtSecret = process.env.JWT_SECRET || "default-secret-change-me";
     const token = jwt.sign({ userId: user._id }, jwtSecret, { expiresIn: "7d" });
 
@@ -305,11 +369,16 @@ router.post("/login", authLimiter, async (req: Request, res: Response, next) => 
       token,
       user: {
         id: user._id,
+        _id: user._id,
         name: user.name,
         email: user.email,
+        username: (user as any).username,
         role: user.role,
         avatar: user.avatar,
         stripBackgroundPic: (user as any).stripBackgroundPic,
+        phone: user.phone,
+        countryCode: (user as any).countryCode,
+        preferredCurrency: (user as any).preferredCurrency,
       },
     });
   } catch (err) {
@@ -356,10 +425,11 @@ router.get("/me", async (req: any, res: Response, next) => {
     const jwtSecret = process.env.JWT_SECRET || "default-secret-change-me";
     const decoded = jwt.verify(token, jwtSecret) as { userId: string };
 
+    await syncUserPhoneLocale(decoded.userId);
     const user = await User.findById(decoded.userId).select("-passwordHash");
     if (!user) throw new AppError("User not found", 404);
 
-    res.json({ user });
+    res.json({ user: user.toJSON() });
   } catch (err) {
     next(err);
   }

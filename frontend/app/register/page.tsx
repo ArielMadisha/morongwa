@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import {
@@ -25,8 +25,12 @@ import { authAPI } from '@/lib/api';
 type Step = 'phone' | 'verify' | 'profile' | 'email';
 type Mode = 'whatsapp' | 'sms' | 'email';
 
-export default function RegisterPage() {
-  const searchParams = useSearchParams();
+function readReturnToFromWindow(): string | null {
+  if (typeof window === 'undefined') return null;
+  return new URLSearchParams(window.location.search).get('returnTo');
+}
+
+function RegisterPageContent() {
   const [step, setStep] = useState<Step>('phone');
   const [mode, setMode] = useState<Mode>('whatsapp');
   const [phone, setPhone] = useState('');
@@ -173,7 +177,7 @@ export default function RegisterPage() {
         );
       }
       toast.success('🎉 Welcome to Qwertymates!');
-      const returnTo = searchParams.get('returnTo');
+      const returnTo = readReturnToFromWindow();
       const target = returnTo && returnTo.startsWith('/') && !returnTo.startsWith('//') ? returnTo : '/wall';
       router.push(target);
     } catch (error: any) {
@@ -215,7 +219,7 @@ export default function RegisterPage() {
     try {
       await register(name.trim(), email.trim().toLowerCase(), password, ['client'], ['terms-of-service', 'privacy-policy'], dateOfBirth);
       toast.success('🎉 Welcome to Qwertymates!');
-      const returnTo = searchParams.get('returnTo');
+      const returnTo = readReturnToFromWindow();
       const target = returnTo && returnTo.startsWith('/') && !returnTo.startsWith('//') ? returnTo : '/wall';
       router.push(target);
     } catch (error: any) {
@@ -517,4 +521,8 @@ export default function RegisterPage() {
       </div>
     </div>
   );
+}
+
+export default function RegisterPage() {
+  return <RegisterPageContent />;
 }

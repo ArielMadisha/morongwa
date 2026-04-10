@@ -12,6 +12,8 @@ import { ProfileHeaderButton } from '@/components/ProfileHeaderButton';
 import { useCartAndStores } from '@/lib/useCartAndStores';
 import { MobileBottomNav } from '@/components/MobileBottomNav';
 import StoreHeader from '@/components/StoreHeader';
+import { formatCurrencyAmount } from '@/lib/formatCurrency';
+import { useCurrency } from '@/contexts/CurrencyContext';
 
 interface WallProduct {
   productId: string;
@@ -29,6 +31,7 @@ export default function PublicStorePage() {
   const [wallProducts, setWallProducts] = useState<WallProduct[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const { currency: localCurrency, rates } = useCurrency();
 
   useEffect(() => {
     if (!slug) return;
@@ -39,9 +42,12 @@ export default function PublicStorePage() {
       .then((res) => {
         const s = res.data?.data ?? res.data;
         setStore(s);
-        if (s?.type === 'reseller' && s?.userId?._id) {
-          const userId = typeof s.userId === 'object' ? (s.userId as any)._id : s.userId;
-          return resellerAPI.getWall(userId).then((w) => {
+        const ownerId =
+          s?.userId && typeof s.userId === 'object'
+            ? (s.userId as { _id?: string })._id
+            : s?.userId;
+        if (ownerId) {
+          return resellerAPI.getWall(String(ownerId)).then((w) => {
             const products = (w.data?.data ?? w.data)?.products ?? [];
             setWallProducts(Array.isArray(products) ? products : []);
           });
@@ -63,6 +69,18 @@ export default function PublicStorePage() {
 
   const storeOwnerName = store?.userId?.name ?? 'Store owner';
   const validWallProducts = wallProducts.filter((wp) => wp.product);
+  const toViewerCurrency = (amount: number, sourceCurrency: string) => {
+    const from = String(sourceCurrency || 'USD').toUpperCase();
+    const to = String(localCurrency || from).toUpperCase();
+    if (!Number.isFinite(amount)) return formatCurrencyAmount(0, to || 'ZAR');
+    if (from === to) return formatCurrencyAmount(amount, to);
+    const fromRate = Number(rates?.[from] ?? 0);
+    const toRate = Number(rates?.[to] ?? 0);
+    if (!(fromRate > 0) || !(toRate > 0)) return formatCurrencyAmount(amount, from);
+    const usd = amount / fromRate;
+    const converted = Math.round(usd * toRate * 100) / 100;
+    return formatCurrencyAmount(converted, to);
+  };
 
   if (loading) {
     return (
@@ -105,7 +123,7 @@ export default function PublicStorePage() {
         </div>
       </header>
 
-      <div className="flex flex-1 min-h-0">
+      <div className="flex min-h-0 min-w-0 w-full flex-1">
         {user && (
           <AppSidebar
             variant="wall"
@@ -153,7 +171,7 @@ export default function PublicStorePage() {
                         <div className="p-4 flex-1 flex flex-col">
                           <p className="font-medium text-slate-800 line-clamp-2">{p.title}</p>
                           <p className="text-base text-brand-600 font-semibold mt-2">
-                            {new Intl.NumberFormat('en-ZA', { style: 'currency', currency: p.currency || 'ZAR' }).format(resellerPrice)}
+                            {toViewerCurrency(resellerPrice, p.currency || 'ZAR')}
                           </p>
                         </div>
                       </Link>

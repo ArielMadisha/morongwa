@@ -21,6 +21,9 @@ import LandingBackground from "../data/models/LandingBackground";
 import ArtistVerification from "../data/models/ArtistVerification";
 import Song from "../data/models/Song";
 import Cart from "../data/models/Cart";
+import DirectMessage from "../data/models/DirectMessage";
+import Wallet from "../data/models/Wallet";
+import MoneyRequest from "../data/models/MoneyRequest";
 import AdminPermission, { AdminSection, SUPPORT_CATEGORY_MAIN } from "../data/models/AdminPermission";
 import { musicUploadSong, musicUploadAlbum } from "../middleware/musicUpload";
 import { authenticate, AuthRequest, authorize } from "../middleware/auth";
@@ -30,8 +33,18 @@ import { upload } from "../middleware/upload";
 import { sendNotification } from "../services/notification";
 import payoutService from "../services/payoutService";
 import fnbService from "../services/fnbService";
-import { importProductFromCJ, searchAndImportFromCJ, searchCJProducts } from "../services/productImportService";
+import {
+  importProductFromCJ,
+  searchAndImportFromCJ,
+  searchCJProducts,
+  importProductFromEprolo,
+  searchAndImportFromEprolo,
+  searchEproloProducts,
+} from "../services/productImportService";
 import { syncCjProductStock } from "../services/cjStockSyncService";
+import { syncEproloProductStock } from "../services/eproloStockSyncService";
+import { aggregateDropshippingReport, buildOrderProfitBreakdown } from "../services/dropshippingProfitService";
+import { getPayGateFlatFeeZar } from "../services/payment";
 
 const router = express.Router();
 
@@ -66,10 +79,16 @@ router.get("/stats", async (req: AuthRequest, res: Response, next) => {
       totalTasks,
       completedTasks,
       pendingPayments,
-      totalRevenue,
+      totalRevenueFromTransactions,
+      totalRevenueFromSuccessfulPayments,
       escrowHeld,
       escrowReleased,
       escrowPendingPayout,
+      walletFloatTotal,
+      txByType,
+      paymentByStatus,
+      directWalletSendByStatus,
+      moneyRequestByStatus,
     ] = await Promise.all([
       User.countDocuments(),
       User.countDocuments({ active: true }),
@@ -80,15 +99,109 @@ router.get("/stats", async (req: AuthRequest, res: Response, next) => {
         { $match: { type: "payment" } },
         { $group: { _id: null, total: { $sum: "$amount" } } },
       ]).then((r) => (r[0]?.total ?? 0) as number),
+      Payment.aggregate([
+        { $match: { status: "successful" } },
+        { $group: { _id: null, total: { $sum: "$amount" } } },
+      ]).then((r) => (r[0]?.total ?? 0) as number),
       Escrow.countDocuments({ status: "held" }),
       Escrow.countDocuments({ status: "released" }),
       Escrow.countDocuments({ status: "released", fnbStatus: { $in: ["pending", "submitted", "processing"] } }),
+      Wallet.aggregate([{ $group: { _id: null, total: { $sum: "$balance" } } }]).then((r) => (r[0]?.total ?? 0) as number),
+      Transaction.aggregate([
+        {
+          $group: {
+            _id: "$type",
+            count: { $sum: 1 },
+            total: { $sum: "$amount" },
+          },
+        },
+      ]),
+      Payment.aggregate([
+        {
+          $group: {
+            _id: "$status",
+            count: { $sum: 1 },
+            total: { $sum: "$amount" },
+          },
+        },
+      ]),
+      Payment.aggregate([
+        { $match: { "metadata.directWalletSend": true } },
+        {
+          $group: {
+            _id: "$status",
+            count: { $sum: 1 },
+            total: { $sum: "$amount" },
+          },
+        },
+      ]),
+      MoneyRequest.aggregate([
+        {
+          $group: {
+            _id: "$status",
+            count: { $sum: 1 },
+            total: { $sum: "$amount" },
+          },
+        },
+      ]),
     ]);
+
+    const totalRevenue =
+      Number(totalRevenueFromSuccessfulPayments || 0) > 0
+        ? Number(totalRevenueFromSuccessfulPayments || 0)
+        : Number(totalRevenueFromTransactions || 0);
 
     const pendingPayoutAmount = await Escrow.aggregate([
       { $match: { status: "released", fnbStatus: { $in: ["pending", "submitted", "processing"] } } },
       { $group: { _id: null, total: { $sum: "$runnersNet" } } },
     ]).then((r) => (r[0]?.total ?? 0) as number);
+
+    const paymentStatusMap = new Map<string, { count: number; total: number }>();
+    for (const row of paymentByStatus as Array<{ _id: string; count: number; total: number }>) {
+      paymentStatusMap.set(String(row._id), { count: Number(row.count || 0), total: Number(row.total || 0) });
+    }
+    const dwsStatusMap = new Map<string, { count: number; total: number }>();
+    for (const row of directWalletSendByStatus as Array<{ _id: string; count: number; total: number }>) {
+      dwsStatusMap.set(String(row._id), { count: Number(row.count || 0), total: Number(row.total || 0) });
+    }
+    const moneyRequestStatusMap = new Map<string, { count: number; total: number }>();
+    for (const row of moneyRequestByStatus as Array<{ _id: string; count: number; total: number }>) {
+      moneyRequestStatusMap.set(String(row._id), { count: Number(row.count || 0), total: Number(row.total || 0) });
+    }
+    const txTypeMap = new Map<string, { count: number; total: number }>();
+    for (const row of txByType as Array<{ _id: string; count: number; total: number }>) {
+      txTypeMap.set(String(row._id), { count: Number(row.count || 0), total: Number(row.total || 0) });
+    }
+
+    const adminEmail = String(process.env.ADMIN_EMAIL || "").trim();
+    let paygateFeeCreditsCount = 0;
+    let paygateFeeCreditsAmount = 0;
+    if (adminEmail) {
+      const adminUser = await User.findOne({ email: adminEmail }).select("_id").lean();
+      if (adminUser?._id) {
+        const fees = await Wallet.aggregate([
+          { $match: { user: adminUser._id } },
+          { $unwind: "$transactions" },
+          {
+            $match: {
+              "transactions.reference": { $regex: "^PAYGATE-FEE-" },
+            },
+          },
+          {
+            $group: {
+              _id: null,
+              count: { $sum: 1 },
+              total: { $sum: "$transactions.amount" },
+            },
+          },
+        ]);
+        paygateFeeCreditsCount = Number(fees[0]?.count || 0);
+        paygateFeeCreditsAmount = Number(fees[0]?.total || 0);
+      }
+    }
+
+    const successfulPaygateCount = Number(paymentStatusMap.get("successful")?.count || 0);
+    const paygateFlatFee = Number(getPayGateFlatFeeZar() || 0);
 
     let fnbBalance: number | null = null;
     try {
@@ -110,6 +223,283 @@ router.get("/stats", async (req: AuthRequest, res: Response, next) => {
       pendingPayoutAmount,
       pendingPayouts: pendingPayoutAmount,
       fnbBalance,
+      moneyMetrics: {
+        paygate: {
+          successfulCount: Number(paymentStatusMap.get("successful")?.count || 0),
+          successfulAmount: Number(paymentStatusMap.get("successful")?.total || 0),
+          pendingCount: Number(paymentStatusMap.get("pending")?.count || 0),
+          pendingAmount: Number(paymentStatusMap.get("pending")?.total || 0),
+          failedCount: Number(paymentStatusMap.get("failed")?.count || 0),
+          failedAmount: Number(paymentStatusMap.get("failed")?.total || 0),
+        },
+        directWalletSend: {
+          successfulCount: Number(dwsStatusMap.get("successful")?.count || 0),
+          successfulAmount: Number(dwsStatusMap.get("successful")?.total || 0),
+          pendingCount: Number(dwsStatusMap.get("pending")?.count || 0),
+          pendingAmount: Number(dwsStatusMap.get("pending")?.total || 0),
+        },
+        wallet: {
+          floatTotal: Number(walletFloatTotal || 0),
+          topupsTotal: Number(txTypeMap.get("topup")?.total || 0),
+          payoutsTotal: Number(txTypeMap.get("payout")?.total || 0),
+          creditsTotal: Number(txTypeMap.get("credit")?.total || 0),
+          debitsTotal: Number(txTypeMap.get("debit")?.total || 0),
+        },
+        moneyRequests: {
+          pendingCount: Number(moneyRequestStatusMap.get("pending")?.count || 0),
+          pendingAmount: Number(moneyRequestStatusMap.get("pending")?.total || 0),
+          paidCount: Number(moneyRequestStatusMap.get("paid")?.count || 0),
+          paidAmount: Number(moneyRequestStatusMap.get("paid")?.total || 0),
+          declinedCount: Number(moneyRequestStatusMap.get("declined")?.count || 0),
+          expiredCount: Number(moneyRequestStatusMap.get("expired")?.count || 0),
+        },
+        adminCommission: {
+          paygateFeeCreditsCount,
+          paygateFeeCreditsAmount,
+          paygateFlatFee,
+          expectedFeeAmountFromSuccessfulPaygate: Math.round(successfulPaygateCount * paygateFlatFee * 100) / 100,
+        },
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** Date-range money metrics (for /admin/money-metrics). Query: from=ISO, to=ISO (inclusive window). Max 366 days. */
+router.get("/money-metrics", async (req: AuthRequest, res: Response, next) => {
+  try {
+    const fromRaw = String(req.query.from || "").trim();
+    const toRaw = String(req.query.to || "").trim();
+    if (!fromRaw || !toRaw) {
+      return res.status(400).json({ error: "Query params from and to (ISO dates) are required" });
+    }
+    const from = new Date(fromRaw);
+    const to = new Date(toRaw);
+    if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) {
+      return res.status(400).json({ error: "Invalid from or to date" });
+    }
+    if (to.getTime() < from.getTime()) {
+      return res.status(400).json({ error: "to must be on or after from" });
+    }
+    const maxMs = 366 * 24 * 60 * 60 * 1000;
+    if (to.getTime() - from.getTime() > maxMs) {
+      return res.status(400).json({ error: "Range too large (maximum 366 days)" });
+    }
+
+    const dateMatch = { createdAt: { $gte: from, $lte: to } } as const;
+
+    const [
+      walletFloatTotal,
+      paymentByStatus,
+      directWalletSendByStatus,
+      txByType,
+      moneyRequestByStatus,
+      successfulPaymentsSum,
+      successfulPaymentsCount,
+    ] = await Promise.all([
+      Wallet.aggregate([{ $group: { _id: null, total: { $sum: "$balance" } } }]).then((r) => (r[0]?.total ?? 0) as number),
+      Payment.aggregate([
+        { $match: dateMatch },
+        { $group: { _id: "$status", count: { $sum: 1 }, total: { $sum: "$amount" } } },
+      ]),
+      Payment.aggregate([
+        { $match: { ...dateMatch, "metadata.directWalletSend": true } },
+        { $group: { _id: "$status", count: { $sum: 1 }, total: { $sum: "$amount" } } },
+      ]),
+      Transaction.aggregate([
+        { $match: dateMatch },
+        { $group: { _id: "$type", count: { $sum: 1 }, total: { $sum: "$amount" } } },
+      ]),
+      MoneyRequest.aggregate([
+        { $match: dateMatch },
+        { $group: { _id: "$status", count: { $sum: 1 }, total: { $sum: "$amount" } } },
+      ]),
+      Payment.aggregate([
+        { $match: { ...dateMatch, status: "successful" } },
+        { $group: { _id: null, total: { $sum: "$amount" } } },
+      ]).then((r) => (r[0]?.total ?? 0) as number),
+      Payment.countDocuments({ ...dateMatch, status: "successful" }),
+    ]);
+
+    const paymentStatusMap = new Map<string, { count: number; total: number }>();
+    for (const row of paymentByStatus as Array<{ _id: string; count: number; total: number }>) {
+      paymentStatusMap.set(String(row._id), { count: Number(row.count || 0), total: Number(row.total || 0) });
+    }
+    const dwsStatusMap = new Map<string, { count: number; total: number }>();
+    for (const row of directWalletSendByStatus as Array<{ _id: string; count: number; total: number }>) {
+      dwsStatusMap.set(String(row._id), { count: Number(row.count || 0), total: Number(row.total || 0) });
+    }
+    const moneyRequestStatusMap = new Map<string, { count: number; total: number }>();
+    for (const row of moneyRequestByStatus as Array<{ _id: string; count: number; total: number }>) {
+      moneyRequestStatusMap.set(String(row._id), { count: Number(row.count || 0), total: Number(row.total || 0) });
+    }
+    const txTypeMap = new Map<string, { count: number; total: number }>();
+    for (const row of txByType as Array<{ _id: string; count: number; total: number }>) {
+      txTypeMap.set(String(row._id), { count: Number(row.count || 0), total: Number(row.total || 0) });
+    }
+
+    const adminEmail = String(process.env.ADMIN_EMAIL || "").trim();
+    let paygateFeeCreditsCount = 0;
+    let paygateFeeCreditsAmount = 0;
+    if (adminEmail) {
+      const adminUser = await User.findOne({ email: adminEmail }).select("_id").lean();
+      if (adminUser?._id) {
+        const fees = await Wallet.aggregate([
+          { $match: { user: adminUser._id } },
+          { $unwind: "$transactions" },
+          {
+            $match: {
+              "transactions.reference": { $regex: "^PAYGATE-FEE-" },
+              "transactions.createdAt": { $gte: from, $lte: to },
+            },
+          },
+          {
+            $group: {
+              _id: null,
+              count: { $sum: 1 },
+              total: { $sum: "$transactions.amount" },
+            },
+          },
+        ]);
+        paygateFeeCreditsCount = Number(fees[0]?.count || 0);
+        paygateFeeCreditsAmount = Number(fees[0]?.total || 0);
+      }
+    }
+
+    const paygateFlatFee = Number(getPayGateFlatFeeZar() || 0);
+    const successfulPaygateCount = Number(successfulPaymentsCount || 0);
+
+    const totalRevenueInPeriod = Number(successfulPaymentsSum || 0);
+    const txPaymentTotal = Number(txTypeMap.get("payment")?.total || 0);
+    const totalRevenue =
+      totalRevenueInPeriod > 0 ? totalRevenueInPeriod : txPaymentTotal;
+
+    res.json({
+      period: {
+        from: from.toISOString(),
+        to: to.toISOString(),
+      },
+      totalRevenue,
+      moneyMetrics: {
+        paygate: {
+          successfulCount: Number(paymentStatusMap.get("successful")?.count || 0),
+          successfulAmount: Number(paymentStatusMap.get("successful")?.total || 0),
+          pendingCount: Number(paymentStatusMap.get("pending")?.count || 0),
+          pendingAmount: Number(paymentStatusMap.get("pending")?.total || 0),
+          failedCount: Number(paymentStatusMap.get("failed")?.count || 0),
+          failedAmount: Number(paymentStatusMap.get("failed")?.total || 0),
+        },
+        directWalletSend: {
+          successfulCount: Number(dwsStatusMap.get("successful")?.count || 0),
+          successfulAmount: Number(dwsStatusMap.get("successful")?.total || 0),
+          pendingCount: Number(dwsStatusMap.get("pending")?.count || 0),
+          pendingAmount: Number(dwsStatusMap.get("pending")?.total || 0),
+        },
+        wallet: {
+          floatTotal: Number(walletFloatTotal || 0),
+          topupsTotal: Number(txTypeMap.get("topup")?.total || 0),
+          payoutsTotal: Number(txTypeMap.get("payout")?.total || 0),
+          creditsTotal: Number(txTypeMap.get("credit")?.total || 0),
+          debitsTotal: Number(txTypeMap.get("debit")?.total || 0),
+        },
+        moneyRequests: {
+          pendingCount: Number(moneyRequestStatusMap.get("pending")?.count || 0),
+          pendingAmount: Number(moneyRequestStatusMap.get("pending")?.total || 0),
+          paidCount: Number(moneyRequestStatusMap.get("paid")?.count || 0),
+          paidAmount: Number(moneyRequestStatusMap.get("paid")?.total || 0),
+          declinedCount: Number(moneyRequestStatusMap.get("declined")?.count || 0),
+          expiredCount: Number(moneyRequestStatusMap.get("expired")?.count || 0),
+        },
+        adminCommission: {
+          paygateFeeCreditsCount,
+          paygateFeeCreditsAmount,
+          paygateFlatFee,
+          expectedFeeAmountFromSuccessfulPaygate: Math.round(successfulPaygateCount * paygateFlatFee * 100) / 100,
+        },
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// PayGate flat-fee report (admin wallet credits with PAYGATE-FEE-<reference>)
+router.get("/paygate-fees/report", async (_req: AuthRequest, res: Response, next) => {
+  try {
+    const daysRaw = Number(_req.query.days ?? 30);
+    const days = Number.isFinite(daysRaw) ? Math.min(365, Math.max(1, Math.floor(daysRaw))) : 30;
+    const start = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+    const end = new Date();
+
+    const adminEmail = String(process.env.ADMIN_EMAIL || "").trim();
+    if (!adminEmail) {
+      return res.status(400).json({ error: "ADMIN_EMAIL not configured" });
+    }
+    const adminUser = await User.findOne({ email: adminEmail }).select("_id email name").lean();
+    if (!adminUser?._id) {
+      return res.status(404).json({ error: "Admin user not found for ADMIN_EMAIL" });
+    }
+
+    const rows = await Wallet.aggregate([
+      { $match: { user: adminUser._id } },
+      { $unwind: "$transactions" },
+      {
+        $match: {
+          "transactions.reference": { $regex: "^PAYGATE-FEE-" },
+          "transactions.createdAt": { $gte: start, $lte: end },
+        },
+      },
+      {
+        $project: {
+          amount: "$transactions.amount",
+          createdAt: "$transactions.createdAt",
+          reference: "$transactions.reference",
+          day: {
+            $dateToString: {
+              format: "%Y-%m-%d",
+              date: "$transactions.createdAt",
+              timezone: "Africa/Johannesburg",
+            },
+          },
+        },
+      },
+      { $sort: { createdAt: -1 } },
+    ]);
+
+    const dailyMap = new Map<string, { day: string; count: number; total: number }>();
+    let totalFees = 0;
+    for (const r of rows as any[]) {
+      const day = String(r.day || "");
+      const amount = Number(r.amount || 0);
+      totalFees += amount;
+      const prev = dailyMap.get(day) || { day, count: 0, total: 0 };
+      prev.count += 1;
+      prev.total += amount;
+      dailyMap.set(day, prev);
+    }
+
+    const daily = Array.from(dailyMap.values()).sort((a, b) => (a.day < b.day ? 1 : -1));
+    const txCount = rows.length;
+    const avgFee = txCount > 0 ? Math.round((totalFees / txCount) * 100) / 100 : 0;
+
+    return res.json({
+      data: {
+        windowDays: days,
+        startDate: start.toISOString(),
+        endDate: end.toISOString(),
+        admin: {
+          userId: String(adminUser._id),
+          email: adminUser.email,
+          name: adminUser.name,
+        },
+        totals: {
+          transactions: txCount,
+          totalFees: Math.round(totalFees * 100) / 100,
+          averageFee: avgFee,
+        },
+        daily,
+      },
     });
   } catch (err) {
     next(err);
@@ -135,6 +525,36 @@ router.get("/users", async (req: AuthRequest, res: Response, next) => {
       User.countDocuments(query),
     ]);
 
+    const waQuery = { email: /@morongwa\.local$/i } as const;
+    const waUserIds = await User.find(waQuery).select("_id").lean();
+    const waIds = waUserIds.map((u: any) => u._id);
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+
+    const [
+      waRegisteredTotal,
+      waRegisteredActive,
+      waRegisteredSuspended,
+      waRegisteredNewLast30d,
+      waWalletActiveUsers,
+      waLoginsLast7d,
+    ] = await Promise.all([
+      User.countDocuments(waQuery),
+      User.countDocuments({ ...waQuery, active: true, suspended: { $ne: true } }),
+      User.countDocuments({ ...waQuery, suspended: true }),
+      User.countDocuments({ ...waQuery, createdAt: { $gte: thirtyDaysAgo } }),
+      waIds.length
+        ? Wallet.countDocuments({ user: { $in: waIds }, "transactions.0": { $exists: true } })
+        : Promise.resolve(0),
+      waIds.length
+        ? AuditLog.countDocuments({
+            action: "USER_LOGIN",
+            user: { $in: waIds },
+            createdAt: { $gte: sevenDaysAgo },
+          })
+        : Promise.resolve(0),
+    ]);
+
     res.json({
       users,
       pagination: {
@@ -142,6 +562,18 @@ router.get("/users", async (req: AuthRequest, res: Response, next) => {
         page: Math.floor(skip / limitNum) + 1,
         limit: limitNum,
         pages: Math.ceil(total / limitNum),
+      },
+      metrics: {
+        whatsappRegistered: {
+          total: waRegisteredTotal,
+          active: waRegisteredActive,
+          suspended: waRegisteredSuspended,
+          newLast30d: waRegisteredNewLast30d,
+        },
+        whatsappActivity: {
+          walletActiveUsers: waWalletActiveUsers,
+          loginsLast7d: waLoginsLast7d,
+        },
       },
     });
   } catch (err) {
@@ -352,6 +784,70 @@ router.post("/users/:id/activate", async (req: AuthRequest, res: Response, next)
   }
 });
 
+/** Permanently delete a user (super-admin only). Use Suspend for most cases. */
+router.delete("/users/:id", requireSuperAdmin, async (req: AuthRequest, res: Response, next) => {
+  try {
+    const id = req.params.id;
+    if (String(req.user!._id) === String(id)) {
+      throw new AppError("You cannot delete your own account", 400);
+    }
+    const user = await User.findById(id);
+    if (!user) throw new AppError("User not found", 404);
+
+    const roles = Array.isArray(user.role) ? user.role : [user.role];
+    if (roles.some((r) => r === "admin" || r === "superadmin")) {
+      throw new AppError("Cannot delete admin or superadmin accounts. Suspend instead.", 400);
+    }
+
+    const oid = user._id;
+    const orderCount = await Order.countDocuments({
+      $or: [{ buyerId: oid }, { "items.resellerId": oid }],
+    });
+    if (orderCount > 0) {
+      throw new AppError("Cannot delete a user with order history. Suspend the account instead.", 400);
+    }
+    const taskCount = await Task.countDocuments({
+      $or: [{ client: oid }, { runner: oid }],
+    });
+    if (taskCount > 0) {
+      throw new AppError("Cannot delete a user linked to errands/tasks. Suspend instead.", 400);
+    }
+    const txCount = await Transaction.countDocuments({ user: oid });
+    if (txCount > 0) {
+      throw new AppError("Cannot delete a user with ledger/payout history. Suspend instead.", 400);
+    }
+    const supplier = await Supplier.findOne({ userId: oid });
+    if (supplier) {
+      throw new AppError("Cannot delete a registered supplier from this action. Handle supplier records first or suspend.", 400);
+    }
+    const wallet = await Wallet.findOne({ user: oid });
+    if (wallet && (wallet.balance > 0 || (wallet.transactions?.length ?? 0) > 0)) {
+      throw new AppError("Cannot delete a user with wallet balance or wallet activity. Suspend instead.", 400);
+    }
+
+    await Cart.deleteMany({ user: oid });
+    await ResellerWall.deleteMany({ resellerId: oid });
+    await Store.deleteMany({ userId: oid });
+    await TVPost.deleteMany({ creatorId: oid });
+    await TVComment.deleteMany({ userId: oid });
+    await DirectMessage.deleteMany({ $or: [{ sender: oid }, { receiver: oid }] });
+    if (wallet) await Wallet.deleteOne({ _id: wallet._id });
+
+    await User.deleteOne({ _id: oid });
+
+    await AuditLog.create({
+      action: "USER_DELETED",
+      user: req.user!._id,
+      target: oid,
+      meta: { email: user.email, name: user.name },
+    });
+
+    res.json({ message: "User deleted permanently" });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // Approve payout (legacy Transaction-based)
 router.post("/payouts/:id/approve", async (req: AuthRequest, res: Response, next) => {
   try {
@@ -499,7 +995,7 @@ router.post("/escrows/:id/poll-payout", async (req: AuthRequest, res: Response, 
 });
 
 // FNB balance
-router.get("/fnb/balance", async (req: AuthRequest, res: Response, next) => {
+router.get("/fnb/balance", async (req: AuthRequest, res: Response) => {
   try {
     const balance = await fnbService.getAccountBalance();
     res.json({ balance });
@@ -959,6 +1455,40 @@ router.get("/orders", async (req: AuthRequest, res: Response, next) => {
   }
 });
 
+/** Per-order dropshipping / checkout profit (estimated COGS from supplierCost, PayGate fee, reseller + music splits). */
+router.get("/dropshipping/orders/:orderId/profit", async (req: AuthRequest, res: Response, next) => {
+  try {
+    const data = await buildOrderProfitBreakdown(req.params.orderId);
+    if (!data) throw new AppError("Order not found", 404);
+    res.json({ data });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * Daily or monthly aggregate: customer paid, estimated supplier COGS, shipping, fees, net platform commission.
+ * Query: from=ISO, to=ISO, groupBy=day|month (max range 366 days).
+ */
+router.get("/dropshipping/report", async (req: AuthRequest, res: Response, next) => {
+  try {
+    const fromRaw = String(req.query.from || "").trim();
+    const toRaw = String(req.query.to || "").trim();
+    const groupBy = req.query.groupBy === "month" ? "month" : "day";
+    if (!fromRaw || !toRaw) throw new AppError("Query params from and to (ISO dates) are required", 400);
+    const from = new Date(fromRaw);
+    const to = new Date(toRaw);
+    if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) throw new AppError("Invalid date range", 400);
+    if (to.getTime() < from.getTime()) throw new AppError("to must be on or after from", 400);
+    const maxMs = 366 * 24 * 60 * 60 * 1000;
+    if (to.getTime() - from.getTime() > maxMs) throw new AppError("Range too large (maximum 366 days)", 400);
+    const report = await aggregateDropshippingReport({ from, to, groupBy });
+    res.json({ data: report });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // Reseller stats (counts for admin)
 router.get("/reseller-stats", async (req: AuthRequest, res: Response, next) => {
   try {
@@ -1206,7 +1736,14 @@ router.post("/dropship/import-cj/:cjProductId", requireSuperAdmin, async (req: A
     const forceUpdate = req.query.forceUpdate === "true";
     const result = await importProductFromCJ(cjProductId, { forceUpdate });
     if (!result) throw new AppError("CJ product not found or import failed", 404);
-    res.json({ message: result.created ? "Product imported" : "Product updated", data: result.product, created: result.created });
+    const status = result.created ? "imported" : result.updated ? "updated" : "already_exists";
+    const message =
+      status === "imported"
+        ? "Product imported"
+        : status === "updated"
+          ? "Product updated"
+          : "Product already imported";
+    res.json({ message, status, data: result.product, created: result.created, updated: result.updated });
   } catch (err) {
     next(err);
   }
@@ -1217,7 +1754,10 @@ router.post("/dropship/search-import-cj", requireSuperAdmin, async (req: AuthReq
   try {
     const { query, limit } = req.body as { query?: string; limit?: number };
     const results = await searchAndImportFromCJ(query || "hoodie", limit ?? 5);
-    res.json({ message: "Import complete", imported: results.filter(Boolean).length, data: results });
+    const imported = results.filter((r) => !!r?.created).length;
+    const updated = results.filter((r) => !!r?.updated).length;
+    const skipped = results.filter((r) => r && !r.created && !r.updated).length;
+    res.json({ message: "Import complete", imported, updated, skipped, data: results });
   } catch (err) {
     next(err);
   }
@@ -1238,6 +1778,72 @@ router.post("/dropship/sync-cj-stock", requireSuperAdmin, async (req: AuthReques
     });
   } catch (err: any) {
     next(new AppError(err?.message || "CJ stock sync failed", 503));
+  }
+});
+
+/** Search EPROLO products only (browse) – superadmin */
+router.get("/dropship/search-eprolo", requireSuperAdmin, async (req: AuthRequest, res: Response, next) => {
+  try {
+    const { q, page, size } = req.query;
+    const results = await searchEproloProducts((q as string) || "", {
+      page: page ? parseInt(page as string) : 1,
+      size: size ? parseInt(size as string) : 20,
+    });
+    res.json({ products: results });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** Import product from EPROLO by product ID */
+router.post("/dropship/import-eprolo/:eproloProductId", requireSuperAdmin, async (req: AuthRequest, res: Response, next) => {
+  try {
+    const eproloProductId = String(req.params.eproloProductId || "").trim().replace(/^["']|["']$/g, "");
+    const forceUpdate = req.query.forceUpdate === "true";
+    const result = await importProductFromEprolo(eproloProductId, { forceUpdate });
+    if (!result) throw new AppError("EPROLO product not found or import failed", 404);
+    const status = result.created ? "imported" : result.updated ? "updated" : "already_exists";
+    const message =
+      status === "imported"
+        ? "Product imported"
+        : status === "updated"
+          ? "Product updated"
+          : "Product already imported";
+    res.json({ message, status, data: result.product, created: result.created, updated: result.updated });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** Search EPROLO and import products by keyword */
+router.post("/dropship/search-import-eprolo", requireSuperAdmin, async (req: AuthRequest, res: Response, next) => {
+  try {
+    const { query, limit } = req.body as { query?: string; limit?: number };
+    const results = await searchAndImportFromEprolo(query || "", limit ?? 5);
+    const imported = results.filter((r) => !!r?.created).length;
+    const updated = results.filter((r) => !!r?.updated).length;
+    const skipped = results.filter((r) => r && !r.created && !r.updated).length;
+    res.json({ message: "Import complete", imported, updated, skipped, data: results });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** Sync EPROLO product stock from EPROLO API */
+router.post("/dropship/sync-eprolo-stock", requireSuperAdmin, async (req: AuthRequest, res: Response, next) => {
+  try {
+    const result = await syncEproloProductStock();
+    res.json({
+      message: "Stock sync complete",
+      data: {
+        total: result.total,
+        updated: result.updated,
+        failed: result.failed,
+        outOfStock: result.outOfStock,
+      },
+    });
+  } catch (err: any) {
+    next(new AppError(err?.message || "EPROLO stock sync failed", 503));
   }
 });
 
@@ -1636,6 +2242,137 @@ router.patch("/admins/:id", requireSuperAdmin, async (req: AuthRequest, res: Res
     });
 
     res.json({ data: perm });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// --- ACBPayWallet merchant agent applications ---
+router.get("/merchant-agents", async (req: AuthRequest, res: Response, next) => {
+  try {
+    const status = typeof req.query.status === "string" ? req.query.status : "pending";
+    const filter: Record<string, unknown> =
+      status === "all"
+        ? { "merchantAgent.applicationStatus": { $in: ["pending", "approved", "rejected", "suspended"] } }
+        : { "merchantAgent.applicationStatus": status };
+    const users = await User.find(filter)
+      .select("name email username phone isVerified merchantAgent createdAt")
+      .sort({ "merchantAgent.appliedAt": -1, createdAt: -1 })
+      .limit(100)
+      .lean();
+    res.json({ data: users });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post("/merchant-agents/:userId/approve", async (req: AuthRequest, res: Response, next) => {
+  try {
+    const user = await User.findById(req.params.userId);
+    if (!user) throw new AppError("User not found", 404);
+    const ma = (user as any).merchantAgent || {};
+    if (ma.applicationStatus !== "pending") throw new AppError("Application is not pending", 400);
+    if (!(user as any).isVerified) throw new AppError("User must be KYC-verified before approval", 400);
+
+    (user as any).merchantAgent = {
+      ...ma,
+      applicationStatus: "approved",
+      enabled: true,
+      reviewedAt: new Date(),
+      reviewedBy: req.user!._id,
+      rejectionReason: undefined,
+    };
+    await user.save();
+    await AuditLog.create({
+      action: "MERCHANT_AGENT_APPROVED",
+      user: req.user!._id,
+      target: user._id,
+      meta: {},
+    });
+    res.json({ message: "Merchant agent approved", userId: user._id });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post("/merchant-agents/:userId/reject", async (req: AuthRequest, res: Response, next) => {
+  try {
+    const reason = typeof req.body?.reason === "string" ? req.body.reason.trim().slice(0, 500) : "";
+    const user = await User.findById(req.params.userId);
+    if (!user) throw new AppError("User not found", 404);
+    const ma = (user as any).merchantAgent || {};
+    if (ma.applicationStatus !== "pending") throw new AppError("Application is not pending", 400);
+
+    (user as any).merchantAgent = {
+      ...ma,
+      applicationStatus: "rejected",
+      enabled: false,
+      rejectionReason: reason || "Not specified",
+      reviewedAt: new Date(),
+      reviewedBy: req.user!._id,
+    };
+    await user.save();
+    await AuditLog.create({
+      action: "MERCHANT_AGENT_REJECTED",
+      user: req.user!._id,
+      target: user._id,
+      meta: { reason },
+    });
+    res.json({ message: "Application rejected" });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post("/merchant-agents/:userId/suspend", async (req: AuthRequest, res: Response, next) => {
+  try {
+    const user = await User.findById(req.params.userId);
+    if (!user) throw new AppError("User not found", 404);
+    const ma = (user as any).merchantAgent || {};
+    if (ma.applicationStatus !== "approved") throw new AppError("Only approved agents can be suspended", 400);
+
+    (user as any).merchantAgent = {
+      ...ma,
+      applicationStatus: "suspended",
+      enabled: false,
+      reviewedAt: new Date(),
+      reviewedBy: req.user!._id,
+    };
+    await user.save();
+    await AuditLog.create({
+      action: "MERCHANT_AGENT_SUSPENDED",
+      user: req.user!._id,
+      target: user._id,
+      meta: {},
+    });
+    res.json({ message: "Merchant agent suspended" });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post("/merchant-agents/:userId/reinstate", async (req: AuthRequest, res: Response, next) => {
+  try {
+    const user = await User.findById(req.params.userId);
+    if (!user) throw new AppError("User not found", 404);
+    const ma = (user as any).merchantAgent || {};
+    if (ma.applicationStatus !== "suspended") throw new AppError("Agent is not suspended", 400);
+
+    (user as any).merchantAgent = {
+      ...ma,
+      applicationStatus: "approved",
+      enabled: true,
+      reviewedAt: new Date(),
+      reviewedBy: req.user!._id,
+    };
+    await user.save();
+    await AuditLog.create({
+      action: "MERCHANT_AGENT_REINSTATED",
+      user: req.user!._id,
+      target: user._id,
+      meta: {},
+    });
+    res.json({ message: "Merchant agent reinstated" });
   } catch (err) {
     next(err);
   }

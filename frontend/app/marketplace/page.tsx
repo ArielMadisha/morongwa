@@ -1,27 +1,43 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Package, ArrowRight, ShoppingBag, Store, Building2, ShoppingCart } from 'lucide-react';
-import { productsAPI, tvAPI, getImageUrl, getEffectivePrice } from '@/lib/api';
+import { Package, ArrowRight, ShoppingBag, Store, Building2, HelpCircle } from 'lucide-react';
+import { productsAPI, tvAPI, cartAPI, getImageUrl, getEffectivePrice } from '@/lib/api';
 import type { Product } from '@/lib/types';
 import { useAuth } from '@/contexts/AuthContext';
 import { useCurrency } from '@/contexts/CurrencyContext';
 import { useCartAndStores } from '@/lib/useCartAndStores';
-import { AppSidebar, AppSidebarMenuButton } from '@/components/AppSidebar';
-import { SearchButton } from '@/components/SearchButton';
+import { AppSidebar } from '@/components/AppSidebar';
+import { AppShellHeader } from '@/components/AppShellHeader';
 import { ProfileHeaderButton } from '@/components/ProfileHeaderButton';
 import { AdvertSlot } from '@/components/AdvertSlot';
 import { MobileBottomNav } from '@/components/MobileBottomNav';
+import { MarketplaceCartStepper } from '@/components/MarketplaceCartStepper';
+import { formatCurrencyAmount } from '@/lib/formatCurrency';
+
+function productQtyMapFromCartResponse(res: { data?: { data?: { items?: unknown[] } } }): Record<string, number> {
+  const items = Array.isArray(res.data?.data?.items) ? res.data!.data!.items! : [];
+  const m: Record<string, number> = {};
+  for (const it of items) {
+    const row = it as {
+      type?: string;
+      songId?: unknown;
+      productId?: { _id?: string } | string;
+      product?: { _id?: string };
+      qty?: number;
+    };
+    if (row.type === 'music' || row.songId) continue;
+    const pid = String(row.product?._id ?? (row.productId as { _id?: string } | undefined)?._id ?? row.productId ?? '');
+    if (!pid) continue;
+    m[pid] = Number(row.qty ?? 0);
+  }
+  return m;
+}
 
 function formatPriceLocal(price: number, currency: string) {
-  return new Intl.NumberFormat('en-ZA', {
-    style: 'currency',
-    currency: currency || 'ZAR',
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(price);
+  return formatCurrencyAmount(price, currency || 'ZAR');
 }
 
 function authHref(path: string) {
@@ -33,20 +49,136 @@ function MarketplacePageContent() {
   const { formatPrice: formatInLocal } = useCurrency();
   const router = useRouter();
   const [products, setProducts] = useState<Product[]>([]);
+  const [categories, setCategories] = useState<Array<{ name: string; count: number }>>([]);
+  const [selectedCategory, setSelectedCategory] = useState<string>('All');
   const [resoldProducts, setResoldProducts] = useState<Array<{ _id: string; productId: any; creatorId?: { _id: string; name?: string }; caption?: string; resellerCommissionPct?: number }>>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [page, setPage] = useState(1);
+  const [hasMoreProducts, setHasMoreProducts] = useState(true);
+  const [randomBackoffUntil, setRandomBackoffUntil] = useState(0);
   const [menuOpen, setMenuOpen] = useState(false);
-  const { cartCount, hasStore } = useCartAndStores(!!user);
+  const [cartQtyByProduct, setCartQtyByProduct] = useState<Record<string, number>>({});
+  const { cartCount, hasStore, invalidate } = useCartAndStores(!!user);
+
+  const refreshCartQty = useCallback(() => {
+    if (!user) {
+      setCartQtyByProduct({});
+      return;
+    }
+    cartAPI
+      .get()
+      .then((res) => setCartQtyByProduct(productQtyMapFromCartResponse(res)))
+      .catch(() => setCartQtyByProduct({}));
+  }, [user]);
+
+  const handleCartUpdated = useCallback(() => {
+    invalidate();
+    refreshCartQty();
+  }, [invalidate, refreshCartQty]);
+
+  useEffect(() => {
+    refreshCartQty();
+  }, [refreshCartQty]);
+
+  const loadMoreRef = useRef<HTMLDivElement | null>(null);
+  const activeCategoryRef = useRef<string>('All');
+  const lastLoadAtRef = useRef<number>(0);
+
+  const loadMarketplaceProducts = useCallback(
+    async (opts?: { page?: number; append?: boolean; random?: boolean }) => {
+      const pageToLoad = opts?.page ?? 1;
+      const append = !!opts?.append;
+      const random = !!opts?.random;
+      const now = Date.now();
+      // Prevent tight-loop load storms when sentinel stays in view.
+      const minGapMs = random ? 1800 : 450;
+      if (append && now - lastLoadAtRef.current < minGapMs) return;
+      lastLoadAtRef.current = now;
+      if (append) setLoadingMore(true);
+      else setLoading(true);
+      try {
+        const res = await productsAPI.list({
+          limit: 30,
+          page: random ? 1 : pageToLoad,
+          random,
+          category: selectedCategory !== 'All' ? selectedCategory : undefined,
+        });
+        let list = res.data?.data ?? res.data ?? [];
+        if (!Array.isArray(list)) list = [];
+        if (list.length === 0 && selectedCategory === 'All' && !append && !random) {
+          const feat = await tvAPI.getFeaturedProducts();
+          const raw = feat.data?.data ?? feat.data ?? [];
+          list = Array.isArray(raw) ? raw : [];
+        }
+        const hasMore = Boolean(res.data?.hasMore ?? (list.length >= 30));
+        setHasMoreProducts(hasMore);
+        setPage(pageToLoad);
+        if (append) {
+          setProducts((prev) => [...prev, ...list]);
+        } else {
+          setProducts(list);
+        }
+      } catch (err: any) {
+        if (random && Number(err?.response?.status) === 429) {
+          // Pause continuous random loading briefly when backend rate-limit responds.
+          setRandomBackoffUntil(Date.now() + 30_000);
+        }
+        if (!append) setProducts([]);
+        setHasMoreProducts(false);
+      } finally {
+        if (append) setLoadingMore(false);
+        else setLoading(false);
+      }
+    },
+    [selectedCategory]
+  );
+
+  useEffect(() => {
+    activeCategoryRef.current = selectedCategory;
+    setProducts([]);
+    setPage(1);
+    setHasMoreProducts(true);
+    void loadMarketplaceProducts({ page: 1, append: false, random: false });
+  }, [selectedCategory, loadMarketplaceProducts]);
+
+  const loadNextProducts = useCallback(async () => {
+    if (loading || loadingMore) return;
+    if (Date.now() < randomBackoffUntil) return;
+    if (hasMoreProducts) {
+      await loadMarketplaceProducts({ page: page + 1, append: true, random: false });
+      return;
+    }
+    // Endless browsing: when exhausted in "All", keep appending random catalog items.
+    if (activeCategoryRef.current === 'All') {
+      await loadMarketplaceProducts({ append: true, random: true });
+    }
+  }, [hasMoreProducts, loadMarketplaceProducts, loading, loadingMore, page, randomBackoffUntil]);
+
+  useEffect(() => {
+    const node = loadMoreRef.current;
+    if (!node) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const first = entries[0];
+        if (first?.isIntersecting) {
+          void loadNextProducts();
+        }
+      },
+      { root: null, rootMargin: '500px 0px', threshold: 0.01 }
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [loadNextProducts]);
 
   useEffect(() => {
     productsAPI
-      .list({ limit: 50 })
+      .listCategories()
       .then((res) => {
-        const list = res.data?.data ?? res.data ?? [];
-        setProducts(Array.isArray(list) ? list : []);
+        const rows = Array.isArray(res.data?.data) ? res.data.data : [];
+        setCategories(rows);
       })
-      .catch(() => setProducts([]))
-      .finally(() => setLoading(false));
+      .catch(() => setCategories([]));
   }, []);
 
   useEffect(() => {
@@ -68,6 +200,7 @@ function MarketplacePageContent() {
   };
 
   const isGuest = !user;
+  const marketplaceLoginHref = `/login?returnTo=${encodeURIComponent('/marketplace')}`;
   const supplierLink = isGuest ? authHref('/supplier/apply') : '/supplier/apply';
   const storeLink = isGuest ? authHref('/store') : '/store';
   const supplierProductsLink = isGuest ? authHref('/supplier/products') : '/supplier/products';
@@ -75,48 +208,47 @@ function MarketplacePageContent() {
 
   return (
     <div className="h-screen flex flex-col overflow-hidden bg-gradient-to-br from-sky-50 via-blue-50 to-white text-slate-900">
-      {/* Fixed header - stays visible when scrolling */}
-      <header className="flex-shrink-0 z-40 w-full bg-white/95 backdrop-blur-md border-b border-slate-100 shadow-sm">
-        <div className="px-4 sm:px-6 lg:px-8 py-3 sm:py-4">
-          <div className="flex items-center justify-between gap-3 sm:gap-4 min-w-0">
-            <Link href={homeLink} className="shrink-0 flex items-center" aria-label="Home">
-              <img src="/qwertymates-logo-icon.png" alt="Qwertymates" className="h-9 w-9 object-contain lg:hidden" />
-              <img src="/qwertymates-logo.png" alt="Qwertymates" className="h-9 w-auto object-contain hidden lg:block" />
-            </Link>
-            {!isGuest && <AppSidebarMenuButton onClick={() => setMenuOpen((v) => !v)} />}
-            <div className="flex items-center gap-2 min-w-0 shrink-0">
-              <div className="h-8 w-8 rounded-lg bg-brand-50 flex items-center justify-center shrink-0">
-                <ShoppingBag className="h-4 w-4 text-brand-600" />
-              </div>
-              <h1 className="font-semibold text-slate-900 truncate text-base sm:text-lg">QwertyHub</h1>
+      <AppShellHeader
+        homeHref={homeLink}
+        showMenuButton={!isGuest}
+        onMenuClick={isGuest ? undefined : () => setMenuOpen((v) => !v)}
+        center={
+          <div className="flex w-full min-w-0 items-center gap-2 sm:gap-3">
+            <div className="h-8 w-8 shrink-0 rounded-lg bg-brand-50 flex items-center justify-center">
+              <ShoppingBag className="h-4 w-4 text-brand-600" />
             </div>
-            <div className="flex-1 min-w-0" />
-            <div className="flex items-center gap-2 sm:gap-3 shrink-0">
-                {isGuest ? (
-                  <>
-                    <SearchButton />
-                    <Link href="/login" className="shrink-0 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 sm:px-4 sm:py-2 text-xs sm:text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors">
-                      Sign in
-                    </Link>
-                    <Link href="/register" className="shrink-0 rounded-lg bg-brand-500 px-2.5 py-1.5 sm:px-4 sm:py-2 text-xs sm:text-sm font-semibold text-white hover:bg-brand-600 transition-colors">
-                      Register
-                    </Link>
-                  </>
-                ) : (
-                  <>
-                    <Link href={supplierLink} className="shrink-0 rounded-lg border border-slate-200 bg-white px-2 py-1.5 sm:px-4 sm:py-2 text-xs sm:text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors whitespace-nowrap" title="Become a supplier">
-                      <span className="hidden sm:inline">Become a supplier</span>
-                      <span className="sm:hidden">Supplier</span>
-                    </Link>
-                    <SearchButton />
-                    <ProfileHeaderButton />
-                  </>
-                )}
-            </div>
+            <h1 className="min-w-0 flex-1 font-semibold text-slate-900 text-base sm:text-lg break-words">
+              QwertyHub
+            </h1>
+            {isGuest ? (
+              <Link
+                href="/support"
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-sky-600 shadow-sm transition-colors hover:bg-sky-50"
+                title="Help & support"
+                aria-label="Help and support"
+              >
+                <HelpCircle className="h-5 w-5" />
+              </Link>
+            ) : (
+              <ProfileHeaderButton className="shrink-0" />
+            )}
           </div>
-        </div>
-      </header>
-      <div className="flex flex-1 min-h-0 overflow-hidden">
+        }
+        actions={
+          isGuest ? (
+            <>
+              <Link href="/login" className="shrink-0 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 sm:px-4 sm:py-2 text-xs sm:text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors">
+                Sign in
+              </Link>
+              <Link href="/register" className="shrink-0 rounded-lg bg-brand-500 px-2.5 py-1.5 sm:px-4 sm:py-2 text-xs sm:text-sm font-semibold text-white hover:bg-brand-600 transition-colors">
+                Register
+              </Link>
+            </>
+          ) : null
+        }
+      />
+      {/* min-w-0 + w-full: required so flex row beside AppSidebar does not collapse main to a narrow strip on mobile */}
+      <div className="flex min-h-0 min-w-0 w-full flex-1 overflow-hidden">
         {!isGuest && (
           <AppSidebar
             variant="wall"
@@ -132,20 +264,41 @@ function MarketplacePageContent() {
             belowHeader
           />
         )}
-        <div className="flex-1 flex gap-0 min-h-0 overflow-y-auto overflow-x-hidden">
-        <main className="flex-1 min-w-0 px-4 sm:px-6 lg:px-8 py-6 pb-24 lg:pb-6">
+        <div className="flex min-h-0 min-w-0 w-full flex-1 flex-col gap-0 overflow-y-auto overflow-x-hidden overscroll-contain lg:flex-row">
+        <main className="order-2 box-border min-h-0 w-full min-w-0 max-w-full flex-1 px-3 sm:px-6 lg:px-8 py-5 sm:py-6 pb-24 lg:pb-6 lg:order-none">
         {isGuest && (
           <div className="mb-6 rounded-xl border border-blue-100 bg-blue-50/80 px-4 py-3 text-sm text-slate-700">
             Browse our gallery. <Link href="/register" className="font-medium text-brand-600 hover:text-brand-700">Sign up</Link> or <Link href="/login" className="font-medium text-brand-600 hover:text-brand-700">sign in</Link> to add to cart, checkout, or sell.
           </div>
         )}
-        <p className="text-slate-600 mb-8">Products from verified suppliers. Buy or resell with delivery by runners.</p>
+        <p className="mb-8 w-full max-w-full text-left text-pretty text-base leading-relaxed text-slate-600 break-words">
+          Products from verified suppliers. Buy or resell with delivery by runners.
+        </p>
+        <div className="mb-5 flex flex-wrap gap-2">
+          {['All', ...categories.map((c) => c.name)].slice(0, 18).map((cat) => {
+            const active = selectedCategory === cat;
+            return (
+              <button
+                key={cat}
+                type="button"
+                onClick={() => setSelectedCategory(cat)}
+                className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
+                  active
+                    ? 'border-sky-300 bg-sky-100 text-sky-800'
+                    : 'border-slate-200 bg-white text-slate-700 hover:border-sky-200 hover:text-sky-700'
+                }`}
+              >
+                {cat}
+              </button>
+            );
+          })}
+        </div>
 
         {loading ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-4 lg:grid-cols-2 lg:gap-5 xl:grid-cols-3 xl:gap-5">
             {[1, 2, 3, 4, 5, 6].map((i) => (
               <div key={i} className="bg-white/80 rounded-2xl border border-slate-100 p-6 animate-pulse">
-                <div className="h-40 bg-slate-200 rounded-xl mb-4" />
+                <div className="mb-3 h-40 rounded-xl bg-slate-200 sm:h-44 lg:h-48" />
                 <div className="h-5 bg-slate-200 rounded w-3/4 mb-2" />
                 <div className="h-5 bg-slate-200 rounded w-1/2" />
               </div>
@@ -165,7 +318,117 @@ function MarketplacePageContent() {
             </Link>
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-4 lg:grid-cols-2 lg:gap-5 xl:grid-cols-3 xl:gap-5">
+            {/* Supplier / imported catalog first (newest via API), then reseller posts from feed */}
+            {products.map((p, idx) => {
+              const outOfStock = (p as any).outOfStock || (p.stock != null && p.stock < 1);
+              const allowResell = (p as any).allowResell ?? false;
+              const cartHref = `/marketplace/product/${p._id}`;
+              const resellHref = `/marketplace/product/${p._id}?view=resell`;
+              return (
+                <div
+                  key={`${p._id}-${idx}`}
+                  className="group relative flex flex-col bg-white/90 backdrop-blur rounded-2xl border border-slate-100 overflow-hidden shadow-sm hover:shadow-lg hover:border-sky-200 transition-all"
+                >
+                  <div className="relative h-40 w-full shrink-0 overflow-hidden bg-slate-100 sm:h-44 lg:h-48">
+                    <Link href={cartHref} className="absolute inset-0 z-0 block bg-slate-100" aria-label={p.title}>
+                      <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-slate-100">
+                        <Package className="h-12 w-12 text-slate-300 sm:h-14 sm:w-14" />
+                      </div>
+                      {p.images?.[0] ? (
+                        <img
+                          src={getImageUrl(p.images[0])}
+                          alt={p.title}
+                          className="relative z-10 h-full w-full object-cover"
+                          loading="lazy"
+                          onError={(e) => {
+                            e.currentTarget.style.display = 'none';
+                          }}
+                        />
+                      ) : null}
+                    </Link>
+                    {allowResell && (
+                      <Link
+                        href={resellHref}
+                        onClick={(e) => e.stopPropagation()}
+                        className="absolute left-2 top-2 z-10 inline-flex items-center rounded-md bg-white/95 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-sky-800 shadow-md ring-1 ring-slate-200/90 hover:bg-white sm:left-2.5 sm:top-2.5 sm:text-xs"
+                        title="Resell – add markup"
+                      >
+                        Resell
+                      </Link>
+                    )}
+                    <div className="absolute right-2 top-2 z-20">
+                      <MarketplaceCartStepper
+                        productId={p._id}
+                        qty={cartQtyByProduct[String(p._id)] ?? 0}
+                        outOfStock={outOfStock}
+                        isGuest={isGuest}
+                        loginHref={marketplaceLoginHref}
+                        onUpdated={handleCartUpdated}
+                        compact
+                      />
+                    </div>
+                    {outOfStock && (
+                      <span className="absolute bottom-2 left-2 z-10 rounded px-2 py-0.5 text-[10px] font-medium text-amber-800 sm:text-xs bg-amber-100/95 shadow-sm">
+                        Out of stock
+                      </span>
+                    )}
+                  </div>
+                  <Link href={cartHref} className="block min-w-0 px-3 pt-2 sm:px-4">
+                    <h3 className="truncate text-sm font-semibold text-slate-900 group-hover:text-sky-700 sm:text-base">
+                      {p.title}
+                    </h3>
+                  </Link>
+                  <div className="mt-auto px-3 pb-3 pt-1.5 sm:px-4 sm:pb-3">
+                    <div className="min-w-0 overflow-hidden">
+                      {p.currency === 'USD' ? (
+                        p.discountPrice != null && p.discountPrice < p.price ? (
+                          <p
+                            className="truncate whitespace-nowrap text-xs font-bold tabular-nums text-sky-600 sm:text-sm"
+                            title={`${formatInLocal(p.discountPrice)} · was ${formatInLocal(p.price)}`}
+                          >
+                            <span>{formatInLocal(p.discountPrice)}</span>
+                            <span className="ml-1 text-[9px] font-normal text-slate-400 line-through sm:text-[10px]">
+                              {formatInLocal(p.price)}
+                            </span>
+                          </p>
+                        ) : (
+                          <span
+                            className="block truncate whitespace-nowrap text-xs font-bold leading-none text-sky-600 tabular-nums sm:text-sm"
+                            title={formatInLocal(p.price)}
+                          >
+                            {formatInLocal(p.price)}
+                          </span>
+                        )
+                      ) : p.discountPrice != null && p.discountPrice < p.price ? (
+                        <p
+                          className="truncate whitespace-nowrap text-xs font-bold tabular-nums text-sky-600 sm:text-sm"
+                          title={`${formatPriceLocal(p.discountPrice, p.currency)} · was ${formatPriceLocal(p.price, p.currency)}`}
+                        >
+                          <span>{formatPriceLocal(p.discountPrice, p.currency)}</span>
+                          <span className="ml-1 text-[9px] font-normal text-slate-400 line-through sm:text-[10px]">
+                            {formatPriceLocal(p.price, p.currency)}
+                          </span>
+                        </p>
+                      ) : (
+                        <span
+                          className="block truncate whitespace-nowrap text-xs font-bold leading-none text-sky-600 tabular-nums sm:text-sm"
+                          title={formatPriceLocal(p.price, p.currency)}
+                        >
+                          {formatPriceLocal(p.price, p.currency)}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  {p.ratingAvg != null && (
+                    <p className="text-xs text-slate-500 px-3 pb-2 sm:px-4 sm:text-sm">
+                      {p.ratingAvg.toFixed(1)}★
+                      {p.ratingCount != null && p.ratingCount > 0 && ` (${p.ratingCount})`}
+                    </p>
+                  )}
+                </div>
+              );
+            })}
             {resoldProducts.map((post) => {
               const p = post.productId;
               const resellerId = post.creatorId?._id;
@@ -178,121 +441,76 @@ function MarketplacePageContent() {
               return (
                 <div
                   key={`resold-${post._id}-${p?._id}`}
-                  className="group relative bg-white/90 backdrop-blur rounded-2xl border border-slate-100 overflow-hidden shadow-sm hover:shadow-lg hover:border-sky-200 transition-all"
+                  className="group relative flex flex-col bg-white/90 backdrop-blur rounded-2xl border border-slate-100 overflow-hidden shadow-sm hover:shadow-lg hover:border-sky-200 transition-all"
                 >
-                  <Link href={cartHref} className="block">
-                    <div className="aspect-square bg-slate-100 flex items-center justify-center">
+                  <div className="relative h-40 w-full shrink-0 overflow-hidden bg-slate-100 sm:h-44 lg:h-48">
+                    <Link href={cartHref} className="absolute inset-0 z-0 block bg-slate-100" aria-label={p?.title || 'Product'}>
+                      <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-slate-100">
+                        <Package className="h-12 w-12 text-slate-300 sm:h-14 sm:w-14" />
+                      </div>
                       {p?.images?.[0] ? (
-                        <img src={getImageUrl(p.images[0])} alt={p?.title} className="w-full h-full object-cover" />
-                      ) : (
-                        <Package className="h-16 w-16 text-slate-300" />
-                      )}
-                    </div>
-                    <h3 className="px-4 pt-4 font-semibold text-slate-900 group-hover:text-sky-700 truncate">
+                        <img
+                          src={getImageUrl(p.images[0])}
+                          alt={p?.title || ''}
+                          className="relative z-10 h-full w-full object-cover"
+                          loading="lazy"
+                          onError={(e) => {
+                            e.currentTarget.style.display = 'none';
+                          }}
+                        />
+                      ) : null}
+                    </Link>
+                    {p?._id && (
+                      <div className="absolute right-2 top-2 z-20">
+                        <MarketplaceCartStepper
+                          productId={String(p._id)}
+                          resellerId={resellerId ? String(resellerId) : undefined}
+                          qty={cartQtyByProduct[String(p._id)] ?? 0}
+                          outOfStock={!!(p as any)?.outOfStock || (p?.stock != null && p.stock < 1)}
+                          isGuest={isGuest}
+                          loginHref={marketplaceLoginHref}
+                          onUpdated={handleCartUpdated}
+                          compact
+                        />
+                      </div>
+                    )}
+                  </div>
+                  <Link href={cartHref} className="block min-w-0 px-3 pt-2 sm:px-4">
+                    <h3 className="truncate text-sm font-semibold text-slate-900 group-hover:text-sky-700 sm:text-base">
                       {p?.title || post.caption}
                     </h3>
                   </Link>
-                  <div className="px-4 pb-4 flex items-center justify-between gap-2">
-                    <div>
-                      <span className="text-lg font-bold text-sky-600">
+                  <div className="mt-auto px-3 pb-3 pt-1.5 sm:px-4 sm:pb-3">
+                    <div className="min-w-0 overflow-hidden">
+                      <span
+                        className="block truncate whitespace-nowrap text-xs font-bold leading-none text-sky-600 tabular-nums sm:text-sm"
+                        title={
+                          p?.currency === 'USD'
+                            ? formatInLocal(displayPrice)
+                            : formatPriceLocal(displayPrice, p?.currency || 'ZAR')
+                        }
+                      >
                         {p?.currency === 'USD'
                           ? formatInLocal(displayPrice)
                           : formatPriceLocal(displayPrice, p?.currency || 'ZAR')}
                       </span>
                     </div>
-                    <div className="flex items-center gap-3 shrink-0">
-                      <Link
-                        href={cartHref}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-sky-500 text-white text-sm font-medium hover:bg-sky-600"
-                      >
-                        <ShoppingCart className="h-4 w-4" />
-                        Buy
-                      </Link>
-                    </div>
                   </div>
-                </div>
-              );
-            })}
-            {products.map((p) => {
-              const outOfStock = (p as any).outOfStock || (p.stock != null && p.stock < 1);
-              const allowResell = (p as any).allowResell ?? false;
-              const cartHref = `/marketplace/product/${p._id}`;
-              const resellHref = `/marketplace/product/${p._id}?view=resell`;
-              return (
-                <div
-                  key={p._id}
-                  className="group relative bg-white/90 backdrop-blur rounded-2xl border border-slate-100 overflow-hidden shadow-sm hover:shadow-lg hover:border-sky-200 transition-all"
-                >
-                  {outOfStock && (
-                    <span className="absolute top-2 right-2 z-10 px-2 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800">Out of stock</span>
-                  )}
-                  <Link href={cartHref} className="block">
-                    <div className="aspect-square bg-slate-100 flex items-center justify-center">
-                      {p.images?.[0] ? (
-                        <img
-                          src={getImageUrl(p.images[0])}
-                          alt={p.title}
-                          className="w-full h-full object-cover"
-                        />
-                      ) : (
-                        <Package className="h-16 w-16 text-slate-300" />
-                      )}
-                    </div>
-                    <h3 className="px-4 pt-4 font-semibold text-slate-900 group-hover:text-sky-700 truncate">
-                      {p.title}
-                    </h3>
-                  </Link>
-                  <div className="px-4 pb-4 flex items-center justify-between gap-2">
-                    <div>
-                      {p.currency === 'USD' ? (
-                        p.discountPrice != null && p.discountPrice < p.price ? (
-                          <>
-                            <span className="text-lg font-bold text-sky-600">{formatInLocal(p.discountPrice)}</span>
-                            <span className="ml-2 text-sm text-slate-400 line-through">{formatInLocal(p.price)}</span>
-                          </>
-                        ) : (
-                          <span className="text-lg font-bold text-sky-600">{formatInLocal(p.price)}</span>
-                        )
-                      ) : (
-                        p.discountPrice != null && p.discountPrice < p.price ? (
-                          <>
-                            <span className="text-lg font-bold text-sky-600">{formatPriceLocal(p.discountPrice, p.currency)}</span>
-                            <span className="ml-2 text-sm text-slate-400 line-through">{formatPriceLocal(p.price, p.currency)}</span>
-                          </>
-                        ) : (
-                          <span className="text-lg font-bold text-sky-600">{formatPriceLocal(p.price, p.currency)}</span>
-                        )
-                      )}
-                    </div>
-                    <div className="flex items-center gap-3 shrink-0">
-                      {allowResell && (
-                        <Link
-                          href={resellHref}
-                          className="inline-flex items-center justify-center px-2.5 py-1 rounded-lg text-sm font-medium whitespace-nowrap transition-colors bg-sky-100 text-sky-700 hover:bg-sky-600 hover:text-white"
-                          title="Resell – add markup"
-                        >
-                          Resell
-                        </Link>
-                      )}
-                      <Link
-                        href={cartHref}
-                        className="p-1.5 rounded-lg text-slate-600 hover:bg-sky-100 hover:text-sky-700 transition-colors"
-                        title="Add to cart"
-                      >
-                        <ShoppingCart className="h-5 w-5" />
-                      </Link>
-                    </div>
-                  </div>
-                  {p.ratingAvg != null && (
-                    <p className="text-sm text-slate-500 px-4 pb-2">
-                      {p.ratingAvg.toFixed(1)}★
-                      {p.ratingCount != null && p.ratingCount > 0 && ` (${p.ratingCount})`}
-                    </p>
-                  )}
                 </div>
               );
             })}
           </div>
+        )}
+        <div ref={loadMoreRef} className="h-8 w-full" />
+        {(loadingMore || (selectedCategory === 'All' && !hasMoreProducts)) && (
+          <p className="mt-3 text-center text-xs text-slate-500">
+            {loadingMore ? 'Loading more products...' : 'Showing more products...'}
+          </p>
+        )}
+        {!loadingMore && randomBackoffUntil > Date.now() && selectedCategory === 'All' && (
+          <p className="mt-2 text-center text-xs text-amber-600">
+            Too many requests detected. Auto-loading will resume shortly.
+          </p>
         )}
 
         <div className="mt-12 rounded-2xl border border-slate-200 bg-white/90 p-6">

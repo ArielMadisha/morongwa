@@ -4,7 +4,7 @@ import Notification from "../data/models/Notification";
 import { authenticate, AuthRequest, authorize } from "../middleware/auth";
 import { AppError } from "../middleware/errorHandler";
 import { getPaginationParams } from "../utils/helpers";
-import { sendNotification, sendBroadcastNotification } from "../services/notification";
+import { sendBroadcastNotification } from "../services/notification";
 
 const router = express.Router();
 

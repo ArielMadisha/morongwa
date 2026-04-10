@@ -1,8 +1,6 @@
 // Payout & escrow service for managing fund flow and FNB integration
 import Escrow, { IEscrow } from "../data/models/Escrow";
 import LedgerEntry from "../data/models/LedgerEntry";
-import Task from "../data/models/Task";
-import User from "../data/models/User";
 import fnbService from "./fnbService";
 import feeService from "./feeService";
 import logger from "../utils/logger";

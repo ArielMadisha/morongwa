@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { adminAPI } from '@/lib/api';
+import { formatCurrencyAmount } from '@/lib/formatCurrency';
 import Link from 'next/link';
 import { ArrowLeft, Package, Loader2, Plus, Trash2, ImagePlus, X, Layers } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -11,7 +12,7 @@ const MAX_IMAGES = 5;
 const MIN_IMAGES = 1;
 
 function formatPrice(price: number) {
-  return new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR', minimumFractionDigits: 2 }).format(price);
+  return formatCurrencyAmount(price, 'ZAR');
 }
 
 interface ProductRow {
@@ -34,9 +35,14 @@ interface SupplierOption {
 }
 
 export default function AdminProductsPage() {
+  const PAGE_SIZE = 100;
   const [products, setProducts] = useState<ProductRow[]>([]);
   const [suppliers, setSuppliers] = useState<SupplierOption[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalProducts, setTotalProducts] = useState(0);
   const [showForm, setShowForm] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [imageFiles, setImageFiles] = useState<File[]>([]);
@@ -77,20 +83,31 @@ export default function AdminProductsPage() {
   };
 
   useEffect(() => {
-    fetchProducts();
+    fetchProducts(1);
     fetchSuppliers();
   }, []);
 
-  const fetchProducts = async () => {
+  const fetchProducts = async (targetPage = 1, append = false) => {
+    if (append) setLoadingMore(true);
+    else setLoading(true);
     try {
-      const res = await adminAPI.getProducts({ limit: 100 });
+      const res = await adminAPI.getProducts({ page: targetPage, limit: PAGE_SIZE });
       const list = res.data?.products ?? res.data ?? [];
-      setProducts(Array.isArray(list) ? list : []);
+      const next = Array.isArray(list) ? list : [];
+      setProducts((prev) => (append ? [...prev, ...next] : next));
+      const pagination = res.data?.pagination;
+      const pages = Number(pagination?.pages || 1);
+      const currentPage = Number(pagination?.page || targetPage || 1);
+      const total = Number(pagination?.total || next.length || 0);
+      setTotalPages(Number.isFinite(pages) && pages > 0 ? pages : 1);
+      setPage(Number.isFinite(currentPage) && currentPage > 0 ? currentPage : 1);
+      setTotalProducts(Number.isFinite(total) && total >= 0 ? total : 0);
     } catch {
       toast.error('Failed to load products');
-      setProducts([]);
+      if (!append) setProducts([]);
     } finally {
-      setLoading(false);
+      if (append) setLoadingMore(false);
+      else setLoading(false);
     }
   };
 
@@ -167,7 +184,8 @@ export default function AdminProductsPage() {
     try {
       await adminAPI.deleteProduct(id);
       toast.success('Product deleted');
-      fetchProducts();
+      const targetPage = products.length === 1 && page > 1 ? page - 1 : page;
+      fetchProducts(targetPage);
     } catch {
       toast.error('Failed to delete product');
     }
@@ -182,6 +200,9 @@ export default function AdminProductsPage() {
               <p className="text-xs uppercase tracking-widest text-sky-600">Morongwa</p>
               <h1 className="mt-1 text-3xl font-semibold text-slate-900">Marketplace products</h1>
               <p className="mt-1 text-sm text-slate-600">Load and manage products for sale. Assign to an approved supplier.</p>
+              <p className="mt-2 text-xs text-slate-500">
+                Showing {products.length} of {totalProducts} products (page {page} of {totalPages}, {PAGE_SIZE} per page)
+              </p>
             </div>
             <div className="flex items-center gap-2">
               <button
@@ -437,61 +458,95 @@ export default function AdminProductsPage() {
                 No products yet. Load a product to sell on the marketplace.
               </div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead className="bg-slate-50 border-b border-slate-100">
-                    <tr>
-                      <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700">Product</th>
-                      <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700">Supplier</th>
-                      <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700">CJ / External ID</th>
-                      <th className="text-right py-3 px-4 text-sm font-semibold text-slate-700">Price</th>
-                      <th className="text-right py-3 px-4 text-sm font-semibold text-slate-700">Stock</th>
-                      <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700">Status</th>
-                      <th className="text-right py-3 px-4 text-sm font-semibold text-slate-700">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {products.map((p) => (
-                      <tr key={p._id} className="border-b border-slate-50 hover:bg-slate-50/50">
-                        <td className="py-3 px-4">
-                          <p className="font-medium text-slate-900">{p.title}</p>
-                          <p className="text-xs text-slate-500">{p.slug}</p>
-                        </td>
-                        <td className="py-3 px-4 text-sm">{(p.supplierId as any)?.storeName ?? ((p as any).supplierSource === 'cj' ? 'CJ Dropshipping' : (p as any).supplierSource ?? '—')}</td>
-                        <td className="py-3 px-4 text-sm">
-                          {(p as any).externalProductId ? (
-                            <code
-                              className="text-xs font-mono text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded cursor-copy"
-                              title="CJ Product ID – copy to trace in CJ Dropshipping"
-                              onClick={() => {
-                                navigator.clipboard.writeText((p as any).externalProductId);
-                                toast.success('CJ Product ID copied');
-                              }}
-                            >
-                              {(p as any).externalProductId}
-                            </code>
-                          ) : (
-                            <span className="text-slate-400">—</span>
-                          )}
-                        </td>
-                        <td className="py-3 px-4 text-right font-medium text-slate-900">
-                          {(p as any).discountPrice != null && (p as any).discountPrice < p.price ? (
-                            <span><span className="text-sky-600">{formatPrice((p as any).discountPrice)}</span> <span className="text-slate-400 line-through text-sm">{formatPrice(p.price)}</span></span>
-                          ) : (
-                            formatPrice(p.price)
-                          )}
-                        </td>
-                        <td className="py-3 px-4 text-right text-sm">{p.stock}</td>
-                        <td className="py-3 px-4 text-sm">{p.active ? 'Active' : 'Inactive'}</td>
-                        <td className="py-3 px-4 text-right">
-                          <Link href={`/marketplace/product/${p._id}`} className="text-sky-600 hover:underline text-sm mr-2">View</Link>
-                          <Link href={`/admin/products/${p._id}/edit`} className="text-emerald-600 hover:underline text-sm mr-2">Edit</Link>
-                          <button type="button" onClick={() => handleDelete(p._id)} className="text-red-600 hover:underline text-sm">Delete</button>
-                        </td>
+              <div>
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead className="bg-slate-50 border-b border-slate-100">
+                      <tr>
+                        <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700">Product</th>
+                        <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700">Supplier</th>
+                        <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700">CJ / External ID</th>
+                        <th className="text-right py-3 px-4 text-sm font-semibold text-slate-700">Price</th>
+                        <th className="text-right py-3 px-4 text-sm font-semibold text-slate-700">Stock</th>
+                        <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700">Status</th>
+                        <th className="text-right py-3 px-4 text-sm font-semibold text-slate-700">Actions</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {products.map((p) => (
+                        <tr key={p._id} className="border-b border-slate-50 hover:bg-slate-50/50">
+                          <td className="py-3 px-4">
+                            <p className="font-medium text-slate-900">{p.title}</p>
+                            <p className="text-xs text-slate-500">{p.slug}</p>
+                          </td>
+                          <td className="py-3 px-4 text-sm">{(p.supplierId as any)?.storeName ?? ((p as any).supplierSource === 'cj' ? 'CJ Dropshipping' : (p as any).supplierSource ?? '—')}</td>
+                          <td className="py-3 px-4 text-sm">
+                            {(p as any).externalProductId ? (
+                              <code
+                                className="text-xs font-mono text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded cursor-copy"
+                                title="CJ Product ID – copy to trace in CJ Dropshipping"
+                                onClick={() => {
+                                  navigator.clipboard.writeText((p as any).externalProductId);
+                                  toast.success('CJ Product ID copied');
+                                }}
+                              >
+                                {(p as any).externalProductId}
+                              </code>
+                            ) : (
+                              <span className="text-slate-400">—</span>
+                            )}
+                          </td>
+                          <td className="py-3 px-4 text-right font-medium text-slate-900">
+                            {(p as any).discountPrice != null && (p as any).discountPrice < p.price ? (
+                              <span><span className="text-sky-600">{formatPrice((p as any).discountPrice)}</span> <span className="text-slate-400 line-through text-sm">{formatPrice(p.price)}</span></span>
+                            ) : (
+                              formatPrice(p.price)
+                            )}
+                          </td>
+                          <td className="py-3 px-4 text-right text-sm">{p.stock}</td>
+                          <td className="py-3 px-4 text-sm">{p.active ? 'Active' : 'Inactive'}</td>
+                          <td className="py-3 px-4 text-right">
+                            <Link href={`/marketplace/product/${p._id}`} className="text-sky-600 hover:underline text-sm mr-2">View</Link>
+                            <Link href={`/admin/products/${p._id}/edit`} className="text-emerald-600 hover:underline text-sm mr-2">Edit</Link>
+                            <button type="button" onClick={() => handleDelete(p._id)} className="text-red-600 hover:underline text-sm">Delete</button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 bg-white/70 px-4 py-3">
+                  <p className="text-xs text-slate-500">
+                    Page {page} of {totalPages}
+                  </p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => fetchProducts(page - 1)}
+                      disabled={page <= 1 || loading || loadingMore}
+                      className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                    >
+                      Previous page
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => fetchProducts(page + 1)}
+                      disabled={page >= totalPages || loading || loadingMore}
+                      className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-1.5 text-sm font-medium text-sky-700 hover:bg-sky-100 disabled:opacity-50"
+                    >
+                      Next page
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => fetchProducts(page + 1, true)}
+                      disabled={page >= totalPages || loading || loadingMore}
+                      className="inline-flex items-center gap-2 rounded-lg bg-sky-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-sky-700 disabled:opacity-50"
+                    >
+                      {loadingMore ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                      Load more
+                    </button>
+                  </div>
+                </div>
               </div>
             )}
           </div>

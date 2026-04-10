@@ -7,6 +7,12 @@
 const FX_API = "https://open.er-api.com/v6/latest/USD";
 const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
 
+type FxApiResponse = {
+  result?: string;
+  rates?: Record<string, number>;
+  "error-type"?: string;
+};
+
 let cachedRates: Record<string, number> | null = null;
 let cacheExpiry = 0;
 
@@ -17,7 +23,7 @@ export async function getFxRates(): Promise<{ base: string; rates: Record<string
 
   try {
     const res = await fetch(FX_API);
-    const json = await res.json();
+    const json = (await res.json()) as FxApiResponse;
     if (json.result !== "success" || !json.rates) {
       throw new Error(json["error-type"] || "FX API error");
     }
@@ -46,6 +52,9 @@ export async function getFxRates(): Promise<{ base: string; rates: Record<string
         NGN: 1600,
         GHS: 15,
         XOF: 600,
+        INR: 83,
+        CAD: 1.36,
+        AUD: 1.52,
       },
     };
   }

@@ -12,7 +12,6 @@ import User from "../data/models/User";
 import { authenticate, AuthRequest } from "../middleware/auth";
 import { AppError } from "../middleware/errorHandler";
 import { initiatePayment } from "../services/payment";
-import { ADMIN_PRODUCT_COMMISSION_PCT } from "../config/fees.config";
 import { notifyOrderPaid } from "../services/orderNotification";
 import { forwardOrderToExternalSupplier } from "../services/orderForwardingService";
 import { getFxRates, convertUsdTo } from "../services/fxService";
@@ -124,6 +123,29 @@ router.post("/quote", authenticate, async (req: AuthRequest, res: Response, next
       : [];
     const externalSupplierMap = new Map(externalSuppliers.map((s: any) => [s._id.toString(), s]));
 
+    const eproloMissingShipping = (cart.items || [])
+      .map((item) => {
+        const product = productMap.get((item.productId as any).toString()) as any;
+        if (!product) return null;
+        if (String(product.supplierSource || "").toLowerCase() !== "eprolo") return null;
+        const extId = String(product.externalSupplierId || "").trim();
+        const ext = extId ? (externalSupplierMap.get(extId) as any) : null;
+        const configured = ext && Number.isFinite(Number(ext.shippingCost)) && Number(ext.shippingCost) >= 0;
+        if (configured) return null;
+        return {
+          productId: String(product._id || item.productId || ""),
+          title: String(product.title || "Product"),
+        };
+      })
+      .filter(Boolean) as Array<{ productId: string; title: string }>;
+    if (eproloMissingShipping.length > 0) {
+      const ids = eproloMissingShipping.map((p) => p.productId).join(", ");
+      throw new AppError(
+        `Checkout blocked: missing EPROLO shipping cost configuration. Admin action required for product ID(s): ${ids}.`,
+        400
+      );
+    }
+
     // CJ products: get real freight from CJ API (no flat fallback)
     const cjProductItems: Array<{ product: any; qty: number }> = [];
     for (const item of cart.items || []) {
@@ -215,6 +237,11 @@ router.post("/quote", authenticate, async (req: AuthRequest, res: Response, next
     }
 
     const total = subtotal + shipping;
+    const shippingQuoteType = cjProductItems.length > 0 ? "live_quote" : "configured_tariff";
+    const shippingNote =
+      shippingQuoteType === "live_quote"
+        ? "Shipping includes live courier quote(s) for imported items and supplier tariffs for local suppliers."
+        : "Shipping is calculated from current supplier tariffs.";
 
     // Build shipping breakdown (delivery only; no collection)
     const shippingBreakdown: Array<{ supplierId: string; storeName: string; shippingCost: number }> = [];
@@ -241,6 +268,8 @@ router.post("/quote", authenticate, async (req: AuthRequest, res: Response, next
         subtotal,
         shipping,
         shippingBreakdown,
+        shippingQuoteType,
+        shippingNote,
         commissionTotal,
         total,
         currency: "ZAR",
@@ -305,6 +334,29 @@ router.post("/pay", authenticate, async (req: AuthRequest, res: Response, next) 
           .lean()
       : [];
     const externalSupplierMapPay = new Map(externalSuppliersPayData.map((s: any) => [s._id.toString(), s]));
+
+    const eproloMissingShippingPay = (cart.items || [])
+      .map((item) => {
+        const product = productMap.get((item.productId as any).toString()) as any;
+        if (!product) return null;
+        if (String(product.supplierSource || "").toLowerCase() !== "eprolo") return null;
+        const extId = String(product.externalSupplierId || "").trim();
+        const ext = extId ? (externalSupplierMapPay.get(extId) as any) : null;
+        const configured = ext && Number.isFinite(Number(ext.shippingCost)) && Number(ext.shippingCost) >= 0;
+        if (configured) return null;
+        return {
+          productId: String(product._id || item.productId || ""),
+          title: String(product.title || "Product"),
+        };
+      })
+      .filter(Boolean) as Array<{ productId: string; title: string }>;
+    if (eproloMissingShippingPay.length > 0) {
+      const ids = eproloMissingShippingPay.map((p) => p.productId).join(", ");
+      throw new AppError(
+        `Checkout blocked: missing EPROLO shipping cost configuration. Admin action required for product ID(s): ${ids}.`,
+        400
+      );
+    }
 
     const cjProductItemsPay: Array<{ product: any; qty: number }> = [];
     for (const item of cart.items || []) {
@@ -589,7 +641,11 @@ router.post("/pay", authenticate, async (req: AuthRequest, res: Response, next) 
         orderId: order?._id ?? null,
         status: "pending_payment",
         paymentUrl: paymentResult.paymentUrl,
+        payGateRedirect: paymentResult.payGateRedirect,
         reference,
+        amount: total,
+        paygateFeeZar: paymentResult.paygateFeeZar,
+        chargedZar: paymentResult.chargedZar,
       },
     });
   } catch (err) {

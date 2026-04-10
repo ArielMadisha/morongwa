@@ -15,6 +15,8 @@ export interface ICart extends Document {
   user: mongoose.Types.ObjectId;
   items: ICartItem[];
   musicItems: ICartMusicItem[];
+  /** Delivery line saved from WhatsApp (CART CHECKOUT or address template). */
+  deliveryAddress?: string;
   updatedAt: Date;
 }
 
@@ -40,6 +42,7 @@ const CartSchema = new Schema<ICart>(
     user: { type: Schema.Types.ObjectId, ref: "User", required: true, unique: true },
     items: { type: [CartItemSchema], default: [] },
     musicItems: { type: [CartMusicItemSchema], default: [] },
+    deliveryAddress: { type: String, trim: true },
   },
   { timestamps: true }
 );
