@@ -1729,7 +1729,40 @@ router.get("/dropship/search-cj", requireSuperAdmin, async (req: AuthRequest, re
   }
 });
 
-/** Import product from CJ by product ID */
+function jsonImportCJResponse(
+  result: NonNullable<Awaited<ReturnType<typeof importProductFromCJ>>>
+) {
+  const status = result.created ? "imported" : result.updated ? "updated" : "already_exists";
+  const message =
+    status === "imported"
+      ? "Product imported"
+      : status === "updated"
+        ? "Product updated"
+        : "Product already imported";
+  return { message, status, data: result.product, created: result.created, updated: result.updated };
+}
+
+/**
+ * Import from CJ — JSON body (cjProductId or pid). Keeps old/mobile clients working when they POST
+ * `/dropship/import-cj` without a path segment (avoids 404 "Route ... not found").
+ * Must be registered before `/:cjProductId` so the bare path matches here.
+ */
+router.post("/dropship/import-cj", requireSuperAdmin, async (req: AuthRequest, res: Response, next) => {
+  try {
+    const raw = (req.body as { cjProductId?: string; pid?: string; productSku?: string; forceUpdate?: boolean }) || {};
+    const cjProductId = String(raw.cjProductId ?? raw.pid ?? "").trim();
+    if (!cjProductId) throw new AppError("cjProductId is required", 400);
+    const forceUpdate = raw.forceUpdate === true || req.query.forceUpdate === "true";
+    const productSku = raw.productSku ? String(raw.productSku).trim() : undefined;
+    const result = await importProductFromCJ(cjProductId, { forceUpdate, productSku });
+    if (!result) throw new AppError("CJ product not found or import failed", 404);
+    res.json(jsonImportCJResponse(result));
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** Import product from CJ by product ID (path) */
 router.post("/dropship/import-cj/:cjProductId", requireSuperAdmin, async (req: AuthRequest, res: Response, next) => {
   try {
     const { cjProductId } = req.params;
@@ -1738,14 +1771,7 @@ router.post("/dropship/import-cj/:cjProductId", requireSuperAdmin, async (req: A
     const productSku = bodySku ? String(bodySku).trim() : undefined;
     const result = await importProductFromCJ(decodeURIComponent(String(cjProductId)), { forceUpdate, productSku });
     if (!result) throw new AppError("CJ product not found or import failed", 404);
-    const status = result.created ? "imported" : result.updated ? "updated" : "already_exists";
-    const message =
-      status === "imported"
-        ? "Product imported"
-        : status === "updated"
-          ? "Product updated"
-          : "Product already imported";
-    res.json({ message, status, data: result.product, created: result.created, updated: result.updated });
+    res.json(jsonImportCJResponse(result));
   } catch (err) {
     next(err);
   }
