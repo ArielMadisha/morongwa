@@ -453,17 +453,16 @@ export const adminAPI = {
   // Dropshipping – CJ (superadmin only)
   searchCJProducts: (params?: { q?: string; page?: number; size?: number }) =>
     api.get('/admin/dropship/search-cj', { params }),
-  /** POST `/admin/dropship/import-cj` with JSON body — matches server route (also supports path variant on API). */
+  /**
+   * CJ import: POST with product id in the path (supported by all deployed APIs).
+   * Optional JSON body for SKU hint. Avoids bare `/import-cj` 404s behind some gateways.
+   */
   importCJProduct: (cjProductId: string | number, forceUpdate?: boolean, productSku?: string) => {
     const id = String(cjProductId ?? "").trim();
-    return api.post(
-      `/admin/dropship/import-cj${forceUpdate ? '?forceUpdate=true' : ''}`,
-      {
-        cjProductId: id,
-        ...(productSku?.trim() ? { productSku: productSku.trim() } : {}),
-        ...(forceUpdate ? { forceUpdate: true } : {}),
-      }
-    );
+    if (!id) return Promise.reject(Object.assign(new Error("CJ product id required"), { name: "ValidationError" }));
+    const path = `/admin/dropship/import-cj/${encodeURIComponent(id)}${forceUpdate ? "?forceUpdate=true" : ""}`;
+    const sku = productSku?.trim();
+    return sku ? api.post(path, { productSku: sku }) : api.post(path);
   },
   searchImportCJ: (data: { query?: string; limit?: number }) =>
     api.post('/admin/dropship/search-import-cj', data),

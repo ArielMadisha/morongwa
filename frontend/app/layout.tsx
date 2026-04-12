@@ -7,6 +7,7 @@ import { CurrencyProvider } from "@/contexts/CurrencyContext";
 import { Toaster } from "react-hot-toast";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import { MorongwaChatButton } from "@/components/MorongwaChatButton";
+import { MobileWebAppHint } from "@/components/MobileWebAppHint";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -14,13 +15,23 @@ export const metadata: Metadata = {
   title: "Qwertymates - Join the Qwerty Revolution",
   description: "The Digital Home for Doers, Sellers & Creators. Qwertymates.com",
   metadataBase: new URL("https://www.qwertymates.com"),
+  applicationName: "Qwertymates",
+  appleWebApp: {
+    capable: true,
+    title: "Qwertymates",
+    statusBarStyle: "default",
+  },
+  formatDetection: {
+    telephone: false,
+  },
   icons: {
     icon: [
       { url: "/qwertymates-logo-icon-transparent.svg?v=3", type: "image/svg+xml" },
       { url: "/qwertymates-logo-icon-transparent.svg?v=3", sizes: "any", type: "image/svg+xml" },
     ],
     shortcut: "/qwertymates-logo-icon-transparent.svg?v=3",
-    apple: [{ url: "/qwertymates-logo-icon.png", sizes: "180x180", type: "image/png" }],
+    /** SVG avoids Chrome “resource size is not correct” when PNG is not exactly 180×180 */
+    apple: [{ url: "/qwertymates-logo-icon-transparent.svg?v=3", type: "image/svg+xml", sizes: "180x180" }],
   },
   openGraph: {
     title: "Qwertymates - Join the Qwerty Revolution",
@@ -45,6 +56,10 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   maximumScale: 5,
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#e0f2fe" },
+    { media: "(prefers-color-scheme: dark)", color: "#0c4a6e" },
+  ],
 };
 
 export default function RootLayout({
@@ -61,6 +76,7 @@ export default function RootLayout({
             <TranslationProvider>
               <div className="min-h-screen flex flex-col">
                 <div className="flex-1">{children}</div>
+                <MobileWebAppHint />
                 <MorongwaChatButton />
               </div>
               <Toaster 

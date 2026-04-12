@@ -1755,7 +1755,7 @@ router.post("/dropship/import-cj", requireSuperAdmin, async (req: AuthRequest, r
     const forceUpdate = raw.forceUpdate === true || req.query.forceUpdate === "true";
     const productSku = raw.productSku ? String(raw.productSku).trim() : undefined;
     const result = await importProductFromCJ(cjProductId, { forceUpdate, productSku });
-    if (!result) throw new AppError("CJ product not found or import failed", 404);
+    if (!result) throw new AppError("CJ product not found or import failed", 422);
     res.json(jsonImportCJResponse(result));
   } catch (err) {
     next(err);
@@ -1770,7 +1770,7 @@ router.post("/dropship/import-cj/:cjProductId", requireSuperAdmin, async (req: A
     const bodySku = (req.body as { productSku?: string } | undefined)?.productSku;
     const productSku = bodySku ? String(bodySku).trim() : undefined;
     const result = await importProductFromCJ(decodeURIComponent(String(cjProductId)), { forceUpdate, productSku });
-    if (!result) throw new AppError("CJ product not found or import failed", 404);
+    if (!result) throw new AppError("CJ product not found or import failed", 422);
     res.json(jsonImportCJResponse(result));
   } catch (err) {
     next(err);
