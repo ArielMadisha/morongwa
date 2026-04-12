@@ -453,8 +453,11 @@ export const adminAPI = {
   // Dropshipping – CJ (superadmin only)
   searchCJProducts: (params?: { q?: string; page?: number; size?: number }) =>
     api.get('/admin/dropship/search-cj', { params }),
-  importCJProduct: (cjProductId: string, forceUpdate?: boolean) =>
-    api.post(`/admin/dropship/import-cj/${cjProductId}${forceUpdate ? '?forceUpdate=true' : ''}`),
+  importCJProduct: (cjProductId: string, forceUpdate?: boolean, productSku?: string) => {
+    const path = `/admin/dropship/import-cj/${encodeURIComponent(cjProductId)}${forceUpdate ? '?forceUpdate=true' : ''}`;
+    const sku = productSku?.trim();
+    return sku ? api.post(path, { productSku: sku }) : api.post(path);
+  },
   searchImportCJ: (data: { query?: string; limit?: number }) =>
     api.post('/admin/dropship/search-import-cj', data),
   syncCjStock: () =>

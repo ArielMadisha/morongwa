@@ -1734,7 +1734,9 @@ router.post("/dropship/import-cj/:cjProductId", requireSuperAdmin, async (req: A
   try {
     const { cjProductId } = req.params;
     const forceUpdate = req.query.forceUpdate === "true";
-    const result = await importProductFromCJ(cjProductId, { forceUpdate });
+    const bodySku = (req.body as { productSku?: string } | undefined)?.productSku;
+    const productSku = bodySku ? String(bodySku).trim() : undefined;
+    const result = await importProductFromCJ(decodeURIComponent(String(cjProductId)), { forceUpdate, productSku });
     if (!result) throw new AppError("CJ product not found or import failed", 404);
     const status = result.created ? "imported" : result.updated ? "updated" : "already_exists";
     const message =
