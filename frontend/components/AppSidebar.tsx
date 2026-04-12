@@ -44,6 +44,8 @@ interface AppSidebarProps {
   belowHeader?: boolean;
   /** Hide Cart link (e.g. when marketplace header shows cart) */
   hideCart?: boolean;
+  /** When user clicks a nav link while already on that route, run callback instead of navigating */
+  onSamePageNav?: Partial<Record<string, () => void>>;
 }
 
 const errandsSubItems = [
@@ -64,6 +66,7 @@ export function AppSidebar({
   hideLogo = false,
   belowHeader = false,
   hideCart = false,
+  onSamePageNav,
 }: AppSidebarProps) {
   const pathname = usePathname();
   const { user } = useAuth();
@@ -201,7 +204,13 @@ export function AppSidebar({
               <Link
                 key={href || `nav-desktop-${idx}`}
                 href={href || '#'}
-                onClick={() => setMenuOpen?.(false)}
+                onClick={(e) => {
+                  if (href && onSamePageNav?.[href] && isActive(href)) {
+                    e.preventDefault();
+                    onSamePageNav[href]!();
+                  }
+                  setMenuOpen?.(false);
+                }}
                 className={`flex items-center gap-3 px-3 py-2 rounded-r-lg text-sm font-medium transition-colors border-l-[4px] ${
                   isActive(href)
                     ? 'border-sky-500 bg-sky-50 text-sky-900'
@@ -297,7 +306,13 @@ export function AppSidebar({
               <Link
                 key={href || `nav-mobile-${idx}`}
                 href={href || '#'}
-                onClick={() => setMenuOpen?.(false)}
+                onClick={(e) => {
+                  if (href && onSamePageNav?.[href] && isActive(href)) {
+                    e.preventDefault();
+                    onSamePageNav[href]!();
+                  }
+                  setMenuOpen?.(false);
+                }}
                 className={`flex items-center gap-3 px-3 py-2 rounded-r-lg text-sm font-medium transition-colors border-l-[4px] ${
                   isActive(href)
                     ? 'border-sky-500 bg-sky-50 text-sky-900'
