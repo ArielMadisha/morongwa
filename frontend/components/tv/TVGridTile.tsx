@@ -183,7 +183,9 @@ export interface TVGridItem {
   commentCount: number;
   shareCount: number;
   viewCount?: number;
-  creatorId?: { _id: string; name?: string; avatar?: string };
+  creatorId?: { _id: string; name?: string; avatar?: string; storeSlug?: string };
+  /** Supplier storefront slug (QwertyHub tiles) — links to /store/[slug] */
+  storeSlug?: string;
   createdAt?: string;
   /** When true, media is blurred until user clicks to reveal */
   sensitive?: boolean;
@@ -275,7 +277,6 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
   const videoRef = useRef<HTMLVideoElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
 
-  const creatorName = item.creatorId?.name || 'Creator';
   const postPeriod = formatPostPeriod(item.createdAt);
   // Resolve creatorId (populated object or raw string) for donate/own-post logic
   const creatorIdResolved = typeof item.creatorId === 'object' && item.creatorId !== null && '_id' in item.creatorId
@@ -286,6 +287,17 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
   const isOwnPost = creatorIdResolved && currentUserId && creatorIdResolved === String(currentUserId);
 
   const isProductTile = item.type === 'product_tile';
+  const storeSlugResolved = item.storeSlug || item.creatorId?.storeSlug;
+  const creatorName = item.creatorId?.name || (isProductTile ? 'Store' : 'Creator');
+  const creatorProfileHref = (() => {
+    if (isOwnPost) {
+      if (isProductTile && storeSlugResolved) return `/store/${storeSlugResolved}`;
+      return '/store';
+    }
+    if (isProductTile && storeSlugResolved) return `/store/${storeSlugResolved}`;
+    if (item.creatorId?._id || item.creatorId) return `/user/${item.creatorId?._id ?? item.creatorId}`;
+    return '/wall';
+  })();
   const isProductPost = isProductTile || !!item.productId;
   const isTextPost = item.type === 'text';
   const isAudioPost = item.type === 'audio';
@@ -1030,7 +1042,7 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
       >
         <div className="flex min-w-0 flex-1 items-center gap-2">
           <Link
-            href={isOwnPost ? '/store' : (item.creatorId?._id || item.creatorId) ? `/user/${item.creatorId?._id ?? item.creatorId}` : '/wall'}
+            href={creatorProfileHref}
             className="flex min-w-0 items-center gap-2"
             onClick={(e) => e.stopPropagation()}
           >
@@ -1202,19 +1214,26 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
               )}
               <button
                 onClick={(e) => { e.stopPropagation(); onLike?.(item._id, !liked); }}
-                className={`flex items-center gap-1 min-h-[36px] min-w-[36px] sm:min-h-0 sm:min-w-0 justify-center py-1 px-1 sm:px-0 rounded-lg transition-colors cursor-pointer touch-manipulation ${
-                  liked ? 'text-rose-500' : 'text-slate-600 hover:text-slate-900'
-                }`}
+                className="flex items-center gap-1 min-h-[36px] min-w-[36px] sm:min-h-0 sm:min-w-0 justify-center py-1 px-1 sm:px-0 rounded-lg text-slate-700 transition-colors cursor-pointer touch-manipulation hover:text-slate-900"
+                aria-pressed={liked}
               >
-                <Heart className={`h-4 w-4 sm:h-5 sm:w-5 ${liked ? 'fill-current' : ''}`} />
-                <span className="text-xs sm:text-sm font-medium">{(item.likeCount ?? 0) >= 1000 ? `${((item.likeCount ?? 0) / 1000).toFixed(1)}K` : item.likeCount ?? 0}</span>
+                <Heart
+                  className={`h-4 w-4 sm:h-5 sm:w-5 shrink-0 ${
+                    liked || (item.likeCount ?? 0) > 0
+                      ? 'fill-red-600 text-red-600'
+                      : 'text-red-500 hover:text-red-600'
+                  }`}
+                />
+                <span className="text-xs sm:text-sm font-medium tabular-nums">
+                  {(item.likeCount ?? 0) >= 1000 ? `${((item.likeCount ?? 0) / 1000).toFixed(1)}K` : item.likeCount ?? 0}
+                </span>
               </button>
               <button
                 onClick={(e) => { e.stopPropagation(); setCommentModalOpen(true); }}
-                className="flex items-center gap-1 min-h-[36px] min-w-[36px] sm:min-h-0 sm:min-w-0 justify-center py-1 px-1 sm:px-0 rounded-lg text-slate-600 hover:text-slate-900 transition-colors cursor-pointer touch-manipulation"
+                className="flex items-center gap-1 min-h-[36px] min-w-[36px] sm:min-h-0 sm:min-w-0 justify-center py-1 px-1 sm:px-0 rounded-lg text-slate-700 transition-colors cursor-pointer touch-manipulation hover:text-slate-900"
               >
-                <MessageCircle className="h-4 w-4 sm:h-5 sm:w-5" />
-                <span className="text-xs sm:text-sm font-medium">{item.commentCount ?? 0}</span>
+                <MessageCircle className="h-4 w-4 shrink-0 text-purple-600 sm:h-5 sm:w-5" />
+                <span className="text-xs sm:text-sm font-medium tabular-nums">{item.commentCount ?? 0}</span>
               </button>
               <button
                 onClick={(e) => { e.stopPropagation(); handleShare(); }}
@@ -1469,19 +1488,42 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
                 onClick={(e) => { e.stopPropagation(); onLike?.(item._id, !liked); }}
                 className={`flex items-center gap-1.5 min-h-[40px] min-w-[40px] justify-center rounded-lg transition-colors cursor-pointer touch-manipulation ${
                   relatedVideos?.length && !isFullscreen
-                    ? (liked ? 'text-rose-500' : 'text-slate-600 hover:text-slate-900')
-                    : (liked ? 'text-rose-400' : 'text-white/90 hover:text-white')
+                    ? liked
+                      ? 'text-slate-600'
+                      : 'text-slate-600 hover:text-slate-900'
+                    : liked
+                      ? 'text-white/90'
+                      : 'text-white/90 hover:text-white'
                 }`}
+                aria-pressed={liked}
               >
-                <Heart className={`h-5 w-5 sm:h-6 sm:w-6 ${liked ? 'fill-current' : ''}`} />
-                <span className="text-sm font-medium">{(item.likeCount ?? 0) >= 1000 ? `${((item.likeCount ?? 0) / 1000).toFixed(1)}K` : item.likeCount ?? 0}</span>
+                <Heart
+                  className={`h-5 w-5 sm:h-6 sm:w-6 shrink-0 ${
+                    relatedVideos?.length && !isFullscreen
+                      ? liked || (item.likeCount ?? 0) > 0
+                        ? 'fill-red-600 text-red-600'
+                        : 'text-red-500 hover:text-red-600'
+                      : liked || (item.likeCount ?? 0) > 0
+                        ? 'fill-red-400 text-red-400'
+                        : 'text-red-400 hover:text-red-300'
+                  }`}
+                />
+                <span
+                  className={`text-sm font-medium ${
+                    relatedVideos?.length && !isFullscreen ? 'text-slate-700' : 'text-white/90'
+                  }`}
+                >
+                  {(item.likeCount ?? 0) >= 1000 ? `${((item.likeCount ?? 0) / 1000).toFixed(1)}K` : item.likeCount ?? 0}
+                </span>
               </button>
               <button
                 onClick={(e) => { e.stopPropagation(); setCommentModalOpen(true); }}
                 className={`flex items-center gap-1.5 min-h-[40px] min-w-[40px] justify-center rounded-lg transition-colors cursor-pointer touch-manipulation ${relatedVideos?.length && !isFullscreen ? 'text-slate-600 hover:text-slate-900' : 'text-white/90 hover:text-white'}`}
                 title="Comments"
               >
-                <MessageCircle className="h-5 w-5 sm:h-6 sm:w-6" />
+                <MessageCircle
+                  className={`h-5 w-5 sm:h-6 sm:w-6 shrink-0 ${relatedVideos?.length && !isFullscreen ? 'text-purple-600' : 'text-purple-300'}`}
+                />
                 <span className="text-sm font-medium">{item.commentCount ?? 0}</span>
               </button>
               <button
