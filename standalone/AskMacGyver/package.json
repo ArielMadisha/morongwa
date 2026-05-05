@@ -1,0 +1,5 @@
+{
+  "name": "ask-macgyver-standalone-mirror",
+  "private": true,
+  "description": "File mirror from Morongwa monorepo — see README.md. Not a runnable package until wired into your satellite server."
+}
