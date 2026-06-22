@@ -14,13 +14,20 @@ function formatPrice(price: number) {
 
 interface OrderRow {
   _id: string;
-  buyerId: { name?: string; email?: string };
+  buyerId: { name?: string; email?: string; phone?: string };
   status: string;
+  shippingStatus?: string;
+  delivery?: { address?: string; method?: string; serviceLabel?: string };
   amounts?: { total?: number; subtotal?: number; shipping?: number };
   paymentMethod?: string;
   paidAt?: string;
   createdAt?: string;
   items?: Array<{ qty: number; price: number }>;
+}
+
+function formatShippingStatus(status?: string) {
+  if (!status || status === '—') return '—';
+  return status.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 export default function AdminOrdersPage() {
@@ -65,11 +72,11 @@ export default function AdminOrdersPage() {
     <ProtectedRoute allowedRoles={['admin', 'superadmin']}>
       <div className="min-h-screen bg-gradient-to-br from-sky-50 via-white to-sky-100 text-slate-800">
         <header className="border-b border-white/60 bg-white/70 backdrop-blur">
-          <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-6">
+          <div className="mx-auto flex max-w-[90rem] items-center justify-between px-6 py-6">
             <div>
               <p className="text-xs uppercase tracking-widest text-sky-600">Qwertymates</p>
-              <h1 className="mt-1 text-3xl font-semibold text-slate-900">Marketplace orders</h1>
-              <p className="mt-1 text-sm text-slate-600">Checkout / wallet orders from the marketplace.</p>
+              <h1 className="mt-1 text-3xl font-semibold text-slate-900">Product purchases</h1>
+              <p className="mt-1 text-sm text-slate-600">All buyer product purchase orders from checkout and wallet.</p>
               <p className="mt-2 text-xs text-slate-500">
                 Showing {orders.length} of {totalOrders} orders (page {page} of {totalPages}, {PAGE_SIZE} per page)
               </p>
@@ -80,7 +87,7 @@ export default function AdminOrdersPage() {
           </div>
         </header>
 
-        <main className="mx-auto max-w-6xl px-6 py-8">
+        <main className="mx-auto max-w-[90rem] px-6 py-8">
           <div className="mb-6 flex gap-2">
             {['', 'pending_payment', 'paid', 'processing', 'delivered'].map((s) => (
               <button key={s || 'all'} type="button" onClick={() => { setStatusFilter(s); setPage(1); }} className={`rounded-lg px-4 py-2 text-sm font-medium ${statusFilter === s ? 'bg-sky-600 text-white' : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50'}`}>
@@ -107,6 +114,9 @@ export default function AdminOrdersPage() {
                     <tr>
                       <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700">Buyer</th>
                       <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700">Status</th>
+                      <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700">Shipping status</th>
+                      <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700 min-w-[12rem]">Customer address</th>
+                      <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700">Contact number</th>
                       <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700">Payment</th>
                       <th className="text-right py-3 px-4 text-sm font-semibold text-slate-700">Total</th>
                       <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700">Date</th>
@@ -119,7 +129,12 @@ export default function AdminOrdersPage() {
                           <p className="font-medium text-slate-900">{ord.buyerId?.name ?? '—'}</p>
                           <p className="text-xs text-slate-500">{ord.buyerId?.email ?? '—'}</p>
                         </td>
-                        <td className="py-3 px-4 text-sm capitalize">{ord.status?.replace('_', ' ')}</td>
+                        <td className="py-3 px-4 text-sm capitalize">{ord.status?.replace(/_/g, ' ')}</td>
+                        <td className="py-3 px-4 text-sm capitalize text-slate-700">{formatShippingStatus(ord.shippingStatus)}</td>
+                        <td className="py-3 px-4 text-sm text-slate-700 max-w-xs">
+                          <p className="whitespace-pre-wrap break-words">{ord.delivery?.address?.trim() || '—'}</p>
+                        </td>
+                        <td className="py-3 px-4 text-sm text-slate-700 whitespace-nowrap">{ord.buyerId?.phone?.trim() || '—'}</td>
                         <td className="py-3 px-4 text-sm capitalize">{ord.paymentMethod ?? '—'}</td>
                         <td className="py-3 px-4 text-right font-medium text-slate-900">{ord.amounts?.total != null ? formatPrice(ord.amounts.total) : '—'}</td>
                         <td className="py-3 px-4 text-sm text-slate-600">{ord.createdAt ? new Date(ord.createdAt).toLocaleString() : '—'}</td>

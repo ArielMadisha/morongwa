@@ -1,5 +1,5 @@
 /**
- * Country → display currency (EU/US → USD, India → INR, Africa etc. per phoneCountryCurrency).
+ * Country → display currency (EU/US → USD, Africa etc. per phoneCountryCurrency; INR is not used).
  */
 import { currencyFromCountryIso } from './phoneCountryCurrency';
 

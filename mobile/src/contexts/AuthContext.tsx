@@ -1,10 +1,46 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
+import React, {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState
+} from "react";
 import { authAPI, setAuthToken } from "../lib/api";
 import { Role, User } from "../types";
 
-const TOKEN_KEY = "morongwa.mobile.token";
-const USER_KEY = "morongwa.mobile.user";
+const TOKEN_KEY = "qwertymates.mobile.token";
+const USER_KEY = "qwertymates.mobile.user";
+
+function normalizeUser(me: User): User {
+  const id = me._id ?? me.id;
+  const sid = id != null ? String(id) : "";
+  return {
+    ...me,
+    _id: sid || undefined,
+    id: sid || undefined,
+    role: Array.isArray(me.role) ? me.role : me.role != null ? [me.role as Role] : undefined
+  };
+}
+
+/** Support both flat and wrapped API bodies across axios / proxy variants. */
+function readLoginRegisterBody(res: { data?: unknown }): { token?: string; user?: User } {
+  const root = res?.data as Record<string, unknown> | undefined;
+  if (!root || typeof root !== "object") return {};
+  const token =
+    typeof root.token === "string"
+      ? root.token
+      : root.data && typeof root.data === "object" && typeof (root.data as { token?: unknown }).token === "string"
+        ? ((root.data as { token: string }).token as string)
+        : undefined;
+  const userRaw =
+    (root.user as User | undefined) ??
+    (root.data && typeof root.data === "object"
+      ? ((root.data as { user?: User }).user as User | undefined)
+      : undefined);
+  return { token, user: userRaw };
+}
 
 type AuthContextType = {
   user: User | null;
@@ -30,48 +66,56 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    let mounted = true;
+    let cancelled = false;
     (async () => {
       try {
         const [token, rawUser] = await Promise.all([
           AsyncStorage.getItem(TOKEN_KEY),
           AsyncStorage.getItem(USER_KEY)
         ]);
-        if (!mounted) return;
+        if (cancelled) return;
         if (!token || !rawUser) {
-          setLoading(false);
+          setAuthToken(null);
+          setUser(null);
           return;
         }
         setAuthToken(token);
-        setUser(JSON.parse(rawUser) as User);
+        let cachedUser: User;
         try {
-          const res = await authAPI.me();
-          const me = res.data?.user ?? null;
-          if (me) {
-                       const normalized: User = {
-              ...me,
-              _id: me._id ?? me.id,
-              id: me.id ?? me._id,
-              role: Array.isArray(me.role) ? me.role : me.role != null ? [me.role as Role] : undefined
-            };
-            setUser(normalized);
-            await AsyncStorage.setItem(USER_KEY, JSON.stringify(normalized));
-          }
+          cachedUser = JSON.parse(rawUser) as User;
         } catch {
           await AsyncStorage.multiRemove([TOKEN_KEY, USER_KEY]);
           setAuthToken(null);
           setUser(null);
+          return;
+        }
+        if (cancelled) return;
+        setUser(normalizeUser(cachedUser));
+        try {
+          const res = await authAPI.me();
+          if (cancelled) return;
+          const me = res.data?.user ?? null;
+          if (me) {
+            const normalized = normalizeUser(me as User);
+            setUser(normalized);
+            await AsyncStorage.setItem(USER_KEY, JSON.stringify(normalized));
+          }
+        } catch {
+          // Keep cached session when /auth/me is temporarily unavailable.
+          // Logging users out here causes a "briefly opens home then back to landing" loop.
+          if (cancelled) return;
+          setUser(normalizeUser(cachedUser));
         }
       } finally {
-        if (mounted) setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     })();
     return () => {
-      mounted = false;
+      cancelled = true;
     };
   }, []);
 
-  const login = async (identifier: string, password: string, mode?: "email" | "username" | "phone") => {
+  const login = useCallback(async (identifier: string, password: string, mode?: "email" | "username" | "phone") => {
     const raw = identifier.trim();
     const detectedMode =
       mode ??
@@ -87,17 +131,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         ? { username: raw.toLowerCase(), password }
         : { email: raw.toLowerCase(), password };
     const res = await authAPI.login(payload);
-    const token = res.data?.token as string;
-    const loggedInUser = res.data?.user as User;
+    const { token, user: loggedInUser } = readLoginRegisterBody(res);
+    if (!token || typeof token !== "string" || !loggedInUser) {
+      throw new Error("Invalid login response from server");
+    }
+    const normalizedFromLogin = normalizeUser(loggedInUser);
     setAuthToken(token);
     await AsyncStorage.multiSet([
       [TOKEN_KEY, token],
-      [USER_KEY, JSON.stringify(loggedInUser)]
+      [USER_KEY, JSON.stringify(normalizedFromLogin)]
     ]);
-    setUser(loggedInUser);
-  };
+    // Immediately mark authenticated; refresh profile in background.
+    setUser(normalizedFromLogin);
+    try {
+      const meRes = await authAPI.me();
+      const me = meRes.data?.user ?? null;
+      if (me) {
+        const normalized = normalizeUser(me as User);
+        await AsyncStorage.setItem(USER_KEY, JSON.stringify(normalized));
+        setUser(normalized);
+      }
+    } catch {
+      // Keep authenticated session even if profile refresh fails.
+      setUser(normalizedFromLogin);
+    }
+  }, []);
 
-  const register = async (payload: {
+  const register = useCallback(async (payload: {
     name: string;
     email?: string;
     username?: string;
@@ -108,21 +168,37 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     otpToken?: string;
   }) => {
     const res = await authAPI.register(payload);
-    const token = res.data?.token as string;
-    const registeredUser = res.data?.user as User;
+    const { token, user: registeredUser } = readLoginRegisterBody(res);
+    if (!token || typeof token !== "string" || !registeredUser) {
+      throw new Error("Invalid registration response from server");
+    }
+    const normalizedFromRegister = normalizeUser(registeredUser);
     setAuthToken(token);
     await AsyncStorage.multiSet([
       [TOKEN_KEY, token],
-      [USER_KEY, JSON.stringify(registeredUser)]
+      [USER_KEY, JSON.stringify(normalizedFromRegister)]
     ]);
-    setUser(registeredUser);
-  };
+    // Immediately mark authenticated; refresh profile in background.
+    setUser(normalizedFromRegister);
+    try {
+      const meRes = await authAPI.me();
+      const me = meRes.data?.user ?? null;
+      if (me) {
+        const normalized = normalizeUser(me as User);
+        await AsyncStorage.setItem(USER_KEY, JSON.stringify(normalized));
+        setUser(normalized);
+      }
+    } catch {
+      // Keep authenticated session even if profile refresh fails.
+      setUser(normalizedFromRegister);
+    }
+  }, []);
 
-  const logout = async () => {
+  const logout = useCallback(async () => {
     await AsyncStorage.multiRemove([TOKEN_KEY, USER_KEY]);
     setAuthToken(null);
     setUser(null);
-  };
+  }, []);
 
   const value = useMemo(
     () => ({
@@ -132,7 +208,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       register,
       logout
     }),
-    [loading, user]
+    [loading, user, login, register, logout]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -82,7 +82,7 @@ function RegisterPageContent() {
   const handleSendOtp = async (channel: 'sms' | 'whatsapp') => {
     const normalized = phone.replace(/\D/g, '');
     if (normalized.length < 10) {
-      setErrors({ phone: 'Enter a valid phone number' });
+      setErrors({ phone: 'Enter a valid phone number with country code (e.g. +27… or +267…)' });
       return;
     }
     setErrors({});
@@ -90,25 +90,17 @@ function RegisterPageContent() {
     setSendingChannel(channel);
     setMode(channel);
     try {
-      const healthRes = await authAPI.getOtpHealth();
-      const health = healthRes.data?.data;
-      if (!health?.configured && health?.mode === 'production') {
-        toast.error('OTP service is not configured yet. Please contact support.');
-        return;
-      }
-      if (channel === 'sms' && health?.configured && !health?.smsReady) {
-        toast.error('SMS channel is not configured yet.');
-        return;
-      }
-      if (channel === 'whatsapp' && health?.configured && !health?.whatsappReady) {
-        toast.error('WhatsApp channel is not configured yet.');
-        return;
-      }
       await authAPI.sendOtp(phone, channel);
       toast.success(`OTP sent via ${channel === 'sms' ? 'SMS' : 'WhatsApp'}`);
       setStep('verify');
     } catch (e: any) {
-      toast.error(e.response?.data?.message || 'Failed to send OTP');
+      const msg =
+        e.response?.data?.message ||
+        e.response?.data?.error ||
+        (e.response?.status === 429
+          ? 'Too many attempts — wait a few minutes or try WhatsApp / email registration.'
+          : 'Failed to send OTP');
+      toast.error(msg);
     } finally {
       setSendingOtp(false);
       setSendingChannel(null);
@@ -250,7 +242,7 @@ function RegisterPageContent() {
               <>
                 <div className="space-y-2">
                   <h2 className="text-2xl font-bold text-slate-900 text-center">Create your account</h2>
-                  <p className="text-center text-sm text-slate-600">Verify your phone via WhatsApp</p>
+                  <p className="text-center text-sm text-slate-600">Verify your phone via SMS or WhatsApp</p>
                 </div>
                 <div className="mt-8 space-y-4">
                   <div>
@@ -267,7 +259,7 @@ function RegisterPageContent() {
                           if (errors.phone) setErrors({ ...errors, phone: '' });
                         }}
                         className={inputClass(!!errors.phone)}
-                        placeholder="+27 82 123 4567"
+                        placeholder="+27 82 123 4567 or +267 71 234 567"
                       />
                     </div>
                     {errors.phone && (

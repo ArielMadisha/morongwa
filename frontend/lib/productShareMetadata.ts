@@ -48,7 +48,7 @@ function stripHtml(input?: string): string {
 function effectivePrice(p: ProductDto): number {
   const price = Number(p.price || 0);
   const d = p.discountPrice;
-  if (d != null && Number.isFinite(d) && d >= 0 && d < price) return d;
+  if (d != null && Number.isFinite(d) && d > 0 && d < price) return d;
   return price;
 }
 

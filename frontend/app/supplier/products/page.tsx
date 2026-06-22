@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { productsAPI, suppliersAPI } from '@/lib/api';
@@ -12,8 +12,16 @@ import { useCartAndStores } from '@/lib/useCartAndStores';
 import { AppSidebar, AppSidebarMenuButton } from '@/components/AppSidebar';
 import { SearchButton } from '@/components/SearchButton';
 import { MobileBottomNav } from '@/components/MobileBottomNav';
+import {
+  MARKETPLACE_CATEGORY_MARKUPS,
+  adminMarkupPctForCategory,
+  catalogListPriceFromSupplierBaseZar,
+  getMarketplaceCategoryMarkup,
+} from '@/lib/marketplaceCategoryMarkups';
+import { formatCurrencyAmount } from '@/lib/formatCurrency';
+import { currencyForCountryCode, currencyLabel } from '@/lib/storeProductCurrency';
 
-const MAX_IMAGES = 5;
+const MAX_IMAGES = 10;
 const MIN_IMAGES = 1;
 
 const AVAILABLE_COUNTRIES = [
@@ -35,6 +43,10 @@ export default function SupplierProductsPage() {
   const { cartCount, hasStore } = useCartAndStores(!!user);
   const [menuOpen, setMenuOpen] = useState(false);
   const [verifiedSupplier, setVerifiedSupplier] = useState<boolean | null>(null);
+  const [supplierProfiles, setSupplierProfiles] = useState<
+    Array<{ _id: string; storeName?: string; country?: string; countryCode?: string }>
+  >([]);
+  const [activeSupplierId, setActiveSupplierId] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
   const handleLogout = () => {
@@ -43,12 +55,36 @@ export default function SupplierProductsPage() {
   };
 
   useEffect(() => {
-    suppliersAPI.getMe()
+    suppliersAPI
+      .getProfiles()
       .then((res) => {
-        const s = res.data?.data ?? res.data;
-        setVerifiedSupplier(s?.status === 'approved');
+        const profiles = Array.isArray(res.data?.data) ? res.data.data : [];
+        setSupplierProfiles(profiles);
+        setVerifiedSupplier(profiles.length > 0);
+        if (profiles.length === 1) {
+          setActiveSupplierId(profiles[0]._id);
+        }
       })
-      .catch(() => setVerifiedSupplier(false));
+      .catch(() => {
+        suppliersAPI
+          .getMe()
+          .then((res) => {
+            const s = res.data?.data as { status?: string; _id?: string } | null;
+            const profiles = Array.isArray(res.data?.profiles) ? res.data.profiles : [];
+            if (profiles.length > 0) {
+              setSupplierProfiles(profiles);
+              setVerifiedSupplier(true);
+              if (profiles.length === 1) setActiveSupplierId(profiles[0]._id);
+            } else if (s?.status === 'approved' && s._id) {
+              setSupplierProfiles([{ _id: s._id, storeName: (s as { storeName?: string }).storeName }]);
+              setVerifiedSupplier(true);
+              setActiveSupplierId(s._id);
+            } else {
+              setVerifiedSupplier(false);
+            }
+          })
+          .catch(() => setVerifiedSupplier(false));
+      });
   }, []);
   const [imageFiles, setImageFiles] = useState<File[]>([]);
   const [imagePreviews, setImagePreviews] = useState<string[]>([]);
@@ -67,6 +103,47 @@ export default function SupplierProductsPage() {
     availableCountries: [] as string[],
   });
   const [bulkTiers, setBulkTiers] = useState<Array<{ minQty: string; maxQty: string; price: string }>>([]);
+
+  const topCategoryOptions = useMemo(
+    () => Object.keys(MARKETPLACE_CATEGORY_MARKUPS).sort((a, b) => a.localeCompare(b)),
+    []
+  );
+
+  const baseUnitZar = useMemo(() => {
+    const p = Number.parseFloat(String(form.price).replace(',', '.'));
+    if (!Number.isFinite(p) || p < 0) return null;
+    const dRaw = String(form.discountPrice || '').trim();
+    if (!dRaw) return p;
+    const d = Number.parseFloat(dRaw.replace(',', '.'));
+    if (!Number.isFinite(d) || d < 0 || d >= p) return p;
+    return d;
+  }, [form.price, form.discountPrice]);
+
+  const adminPctPreview = useMemo(() => adminMarkupPctForCategory(form.categories), [form.categories]);
+
+  const loadCurrency = useMemo(() => {
+    const profile = supplierProfiles.find((p) => p._id === activeSupplierId) || supplierProfiles[0];
+    return currencyForCountryCode(profile?.countryCode);
+  }, [supplierProfiles, activeSupplierId]);
+  const loadCurrencyLabel = useMemo(() => currencyLabel(loadCurrency), [loadCurrency]);
+
+  const catalogListPreview = useMemo(() => {
+    if (baseUnitZar == null || !String(form.categories || '').trim()) return '';
+    return formatCurrencyAmount(
+      catalogListPriceFromSupplierBaseZar(baseUnitZar, form.categories),
+      loadCurrency
+    );
+  }, [baseUnitZar, form.categories, loadCurrency]);
+
+  const resellerRangeHint = useMemo(() => {
+    if (!form.allowResell || !String(form.categories || '').trim() || baseUnitZar == null) return null;
+    const mk = getMarketplaceCategoryMarkup(form.categories);
+    if (!mk) return null;
+    const listP = catalogListPriceFromSupplierBaseZar(baseUnitZar, form.categories);
+    const lo = Math.round(listP * (1 + mk.resellerMinPct / 100) * 100) / 100;
+    const hi = Math.round(listP * (1 + mk.resellerMaxPct / 100) * 100) / 100;
+    return { lo, hi, minPct: mk.resellerMinPct, maxPct: mk.resellerMaxPct };
+  }, [form.allowResell, form.categories, baseUnitZar]);
 
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
@@ -89,8 +166,16 @@ export default function SupplierProductsPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!activeSupplierId) {
+      toast.error('Select which supplier store to load products under');
+      return;
+    }
+    if (!form.categories.trim()) {
+      toast.error('Please select a product category');
+      return;
+    }
     if (!form.title.trim() || form.price === '' || Number(form.price) < 0) {
-      toast.error('Title and price are required');
+      toast.error('Title and supplier base price are required');
       return;
     }
     if (imageFiles.length < MIN_IMAGES) {
@@ -99,7 +184,7 @@ export default function SupplierProductsPage() {
     }
     setSubmitting(true);
     try {
-      const uploadRes = await productsAPI.uploadImages(imageFiles);
+      const uploadRes = await productsAPI.uploadImages(imageFiles, activeSupplierId);
       const urls = uploadRes.data?.urls ?? [];
       if (urls.length < MIN_IMAGES) {
         toast.error('Image upload failed. Please try again.');
@@ -116,6 +201,8 @@ export default function SupplierProductsPage() {
         }))
         .filter((t) => t.minQty >= 0 && t.maxQty >= t.minQty && t.price >= 0);
       await productsAPI.create({
+        supplierId: activeSupplierId,
+        currency: loadCurrency,
         title: form.title.trim(),
         description: form.description.trim() || undefined,
         images: urls,
@@ -126,7 +213,7 @@ export default function SupplierProductsPage() {
         outOfStock: form.outOfStock,
         sizes: form.sizes ? form.sizes.split(',').map((s) => s.trim()).filter(Boolean) : [],
         allowResell: form.allowResell,
-        categories: form.categories ? form.categories.split(',').map((s) => s.trim()).filter(Boolean) : [],
+        categories: form.categories.trim() ? [form.categories.trim()] : [],
         tags: form.tags ? form.tags.split(',').map((s) => s.trim()).filter(Boolean) : [],
         availableCountries: form.availableCountries.length > 0 ? form.availableCountries : [],
       });
@@ -197,7 +284,7 @@ export default function SupplierProductsPage() {
           <header className="bg-white/85 backdrop-blur-md border-b border-slate-100 px-4 sm:px-6 lg:px-8 py-3 sm:py-4 flex items-center justify-between gap-3 sm:gap-4">
             <AppSidebarMenuButton onClick={() => setMenuOpen((v) => !v)} />
           </header>
-          <main className="flex-1 overflow-y-auto px-4 sm:px-6 lg:px-8 py-8 pb-24 lg:pb-8">
+          <main className="flex-1 overflow-y-auto px-4 sm:px-6 lg:px-8 py-8 pb-24 md:pb-8">
             <div className="max-w-xl mx-auto">
               <div className="flex items-center justify-between mb-6">
                 <div>
@@ -210,8 +297,41 @@ export default function SupplierProductsPage() {
               </div>
 
               <form onSubmit={handleSubmit} className="rounded-2xl border border-white/60 bg-white/80 p-6 shadow-xl shadow-sky-50 space-y-4">
+            {supplierProfiles.length > 1 ? (
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Supplier store *</label>
+                <select
+                  required
+                  value={activeSupplierId}
+                  onChange={(e) => setActiveSupplierId(e.target.value)}
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-slate-900 focus:border-sky-300 focus:outline-none focus:ring-2 focus:ring-sky-100 bg-white"
+                >
+                  <option value="">Select store profile</option>
+                  {supplierProfiles.map((p) => {
+                    const label = [p.storeName, p.countryCode || p.country].filter(Boolean).join(' · ');
+                    return (
+                      <option key={p._id} value={p._id}>
+                        {label || p._id}
+                      </option>
+                    );
+                  })}
+                </select>
+                <p className="text-xs text-slate-500 mt-1">
+                  Choose The P100 Store (Botswana) or Cheap Cheap Store (South Africa) before loading products.
+                </p>
+              </div>
+            ) : supplierProfiles.length === 1 ? (
+              <p className="text-sm text-slate-600 rounded-lg bg-sky-50 border border-sky-100 px-3 py-2">
+                Loading products for{' '}
+                <strong>
+                  {[supplierProfiles[0].storeName, supplierProfiles[0].countryCode || supplierProfiles[0].country]
+                    .filter(Boolean)
+                    .join(' · ')}
+                </strong>
+              </p>
+            ) : null}
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Product pictures * (1–5 images)</label>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Product pictures * (1–{MAX_IMAGES} images)</label>
               <input
                 ref={fileInputRef}
                 type="file"
@@ -244,7 +364,7 @@ export default function SupplierProductsPage() {
                   </button>
                 )}
               </div>
-              <p className="text-xs text-slate-500 mt-1">At least one image required, max 5. JPEG, PNG, GIF or WebP.</p>
+              <p className="text-xs text-slate-500 mt-1">At least one image required, max {MAX_IMAGES}. JPEG, PNG, GIF or WebP.</p>
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Title *</label>
@@ -258,7 +378,28 @@ export default function SupplierProductsPage() {
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Price (ZAR) *</label>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Category *</label>
+              <select
+                required
+                value={form.categories}
+                onChange={(e) => setForm((f) => ({ ...f, categories: e.target.value }))}
+                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-slate-900 focus:border-sky-300 focus:outline-none focus:ring-2 focus:ring-sky-100 bg-white"
+              >
+                <option value="">Select top category…</option>
+                {topCategoryOptions.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-slate-500 mt-1">
+                {form.categories.trim()
+                  ? `Catalog list price on QwertyHub adds +${adminPctPreview}% platform markup on your base for “${form.categories}”.`
+                  : 'Choose a category to see the admin markup % used for your catalog price.'}
+              </p>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Your base price ({loadCurrencyLabel}) *</label>
               <input
                 type="number"
                 step="0.01"
@@ -269,10 +410,22 @@ export default function SupplierProductsPage() {
                 className="w-full rounded-lg border border-slate-200 px-3 py-2 text-slate-900 focus:border-sky-300 focus:outline-none focus:ring-2 focus:ring-sky-100"
                 placeholder="0.00"
               />
-              <p className="text-xs text-slate-500 mt-1">e.g. R1000 — 7.5% to be paid to Qwertymates after sale.</p>
+              <p className="text-xs text-slate-500 mt-1">
+                {loadCurrency === 'BWP'
+                  ? 'Enter amounts in Botswana Pula. Shoppers see Pula on QwertyHub; checkout converts to ZAR for payment. '
+                  : ''}
+                Amount before platform markup. Shoppers see the catalog list price
+                {catalogListPreview ? (
+                  <>
+                    : <span className="font-semibold text-slate-700">{catalogListPreview}</span>
+                  </>
+                ) : (
+                  ' once you pick a category and enter a base amount.'
+                )}
+              </p>
             </div>
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Discount price (ZAR)</label>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Discount base price ({loadCurrencyLabel})</label>
               <input
                 type="number"
                 step="0.01"
@@ -280,9 +433,9 @@ export default function SupplierProductsPage() {
                 value={form.discountPrice}
                 onChange={(e) => setForm((f) => ({ ...f, discountPrice: e.target.value }))}
                 className="w-full rounded-lg border border-slate-200 px-3 py-2 text-slate-900 focus:border-sky-300 focus:outline-none focus:ring-2 focus:ring-sky-100"
-                placeholder="Optional — e.g. 799 for sale"
+                placeholder="Optional — your sale base, below regular base"
               />
-              <p className="text-xs text-slate-500 mt-1">Cheaper price for discounted orders. Must be less than regular price.</p>
+              <p className="text-xs text-slate-500 mt-1">Must be less than your regular base. The same category markup applies to both.</p>
             </div>
             <div>
               <div className="flex items-center justify-between mb-2">
@@ -295,7 +448,9 @@ export default function SupplierProductsPage() {
                   <Layers className="h-4 w-4" /> Add bulk sale tier
                 </button>
               </div>
-              <p className="text-xs text-slate-500 mb-2">Quantity-based pricing. E.g. 1–100 at R50, 101–1000 at R45.</p>
+              <p className="text-xs text-slate-500 mb-2">
+                Tier prices are in {loadCurrencyLabel} per unit (before platform markup).
+              </p>
               {bulkTiers.length > 0 && (
                 <div className="space-y-2">
                   {bulkTiers.map((tier, i) => (
@@ -320,7 +475,7 @@ export default function SupplierProductsPage() {
                         placeholder="Max"
                         className="w-20 rounded-lg border border-slate-200 px-2 py-1.5 text-sm"
                       />
-                      <span className="text-sm font-medium text-slate-600">Price (ZAR)</span>
+                      <span className="text-sm font-medium text-slate-600">Price ({loadCurrencyLabel})</span>
                       <input
                         type="number"
                         step="0.01"
@@ -381,16 +536,6 @@ export default function SupplierProductsPage() {
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Categories (comma-separated)</label>
-              <input
-                type="text"
-                value={form.categories}
-                onChange={(e) => setForm((f) => ({ ...f, categories: e.target.value }))}
-                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-slate-900 focus:border-sky-300 focus:outline-none focus:ring-2 focus:ring-sky-100"
-                placeholder="Food, Local"
-              />
-            </div>
-            <div>
               <label className="block text-sm font-medium text-slate-700 mb-2">Available in (countries)</label>
               <p className="text-xs text-slate-500 mb-2">Select countries where this product can be sold. Leave empty for no restriction.</p>
               <div className="flex flex-wrap gap-2">
@@ -421,7 +566,11 @@ export default function SupplierProductsPage() {
                 <input type="checkbox" checked={form.allowResell} onChange={(e) => setForm((f) => ({ ...f, allowResell: e.target.checked }))} className="rounded border-slate-300 text-sky-600" />
                 <span className="text-sm text-slate-700">Allow resell</span>
               </label>
-              <p className="text-xs text-slate-500 mt-1">Resellers set their own commission (3–7%) when adding to their store.</p>
+              <p className="text-xs text-slate-500 mt-1">
+                {resellerRangeHint
+                  ? `Resellers choose markup on the catalog list price (about ${formatCurrencyAmount(resellerRangeHint.lo, loadCurrency)}–${formatCurrencyAmount(resellerRangeHint.hi, loadCurrency)}, i.e. +${resellerRangeHint.minPct}%–+${resellerRangeHint.maxPct}%).`
+                  : 'When enabled, resellers add markup within the min–max range for this category on top of the catalog list price.'}
+              </p>
             </div>
             <div className="flex gap-2 pt-2">
               <button type="submit" disabled={submitting} className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-700 disabled:opacity-50 flex items-center gap-2">

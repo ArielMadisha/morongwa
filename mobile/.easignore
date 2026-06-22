@@ -1,20 +1,23 @@
-# Keep EAS upload minimal for faster cloud builds.
+# EAS upload rules for this app (mobile/). When present, this file replaces .gitignore for the archive.
+# See: https://docs.expo.dev/build-reference/easignore/
+
 node_modules/
+.expo
 .expo/
 .expo-shared/
 dist/
 web-build/
-coverage/
-.git/
-
-# Local/OS noise
 *.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
 .DS_Store
 Thumbs.db
+.env
+.env.*
+.env.signing
 
-# Non-build docs
-SMOKE_TEST_CHECKLIST.md
+# Never send Play API submit key to EAS Build servers
+credentials/google-play-service-account.json
+
+# Ignore other keystores by default, then explicitly include the Play upload keystore + credentials.json
+credentials/*.jks
+!credentials/play-upload.jks
+!credentials.json

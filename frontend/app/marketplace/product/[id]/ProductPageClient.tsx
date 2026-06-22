@@ -1,13 +1,19 @@
 'use client';
 
-import { Suspense, useState, useEffect, useRef } from 'react';
+import { Suspense, useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useParams, usePathname, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import DOMPurify from 'dompurify';
 import { Package, ArrowLeft, ShoppingCart, X, MapPin } from 'lucide-react';
-import { productsAPI, cartAPI, resellerAPI, getImageUrl, getEffectivePrice } from '@/lib/api';
+import { productsAPI, cartAPI, resellerAPI, getImageUrl, getEffectivePrice, getProductPriceForQty, isValidCatalogDiscountPrice } from '@/lib/api';
 import { invalidateCartStoresCache, useCartAndStores } from '@/lib/useCartAndStores';
+import { MarketplaceCartStepper } from '@/components/MarketplaceCartStepper';
+import { ProductColorSelector } from '@/components/ProductColorSelector';
+import type { ProductColorOption } from '@/components/ProductColorSelector';
+import { ProductSizeSelector } from '@/components/ProductSizeSelector';
+import { normalizeProductSizes } from '@/lib/productSizes';
+import { productQtyMapFromCartResponse } from '@/lib/cartProductQty';
 import { useAuth } from '@/contexts/AuthContext';
 import { useCurrency } from '@/contexts/CurrencyContext';
 import type { Product } from '@/lib/types';
@@ -15,13 +21,16 @@ import { AppSidebar, AppSidebarMenuButton } from '@/components/AppSidebar';
 import { SearchButton } from '@/components/SearchButton';
 import { MobileBottomNav } from '@/components/MobileBottomNav';
 import toast from 'react-hot-toast';
-import { formatCurrencyAmount } from '@/lib/formatCurrency';
+import { formatCatalogProductPrice } from '@/lib/productPriceZar';
 import { markWallExpectRefresh } from '@/lib/wallRefresh';
+import { resellerMarkupBoundsForProductCategories } from '@/lib/marketplaceCategoryMarkups';
+import { formatBulkTierRange, normalizeBulkTierMaxQty } from '@/lib/bulkTierLimits';
+import { buildProductSupportHref } from '@/lib/productSupportSubject';
 
-const DEFAULT_RESELL_MARKUP_PCT = 3;
+const EMPTY_MARKUP_BOUNDS = resellerMarkupBoundsForProductCategories([]);
 
-function formatPriceLocal(price: number, currency: string) {
-  return formatCurrencyAmount(price, currency || 'ZAR');
+function formatPriceLocal(price: number, currency: string, rates?: Record<string, number>) {
+  return formatCatalogProductPrice(price, currency || 'ZAR', rates);
 }
 
 function ProductPageContent() {
@@ -31,26 +40,79 @@ function ProductPageContent() {
   const searchParams = useSearchParams();
   const id = params.id as string;
   const { user, logout } = useAuth();
-  const { formatPrice: formatInLocal } = useCurrency();
+  const { rates } = useCurrency();
   const { cartCount, hasStore } = useCartAndStores(!!user);
   const [product, setProduct] = useState<Product | null>(null);
   const [loading, setLoading] = useState(true);
-  const [addingCart, setAddingCart] = useState(false);
+  const [cartQty, setCartQty] = useState(0);
   const [addingWall, setAddingWall] = useState(false);
   const [addToWallModal, setAddToWallModal] = useState(false);
-  const [resellerCommissionPct, setResellerCommissionPct] = useState(DEFAULT_RESELL_MARKUP_PCT);
+  const [resellerCommissionPct, setResellerCommissionPct] = useState(EMPTY_MARKUP_BOUNDS.defaultPct);
   const [menuOpen, setMenuOpen] = useState(false);
   const [fetchedResellerCommission, setFetchedResellerCommission] = useState<number | null>(null);
   const [resellerName, setResellerName] = useState<string | null>(null);
+  const [resellerStoreName, setResellerStoreName] = useState<string | null>(null);
+  const [resellerStoreSlug, setResellerStoreSlug] = useState<string | null>(null);
+  const [selectedImageIndex, setSelectedImageIndex] = useState(0);
+  const [selectedColor, setSelectedColor] = useState<ProductColorOption | null>(null);
+  const [selectedSize, setSelectedSize] = useState<string | null>(null);
   const viewResell = searchParams.get('view') === 'resell';
   const autoResell = searchParams.get('autoResell') === '1';
   const resellerIdFromUrl = searchParams.get('resellerId');
   const resellerCommissionPctFromUrl = searchParams.get('resellerCommissionPct');
-  const autoResellMarkupRaw = Number(searchParams.get('markup'));
-  const autoResellMarkup = Number.isFinite(autoResellMarkupRaw) && autoResellMarkupRaw >= 3 && autoResellMarkupRaw <= 7
-    ? Math.round(autoResellMarkupRaw)
-    : DEFAULT_RESELL_MARKUP_PCT;
+
+  const markupBounds = useMemo(
+    () => resellerMarkupBoundsForProductCategories(product?.categories ?? []),
+    [product?.categories, product?._id]
+  );
+
+  const productImages = useMemo(() => {
+    if (!product?.images?.length) return [];
+    return product.images.map((img) => String(img || '').trim()).filter(Boolean);
+  }, [product?.images, product?._id]);
+
+  useEffect(() => {
+    setSelectedImageIndex(0);
+    setSelectedColor(null);
+    setSelectedSize(null);
+  }, [product?._id]);
+
+  const productColors = useMemo(() => {
+    const raw = (product as Product & { colors?: ProductColorOption[] })?.colors;
+    return Array.isArray(raw) ? raw.filter((c) => c?.name && c?.hex) : [];
+  }, [product]);
+
+  const productSizes = useMemo(() => {
+    const raw = (product as Product & { sizes?: string[] })?.sizes;
+    return normalizeProductSizes(Array.isArray(raw) ? raw : []);
+  }, [product]);
+
+  useEffect(() => {
+    if (productColors.length > 0 && !selectedColor) {
+      setSelectedColor(productColors[0]);
+      setSelectedImageIndex(productColors[0].imageIndex ?? 0);
+    }
+  }, [productColors, selectedColor]);
+
+  useEffect(() => {
+    if (productSizes.length > 0 && !selectedSize) {
+      setSelectedSize(productSizes[0]);
+    }
+  }, [productSizes, selectedSize]);
+
+  const autoResellMarkup = useMemo(() => {
+    const raw = Number(searchParams.get('markup'));
+    const b = markupBounds;
+    if (Number.isFinite(raw)) return Math.min(b.maxPct, Math.max(b.minPct, Math.round(raw)));
+    return b.defaultPct;
+  }, [searchParams, markupBounds]);
+
   const autoResellDoneRef = useRef(false);
+
+  useEffect(() => {
+    if (!product || resellerIdFromUrl || viewResell || autoResell) return;
+    setResellerCommissionPct(markupBounds.defaultPct);
+  }, [product?._id, markupBounds.defaultPct, markupBounds.minPct, markupBounds.maxPct, resellerIdFromUrl, viewResell, autoResell]);
 
   useEffect(() => {
     if (!id) return;
@@ -60,6 +122,33 @@ function ProductPageContent() {
       .catch(() => setProduct(null))
       .finally(() => setLoading(false));
   }, [id]);
+
+  const refreshCartQty = useCallback(() => {
+    if (!user) {
+      setCartQty(0);
+      return;
+    }
+    cartAPI
+      .get()
+      .then((res) => {
+        const m = productQtyMapFromCartResponse(res, {
+          productId: String(product?._id ?? ''),
+          selectedColor: selectedColor?.name,
+          selectedSize: selectedSize,
+        });
+        setCartQty(m[String(product?._id ?? '')] ?? 0);
+      })
+      .catch(() => setCartQty(0));
+  }, [user, product?._id, selectedColor?.name, selectedSize]);
+
+  useEffect(() => {
+    refreshCartQty();
+  }, [refreshCartQty]);
+
+  const handleCartUpdated = useCallback(() => {
+    invalidateCartStoresCache();
+    refreshCartQty();
+  }, [refreshCartQty]);
 
   useEffect(() => {
     if (viewResell && product && user && (product as any).allowResell && !resellerIdFromUrl) {
@@ -94,6 +183,8 @@ function ProductPageContent() {
   useEffect(() => {
     if (!resellerIdFromUrl || !product?._id) {
       setResellerName(null);
+      setResellerStoreName(null);
+      setResellerStoreSlug(null);
       return;
     }
     resellerAPI
@@ -105,11 +196,19 @@ function ProductPageContent() {
         if (wp?.resellerCommissionPct != null && !resellerCommissionPctFromUrl) {
           setFetchedResellerCommission(wp.resellerCommissionPct);
         }
+        const rs = data?.resellerStore;
+        const storeNameFromApi = rs?.name ? String(rs.name).trim() : '';
+        const storeSlugFromApi = rs?.slug ? String(rs.slug).trim() : '';
+        if (storeNameFromApi) setResellerStoreName(storeNameFromApi);
+        if (storeSlugFromApi) setResellerStoreSlug(storeSlugFromApi);
         const name = data?.reseller?.name;
-        if (name) setResellerName(name);
+        if (name) setResellerName(String(name).trim());
+        if (!storeNameFromApi && name) setResellerStoreName(String(name).trim());
       })
       .catch(() => {
         setResellerName(null);
+        setResellerStoreName(null);
+        setResellerStoreSlug(null);
       });
   }, [resellerIdFromUrl, resellerCommissionPctFromUrl, product?._id]);
 
@@ -139,27 +238,29 @@ function ProductPageContent() {
     );
   }
 
-  const storeName =
-    !resellerIdFromUrl && typeof product.supplierId === 'object' && product.supplierId?.storeName
+  const supplierStoreName =
+    typeof product.supplierId === 'object' && product.supplierId?.storeName
       ? product.supplierId.storeName
+      : null;
+  const resellerSellerLabel = resellerStoreName || resellerName || 'this store';
+  const resellerSellerHref = resellerStoreSlug
+    ? `/store/${resellerStoreSlug}`
+    : resellerIdFromUrl
+      ? `/morongwa-tv/user/${resellerIdFromUrl}`
       : null;
   const allowResell = !resellerIdFromUrl && ('allowResell' in product ? (product as any).allowResell : false);
   const isOutOfStock = (product as any).outOfStock || (product.stock != null && product.stock < 1);
 
   const effectiveCommission = resellerCommissionPctFromUrl ? Number(resellerCommissionPctFromUrl) : fetchedResellerCommission;
-  const displayPrice = resellerIdFromUrl && effectiveCommission != null
-    ? Math.round(getEffectivePrice(product) * (1 + effectiveCommission / 100) * 100) / 100
-    : getEffectivePrice(product);
-
-  const addToCart = () => {
-    if (isOutOfStock) { toast.error('Product is out of stock'); return; }
-    if (!user) {
-      router.push(`/register?returnTo=${encodeURIComponent(pathname || `/marketplace/product/${id}`)}`);
-      return;
-    }
-    setAddingCart(true);
-    cartAPI.add(product._id, 1, resellerIdFromUrl || undefined).then(() => { toast.success('Added to cart'); invalidateCartStoresCache(); setAddingCart(false); }).catch(() => { toast.error('Failed'); setAddingCart(false); });
-  };
+  const qtyForPricing = Math.max(cartQty, 1);
+  const unitCatalogPrice = getProductPriceForQty(product as Product, qtyForPricing);
+  const displayPrice =
+    resellerIdFromUrl && effectiveCommission != null
+      ? Math.round(unitCatalogPrice * (1 + effectiveCommission / 100) * 100) / 100
+      : unitCatalogPrice;
+  const listUnitPrice = getEffectivePrice(product);
+  const bulkTiers = (product as Product & { bulkTiers?: Array<{ minQty: number; maxQty: number; price: number }> })
+    .bulkTiers;
 
   const addToWall = () => {
     if (!user) return;
@@ -240,16 +341,53 @@ function ProductPageContent() {
 
         <div className="bg-white/90 backdrop-blur rounded-2xl border border-slate-100 overflow-hidden shadow-lg">
           <div className="grid md:grid-cols-2 gap-0">
-            <div className="relative isolate aspect-square bg-slate-100 flex items-center justify-center min-h-[280px] z-0">
-              {product.images?.[0] ? (
-                <img
-                  src={getImageUrl(product.images[0])}
-                  alt={product.title}
-                  className="w-full h-full object-cover relative z-10"
-                  data-pin-nopin="true"
-                />
-              ) : (
-                <Package className="h-24 w-24 text-slate-300" />
+            <div className="relative isolate flex flex-col bg-slate-100 min-h-[280px] z-0">
+              <div className="relative aspect-square flex items-center justify-center">
+                {productImages.length > 0 ? (
+                  <img
+                    src={getImageUrl(productImages[selectedImageIndex] ?? productImages[0])}
+                    alt={product.title}
+                    className="w-full h-full object-cover relative z-10"
+                    data-pin-nopin="true"
+                  />
+                ) : (
+                  <Package className="h-24 w-24 text-slate-300" />
+                )}
+                <div className="absolute right-3 top-3 z-20">
+                  <MarketplaceCartStepper
+                    productId={product._id}
+                    resellerId={resellerIdFromUrl || undefined}
+                    selectedColor={selectedColor?.name}
+                    selectedSize={selectedSize || undefined}
+                    colorsRequired={productColors.length > 0}
+                    sizesRequired={productSizes.length > 0}
+                    qty={cartQty}
+                    outOfStock={isOutOfStock}
+                    isGuest={!user}
+                    loginHref={`/login?returnTo=${encodeURIComponent(pathname || `/marketplace/product/${id}`)}`}
+                    onUpdated={handleCartUpdated}
+                  />
+                </div>
+              </div>
+              {productImages.length > 1 && (
+                <div className="flex gap-2 p-3 overflow-x-auto border-t border-slate-200/80 bg-white/60">
+                  {productImages.map((img, i) => (
+                    <button
+                      key={`${img}-${i}`}
+                      type="button"
+                      onClick={() => setSelectedImageIndex(i)}
+                      className={`h-16 w-16 shrink-0 overflow-hidden rounded-lg border-2 transition ${
+                        i === selectedImageIndex
+                          ? 'border-sky-500 ring-2 ring-sky-200'
+                          : 'border-slate-200 hover:border-sky-300'
+                      }`}
+                      aria-label={`View image ${i + 1} of ${productImages.length}`}
+                      aria-pressed={i === selectedImageIndex}
+                    >
+                      <img src={getImageUrl(img)} alt="" className="h-full w-full object-cover" />
+                    </button>
+                  ))}
+                </div>
               )}
             </div>
             <div className="p-8 flex flex-col justify-center">
@@ -277,31 +415,28 @@ function ProductPageContent() {
               <div className="mt-2">
                 {resellerIdFromUrl ? (
                   <p className="text-2xl font-bold text-sky-600">
-                    {product.currency === 'USD' ? formatInLocal(displayPrice) : formatPriceLocal(displayPrice, product.currency)}
+                    {formatPriceLocal(displayPrice, product.currency, rates)}
+                    {cartQty > 0 && unitCatalogPrice !== listUnitPrice && (
+                      <span className="ml-2 text-sm font-normal text-slate-600">({cartQty} in cart)</span>
+                    )}
                   </p>
-                ) : product.currency === 'USD' ? (
-                  product.discountPrice != null && product.discountPrice < product.price ? (
-                    <>
-                      <span className="text-2xl font-bold text-sky-600">{formatInLocal(product.discountPrice)}</span>
-                      <span className="ml-2 text-base text-slate-400 line-through">{formatInLocal(product.price)}</span>
-                    </>
-                  ) : (
-                    <p className="text-2xl font-bold text-sky-600">{formatInLocal(product.price)}</p>
-                  )
+                ) : isValidCatalogDiscountPrice(product.discountPrice, product.price) && unitCatalogPrice === product.discountPrice ? (
+                  <>
+                    <span className="text-2xl font-bold text-sky-600">{formatPriceLocal(unitCatalogPrice, product.currency, rates)}</span>
+                    <span className="ml-2 text-base text-slate-400 line-through">{formatPriceLocal(product.price, product.currency, rates)}</span>
+                  </>
                 ) : (
-                  product.discountPrice != null && product.discountPrice < product.price ? (
-                    <>
-                      <span className="text-2xl font-bold text-sky-600">{formatPriceLocal(product.discountPrice, product.currency)}</span>
-                      <span className="ml-2 text-base text-slate-400 line-through">{formatPriceLocal(product.price, product.currency)}</span>
-                    </>
-                  ) : (
-                    <p className="text-2xl font-bold text-sky-600">{formatPriceLocal(product.price, product.currency)}</p>
-                  )
+                  <p className="text-2xl font-bold text-sky-600">
+                    {formatPriceLocal(unitCatalogPrice, product.currency, rates)}
+                    {cartQty > 0 && unitCatalogPrice !== listUnitPrice && (
+                      <span className="ml-2 text-sm font-normal text-slate-600">({cartQty} in cart)</span>
+                    )}
+                  </p>
                 )}
               </div>
               {(product as any).estimatedShipping != null ? (
                 <p className="text-sm text-slate-600 mt-2">
-                  Shipping estimate: {formatPriceLocal((product as any).estimatedShipping, 'ZAR')}
+                  Shipping estimate: {formatPriceLocal((product as any).estimatedShipping, 'ZAR', rates)}
                 </p>
               ) : (
                 <p className="text-sm text-slate-600 mt-2">
@@ -311,26 +446,42 @@ function ProductPageContent() {
               {(product as any).shippingNote && (
                 <p className="text-xs text-slate-500 mt-1">{String((product as any).shippingNote)}</p>
               )}
-              {(product as any).bulkTiers?.length > 0 && (
+              {bulkTiers && bulkTiers.length > 0 && (
                 <div className="mt-2 rounded-lg bg-sky-50 border border-sky-100 px-3 py-2">
-                  <p className="text-xs font-medium text-sky-800 mb-1">Bulk pricing</p>
+                  <p className="text-xs font-medium text-sky-800 mb-1">Bulk pricing (per unit)</p>
                   <ul className="text-sm text-sky-700 space-y-0.5">
-                    {((product as any).bulkTiers as Array<{ minQty: number; maxQty: number; price: number }>).map((t, i) => (
-                      <li key={i}>
-                        {t.minQty}–{t.maxQty} units: {product.currency === 'USD' ? formatInLocal(t.price) : formatPriceLocal(t.price, product.currency)} each
+                    {bulkTiers.map((t, i) => {
+                      const tierMax = normalizeBulkTierMaxQty(t.maxQty, t.minQty);
+                      const tierActive = cartQty >= t.minQty && cartQty <= tierMax;
+                      return (
+                      <li key={i} className={tierActive ? 'font-semibold text-sky-900' : undefined}>
+                        {formatBulkTierRange(t.minQty, t.maxQty)}:{' '}
+                        {formatPriceLocal(t.price, product.currency, rates)} each
+                        {tierActive ? ' ← your quantity' : ''}
                       </li>
-                    ))}
+                      );
+                    })}
                   </ul>
                 </div>
               )}
               {resellerIdFromUrl ? (
                 <p className="text-sm text-slate-600 mt-1">
-                  Offered by{' '}
-                  <span className="font-medium text-slate-800">{resellerName || 'this seller'}</span>
-                  <span className="text-slate-500"> · Fulfilled by supplier</span>
+                  Sold by{' '}
+                  {resellerSellerHref ? (
+                    <Link href={resellerSellerHref} className="font-medium text-slate-800 hover:text-sky-600">
+                      {resellerSellerLabel}
+                    </Link>
+                  ) : (
+                    <span className="font-medium text-slate-800">{resellerSellerLabel}</span>
+                  )}
+                  {supplierStoreName && supplierStoreName !== resellerSellerLabel ? (
+                    <span className="text-slate-500"> · Fulfilled by {supplierStoreName}</span>
+                  ) : null}
                 </p>
               ) : (
-                storeName && <p className="text-sm text-slate-500 mt-1">Sold by {storeName}</p>
+                supplierStoreName && (
+                  <p className="text-sm text-slate-500 mt-1">Sold by {supplierStoreName}</p>
+                )
               )}
               {(product as any).availableCountries?.length > 0 && (
                 <p className="text-sm text-slate-600 mt-2 flex items-center gap-1.5">
@@ -340,8 +491,24 @@ function ProductPageContent() {
                     : (product as any).availableCountries.join(', ')}
                 </p>
               )}
-              {(product as any).sizes?.length > 0 && (
-                <p className="text-sm text-slate-600 mt-2">Sizes: {(product as any).sizes.join(', ')}</p>
+              {productSizes.length > 0 && (
+                <ProductSizeSelector
+                  sizes={productSizes}
+                  selectedSize={selectedSize}
+                  onSelect={setSelectedSize}
+                />
+              )}
+              {productColors.length > 0 && (
+                <ProductColorSelector
+                  colors={productColors}
+                  selectedName={selectedColor?.name}
+                  onSelect={(color) => {
+                    setSelectedColor(color);
+                    if (typeof color.imageIndex === 'number' && productImages[color.imageIndex]) {
+                      setSelectedImageIndex(color.imageIndex);
+                    }
+                  }}
+                />
               )}
               {product.ratingAvg != null && (
                 <p className="text-sm text-slate-600 mt-2">
@@ -357,16 +524,18 @@ function ProductPageContent() {
                   }}
                 />
               )}
-              <div className="flex flex-wrap gap-3 mt-6">
-                <button
-                  type="button"
-                  onClick={addToCart}
-                  disabled={addingCart || isOutOfStock}
-                  className="inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-sky-600 text-white font-medium hover:bg-sky-700 disabled:opacity-50"
-                >
-                  <ShoppingCart className="h-4 w-4" />
-                  {isOutOfStock ? 'Out of stock' : addingCart ? 'Adding...' : 'Add to cart'}
-                </button>
+              <div className="flex flex-wrap items-center gap-3 mt-6">
+                {cartQty > 0 && user ? (
+                  <Link
+                    href="/cart"
+                    className="inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-sky-600 text-white font-medium hover:bg-sky-700"
+                  >
+                    <ShoppingCart className="h-4 w-4" />
+                    Checkout ({cartQty} in cart)
+                  </Link>
+                ) : (
+                  <p className="text-sm text-slate-600">Use + above to add to cart, then checkout.</p>
+                )}
               </div>
               <p className="text-sm text-slate-500 mt-4">
                 <Link href={user ? '/cart' : `/register?returnTo=${encodeURIComponent('/cart')}`} className="text-sky-600 hover:text-sky-700">View cart</Link>
@@ -377,7 +546,12 @@ function ProductPageContent() {
                   <Link href="/marketplace" className="text-sky-600 hover:text-sky-700">Back to marketplace</Link>
                 )}
                 {' · '}
-                <Link href="/support?category=products:marketplace" className="text-sky-600 hover:text-sky-700">Need help?</Link>
+                <Link
+                  href={buildProductSupportHref(product.title || '', product._id || id)}
+                  className="text-sky-600 hover:text-sky-700"
+                >
+                  Need help?
+                </Link>
               </p>
             </div>
           </div>
@@ -395,18 +569,20 @@ function ProductPageContent() {
                 <h3 className="text-lg font-semibold text-slate-900">Add to MyStore</h3>
                 <button onClick={() => setAddToWallModal(false)} className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100"><X className="h-5 w-5" /></button>
               </div>
-              <p className="text-sm text-slate-600 mb-4">Set your commission (3–7%). This markup will be added to the price in your store.</p>
+              <p className="text-sm text-slate-600 mb-4">
+                Set your markup ({markupBounds.minPct}–{markupBounds.maxPct}% for this category). This is added on top of the catalog price in your store.
+              </p>
               <div className="mb-4">
-                <label className="block text-sm font-medium text-slate-700 mb-2">Your commission %</label>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Your markup %</label>
                 <input
                   type="range"
-                  min="3"
-                  max="7"
-                  value={resellerCommissionPct}
+                  min={markupBounds.minPct}
+                  max={markupBounds.maxPct}
+                  value={Math.min(markupBounds.maxPct, Math.max(markupBounds.minPct, resellerCommissionPct))}
                   onChange={(e) => setResellerCommissionPct(Number(e.target.value))}
                   className="w-full"
                 />
-                <p className="text-sm font-semibold text-sky-600 mt-1">{resellerCommissionPct}% — Selling price: {product.currency === 'USD' ? formatInLocal(Math.round(getEffectivePrice(product) * (1 + resellerCommissionPct / 100) * 100) / 100) : formatPriceLocal(Math.round(getEffectivePrice(product) * (1 + resellerCommissionPct / 100) * 100) / 100, product.currency)}</p>
+                <p className="text-sm font-semibold text-sky-600 mt-1">{resellerCommissionPct}% — Selling price: {formatPriceLocal(Math.round(getEffectivePrice(product) * (1 + resellerCommissionPct / 100) * 100) / 100, product.currency, rates)}</p>
               </div>
               <div className="flex gap-2">
                 <button onClick={addToWall} disabled={addingWall} className="flex-1 rounded-lg bg-sky-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-700 disabled:opacity-50">

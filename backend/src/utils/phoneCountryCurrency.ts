@@ -1,6 +1,6 @@
 /**
  * Country + currency from E.164 phone digits (WhatsApp + web registration).
- * Rules: India → INR; USA & Canada → USD; geographic Europe → USD (per product requirement);
+ * Rules: India removed from default web currency list; USA & Canada → USD; geographic Europe → USD (per product requirement);
  * Southern/Eastern/Western Africa and other mapped regions keep local currencies; default USD.
  */
 import { parsePhoneNumberFromString } from "libphonenumber-js";
@@ -155,11 +155,19 @@ export function currencyFromCountryIso(iso: string): string {
     .toUpperCase()
     .trim();
   if (!c) return "USD";
-  if (c === "IN") return "INR";
   if (c === "US") return "USD";
   if (c === "CA") return "CAD";
   if (EUROPE_COUNTRY_ISO.has(c)) return "EUR";
   return LEGACY_CURRENCY_BY_COUNTRY[c] || "USD";
+}
+
+/** API + prefs: Indian rupee is not surfaced in the product UI. */
+export function sanitizePreferredCurrencyForApi(code: string | null | undefined): string {
+  const c = String(code || "")
+    .toUpperCase()
+    .trim();
+  if (c === "INR") return "ZAR";
+  return c || "ZAR";
 }
 
 export function computePhoneLocale(phoneDigits: string | null | undefined): { countryCode?: string; preferredCurrency?: string } {
@@ -167,13 +175,13 @@ export function computePhoneLocale(phoneDigits: string | null | undefined): { co
   if (d.length < 8) return {};
   const iso = detectCountryIsoFromPhoneDigits(d);
   if (!iso) return {};
-  return { countryCode: iso, preferredCurrency: currencyFromCountryIso(iso) };
+  return { countryCode: iso, preferredCurrency: sanitizePreferredCurrencyForApi(currencyFromCountryIso(iso)) };
 }
 
 /** WhatsApp price conversion target + legacy callers */
 export function detectCurrencyFromPhoneDigits(phoneDigits: string): string {
   const iso = detectCountryIsoFromPhoneDigits(phoneDigits);
-  if (iso) return currencyFromCountryIso(iso);
+  if (iso) return sanitizePreferredCurrencyForApi(currencyFromCountryIso(iso));
   const d = String(phoneDigits || "");
   if (d.startsWith("27")) return "ZAR";
   if (d.startsWith("267")) return "BWP";

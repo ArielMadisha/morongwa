@@ -8,12 +8,45 @@ const apiBase =
 /** CSP is set in middleware.ts only — avoids duplicate policies that break Next inline scripts. */
 
 const nextConfig: NextConfig = {
+  poweredByHeader: false,
   /* config options here */
   async redirects() {
     return [{ source: '/acbpay-wallet', destination: '/wallet', permanent: true }];
   },
   async rewrites() {
-    return [{ source: '/uploads/:path*', destination: `${apiBase}/uploads/:path*` }];
+    return [
+      { source: '/uploads/:path*', destination: `${apiBase}/uploads/:path*` },
+      /** Same-origin API (incl. large TV uploads) — avoids cross-subdomain multipart quirks. */
+      { source: '/api/:path*', destination: `${apiBase}/api/:path*` },
+      /** Video-call Socket.IO uses api.qwertymates.com directly (see lib/socketUrl.ts). */
+    ];
+  },
+  async headers() {
+    const securityHeaders = [
+      { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
+      { key: 'X-Content-Type-Options', value: 'nosniff' },
+      { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+      { key: 'Permissions-Policy', value: 'camera=(self), microphone=(self), geolocation=(self)' },
+    ];
+    const hsts =
+      process.env.NODE_ENV === 'production'
+        ? [{ key: 'Strict-Transport-Security', value: 'max-age=31536000; includeSubDomains' }]
+        : [];
+
+    return [
+      {
+        source: '/_next/static/:path*',
+        headers: [{ key: 'Cache-Control', value: 'public, max-age=31536000, immutable' }],
+      },
+      {
+        source: '/:path*',
+        headers: [
+          { key: 'Cache-Control', value: 'public, max-age=0, must-revalidate' },
+          ...securityHeaders,
+          ...hsts,
+        ],
+      },
+    ];
   },
   turbopack: {
     root: __dirname,

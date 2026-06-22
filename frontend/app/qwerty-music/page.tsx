@@ -54,6 +54,9 @@ export default function QwertyMusicPage() {
   const songsLimit = 20;
   const songsSentinelRef = useRef<HTMLDivElement>(null);
   const songsContainerRef = useRef<HTMLDivElement>(null);
+  const [myCatalog, setMyCatalog] = useState<SongRecord[]>([]);
+  const [catalogLoading, setCatalogLoading] = useState(false);
+  const [requestingSoundId, setRequestingSoundId] = useState<string | null>(null);
 
   const handleAudioPlay = (songId: string, currentAudio: HTMLAudioElement) => {
     setPlayingId(songId);
@@ -70,6 +73,19 @@ export default function QwertyMusicPage() {
     musicAPI.getArtistStatus().then((r) => setArtistStatus(r.data?.data ?? null)).catch(() => setArtistStatus(null));
     musicAPI.getGenres().then((r) => setGenres(r.data?.data ?? [])).catch(() => setGenres([]));
   }, []);
+
+  useEffect(() => {
+    if (!user || !artistStatus?.isVerified) {
+      setMyCatalog([]);
+      return;
+    }
+    setCatalogLoading(true);
+    musicAPI
+      .getMyMusicCatalog()
+      .then((r) => setMyCatalog(Array.isArray(r.data?.data) ? r.data.data : []))
+      .catch(() => setMyCatalog([]))
+      .finally(() => setCatalogLoading(false));
+  }, [user, artistStatus?.isVerified]);
 
   const loadSongs = useCallback(async (pageNum = 1, append = false, random = false) => {
     if (pageNum === 1 && !append) setLoadingSongs(true);
@@ -263,9 +279,20 @@ export default function QwertyMusicPage() {
     return path || '';
   };
 
+  const handleMainWheelCapture: React.WheelEventHandler<HTMLElement> = (e) => {
+    const target = e.target as HTMLElement | null;
+    if (!target) return;
+    if (target.closest('input, textarea, select, [contenteditable="true"]')) return;
+    const scroller = songsContainerRef.current;
+    if (!scroller) return;
+    if (scroller.scrollHeight <= scroller.clientHeight) return;
+    scroller.scrollTop += e.deltaY;
+    e.preventDefault();
+  };
+
   return (
     <ProtectedRoute>
-      <div className="min-h-screen flex flex-col bg-gradient-to-br from-sky-50 via-blue-50 to-white text-slate-900">
+      <div className="h-[100dvh] min-h-screen flex flex-col overflow-hidden bg-gradient-to-br from-sky-50 via-blue-50 to-white text-slate-900">
         <header className="sticky top-0 z-40 w-full bg-white/95 backdrop-blur-md border-b border-slate-100 shadow-sm flex-shrink-0">
           <div className="px-4 sm:px-6 lg:px-8 py-2 sm:py-3">
             <div className="flex items-center gap-2 sm:gap-4 min-w-0">
@@ -304,9 +331,86 @@ export default function QwertyMusicPage() {
             hideLogo
             belowHeader
           />
-          <div ref={songsContainerRef} className="flex-1 flex flex-col lg:flex-row gap-0 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain">
-            <main className="flex-1 min-w-0 px-4 sm:px-6 lg:px-8 py-4 pb-24 lg:pb-6 order-2 lg:order-none w-full">
+          <div ref={songsContainerRef} className="flex-1 flex flex-col lg:flex-row gap-0 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain touch-pan-y">
+            <main onWheelCapture={handleMainWheelCapture} className="flex-1 min-w-0 px-4 sm:px-6 lg:px-8 py-4 pb-24 md:pb-6 order-2 lg:order-none w-full">
               <div className="max-w-6xl mx-auto">
+                {artistStatus?.isVerified && (
+                  <div className="mb-6 rounded-2xl border border-violet-100 bg-white/90 p-4 shadow-sm">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                      <div>
+                        <h2 className="text-lg font-semibold text-slate-900">QwertyTV Sounds catalog</h2>
+                        <p className="mt-1 text-sm text-slate-600">
+                          Request review so verified singles can be used on QwertyTV videos (like short-video apps).{' '}
+                          <Link href="/policies/qwerty-music-sound-library-artist-payouts" className="font-semibold text-violet-700 hover:underline">
+                            How you get paid
+                          </Link>
+                          .
+                        </p>
+                      </div>
+                    </div>
+                    {catalogLoading ? (
+                      <div className="flex justify-center py-6">
+                        <Loader2 className="h-8 w-8 animate-spin text-violet-500" />
+                      </div>
+                    ) : myCatalog.filter((x) => x.type === 'song').length === 0 ? (
+                      <p className="mt-3 text-sm text-slate-500">Upload a single first, then request Sounds review.</p>
+                    ) : (
+                      <ul className="mt-3 divide-y divide-slate-100 rounded-xl border border-slate-100 bg-slate-50/50">
+                        {myCatalog
+                          .filter((x) => x.type === 'song')
+                          .map((track) => (
+                            <li key={track._id} className="flex flex-col gap-2 px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+                              <div className="min-w-0">
+                                <p className="font-medium text-slate-900 truncate">
+                                  {track.title} <span className="text-slate-500 font-normal">— {track.artist}</span>
+                                </p>
+                                <p className="text-xs text-slate-500">
+                                  Sounds status:{' '}
+                                  <span className="font-semibold text-slate-700">
+                                    {track.soundLibraryStatus || 'none'}
+                                  </span>
+                                  {track.soundLibraryRejectedReason ? ` — ${track.soundLibraryRejectedReason}` : ''}
+                                </p>
+                              </div>
+                              <button
+                                type="button"
+                                disabled={
+                                  requestingSoundId === track._id ||
+                                  track.soundLibraryStatus === 'pending' ||
+                                  track.soundLibraryStatus === 'approved'
+                                }
+                                onClick={async () => {
+                                  setRequestingSoundId(track._id);
+                                  try {
+                                    await musicAPI.requestSoundLibrary(track._id);
+                                    toast.success('Sounds review requested');
+                                    const r = await musicAPI.getMyMusicCatalog();
+                                    setMyCatalog(Array.isArray(r.data?.data) ? r.data.data : []);
+                                  } catch (e: any) {
+                                    toast.error(e?.response?.data?.message || 'Request failed');
+                                  } finally {
+                                    setRequestingSoundId(null);
+                                  }
+                                }}
+                                className="shrink-0 rounded-lg bg-violet-600 px-4 py-2 text-xs font-semibold text-white hover:bg-violet-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                              >
+                                {requestingSoundId === track._id ? (
+                                  <Loader2 className="h-4 w-4 animate-spin inline" />
+                                ) : track.soundLibraryStatus === 'approved' ? (
+                                  'Approved'
+                                ) : track.soundLibraryStatus === 'pending' ? (
+                                  'Pending'
+                                ) : (
+                                  'Request Sounds review'
+                                )}
+                              </button>
+                            </li>
+                          ))}
+                      </ul>
+                    )}
+                  </div>
+                )}
+
                 {/* Songs Grid */}
                 <div>
                   <div className="flex items-center justify-between mb-4">

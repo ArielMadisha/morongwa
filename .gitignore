@@ -10,6 +10,16 @@ pnpm-debug.log*
 
 # Credentials (never commit)
 SUPERADMIN_CREDENTIALS.md
+**/*credentials*.json
+**/credentials.json
+*.pem
+*.p12
+*.pfx
+*.keystore
+*.jks
+**/*.jks
+google-play-service-account.json
+**/google-play-service-account.json
 
 # Env files (never commit secrets - keep .env out of version control)
 .env
@@ -25,7 +35,13 @@ deploy-server.config
 deploy-server.secrets
 **/deploy-server.config
 **/deploy-server.secrets
+!deploy-server.config.example
+!deploy-server.secrets.example
 # App secrets at any depth
+**/.env
+**/.env.local
+**/.env.development
+**/.env.production
 backend/.env
 backend/.env.*
 frontend/.env
@@ -59,5 +75,10 @@ yarn.lock
 
 # Local deploy artifacts (regenerate with scripts/publish-frontend-test.ps1)
 morongwa-frontend-only.tgz
+morongwa-backend-deploy.tgz
 _morongwa_full_deploy.tgz
 _pack_frontend/
+_pack_backend/
+
+# Local script/export state (PII, import batches, task logs)
+backend/exports/

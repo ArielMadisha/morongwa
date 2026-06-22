@@ -3,7 +3,8 @@
  *
  * Run from backend/:  npm run deploy:production
  *
- * Requires: repo-root deploy-server.config + deploy-server.secrets, backend/.env with Twilio vars for the flow step.
+ * Requires: repo-root deploy-server.config + deploy-server.secrets (SSH password and/or private key;
+ * see deploy-server.secrets.example), backend/.env with Twilio vars for the flow step.
  */
 import { fileURLToPath } from "url";
 import path from "path";
@@ -31,11 +32,38 @@ runStep(
   [path.join(__dirname, "pushBackendFullRemote.mjs")]
 );
 
-runStep("2/3 WhatsApp / Twilio Studio flow (publish)", [path.join(__dirname, "pushTwilioFlowV2.mjs")]);
+runStep("2/3 WhatsApp / Twilio Studio flow (publish from template)", [
+  path.join(__dirname, "pushTwilioFlowV2.mjs"),
+]);
+try {
+  runStep("2/3 WhatsApp / Twilio Studio flow (Botswana wire)", [
+    path.join(__dirname, "wireWhatsappSenderStudioWebhook.mjs"),
+  ]);
+} catch (e) {
+  console.warn("WARN: Botswana WhatsApp sender wire skipped or failed:", e.message || e);
+}
 
 runStep(
-  "3/3 Frontend (tarball + remote Docker refresh --rebuild)",
-  [path.join(__dirname, "publishFrontendRemote.mjs"), "--rebuild"]
+  "3/3 Frontend (tarball + remote Docker refresh)",
+  [path.join(__dirname, "publishFrontendRemote.mjs")]
 );
+
+// Keep NPM/OpenResty edge stable after frontend refresh to prevent intermittent 502 regressions.
+if (process.env.SKIP_NPM_EDGE_FIX === "1") {
+  console.log("\nSKIP_NPM_EDGE_FIX=1 — skipping NPM edge + API upload limit patches.\n");
+} else {
+  runStep(
+    "4/5 NPM edge hardening (nginx conf regen + ssl/listen patch + reload)",
+    [path.join(__dirname, "remoteNpmEdgePermanentFix.mjs")]
+  );
+  try {
+    runStep(
+      "5/5 NPM upload limits (api + www proxy: large video body + long timeouts)",
+      [path.join(__dirname, "remoteNpmApiUploadLimits.mjs")]
+    );
+  } catch (e) {
+    console.warn("WARN: NPM upload limits step failed (api vhost may already be patched):", e.message || e);
+  }
+}
 
 console.log(`\n${"=".repeat(60)}\nFull deploy finished: backend + WhatsApp flow + frontend.\n${"=".repeat(60)}\n`);

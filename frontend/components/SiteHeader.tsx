@@ -6,9 +6,12 @@ import { usePathname } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useCartAndStores } from '@/lib/useCartAndStores';
 import { getImageUrl } from '@/lib/api';
-import { Package, Home, ArrowRight, LayoutDashboard, ShoppingBag, ShoppingCart, Store, Menu, X } from 'lucide-react';
+import { Package, Home, ArrowRight, LayoutDashboard, ShoppingBag, ShoppingCart, Store, Menu, X, Shield } from 'lucide-react';
 import { SearchButton } from '@/components/SearchButton';
 import { ProfileHeaderButton } from '@/components/ProfileHeaderButton';
+import { APP_SHELL_MOBILE_LOGO_CLASS, APP_SHELL_MOBILE_LOGO_MD_HIDDEN_CLASS } from '@/components/AppShellHeader';
+import { userHasWebsiteAdminAccess } from '@/lib/adminAccess';
+import { userPublicDisplayName } from '@/lib/userDisplayLabel';
 
 type SiteHeaderProps = {
   minimal?: boolean;
@@ -26,17 +29,42 @@ export default function SiteHeader({ minimal }: SiteHeaderProps) {
     <header className="bg-white/90 backdrop-blur-md border-b border-slate-100 sticky top-0 z-40">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3">
         <div className="flex justify-between items-center gap-4">
-          <Link href="/" className={`flex items-center shrink-0 ${tapTarget}`}>
-            <img src="/qwertymates-logo-icon-transparent.svg" alt="Qwertymates" className="h-16 w-16 sm:h-[4.25rem] sm:w-[4.25rem] object-contain md:hidden shrink-0" />
-            <img src="/qwertymates-logo.png" alt="Qwertymates" className="h-9 w-auto object-contain hidden md:block" />
+          <Link
+            href="/"
+            className={`flex items-center shrink-0 ${tapTarget}`}
+            aria-label="Qwertymates home"
+          >
+            {minimal ? (
+              <>
+                <img
+                  src="/qwertymates-q-mark-official.png"
+                  alt=""
+                  width={48}
+                  height={48}
+                  className={APP_SHELL_MOBILE_LOGO_CLASS}
+                  aria-hidden
+                />
+                <img
+                  src="/qwertymates-logo.png"
+                  alt="Qwertymates"
+                  className="h-8 w-auto max-w-[132px] object-contain hidden lg:block shrink-0"
+                />
+              </>
+            ) : (
+              <>
+                <img
+                  src="/qwertymates-q-mark-official.png"
+                  alt=""
+                  width={48}
+                  height={48}
+                  className={APP_SHELL_MOBILE_LOGO_MD_HIDDEN_CLASS}
+                  aria-hidden
+                />
+                <img src="/qwertymates-logo.png" alt="" className="h-9 w-auto object-contain hidden md:block" aria-hidden />
+              </>
+            )}
           </Link>
-          {minimal ? (
-            <>
-              <div className="flex-1 min-w-0" />
-              {/* Mobile: remove top "Ask MacGyver"; keep only bottom nav */}
-              <SearchButton className="hidden md:flex" />
-            </>
-          ) : (
+          {minimal ? null : (
           <>
           {/* Desktop nav */}
           <nav className="hidden md:flex items-center gap-1 sm:gap-2">
@@ -161,13 +189,23 @@ export default function SiteHeader({ minimal }: SiteHeaderProps) {
                     <Link href="/profile" onClick={() => setMobileMenuOpen(false)} className={`flex items-center gap-3 px-4 py-3 text-slate-700 hover:bg-slate-50 ${tapTarget} justify-start border-t border-slate-100 mt-1`}>
                       <span className="w-9 h-9 rounded-full bg-brand-50 text-brand-700 flex items-center justify-center text-xs font-bold ring-1 ring-slate-200 shadow-sm overflow-hidden">
                         {(user as { avatar?: string }).avatar ? (
-                          <img src={getImageUrl((user as { avatar?: string }).avatar)} alt={user.name || 'Profile'} className="h-full w-full object-cover" />
+                          <img src={getImageUrl((user as { avatar?: string }).avatar)} alt={userPublicDisplayName(user)} className="h-full w-full object-cover" />
                         ) : (
-                          user.name?.charAt(0)?.toUpperCase() || 'U'
+                          userPublicDisplayName(user).charAt(0)?.toUpperCase() || 'U'
                         )}
                       </span>
                       <span>Profile</span>
                     </Link>
+                    {userHasWebsiteAdminAccess(user) ? (
+                      <Link
+                        href="/admin"
+                        onClick={() => setMobileMenuOpen(false)}
+                        className={`flex items-center gap-3 px-4 py-3 text-slate-700 hover:bg-slate-50 ${tapTarget} justify-start`}
+                      >
+                        <Shield className="h-5 w-5 text-sky-600 shrink-0" />
+                        <span>Go Admin</span>
+                      </Link>
+                    ) : null}
                   </>
                 )}
                 {!isAuthenticated && (

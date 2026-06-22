@@ -1,0 +1,4 @@
+{
+  "sourceNote": "2010 PSLE results (Lesotho) often list schools as examination centres — see e.g. https://www.scribd.com/doc/44890069/2010-PSLE-Results-Lesotho (Scribd is not reliably machine-readable; copy unique centre/school names here). Prefer official listings: http://www.education.gov.ls/schools.php . Run OSM import first: npm run import:schools-osm -- --country=LS",
+  "names": []
+}

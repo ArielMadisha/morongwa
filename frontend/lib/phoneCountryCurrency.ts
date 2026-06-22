@@ -1,6 +1,6 @@
 /**
  * Mirrors backend/src/utils/phoneCountryCurrency.ts — keep rules in sync.
- * India → INR; US/CA & geographic Europe → USD; mapped regions use local FX tickers.
+ * India removed from default web currency list; US/CA & geographic Europe → USD; mapped regions use local FX tickers.
  */
 import { parsePhoneNumberFromString } from 'libphonenumber-js';
 
@@ -54,11 +54,17 @@ const LEGACY_CURRENCY_BY_COUNTRY: Record<string, string> = {
 export function currencyFromCountryIso(iso: string): string {
   const c = String(iso || '').toUpperCase().trim();
   if (!c) return 'USD';
-  if (c === 'IN') return 'INR';
   if (c === 'US') return 'USD';
   if (c === 'CA') return 'CAD';
   if (EUROPE_COUNTRY_ISO.has(c)) return 'EUR';
   return LEGACY_CURRENCY_BY_COUNTRY[c] || 'USD';
+}
+
+/** Match backend: never surface INR in client prefs. */
+export function sanitizePreferredCurrencyForApi(code: string | null | undefined): string {
+  const c = String(code || '').toUpperCase().trim();
+  if (c === 'INR') return 'ZAR';
+  return c || 'ZAR';
 }
 
 export function computePhoneLocale(phoneDigits: string | null | undefined): { countryCode?: string; preferredCurrency?: string } {
@@ -66,5 +72,5 @@ export function computePhoneLocale(phoneDigits: string | null | undefined): { co
   if (d.length < 8) return {};
   const iso = detectCountryIsoFromPhoneDigits(d);
   if (!iso) return {};
-  return { countryCode: iso, preferredCurrency: currencyFromCountryIso(iso) };
+  return { countryCode: iso, preferredCurrency: sanitizePreferredCurrencyForApi(currencyFromCountryIso(iso)) };
 }

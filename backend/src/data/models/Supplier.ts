@@ -5,6 +5,8 @@ export type SupplierType = "company" | "individual";
 
 export interface ISupplier extends Document {
   userId: mongoose.Types.ObjectId;
+  /** When set, this supplier profile is tied to one marketplace store (multi-store owners). */
+  linkedStoreId?: mongoose.Types.ObjectId;
   status: SupplierStatus;
   type: SupplierType;
   storeName?: string;
@@ -26,6 +28,8 @@ export interface ISupplier extends Document {
   appliedAt?: Date;
   reviewedAt?: Date;
   reviewedBy?: mongoose.Types.ObjectId;
+  /** Admin who onboarded or approved this supplier (delegated admins may only request removal for their captures). */
+  capturedByAdminId?: mongoose.Types.ObjectId;
   rejectionReason?: string;
   createdAt: Date;
   updatedAt: Date;
@@ -33,7 +37,8 @@ export interface ISupplier extends Document {
 
 const SupplierSchema = new Schema<ISupplier>(
   {
-    userId: { type: Schema.Types.ObjectId, ref: "User", required: true, unique: true },
+    userId: { type: Schema.Types.ObjectId, ref: "User", required: true },
+    linkedStoreId: { type: Schema.Types.ObjectId, ref: "Store" },
     status: { type: String, enum: ["pending", "approved", "rejected"], default: "pending" },
     type: { type: String, enum: ["company", "individual"], required: true },
     storeName: { type: String },
@@ -50,6 +55,7 @@ const SupplierSchema = new Schema<ISupplier>(
     appliedAt: { type: Date, default: Date.now },
     reviewedAt: { type: Date },
     reviewedBy: { type: Schema.Types.ObjectId, ref: "User" },
+    capturedByAdminId: { type: Schema.Types.ObjectId, ref: "User", index: true },
     rejectionReason: { type: String },
   },
   { timestamps: true }
@@ -57,5 +63,7 @@ const SupplierSchema = new Schema<ISupplier>(
 
 SupplierSchema.index({ status: 1 });
 SupplierSchema.index({ type: 1 });
+SupplierSchema.index({ userId: 1, status: 1 });
+SupplierSchema.index({ linkedStoreId: 1 }, { unique: true, sparse: true });
 
 export default mongoose.model<ISupplier>("Supplier", SupplierSchema);

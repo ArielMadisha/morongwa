@@ -25,6 +25,9 @@ import {
 import { LanguageSelector } from '@/components/LanguageSelector';
 import { getImageUrl } from '@/lib/api';
 import { TransparentIcon } from '@/components/TransparentIcon';
+import { UserAvatarImage } from '@/components/UserAvatarImage';
+import { useMessengerUnread } from '@/contexts/MessengerUnreadContext';
+import { userPublicDisplayName, userAtUsername } from '@/lib/userDisplayLabel';
 
 export type SidebarVariant = 'wall' | 'client' | 'runner';
 
@@ -67,6 +70,7 @@ export function AppSidebar({
 }: AppSidebarProps) {
   const pathname = usePathname();
   const { user } = useAuth();
+  const { unreadCount: messengerUnread } = useMessengerUnread();
   const [errandsExpanded, setErrandsExpanded] = useState(false);
   const isActive = (href: string) => pathname === href || (href !== '/' && pathname.startsWith(href));
   const isErrandsActive = errandsSubItems.some((s) => isActive(s.href));
@@ -76,6 +80,10 @@ export function AppSidebar({
   }, [isErrandsActive]);
 
   const uid = user?._id || userId || (user as { id?: string } | undefined)?.id;
+  const sidebarAtHandle = user ? userAtUsername(user as { name?: string; username?: string; email?: string }) : null;
+  const sidebarDisplayName = user
+    ? userPublicDisplayName(user as { name?: string; username?: string; email?: string })
+    : userPublicDisplayName({ name: userName });
   const profileHref = uid ? `/user/${uid}` : '/profile';
   const avatarUrl = (user as { avatar?: string } | undefined)?.avatar || userAvatar;
 
@@ -128,7 +136,7 @@ export function AppSidebar({
 
   const sidebar = (
     <div
-      className={`sticky self-start flex flex-col min-h-0 bg-white border-r border-slate-100 w-64 shrink-0 shadow-xs top-0 ${
+      className={`sticky self-start flex flex-col min-h-0 bg-white border-r border-slate-100 w-56 md:w-56 lg:w-64 shrink-0 shadow-xs top-0 ${
         belowHeader ? 'max-h-[calc(100vh-2.5rem)] h-[calc(100vh-2.5rem)]' : 'h-screen max-h-screen'
       }`}
     >
@@ -143,7 +151,7 @@ export function AppSidebar({
       {/* Single flowing column (matches right-hand AdvertSlot: one scroll, no split panes) */}
       <div className="flex-1 min-h-0 flex flex-col overflow-y-auto overscroll-contain px-3 pb-4 pt-1 min-w-0 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
       <nav className="space-y-0 shrink-0">
-        <div className="hidden lg:block">
+        <div className="hidden md:block">
           {navItemsDesktop.map((item, idx) => {
             if ('type' in item && item.type === 'errands') {
               return (
@@ -197,6 +205,10 @@ export function AppSidebar({
               );
             }
             const { href, label, icon: Icon, badge, showChevron, customIcon, transparentBg } = item;
+            const displayBadge =
+              href === '/messages' && messengerUnread > 0
+                ? messengerUnread
+                : badge;
             return (
               <Link
                 key={href || `nav-desktop-${idx}`}
@@ -230,16 +242,16 @@ export function AppSidebar({
                   </>
                 )}
                 {showChevron && <ChevronRight className="h-4 w-4 text-slate-400 flex-shrink-0" />}
-                {badge != null && badge > 0 && (
+                {displayBadge != null && displayBadge > 0 && (
                   <span className="rounded-full bg-sky-100 px-2 py-0.5 text-xs font-semibold text-sky-800">
-                    {badge}
+                    {displayBadge > 99 ? '99+' : displayBadge}
                   </span>
                 )}
               </Link>
             );
           })}
         </div>
-        <div className="lg:hidden">
+        <div className="md:hidden">
           {navItemsMobile.map((item, idx) => {
             if ('type' in item && item.type === 'errands') {
               return (
@@ -293,6 +305,10 @@ export function AppSidebar({
               );
             }
             const { href, label, icon: Icon, badge, showChevron, customIcon, transparentBg } = item;
+            const displayBadge =
+              href === '/messages' && messengerUnread > 0
+                ? messengerUnread
+                : badge;
             return (
               <Link
                 key={href || `nav-mobile-${idx}`}
@@ -318,9 +334,9 @@ export function AppSidebar({
                   </>
                 )}
                 {showChevron && <ChevronRight className="h-4 w-4 text-slate-400 flex-shrink-0" />}
-                {badge != null && badge > 0 && (
+                {displayBadge != null && displayBadge > 0 && (
                   <span className="rounded-full bg-sky-100 px-2 py-0.5 text-xs font-semibold text-sky-800">
-                    {badge}
+                    {displayBadge > 99 ? '99+' : displayBadge}
                   </span>
                 )}
               </Link>
@@ -337,23 +353,21 @@ export function AppSidebar({
             className="flex items-center gap-3 rounded-lg px-2 py-2 -mx-1 hover:bg-slate-50 transition-colors min-w-0"
           >
             <span className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full bg-brand-50 text-sm font-bold text-brand-700 ring-1 ring-slate-200">
-              {avatarUrl ? (
-                <img src={getImageUrl(avatarUrl)} alt="" className="h-full w-full object-cover" />
-              ) : (
-                (user.name || 'U').charAt(0).toUpperCase()
-              )}
+              <UserAvatarImage
+                avatar={avatarUrl}
+                className="h-full w-full object-cover"
+                fallbackLetter={sidebarDisplayName || 'U'}
+              />
             </span>
             <div className="min-w-0 flex-1">
-              <p className="font-semibold text-slate-900 truncate" title={user.name || ''}>
-                {user.name || 'User'}
+              <p className="font-semibold text-slate-900 truncate" title={sidebarDisplayName}>
+                {sidebarDisplayName}
               </p>
               <p
                 className="text-sm text-slate-500 truncate"
-                title={(user as { username?: string }).username ? `@${(user as { username?: string }).username}` : ''}
+                title={sidebarAtHandle || ''}
               >
-                {(user as { username?: string }).username
-                  ? `@${(user as { username?: string }).username}`
-                  : '—'}
+                {sidebarAtHandle || '—'}
               </p>
             </div>
           </Link>
@@ -386,18 +400,18 @@ export function AppSidebar({
   return (
     <>
       {/* Desktop: always visible sidebar - relative z-10 so Errands dropdown appears above main content */}
-      <aside className="hidden lg:flex relative z-10">{sidebar}</aside>
+      <aside className="hidden md:flex relative z-10">{sidebar}</aside>
 
       {/* Mobile: overlay when open */}
       {menuOpen && (
         <div
-          className="fixed inset-0 bg-black/30 z-40 lg:hidden"
+          className="fixed inset-0 bg-black/30 z-40 md:hidden"
           onClick={() => setMenuOpen?.(false)}
           aria-hidden="true"
         />
       )}
       <aside
-        className={`fixed inset-y-0 left-0 z-50 lg:hidden transform transition-transform duration-200 ease-out ${
+        className={`fixed inset-y-0 left-0 z-50 md:hidden transform transition-transform duration-200 ease-out ${
           menuOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
@@ -422,7 +436,7 @@ export function AppSidebarMenuButton({ onClick }: { onClick?: () => void }) {
     <button
       type="button"
       onClick={onClick}
-      className="lg:hidden p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+      className="md:hidden p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-slate-900"
       aria-label="Open menu"
     >
       <Menu className="h-6 w-6" />

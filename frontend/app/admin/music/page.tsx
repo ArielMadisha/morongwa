@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
-import { adminAPI, getImageUrl, API_BASE, usersAPI } from '@/lib/api';
+import { adminAPI, getImageUrl, usersAPI } from '@/lib/api';
 import Link from 'next/link';
 import { ArrowLeft, Music2, Loader2, Plus, Upload, X, Trash2 } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -206,7 +206,7 @@ function MusicManagement() {
   };
 
   const getArtworkUrl = (url: string) => {
-    if (!url) return '';
+    if (!url) return '/qwertymates-logo-icon.png';
     return getImageUrl(url) || url;
   };
 
@@ -249,6 +249,12 @@ function MusicManagement() {
                 <Plus className="h-4 w-4" />
                 Upload album
               </button>
+              <Link
+                href="/admin/music-sound-library"
+                className="inline-flex items-center gap-2 rounded-full border border-violet-200 bg-violet-50 px-4 py-2 text-sm font-semibold text-violet-900 shadow-sm hover:shadow-md"
+              >
+                Sounds & QwertyTV
+              </Link>
               <Link
                 href="/admin"
                 className="inline-flex items-center gap-2 rounded-full border border-sky-100 bg-white/80 px-4 py-2 text-sm font-semibold text-slate-800 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
@@ -311,6 +317,11 @@ function MusicManagement() {
                         src={getArtworkUrl(s.artworkUrl)}
                         alt={s.title}
                         className="w-full h-full object-cover"
+                        onError={(e) => {
+                          const el = e.currentTarget;
+                          if (el.src.includes('music-artwork')) return;
+                          el.src = '/qwertymates-logo-icon.png';
+                        }}
                       />
                     </div>
                     <div className="p-3">
@@ -334,12 +345,14 @@ function MusicManagement() {
                       )}
                     </div>
                     <audio
-                      src={`${API_BASE || ''}${s.audioUrl}`}
+                      src={getImageUrl(s.audioUrl) || s.audioUrl}
                       controls
+                      preload="none"
                       className="w-full px-2 pb-2"
                       onPlay={(e) => handleAudioPlay(s._id, e.currentTarget)}
                       onPause={() => handleAudioPause(s._id)}
                       onEnded={() => handleAudioPause(s._id)}
+                      onError={() => toast.error(`Audio file missing for "${s.title}" — re-upload or delete this entry.`)}
                     />
                   </div>
                 ))}

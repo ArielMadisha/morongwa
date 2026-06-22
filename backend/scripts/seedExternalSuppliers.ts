@@ -5,7 +5,8 @@
  * Requires in .env:
  *   CJ_API_KEY, CJ_WEBHOOK_SECRET (optional)
  *   SPOCKET_API_KEY, SPOCKET_WEBHOOK_SECRET (optional)
- *   EPROLO_API_KEY, EPROLO_WEBHOOK_SECRET (optional)
+ *   EPROLO_API_KEY, EPROLO_API_SECRET, EPROLO_WEBHOOK_SECRET (optional)
+ *   SHEIN_OPEN_KEY_ID, SHEIN_OPEN_SECRET_KEY, SHEIN_WEBHOOK_SECRET (optional)
  *
  * API keys are never logged.
  */
@@ -43,6 +44,16 @@ const SUPPLIERS = [
     shippingEnv: "EPROLO_SHIPPING_COST",
     defaultShipping: 150,
   },
+  {
+    source: "shein" as const,
+    name: "SHEIN Dropshipping",
+    apiKeyEnv: "SHEIN_OPEN_KEY_ID",
+    apiSecretEnv: "SHEIN_OPEN_SECRET_KEY",
+    webhookEnv: "SHEIN_WEBHOOK_SECRET",
+    shippingEnv: "SHEIN_SHIPPING_COST",
+    defaultShipping: 150,
+    defaultMarkupPct: 0,
+  },
 ];
 
 async function run() {
@@ -72,7 +83,7 @@ async function run() {
       apiKey: apiKey.trim(),
       webhookSecret,
       status: "active",
-      defaultMarkupPct: 25,
+      defaultMarkupPct: (s as any).defaultMarkupPct ?? 25,
       shippingCost: Number.isNaN(shippingCost) ? 150 : shippingCost,
     };
     if (apiSecret) update.apiSecret = apiSecret;

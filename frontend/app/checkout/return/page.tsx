@@ -1,36 +1,89 @@
 'use client';
 
-import { Suspense, useEffect, useState } from 'react';
+import { Suspense, useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { CheckCircle, XCircle, Loader2 } from 'lucide-react';
+import { CheckCircle, XCircle, Loader2, ShoppingCart } from 'lucide-react';
 import { checkoutAPI } from '@/lib/api';
 import SiteHeader from '@/components/SiteHeader';
+
+type ReturnStatus = 'loading' | 'paid' | 'pending' | 'cancelled' | 'not_found';
 
 function CheckoutReturnContent() {
   const searchParams = useSearchParams();
   const orderId = searchParams.get('orderId');
-  const [status, setStatus] = useState<'loading' | 'paid' | 'pending' | 'not_found'>('loading');
+  const [status, setStatus] = useState<ReturnStatus>('loading');
+  const [restoring, setRestoring] = useState(false);
+
+  const restoreCartForOrder = useCallback(async (id: string) => {
+    setRestoring(true);
+    try {
+      await checkoutAPI.cancelPayment(id);
+    } catch {
+      /* order may already be cancelled by webhook */
+    } finally {
+      setRestoring(false);
+    }
+  }, []);
 
   useEffect(() => {
     if (!orderId) {
       setStatus('not_found');
       return;
     }
-    // Music-only payment: reference is MUSIC-xxx, no Order record
     if (orderId.startsWith('MUSIC-')) {
       setStatus('paid');
       return;
     }
-    checkoutAPI.getOrder(orderId).then((res) => {
-      const order = res.data?.data ?? res.data;
-      if (!order) {
+
+    let active = true;
+    let attempts = 0;
+    const maxAttempts = 12;
+
+    const poll = async () => {
+      if (!active) return;
+      try {
+        const res = await checkoutAPI.getOrder(orderId);
+        const order = (res.data?.data ?? res.data) as {
+          status?: string;
+          paymentStatus?: string | null;
+        } | null;
+        if (!order) {
+          setStatus('not_found');
+          return;
+        }
+
+        const orderStatus = String(order.status || '');
+        const paymentStatus = String(order.paymentStatus || '');
+
+        if (orderStatus === 'paid') {
+          setStatus('paid');
+          return;
+        }
+        if (orderStatus === 'cancelled' || paymentStatus === 'failed') {
+          setStatus('cancelled');
+          return;
+        }
+
+        attempts += 1;
+        if (attempts >= maxAttempts) {
+          await restoreCartForOrder(orderId);
+          setStatus('cancelled');
+          return;
+        }
+
+        setStatus('pending');
+        window.setTimeout(poll, 2500);
+      } catch {
         setStatus('not_found');
-        return;
       }
-      setStatus((order as { status: string }).status === 'paid' ? 'paid' : 'pending');
-    }).catch(() => setStatus('not_found'));
-  }, [orderId]);
+    };
+
+    poll();
+    return () => {
+      active = false;
+    };
+  }, [orderId, restoreCartForOrder]);
 
   return (
     <main className="max-w-lg mx-auto px-4 sm:px-6 lg:px-8 py-20 text-center">
@@ -45,9 +98,14 @@ function CheckoutReturnContent() {
           <CheckCircle className="h-16 w-16 text-emerald-500 mx-auto mb-6" />
           <h1 className="text-2xl font-bold text-slate-900 mb-2">Payment successful</h1>
           <p className="text-slate-600 mb-6">
-            {orderId?.startsWith('MUSIC-') ? 'Your music purchase is complete. Downloads are available in your library.' : 'Your order has been paid. We will process it shortly.'}
+            {orderId?.startsWith('MUSIC-')
+              ? 'Your music purchase is complete. Downloads are available in your library.'
+              : 'Your order has been paid. We will process it shortly.'}
           </p>
-          <Link href={orderId && !orderId.startsWith('MUSIC-') ? `/checkout/order/${orderId}` : '/qwerty-music'} className="inline-flex items-center gap-2 bg-sky-600 text-white px-6 py-3 rounded-xl hover:bg-sky-700 font-medium">
+          <Link
+            href={orderId && !orderId.startsWith('MUSIC-') ? `/checkout/order/${orderId}` : '/qwerty-music'}
+            className="inline-flex items-center gap-2 bg-sky-600 text-white px-6 py-3 rounded-xl hover:bg-sky-700 font-medium"
+          >
             {orderId?.startsWith('MUSIC-') ? 'Browse QwertyMusic' : 'View order'}
           </Link>
         </>
@@ -56,8 +114,35 @@ function CheckoutReturnContent() {
         <>
           <Loader2 className="h-16 w-16 text-amber-500 mx-auto mb-6 animate-spin" />
           <h1 className="text-2xl font-bold text-slate-900 mb-2">Payment processing</h1>
-          <p className="text-slate-600 mb-6">We are confirming your payment. Refresh in a moment or check your orders.</p>
-          <Link href="/dashboard" className="text-sky-600 hover:text-sky-700 font-medium">Go to dashboard</Link>
+          <p className="text-slate-600 mb-6">
+            We are confirming your payment with the bank. This usually takes a few seconds.
+          </p>
+          <Link href="/cart" className="text-sky-600 hover:text-sky-700 font-medium">
+            Back to cart
+          </Link>
+        </>
+      )}
+      {status === 'cancelled' && (
+        <>
+          <XCircle className="h-16 w-16 text-amber-500 mx-auto mb-6" />
+          <h1 className="text-2xl font-bold text-slate-900 mb-2">Payment not completed</h1>
+          <p className="text-slate-600 mb-6">
+            {restoring
+              ? 'Restoring your cart…'
+              : 'Your card was not charged. Items should be back in your cart so you can try again.'}
+          </p>
+          <div className="flex flex-col sm:flex-row gap-3 justify-center">
+            <Link
+              href="/cart"
+              className="inline-flex items-center justify-center gap-2 bg-sky-600 text-white px-6 py-3 rounded-xl hover:bg-sky-700 font-medium"
+            >
+              <ShoppingCart className="h-4 w-4" />
+              View cart
+            </Link>
+            <Link href="/marketplace" className="inline-flex items-center justify-center text-sky-600 hover:text-sky-700 font-medium px-4 py-3">
+              Continue shopping
+            </Link>
+          </div>
         </>
       )}
       {status === 'not_found' && (
@@ -65,7 +150,9 @@ function CheckoutReturnContent() {
           <XCircle className="h-16 w-16 text-slate-400 mx-auto mb-6" />
           <h1 className="text-2xl font-bold text-slate-900 mb-2">Order not found</h1>
           <p className="text-slate-600 mb-6">The order may still be processing or the link is invalid.</p>
-          <Link href="/marketplace" className="text-sky-600 hover:text-sky-700 font-medium">Back to marketplace</Link>
+          <Link href="/cart" className="text-sky-600 hover:text-sky-700 font-medium">
+            Back to cart
+          </Link>
         </>
       )}
     </main>
@@ -76,12 +163,14 @@ export default function CheckoutReturnPage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-sky-50 via-blue-50 to-white text-slate-900">
       <SiteHeader />
-      <Suspense fallback={
-        <main className="max-w-lg mx-auto px-4 sm:px-6 lg:px-8 py-20 text-center">
-          <Loader2 className="h-16 w-16 text-sky-600 animate-spin mx-auto mb-6" />
-          <p className="text-slate-600">Confirming your payment...</p>
-        </main>
-      }>
+      <Suspense
+        fallback={
+          <main className="max-w-lg mx-auto px-4 sm:px-6 lg:px-8 py-20 text-center">
+            <Loader2 className="h-16 w-16 text-sky-600 animate-spin mx-auto mb-6" />
+            <p className="text-slate-600">Confirming your payment...</p>
+          </main>
+        }
+      >
         <CheckoutReturnContent />
       </Suspense>
     </div>

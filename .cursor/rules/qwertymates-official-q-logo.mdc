@@ -1,0 +1,43 @@
+---
+description: >-
+  When the owner says “Q logo”, they mean the official round Qwertymates mark (white Q on blue
+  gradient circle)—not a plain letter, not search/magnifying-glass art. Canonical assets and usage.
+alwaysApply: true
+---
+
+# Official “Q logo” (treat like a production guardrail)
+
+When the project owner says **“Q logo”**, **“proper logo”**, or **“the Q”** in the context of **mobile app chrome** or **website mobile / compact header**, they mean **this exact brand mark**, not a generic glyph or search affordance:
+
+## What it is (visual)
+
+- **Shape:** Circular app-style icon.
+- **Letter:** Bold **white** capital **Q** — thick sans-serif ring with a **short, rounded tail** from the bottom-right (tail may slightly cross the outer circle edge). The inner counter of the Q is **open** (hollow ring), showing the background gradient through the hole.
+- **Background:** **Blue gradient** on the circle — bright **cyan / sky blue** (e.g. top-left) transitioning to **deep navy** (e.g. bottom-right), with a subtle diagonal highlight / “fold” for depth (metallic / layered look — not flat two-tone).
+
+If an implementation does not match that description, **it is not the Q logo** for this project.
+
+## Canonical files (source of truth)
+
+| Location | Path |
+|----------|------|
+| **Mobile** (React Native `Image` / Expo) | `mobile/assets/images/qwertymates-q-mark-official.png` |
+| **Web** (Next.js `public/`) | `frontend/public/qwertymates-q-mark-official.png` |
+
+**Usage today (check before changing):**
+
+- Mobile shell top-left home control: `mobile/src/screens/HomeScreen.tsx` — `require(.../qwertymates-q-mark-official.png)`.
+- Web marketing / minimal header: `frontend/components/SiteHeader.tsx` — `src="/qwertymates-q-mark-official.png"`.
+- Web app-shell pages (QwertyHub marketplace, cart, wallet, TV, etc.): `frontend/components/AppShellHeader.tsx` — same PNG for the `lg:hidden` round mark (not `qwertymates-logo-icon-transparent.svg`).
+
+Keep **pixel parity** with the PNG where possible; do not swap in a plain `<text>Q</text>` SVG, a stroke-only circle + handle (reads as **search**), or a different gradient without explicit owner approval.
+
+## Do / don’t
+
+- **Do** use `qwertymates-q-mark-official.png` for the round mark in mobile shell and web compact headers unless the owner supplies an updated file (then replace the asset and keep the same filename or update this rule).
+- **Do** treat confusion between “Q logo” and “search icon” as a **branding bug**, similar in severity to misleading payment or auth UI.
+- **Don’t** reinterpret “Q logo” as Lucide search, Ionicons `search`, or the old stroke-only `qwertymates-logo-icon-transparent.svg` magnifying-glass-style artwork.
+
+## Cross-reference
+
+- Naming / codename policy: `.cursor/rules/qwertymates-mobile-branding.mdc` (points here for the round Q mark).

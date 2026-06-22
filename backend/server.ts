@@ -1,15 +1,17 @@
 // Main server entry point
 import dotenv from "dotenv";
-import express, { Application } from "express";
+import express, { Application, type RequestHandler, type Request, type Response, type NextFunction } from "express";
 import http from "http";
 import fs from "fs";
 import path from "path";
 import { Server as SocketServer } from "socket.io";
 import cors from "cors";
 import { connectDB, isDbConnected } from "./src/data/db";
+import { assertRequiredSecretsAtStartup } from "./src/utils/secrets";
 
 // Load environment variables
 dotenv.config();
+assertRequiredSecretsAtStartup();
 import { logger } from "./src/services/monitoring";
 import { initializeNotificationService } from "./src/services/notification";
 import { initializeChatService } from "./src/services/chat";
@@ -42,6 +44,8 @@ import checkoutRoutes from "./src/routes/checkout";
 import resellerRoutes from "./src/routes/reseller";
 import storesRoutes from "./src/routes/stores";
 import tvRoutes from "./src/routes/tv";
+import liveRoutes from "./src/routes/live";
+import tvChannelPublicRoutes from "./src/routes/tvChannelPublic";
 import productEnquiryRoutes from "./src/routes/productEnquiry";
 import advertsRoutes from "./src/routes/adverts";
 import landingBackgroundsRoutes from "./src/routes/landingBackgrounds";
@@ -59,6 +63,16 @@ import { seedPricingConfig } from "./src/services/pricingConfig";
 import { ensureDefaultProducts } from "./src/services/marketplaceSeed";
 import { ensureSampleAdvert } from "./src/services/advertSeed";
 import { ensureDefaultLandingBackgrounds } from "./src/services/landingBackgroundSeed";
+import { ensureCourierCatalogSeed } from "./src/services/courierSeed";
+import {
+  startTvChannelRestreamWorker,
+  stopTvChannelRestreamWorker,
+} from "./src/services/tvChannelRestreamWorker";
+import { startAgentCommissionDigestSchedulers } from "./src/services/agentCommissionDigestScheduler";
+import { startFacebookTvIngestScheduler } from "./src/services/facebookTvIngestScheduler";
+import { initializeNewsScheduler } from "./src/services/newsScheduler";
+import { initializeWorldCupTvScheduler } from "./src/services/worldCupTvScheduler";
+import { getFxRates } from "./src/services/fxService";
 
 const app: Application = express();
 /** Behind nginx/Cloudflare, restore client IP for rate limiting and logging. */
@@ -136,28 +150,51 @@ app.use("/api", (req, res, next) => {
   next();
 });
 
-// Static files (uploads) - resolve correctly in both ts-node (dev) and dist (prod).
-const uploadsDirCandidates = [
-  path.join(process.cwd(), "uploads"),
-  path.join(__dirname, "uploads"),
-  path.join(__dirname, "..", "uploads"),
-];
-const uploadsDir = uploadsDirCandidates.find((p) => {
-  try {
-    return fs.existsSync(p);
-  } catch {
-    return false;
-  }
-}) || uploadsDirCandidates[0];
-app.use("/uploads", (req, res, next) => {
+// Lightweight API performance tracing for slow-route triage.
+app.use("/api", (req, res, next) => {
+  const startedAt = Date.now();
+  res.on("finish", () => {
+    const elapsedMs = Date.now() - startedAt;
+    if (elapsedMs < 600) return;
+    logger.warn("Slow API request", {
+      method: req.method,
+      path: req.originalUrl,
+      statusCode: res.statusCode,
+      elapsedMs,
+      userId: (req as Request & { user?: { _id?: string } }).user?._id,
+    });
+  });
+  next();
+});
+
+// Static files (uploads) — must match multer destinations (e.g. tvUpload uses cwd/uploads/tv).
+const uploadsCorsHeaders: RequestHandler = (_req, res, next) => {
   res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
   res.setHeader("Access-Control-Allow-Origin", "*");
   next();
-}, express.static(uploadsDir));
+};
+const cwdUploadsRoot = path.join(process.cwd(), "uploads");
+const legacyDistUploadsRoot = path.join(__dirname, "uploads");
+try {
+  fs.mkdirSync(path.join(cwdUploadsRoot, "tv"), { recursive: true });
+} catch {
+  /* ignore */
+}
+// Try cwd first (volume-mounted /app/uploads), then legacy dist/uploads (older uploads before cwd alignment).
+app.use("/uploads", uploadsCorsHeaders, express.static(cwdUploadsRoot, { fallthrough: true }));
+app.use("/uploads", uploadsCorsHeaders, express.static(legacyDistUploadsRoot, { fallthrough: true }));
 
-// Health check (always responds so load balancers see the server is up)
+// Health check (minimal public response; detail for internal monitors only)
 app.get("/health", (req, res) => {
   const dbOk = isDbConnected();
+  const internal =
+    req.ip === "127.0.0.1" ||
+    req.ip === "::1" ||
+    req.ip === "::ffff:127.0.0.1" ||
+    String(req.headers["x-health-key"] || "") === String(process.env.HEALTH_CHECK_KEY || "");
+  if (!internal) {
+    return res.status(dbOk ? 200 : 503).json({ status: dbOk ? "ok" : "degraded" });
+  }
   res.status(dbOk ? 200 : 503).json({
     status: dbOk ? "ok" : "degraded",
     timestamp: new Date().toISOString(),
@@ -191,6 +228,8 @@ const routePairs: [string, express.RequestHandler | undefined][] = [
   ["/api/reseller", resellerRoutes],
   ["/api/stores", storesRoutes],
   ["/api/tv", tvRoutes],
+  ["/api/live", liveRoutes],
+  ["/api/tv-channel", tvChannelPublicRoutes],
   ["/api/product-enquiry", productEnquiryRoutes],
   ["/api/adverts", advertsRoutes],
   ["/api/landing-backgrounds", landingBackgroundsRoutes],
@@ -210,6 +249,29 @@ for (const [path, handler] of routePairs) {
     app.use(path, handler);
   }
 }
+
+// Multer / upload errors (must be before notFoundHandler)
+app.use((err: any, req: Request, res: Response, next: NextFunction) => {
+  if (!err) return next();
+  const code = err?.code as string | undefined;
+  if (code === "LIMIT_FILE_SIZE") {
+    return res.status(413).json({
+      error: "File too large",
+      message: "File too large. Try a smaller video or contact support if this keeps happening.",
+    });
+  }
+  if (code === "LIMIT_FILE_COUNT" || code === "LIMIT_UNEXPECTED_FILE") {
+    return res.status(400).json({
+      error: err.message || "Invalid upload",
+      message: err.message || "Invalid upload",
+    });
+  }
+  const msg = String(err?.message || "");
+  if (msg.includes("Invalid file type")) {
+    return res.status(400).json({ error: msg, message: msg });
+  }
+  return next(err);
+});
 
 // Error handling
 app.use(notFoundHandler);
@@ -234,11 +296,21 @@ const startServer = async () => {
     await ensureDefaultProducts();
     await ensureSampleAdvert();
     await ensureDefaultLandingBackgrounds();
+    await ensureCourierCatalogSeed(true);
   } catch (error) {
     logger.error("Database not available (server will start; API will return 503 until DB is up):", error);
   }
 
+  void getFxRates().catch((err) => {
+    logger.warn("FX rates pre-warm failed (will retry on first request)", { err });
+  });
+
   initializeServices();
+  startTvChannelRestreamWorker();
+  startAgentCommissionDigestSchedulers();
+  startFacebookTvIngestScheduler();
+  initializeNewsScheduler();
+  initializeWorldCupTvScheduler();
   server.listen(PORT, () => {
     logger.info(`🚀 Server running on port ${PORT}`);
     logger.info(`📝 Environment: ${process.env.NODE_ENV || "development"}`);
@@ -261,6 +333,7 @@ const startServer = async () => {
 // Graceful shutdown
 const gracefulShutdown = (signal: string) => {
   logger.info(`${signal} received. Starting graceful shutdown...`);
+  stopTvChannelRestreamWorker();
   server.close(() => {
     logger.info("Server closed");
     process.exit(0);

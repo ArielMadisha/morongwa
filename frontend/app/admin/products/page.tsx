@@ -1,18 +1,46 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { adminAPI } from '@/lib/api';
 import { formatCurrencyAmount } from '@/lib/formatCurrency';
 import Link from 'next/link';
-import { ArrowLeft, Package, Loader2, Plus, Trash2, ImagePlus, X, Layers } from 'lucide-react';
+import { ArrowLeft, Package, Loader2, Plus, Trash2, ImagePlus, X, Layers, Wand2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
-const MAX_IMAGES = 5;
+import {
+  adminMarkupPctForCategory,
+  getMarketplaceCategoryMarkup,
+} from '@/lib/marketplaceCategoryMarkups';
+import { BULK_TIER_DEFAULT_MAX_QTY, normalizeBulkTierMaxQty } from '@/lib/bulkTierLimits';
+import { currencyForCountryCode, currencyLabel } from '@/lib/storeProductCurrency';
+
+const MAX_IMAGES = 10;
 const MIN_IMAGES = 1;
 
-function formatPrice(price: number) {
-  return formatCurrencyAmount(price, 'ZAR');
+function formatPrice(price: number, currency: string) {
+  return formatCurrencyAmount(price, currency || 'ZAR');
+}
+
+function roundMoneyZar(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
+/** Catalog list price from supplier base + category admin markup %. */
+function inclusiveListPriceFromBaseZar(base: number, adminMarkupPct: number): number {
+  if (!Number.isFinite(base) || base < 0) return 0;
+  return roundMoneyZar(base * (1 + adminMarkupPct / 100));
+}
+
+/** Pre-commission unit: discount when valid and < list, else list price from the form strings. */
+function effectiveBaseUnitZar(priceStr: string, discountStr: string): number | null {
+  const p = Number.parseFloat(String(priceStr).replace(',', '.'));
+  if (!Number.isFinite(p) || p < 0) return null;
+  const dRaw = String(discountStr || '').trim();
+  if (!dRaw) return p;
+  const d = Number.parseFloat(dRaw.replace(',', '.'));
+  if (!Number.isFinite(d) || d < 0 || d >= p) return p;
+  return d;
 }
 
 interface ProductRow {
@@ -31,7 +59,15 @@ interface ProductRow {
 interface SupplierOption {
   _id: string;
   storeName?: string;
+  country?: string;
+  countryCode?: string;
   userId?: { name?: string };
+}
+
+function supplierOptionLabel(s: SupplierOption): string {
+  const name = s.storeName || (s.userId as { name?: string })?.name || s._id;
+  const cc = s.countryCode || s.country;
+  return cc ? `${name} (${cc})` : name;
 }
 
 export default function AdminProductsPage() {
@@ -45,8 +81,11 @@ export default function AdminProductsPage() {
   const [totalProducts, setTotalProducts] = useState(0);
   const [showForm, setShowForm] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [normalizingCategories, setNormalizingCategories] = useState(false);
+  const [categoryOptions, setCategoryOptions] = useState<string[]>([]);
   const [imageFiles, setImageFiles] = useState<File[]>([]);
   const [imagePreviews, setImagePreviews] = useState<string[]>([]);
+  const [colorNames, setColorNames] = useState<string[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [form, setForm] = useState({
     supplierId: '',
@@ -54,7 +93,7 @@ export default function AdminProductsPage() {
     description: '',
     price: '',
     discountPrice: '',
-    stock: '0',
+    stock: '1000',
     outOfStock: false,
     sizes: '',
     allowResell: true,
@@ -62,6 +101,40 @@ export default function AdminProductsPage() {
     tags: '',
   });
   const [bulkTiers, setBulkTiers] = useState<Array<{ minQty: string; maxQty: string; price: string }>>([]);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+
+  const selectedSupplier = useMemo(
+    () => suppliers.find((s) => s._id === form.supplierId),
+    [suppliers, form.supplierId]
+  );
+  const loadCurrency = useMemo(
+    () => currencyForCountryCode(selectedSupplier?.countryCode),
+    [selectedSupplier?.countryCode]
+  );
+  const loadCurrencyLabel = useMemo(() => currencyLabel(loadCurrency), [loadCurrency]);
+
+  const baseUnit = useMemo(() => effectiveBaseUnitZar(form.price, form.discountPrice), [form.price, form.discountPrice]);
+
+  const adminMarkupPct = useMemo(() => adminMarkupPctForCategory(form.categories), [form.categories]);
+
+  const displaySellingPrice = useMemo(() => {
+    if (baseUnit == null) return '';
+    return formatPrice(inclusiveListPriceFromBaseZar(baseUnit, adminMarkupPct), loadCurrency);
+  }, [baseUnit, adminMarkupPct, loadCurrency]);
+
+  const resellerRangeHint = useMemo(() => {
+    if (!form.allowResell) return null;
+    const mk = getMarketplaceCategoryMarkup(form.categories);
+    if (!mk || baseUnit == null) return null;
+    const listP = inclusiveListPriceFromBaseZar(baseUnit, adminMarkupPct);
+    return {
+      lo: roundMoneyZar(listP * (1 + mk.resellerMinPct / 100)),
+      hi: roundMoneyZar(listP * (1 + mk.resellerMaxPct / 100)),
+      minPct: mk.resellerMinPct,
+      maxPct: mk.resellerMaxPct,
+    };
+  }, [form.allowResell, form.categories, baseUnit, adminMarkupPct]);
 
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
@@ -69,6 +142,11 @@ export default function AdminProductsPage() {
     if (imageFilesOnly.length !== files.length) toast.error('Only image files (JPEG, PNG, GIF, WebP) are allowed');
     const combined = [...imageFiles, ...imageFilesOnly].slice(0, MAX_IMAGES);
     setImageFiles(combined);
+    setColorNames((prev) => {
+      const next = [...prev];
+      while (next.length < combined.length) next.push('');
+      return next.slice(0, combined.length);
+    });
     const newPreviews = combined.map((f) => URL.createObjectURL(f));
     imagePreviews.forEach((url) => URL.revokeObjectURL(url));
     setImagePreviews(newPreviews);
@@ -78,6 +156,7 @@ export default function AdminProductsPage() {
   const removeImage = (index: number) => {
     const next = imageFiles.filter((_, i) => i !== index);
     setImageFiles(next);
+    setColorNames((prev) => prev.filter((_, i) => i !== index));
     imagePreviews.forEach((url) => URL.revokeObjectURL(url));
     setImagePreviews(next.map((f) => URL.createObjectURL(f)));
   };
@@ -85,7 +164,23 @@ export default function AdminProductsPage() {
   useEffect(() => {
     fetchProducts(1);
     fetchSuppliers();
+    adminAPI
+      .getProductCategories()
+      .then((res) => setCategoryOptions(Array.isArray(res.data?.data) ? res.data.data : []))
+      .catch(() => setCategoryOptions([]));
   }, []);
+
+  /** Drop selections that are no longer on the current list (e.g. after page change). */
+  useEffect(() => {
+    const onPage = new Set(products.map((p) => p._id));
+    setSelectedIds((prev) => {
+      const next = new Set<string>();
+      prev.forEach((id) => {
+        if (onPage.has(id)) next.add(id);
+      });
+      return next;
+    });
+  }, [products]);
 
   const fetchProducts = async (targetPage = 1, append = false) => {
     if (append) setLoadingMore(true);
@@ -113,11 +208,21 @@ export default function AdminProductsPage() {
 
   const fetchSuppliers = async () => {
     try {
-      const res = await adminAPI.getSuppliers({ status: 'approved', limit: 200 });
-      const list = res.data?.suppliers ?? res.data ?? [];
-      setSuppliers(Array.isArray(list) ? list : []);
+      const res = await adminAPI.getProductSupplierOptions({ limit: 200, hasActiveStore: true });
+      let list = res.data?.suppliers ?? res.data ?? [];
+      if (!Array.isArray(list)) list = [];
+      if (list.length === 0) {
+        const fallback = await adminAPI.getProductSupplierOptions({ limit: 200 });
+        const fallbackList = fallback.data?.suppliers ?? fallback.data ?? [];
+        list = Array.isArray(fallbackList) ? fallbackList : [];
+      }
+      setSuppliers(list);
+      if (list.length === 0) {
+        toast.error('No approved suppliers found — check Admin → Suppliers');
+      }
     } catch {
       setSuppliers([]);
+      toast.error('Could not load supplier list for product assignment');
     }
   };
 
@@ -127,8 +232,17 @@ export default function AdminProductsPage() {
       toast.error('Supplier, title and price are required');
       return;
     }
+    if (!form.categories.trim()) {
+      toast.error('Please select a category');
+      return;
+    }
     if (imageFiles.length < MIN_IMAGES) {
       toast.error(`At least ${MIN_IMAGES} product image is required (up to ${MAX_IMAGES})`);
+      return;
+    }
+    const trimmedColors = colorNames.map((c) => c.trim());
+    if (trimmedColors.length !== imageFiles.length || !trimmedColors.every((c) => c.length > 0)) {
+      toast.error('Enter a color name for each product image (e.g. Yellow, Black, Navy)');
       return;
     }
     setSubmitting(true);
@@ -140,36 +254,55 @@ export default function AdminProductsPage() {
         setSubmitting(false);
         return;
       }
-      const discountPrice = form.discountPrice.trim() ? Number(form.discountPrice) : undefined;
+      const baseList = Number(form.price);
+      const adminPct = adminMarkupPctForCategory(form.categories);
+      const inclusiveList = inclusiveListPriceFromBaseZar(baseList, adminPct);
+      let inclusiveDiscount: number | undefined;
+      if (form.discountPrice.trim()) {
+        const d = Number(form.discountPrice);
+        if (Number.isFinite(d) && d > 0 && d < baseList) {
+          const incD = inclusiveListPriceFromBaseZar(d, adminPct);
+          if (incD < inclusiveList) inclusiveDiscount = incD;
+        }
+      }
       const bulkTiersData = bulkTiers
-        .filter((t) => t.minQty.trim() && t.maxQty.trim() && t.price.trim())
-        .map((t) => ({
-          minQty: Number(t.minQty),
-          maxQty: Number(t.maxQty),
-          price: Number(t.price),
-        }))
-        .filter((t) => t.minQty >= 0 && t.maxQty >= t.minQty && t.price >= 0);
+        .filter((t) => t.minQty.trim() && t.price.trim())
+        .map((t) => {
+          const minQty = Number(t.minQty);
+          const maxRaw = Number(t.maxQty);
+          const maxQty = normalizeBulkTierMaxQty(maxRaw, minQty);
+          return {
+            minQty,
+            maxQty,
+            price: inclusiveListPriceFromBaseZar(Number(t.price), adminPct),
+          };
+        })
+        .filter((t) => t.minQty >= 1 && t.maxQty >= t.minQty && t.price >= 0);
+      const manualColors = trimmedColors.map((name, imageIndex) => ({ name, imageIndex }));
       await adminAPI.createProduct({
         supplierId: form.supplierId,
+        currency: loadCurrency,
         title: form.title.trim(),
         description: form.description.trim() || undefined,
         images: urls,
-        price: Number(form.price),
-        ...(discountPrice != null && discountPrice >= 0 && discountPrice < Number(form.price) && { discountPrice }),
+        price: inclusiveList,
+        ...(inclusiveDiscount != null && { discountPrice: inclusiveDiscount }),
         ...(bulkTiersData.length > 0 && { bulkTiers: bulkTiersData }),
         stock: Number(form.stock) || 0,
         outOfStock: form.outOfStock,
         sizes: form.sizes ? form.sizes.split(',').map((s) => s.trim()).filter(Boolean) : [],
         allowResell: form.allowResell,
-        categories: form.categories ? form.categories.split(',').map((s) => s.trim()).filter(Boolean) : [],
+        categories: form.categories ? [form.categories] : [],
         tags: form.tags ? form.tags.split(',').map((s) => s.trim()).filter(Boolean) : [],
+        colors: manualColors,
       });
       toast.success('Product created');
       setShowForm(false);
       imagePreviews.forEach((url) => URL.revokeObjectURL(url));
       setImageFiles([]);
       setImagePreviews([]);
-      setForm({ supplierId: form.supplierId, title: '', description: '', price: '', discountPrice: '', stock: '0', outOfStock: false, sizes: '', allowResell: true, categories: '', tags: '' });
+      setColorNames([]);
+      setForm({ supplierId: form.supplierId, title: '', description: '', price: '', discountPrice: '', stock: '1000', outOfStock: false, sizes: '', allowResell: true, categories: '', tags: '' });
       setBulkTiers([]);
       fetchProducts();
     } catch (err: any) {
@@ -183,11 +316,54 @@ export default function AdminProductsPage() {
     if (!confirm('Delete this product?')) return;
     try {
       await adminAPI.deleteProduct(id);
+      setSelectedIds((prev) => {
+        const n = new Set(prev);
+        n.delete(id);
+        return n;
+      });
       toast.success('Product deleted');
       const targetPage = products.length === 1 && page > 1 ? page - 1 : page;
       fetchProducts(targetPage);
     } catch {
       toast.error('Failed to delete product');
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedIds.size === 0) return;
+    if (!confirm(`Delete ${selectedIds.size} selected product(s)? This cannot be undone.`)) return;
+    setBulkDeleting(true);
+    const ids = [...selectedIds];
+    let ok = 0;
+    let fail = 0;
+    for (const id of ids) {
+      try {
+        await adminAPI.deleteProduct(id);
+        ok += 1;
+      } catch {
+        fail += 1;
+      }
+    }
+    setBulkDeleting(false);
+    setSelectedIds(new Set());
+    if (ok) toast.success(`Deleted ${ok} product(s).`);
+    if (fail) toast.error(`Failed to delete ${fail} product(s).`);
+    const clearedWholePage = ids.length === products.length && ok === ids.length;
+    fetchProducts(clearedWholePage && page > 1 ? page - 1 : page);
+  };
+
+  const handleNormalizeCategories = async () => {
+    if (!confirm('Auto-assign categories for products missing/invalid categories?')) return;
+    setNormalizingCategories(true);
+    try {
+      const fallbackCategory = form.categories || categoryOptions[0] || '';
+      const res = await adminAPI.categorizeMissingProducts({ fallbackCategory, limit: 3000 });
+      toast.success(`Categories normalized. Updated ${res.data?.updated ?? 0} products.`);
+      fetchProducts(page);
+    } catch {
+      toast.error('Failed to normalize categories');
+    } finally {
+      setNormalizingCategories(false);
     }
   };
 
@@ -198,13 +374,22 @@ export default function AdminProductsPage() {
           <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-6">
             <div>
               <p className="text-xs uppercase tracking-widest text-sky-600">Morongwa</p>
-              <h1 className="mt-1 text-3xl font-semibold text-slate-900">Marketplace products</h1>
+              <h1 className="mt-1 text-3xl font-semibold text-slate-900">Load Products</h1>
               <p className="mt-1 text-sm text-slate-600">Load and manage products for sale. Assign to an approved supplier.</p>
               <p className="mt-2 text-xs text-slate-500">
                 Showing {products.length} of {totalProducts} products (page {page} of {totalPages}, {PAGE_SIZE} per page)
               </p>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={handleNormalizeCategories}
+                disabled={normalizingCategories}
+                className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700 hover:bg-emerald-100 disabled:opacity-50"
+              >
+                {normalizingCategories ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />}
+                Auto-categorize products
+              </button>
               <button
                 type="button"
                 onClick={() => setShowForm(!showForm)}
@@ -234,12 +419,29 @@ export default function AdminProductsPage() {
                   >
                     <option value="">Select approved supplier</option>
                     {suppliers.map((s) => (
-                      <option key={s._id} value={s._id}>{s.storeName || (s.userId as any)?.name || s._id}</option>
+                      <option key={s._id} value={s._id}>{supplierOptionLabel(s)}</option>
                     ))}
                   </select>
                 </div>
                 <div className="sm:col-span-2">
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Product pictures * (1–5 images)</label>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Category *</label>
+                  <select
+                    required
+                    value={form.categories}
+                    onChange={(e) => setForm((f) => ({ ...f, categories: e.target.value }))}
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-slate-900 focus:border-sky-300 focus:outline-none focus:ring-2 focus:ring-sky-100"
+                  >
+                    <option value="">Select category</option>
+                    {categoryOptions.map((cat) => (
+                      <option key={cat} value={cat}>
+                        {cat}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-slate-500 mt-1">Choose the product&apos;s marketplace category.</p>
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Product pictures * (1–{MAX_IMAGES} images)</label>
                   <input
                     ref={fileInputRef}
                     type="file"
@@ -250,8 +452,23 @@ export default function AdminProductsPage() {
                   />
                   <div className="flex flex-wrap gap-3 items-start">
                     {imagePreviews.map((url, i) => (
-                      <div key={i} className="relative group">
+                      <div key={i} className="relative group flex flex-col gap-1">
                         <img src={url} alt={`Preview ${i + 1}`} className="h-24 w-24 object-cover rounded-lg border border-slate-200" />
+                        <input
+                          type="text"
+                          value={colorNames[i] || ''}
+                          onChange={(e) =>
+                            setColorNames((prev) => {
+                              const next = [...prev];
+                              while (next.length <= i) next.push('');
+                              next[i] = e.target.value;
+                              return next;
+                            })
+                          }
+                          placeholder={`Color ${i + 1} *`}
+                          required
+                          className="w-24 rounded border border-slate-200 px-1.5 py-1 text-xs text-slate-800"
+                        />
                         <button
                           type="button"
                           onClick={() => removeImage(i)}
@@ -272,7 +489,9 @@ export default function AdminProductsPage() {
                       </button>
                     )}
                   </div>
-                  <p className="text-xs text-slate-500 mt-1">At least one image required, max 5. JPEG, PNG, GIF or WebP.</p>
+                  <p className="text-xs text-slate-500 mt-1">
+                    At least one image required, max {MAX_IMAGES}. Enter the <span className="font-medium">actual garment color</span> for each photo — customers choose these at checkout (e.g. Yellow, Black, Navy).
+                  </p>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">Title *</label>
@@ -286,7 +505,7 @@ export default function AdminProductsPage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Price (ZAR) *</label>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Price ({loadCurrencyLabel}) *</label>
                   <input
                     type="number"
                     step="0.01"
@@ -297,10 +516,12 @@ export default function AdminProductsPage() {
                     className="w-full rounded-lg border border-slate-200 px-3 py-2 text-slate-900 focus:border-sky-300 focus:outline-none focus:ring-2 focus:ring-sky-100"
                     placeholder="0.00"
                   />
-                  <p className="text-xs text-slate-500 mt-1">7.5% commission to Qwertymates (paid after sale).</p>
+                  <p className="text-xs text-slate-500 mt-1">
+                    Amount before Markup ({form.categories.trim() || 'selected category'})
+                  </p>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Discount price (ZAR)</label>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Discount price ({loadCurrencyLabel})</label>
                   <input
                     type="number"
                     step="0.01"
@@ -310,7 +531,33 @@ export default function AdminProductsPage() {
                     className="w-full rounded-lg border border-slate-200 px-3 py-2 text-slate-900 focus:border-sky-300 focus:outline-none focus:ring-2 focus:ring-sky-100"
                     placeholder="Optional — e.g. 799 for sale"
                   />
-                  <p className="text-xs text-slate-500 mt-1">Cheaper price for discounted orders. Must be less than regular price.</p>
+                  <p className="text-xs text-slate-500 mt-1">
+                    Optional sale base (before markup). Must be less than regular base (before markup).
+                  </p>
+                </div>
+                <div className="rounded-xl border-2 border-sky-400/80 bg-sky-50/60 p-3 shadow-sm">
+                  <label className="block text-sm font-semibold text-slate-800 mb-1">Selling price ({loadCurrencyLabel})</label>
+                  <input
+                    type="text"
+                    readOnly
+                    tabIndex={-1}
+                    aria-readonly="true"
+                    value={displaySellingPrice}
+                    placeholder="Price calculated automatically"
+                    className="w-full cursor-default rounded-lg border border-sky-200 bg-white px-3 py-2 font-medium text-slate-900"
+                  />
+                  <p className="text-xs text-slate-600 mt-1.5">
+                    Includes {adminMarkupPct}% markup
+                    {form.categories.trim() ? ` (${form.categories.trim()})` : ''}.
+                  </p>
+                  {!form.allowResell ? (
+                    <p className="text-xs text-slate-500 mt-1">Reselling is off — only this list price applies.</p>
+                  ) : resellerRangeHint ? (
+                    <p className="text-xs text-slate-600 mt-1">
+                      Resellers may add {resellerRangeHint.minPct}%–{resellerRangeHint.maxPct}% on this list price (about{' '}
+                      {formatPrice(resellerRangeHint.lo)} – {formatPrice(resellerRangeHint.hi)}).
+                    </p>
+                  ) : null}
                 </div>
                 <div className="sm:col-span-2">
                   <div className="flex items-center justify-between mb-2">
@@ -323,7 +570,9 @@ export default function AdminProductsPage() {
                       <Layers className="h-4 w-4" /> Add bulk sale tier
                     </button>
                   </div>
-                  <p className="text-xs text-slate-500 mb-2">Quantity-based pricing. E.g. 1–100 at R50, 101–1000 at R45.</p>
+                  <p className="text-xs text-slate-500 mb-2">
+                    Quantity-based unit prices as <span className="font-semibold">base (before category markup)</span>; stored tiers use catalog list like the main price.
+                  </p>
                   {bulkTiers.length > 0 && (
                     <div className="space-y-2">
                       {bulkTiers.map((tier, i) => (
@@ -332,7 +581,7 @@ export default function AdminProductsPage() {
                           <input
                             type="number"
                             min="0"
-                            max="999999"
+                            max={String(BULK_TIER_DEFAULT_MAX_QTY)}
                             value={tier.minQty}
                             onChange={(e) => setBulkTiers((t) => t.map((x, j) => (j === i ? { ...x, minQty: e.target.value } : x)))}
                             placeholder="Min"
@@ -342,21 +591,21 @@ export default function AdminProductsPage() {
                           <input
                             type="number"
                             min="0"
-                            max="999999"
+                            max={String(BULK_TIER_DEFAULT_MAX_QTY)}
                             value={tier.maxQty}
                             onChange={(e) => setBulkTiers((t) => t.map((x, j) => (j === i ? { ...x, maxQty: e.target.value } : x)))}
-                            placeholder="Max"
+                            placeholder={String(BULK_TIER_DEFAULT_MAX_QTY)}
                             className="w-20 rounded-lg border border-slate-200 px-2 py-1.5 text-sm"
                           />
-                          <span className="text-sm font-medium text-slate-600">Price (ZAR)</span>
+                          <span className="text-sm font-medium text-slate-600">Unit base ({loadCurrencyLabel})</span>
                           <input
                             type="number"
                             step="0.01"
                             min="0"
                             value={tier.price}
                             onChange={(e) => setBulkTiers((t) => t.map((x, j) => (j === i ? { ...x, price: e.target.value } : x)))}
-                            placeholder="Per unit"
-                            className="w-24 rounded-lg border border-slate-200 px-2 py-1.5 text-sm"
+                            placeholder="Before markup"
+                            className="w-28 rounded-lg border border-slate-200 px-2 py-1.5 text-sm"
                           />
                           <button
                             type="button"
@@ -389,23 +638,13 @@ export default function AdminProductsPage() {
                   <p className="text-xs text-slate-500 mt-1">When checked, customers cannot add this product to cart.</p>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Sizes (comma-separated)</label>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Sizes (comma-separated or ranges)</label>
                   <input
                     type="text"
                     value={form.sizes}
                     onChange={(e) => setForm((f) => ({ ...f, sizes: e.target.value }))}
                     className="w-full rounded-lg border border-slate-200 px-3 py-2 text-slate-900 focus:border-sky-300 focus:outline-none focus:ring-2 focus:ring-sky-100"
-                    placeholder="S, M, L, XL"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Categories (comma-separated)</label>
-                  <input
-                    type="text"
-                    value={form.categories}
-                    onChange={(e) => setForm((f) => ({ ...f, categories: e.target.value }))}
-                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-slate-900 focus:border-sky-300 focus:outline-none focus:ring-2 focus:ring-sky-100"
-                    placeholder="Food, Local"
+                    placeholder="S, M, L, XL or S-4XL"
                   />
                 </div>
                 <div className="sm:col-span-2">
@@ -423,7 +662,9 @@ export default function AdminProductsPage() {
                     <input type="checkbox" checked={form.allowResell} onChange={(e) => setForm((f) => ({ ...f, allowResell: e.target.checked }))} className="rounded border-slate-300 text-sky-600" />
                     <span className="text-sm text-slate-700">Allow resell</span>
                   </label>
-                  <p className="text-xs text-slate-500 mt-1">Resellers set their own commission (3–7%) when adding to their store.</p>
+                  <p className="text-xs text-slate-500 mt-1">
+                    Resellers choose markup within the category band on the list price (see preview above).
+                  </p>
                 </div>
                 <div className="sm:col-span-2 flex gap-2">
                   <button type="submit" disabled={submitting} className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-700 disabled:opacity-50">
@@ -463,6 +704,24 @@ export default function AdminProductsPage() {
                   <table className="w-full">
                     <thead className="bg-slate-50 border-b border-slate-100">
                       <tr>
+                        <th className="w-[9.5rem] min-w-[9.5rem] py-2 px-2 align-top text-left" scope="col">
+                          <button
+                            type="button"
+                            onClick={handleBulkDelete}
+                            disabled={bulkDeleting || selectedIds.size === 0}
+                            className="inline-flex w-full flex-col items-stretch gap-1 rounded-lg border border-red-200 bg-red-50 px-2 py-1.5 text-left text-xs font-semibold text-red-700 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-45"
+                          >
+                            <span className="inline-flex items-center gap-1">
+                              {bulkDeleting ? <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" /> : <Trash2 className="h-3.5 w-3.5 shrink-0" />}
+                              Delete selected
+                            </span>
+                            {selectedIds.size > 0 ? (
+                              <span className="text-[10px] font-normal text-red-600/90">{selectedIds.size} on this page</span>
+                            ) : (
+                              <span className="text-[10px] font-normal text-slate-500">Select rows below</span>
+                            )}
+                          </button>
+                        </th>
                         <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700">Product</th>
                         <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700">Supplier</th>
                         <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700">CJ / External ID</th>
@@ -475,6 +734,22 @@ export default function AdminProductsPage() {
                     <tbody>
                       {products.map((p) => (
                         <tr key={p._id} className="border-b border-slate-50 hover:bg-slate-50/50">
+                          <td className="py-3 px-2 text-center align-middle">
+                            <input
+                              type="checkbox"
+                              className="h-4 w-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500"
+                              checked={selectedIds.has(p._id)}
+                              onChange={() => {
+                                setSelectedIds((prev) => {
+                                  const next = new Set(prev);
+                                  if (next.has(p._id)) next.delete(p._id);
+                                  else next.add(p._id);
+                                  return next;
+                                });
+                              }}
+                              aria-label={`Select ${p.title} for bulk delete`}
+                            />
+                          </td>
                           <td className="py-3 px-4">
                             <p className="font-medium text-slate-900">{p.title}</p>
                             <p className="text-xs text-slate-500">{p.slug}</p>

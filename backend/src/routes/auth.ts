@@ -10,9 +10,20 @@ import { registerSchema, loginSchema, sendOtpSchema, verifyOtpSchema } from "../
 import { authLimiter, otpSendLimiter, registerLimiter } from "../middleware/rateLimit";
 import { AppError } from "../middleware/errorHandler";
 import { authenticate, AuthRequest } from "../middleware/auth";
-import { sendOtpCode } from "../services/otpDelivery";
+import { sendOtpCode, otpSmsChannelReady, otpSmsReadyForCountry, countryIsoFromCanonicalDigits } from "../services/otpDelivery";
+import { getPrimaryWhatsappSendProfile } from "../utils/twilioWaCredentials";
 import { isValidForOtp, normalizePhone } from "../utils/phoneValidation";
-import { computePhoneLocale } from "../utils/phoneCountryCurrency";
+import { canonicalPhoneDigits } from "../utils/phoneE164";
+import { computePhoneLocale, sanitizePreferredCurrencyForApi } from "../utils/phoneCountryCurrency";
+import { isGenericDisplayName, sanitizeUserForClient } from "../utils/userDisplayLabel";
+import { assertRegistrationAllowed, isBlockedRegistrationPhonePrefix } from "../utils/registrationSecurity";
+import { getJwtSecret, getOtpSecret } from "../utils/secrets";
+import { getRunnerServiceCity } from "../data/runnerServiceAreas";
+import { bumpStatusStripCache } from "../services/statusStripPolicy";
+import path from "path";
+import { applyResolvedAvatarToUserPayload } from "../utils/resolveUserAvatar";
+
+const UPLOADS_ROOT = path.resolve(__dirname, "../uploads");
 
 const router = express.Router();
 
@@ -83,7 +94,6 @@ async function generateUniqueUsername(name: string): Promise<string> {
 // In-memory OTP store (use Redis/DB in production). Format: phone -> { otpHash, expiresAt }
 const otpStore = new Map<string, { otpHash: string; expiresAt: number }>();
 const OTP_EXPIRY_MS = 5 * 60 * 1000; // 5 minutes
-const OTP_SECRET = process.env.OTP_SECRET || "otp-secret-change-me";
 const OTP_VERIFY_MAX_ATTEMPTS = 5;
 const otpVerifyAttempts = new Map<string, { count: number; firstAt: number }>();
 
@@ -98,20 +108,29 @@ function getOtpVerifyAttemptEntry(phone: string): { count: number; firstAt: numb
   return existing;
 }
 
-// OTP provider health (safe, no secret values returned)
+// OTP provider health — disabled on production (use Twilio dashboard / internal ops).
 router.get("/otp-health", (_req: Request, res: Response) => {
+  if (process.env.NODE_ENV === "production") {
+    return res.status(404).json({ error: "Not found" });
+  }
   const hasSid = !!process.env.TWILIO_ACCOUNT_SID;
   const hasToken = !!process.env.TWILIO_AUTH_TOKEN;
   const hasSmsFrom = !!process.env.TWILIO_SMS_FROM;
-  const hasWhatsappFrom = !!process.env.TWILIO_WHATSAPP_FROM;
+  const hasSmsMessagingService = !!process.env.TWILIO_SMS_MESSAGING_SERVICE_SID;
+  const hasSmsFromBw = !!process.env.TWILIO_SMS_FROM_BW;
+  const hasWhatsappFrom = !!getPrimaryWhatsappSendProfile();
   const twilioConfigured = hasSid && hasToken;
 
   res.json({
     data: {
       provider: "twilio",
       configured: twilioConfigured,
-      smsReady: twilioConfigured && hasSmsFrom,
-      whatsappReady: twilioConfigured && hasWhatsappFrom,
+      smsReady: otpSmsChannelReady(),
+      smsReadyBw: otpSmsReadyForCountry("BW"),
+      smsReadyZa: otpSmsReadyForCountry("ZA"),
+      whatsappReady: hasWhatsappFrom,
+      hasSmsMessagingService,
+      hasRegionalSmsBw: hasSmsFromBw,
       mode: process.env.NODE_ENV === "production" ? "production" : "development",
     },
   });
@@ -123,17 +142,38 @@ router.post("/send-otp", otpSendLimiter, async (req: Request, res: Response, nex
     const { error } = sendOtpSchema.validate(req.body);
     if (error) throw new AppError(error.details[0].message, 400);
     const { phone, channel = "whatsapp" } = req.body;
-    const normalized = normalizePhone(phone);
-    if (normalized.length < 10) throw new AppError("Invalid phone number", 400);
+    const normalized = canonicalPhoneDigits(phone) || normalizePhone(phone);
+    if (!normalized || normalized.length < 10) {
+      throw new AppError(
+        "Invalid phone number. Use international format, e.g. +27 82 123 4567 or +267 71 234 567.",
+        400
+      );
+    }
 
-    const phoneCheck = isValidForOtp(phone);
+    const phoneCheck = isValidForOtp(normalized);
     if (!phoneCheck.valid) throw new AppError(phoneCheck.reason || "Invalid phone", 400);
+    if (isBlockedRegistrationPhonePrefix(normalized)) {
+      throw new AppError(
+        "This phone number range is not supported for verification. Use a standard mobile number or register with email.",
+        400
+      );
+    }
+
+    if (channel === "sms") {
+      const iso = countryIsoFromCanonicalDigits(normalized);
+      if (!otpSmsReadyForCountry(iso)) {
+        throw new AppError(
+          "SMS verification is not available for this country yet. Try WhatsApp or register with email.",
+          503
+        );
+      }
+    }
 
     const limitCheck = getPhoneOtpLimits(normalized);
     if (!limitCheck.allowed) throw new AppError(limitCheck.reason || "Too many requests", 429);
 
     const otp = crypto.randomInt(100000, 999999).toString();
-    const otpHash = crypto.createHmac("sha256", OTP_SECRET).update(otp).digest("hex");
+    const otpHash = crypto.createHmac("sha256", getOtpSecret()).update(otp).digest("hex");
     otpStore.set(normalized, { otpHash, expiresAt: Date.now() + OTP_EXPIRY_MS });
 
     await sendOtpCode({ phone: normalized, channel, otp });
@@ -152,7 +192,8 @@ router.post("/verify-otp", authLimiter, async (req: Request, res: Response, next
     const { error } = verifyOtpSchema.validate(req.body);
     if (error) throw new AppError(error.details[0].message, 400);
     const { phone, otp } = req.body;
-    const normalized = phone.replace(/\D/g, "");
+    const normalized = canonicalPhoneDigits(phone) || normalizePhone(phone);
+    if (!normalized) throw new AppError("Invalid phone number", 400);
 
     const stored = otpStore.get(normalized);
     if (!stored) throw new AppError("OTP expired or invalid", 400);
@@ -161,7 +202,7 @@ router.post("/verify-otp", authLimiter, async (req: Request, res: Response, next
       throw new AppError("OTP expired", 400);
     }
 
-    const otpHash = crypto.createHmac("sha256", OTP_SECRET).update(otp).digest("hex");
+    const otpHash = crypto.createHmac("sha256", getOtpSecret()).update(otp).digest("hex");
     if (otpHash !== stored.otpHash) {
       const attempts = getOtpVerifyAttemptEntry(normalized);
       attempts.count += 1;
@@ -175,7 +216,7 @@ router.post("/verify-otp", authLimiter, async (req: Request, res: Response, next
 
     otpStore.delete(normalized);
     otpVerifyAttempts.delete(normalized);
-    const otpToken = jwt.sign({ phone: normalized, verified: true }, OTP_SECRET, { expiresIn: "10m" });
+    const otpToken = jwt.sign({ phone: normalized, verified: true }, getOtpSecret(), { expiresIn: "10m" });
     res.json({ verified: true, otpToken });
   } catch (err) {
     next(err);
@@ -212,7 +253,7 @@ router.post("/register", registerLimiter, async (req: Request, res: Response, ne
 
     if (otpToken) {
       try {
-        const decoded = jwt.verify(otpToken, OTP_SECRET) as { phone: string };
+        const decoded = jwt.verify(otpToken, getOtpSecret()) as { phone: string };
         finalPhone = decoded.phone;
         finalEmail = `wa_${decoded.phone}@morongwa.local`;
       } catch {
@@ -233,6 +274,12 @@ router.post("/register", registerLimiter, async (req: Request, res: Response, ne
     } else {
       throw new AppError("Email or phone verification required", 400);
     }
+
+    await assertRegistrationAllowed({
+      name,
+      email: finalEmail,
+      phone: finalPhone,
+    });
 
     const existingUser = await User.findOne({ email: finalEmail });
     if (existingUser) {
@@ -278,6 +325,7 @@ router.post("/register", registerLimiter, async (req: Request, res: Response, ne
       if (loc.countryCode) Object.assign(userData, loc);
     }
     const user = await User.create(userData);
+    bumpStatusStripCache();
 
     // Create wallet for user
     await Wallet.create({ user: user._id });
@@ -289,15 +337,14 @@ router.post("/register", registerLimiter, async (req: Request, res: Response, ne
       meta: { email: user.email, role: user.role },
     });
 
-    const jwtSecret = process.env.JWT_SECRET || "default-secret-change-me";
-    const token = jwt.sign({ userId: user._id }, jwtSecret, { expiresIn: "7d" });
+    const token = jwt.sign({ userId: user._id }, getJwtSecret(), { expiresIn: "7d" });
 
     const fresh = await User.findById(user._id).select("-passwordHash").lean();
 
     res.status(201).json({
       message: "User registered successfully",
       token,
-      user: {
+      user: sanitizeUserForClient({
         id: fresh?._id,
         _id: fresh?._id,
         name: fresh?.name,
@@ -306,8 +353,8 @@ router.post("/register", registerLimiter, async (req: Request, res: Response, ne
         role: fresh?.role,
         phone: (fresh as any)?.phone,
         countryCode: (fresh as any)?.countryCode,
-        preferredCurrency: (fresh as any)?.preferredCurrency,
-      },
+        preferredCurrency: sanitizePreferredCurrencyForApi((fresh as any)?.preferredCurrency),
+      }),
     });
   } catch (err) {
     next(err);
@@ -346,6 +393,11 @@ router.post("/login", authLimiter, async (req: Request, res: Response, next) => 
       throw new AppError("Invalid credentials", 401);
     }
 
+    if (isGenericDisplayName(user.name) && (user as any).username) {
+      user.name = String((user as any).username).trim();
+      await user.save();
+    }
+
     if (user.phone && (!(user as any).countryCode || !(user as any).preferredCurrency)) {
       const loc = computePhoneLocale(user.phone);
       if (loc.countryCode) {
@@ -355,8 +407,13 @@ router.post("/login", authLimiter, async (req: Request, res: Response, next) => 
       }
     }
 
-    const jwtSecret = process.env.JWT_SECRET || "default-secret-change-me";
-    const token = jwt.sign({ userId: user._id }, jwtSecret, { expiresIn: "7d" });
+    const normalizedPref = sanitizePreferredCurrencyForApi((user as any).preferredCurrency);
+    if (String((user as any).preferredCurrency || "").toUpperCase() === "INR" && normalizedPref !== "INR") {
+      await User.updateOne({ _id: user._id }, { $set: { preferredCurrency: normalizedPref } });
+      (user as any).preferredCurrency = normalizedPref;
+    }
+
+    const token = jwt.sign({ userId: user._id }, getJwtSecret(), { expiresIn: "7d" });
 
     await AuditLog.create({
       action: "USER_LOGIN",
@@ -367,19 +424,22 @@ router.post("/login", authLimiter, async (req: Request, res: Response, next) => 
     res.json({
       message: "Login successful",
       token,
-      user: {
-        id: user._id,
-        _id: user._id,
-        name: user.name,
-        email: user.email,
-        username: (user as any).username,
-        role: user.role,
-        avatar: user.avatar,
-        stripBackgroundPic: (user as any).stripBackgroundPic,
-        phone: user.phone,
-        countryCode: (user as any).countryCode,
-        preferredCurrency: (user as any).preferredCurrency,
-      },
+      user: await applyResolvedAvatarToUserPayload(
+        sanitizeUserForClient({
+          id: user._id,
+          _id: user._id,
+          name: user.name,
+          email: user.email,
+          username: (user as any).username,
+          role: user.role,
+          avatar: user.avatar,
+          stripBackgroundPic: (user as any).stripBackgroundPic,
+          phone: user.phone,
+          countryCode: (user as any).countryCode,
+          preferredCurrency: sanitizePreferredCurrencyForApi((user as any).preferredCurrency),
+        }) as Record<string, unknown>,
+        UPLOADS_ROOT
+      ),
     });
   } catch (err) {
     next(err);
@@ -397,18 +457,41 @@ router.post("/request-runner", authenticate, authLimiter, async (req: AuthReques
       return res.json({ message: "Already a runner", user: user.toJSON() });
     }
 
+    const rawCategory = String(req.body?.runnerCategory || "courier").trim();
+    if (!["courier", "store_parcel"].includes(rawCategory)) {
+      throw new AppError("Invalid runner category. Use courier or store_parcel.", 400);
+    }
+
+    const runnerServiceCountry = String(req.body?.runnerServiceCountry || "").trim().toUpperCase();
+    const runnerServiceCity = String(req.body?.runnerServiceCity || "").trim().toLowerCase();
+    if (rawCategory === "store_parcel") {
+      if (!runnerServiceCountry || !runnerServiceCity) {
+        throw new AppError("Store/parcel runners must select a service country and city.", 400);
+      }
+      if (!getRunnerServiceCity(runnerServiceCountry, runnerServiceCity)) {
+        throw new AppError("Invalid service country or city.", 400);
+      }
+    }
+
     user.role = [...roles, "runner"];
+    user.runnerCategory = rawCategory as "courier" | "store_parcel";
+    if (runnerServiceCountry) user.runnerServiceCountry = runnerServiceCountry as any;
+    if (runnerServiceCity) user.runnerServiceCity = runnerServiceCity as any;
     await user.save();
 
     await AuditLog.create({
       action: "RUNNER_APPLICATION",
       user: user._id,
-      meta: { requestedAt: new Date() },
+      meta: { requestedAt: new Date(), runnerCategory: rawCategory, runnerServiceCountry, runnerServiceCity },
     });
 
     const userJson = user.toJSON ? user.toJSON() : user.toObject ? user.toObject() : user;
+    const verificationHint =
+      rawCategory === "store_parcel"
+        ? "Upload your ID/passport and proof of residence for admin approval."
+        : "Upload your driver's licence, PDP, and vehicle inspection for admin approval.";
     res.json({
-      message: "Runner application submitted. Complete verification (PDP, criminal record, vehicle) for admin approval.",
+      message: `Runner application submitted. ${verificationHint}`,
       user: userJson,
     });
   } catch (err) {
@@ -422,14 +505,18 @@ router.get("/me", async (req: any, res: Response, next) => {
     const token = req.headers.authorization?.replace("Bearer ", "");
     if (!token) throw new AppError("Authentication required", 401);
 
-    const jwtSecret = process.env.JWT_SECRET || "default-secret-change-me";
-    const decoded = jwt.verify(token, jwtSecret) as { userId: string };
+    const decoded = jwt.verify(token, getJwtSecret()) as { userId: string };
 
     await syncUserPhoneLocale(decoded.userId);
     const user = await User.findById(decoded.userId).select("-passwordHash");
     if (!user) throw new AppError("User not found", 404);
 
-    res.json({ user: user.toJSON() });
+    const json = user.toJSON() as Record<string, unknown>;
+    const clientUser = await applyResolvedAvatarToUserPayload(
+      sanitizeUserForClient(json) as Record<string, unknown>,
+      UPLOADS_ROOT
+    );
+    res.json({ user: clientUser });
   } catch (err) {
     next(err);
   }

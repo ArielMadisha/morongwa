@@ -1,5 +1,6 @@
 // Payment & escrow routes for PayGate + FNB integration
 import express, { Request, Response } from "express";
+import crypto from "crypto";
 import Payment from "../data/models/Payment";
 import Wallet from "../data/models/Wallet";
 import Transaction from "../data/models/Transaction";
@@ -18,6 +19,7 @@ import {
   initiatePayment,
   processPaymentCallback,
   getPayGateFlatFeeZar,
+  getPayGateFlatFeeZarResolved,
   verifyPayGateBridgeQuery,
   buildPayGateRedirectHtml,
   getPayGateProcessUrl,
@@ -27,17 +29,133 @@ import fnbService from "../services/fnbService";
 import logger from "../utils/logger";
 import { trySettleMoneyRequestAfterTopup, finalizeMoneyRequestAfterDirectCard } from "../services/moneyRequestService";
 import { generateReference } from "../utils/helpers";
-import { notifyOrderPaid } from "../services/orderNotification";
+import { walletPaymentLimiter } from "../middleware/rateLimit";
+import { notifyOrderPaid, notifyBuyerDeliveryPrepaid, notifyBuyerOrderPurchase } from "../services/orderNotification";
+import { finalizeCourierOnOrderPaid } from "../services/courierOrderHooks";
 import { forwardOrderToExternalSupplier } from "../services/orderForwardingService";
 import MusicPurchase from "../data/models/MusicPurchase";
 import Song from "../data/models/Song";
 import Cart from "../data/models/Cart";
+import {
+  cancelPendingOrderIfUnpaid,
+  clearBuyerCartAfterOrderPaid,
+  restoreCartLinesFromOrder,
+} from "../services/checkoutCartLifecycle";
 import { sendSms } from "../services/otpDelivery";
+import BankImport from "../data/models/BankImport";
+import BankTransaction from "../data/models/BankTransaction";
+import PaymentReceipt from "../data/models/PaymentReceipt";
+import AgentTransaction from "../data/models/AgentTransaction";
 
 const MUSIC_PLATFORM_COMMISSION_PCT = 30;
 const MUSIC_OWNER_SHARE_PCT = 70;
 
 const router = express.Router();
+router.use(walletPaymentLimiter);
+
+const AGENT_CASHIN_FEE_ZAR = Math.max(0, Number(process.env.AGENT_CASHIN_FEE_ZAR || 5));
+
+function isAdminUser(req: AuthRequest): boolean {
+  const roles = Array.isArray(req.user?.role) ? req.user!.role : [];
+  return roles.includes("admin") || roles.includes("superadmin");
+}
+
+function normalizeReference(input: string): string {
+  return String(input || "").trim().toLowerCase().replace(/\s+/g, "");
+}
+
+function parseCsvRows(csvText: string): Array<{ date?: string; amount: number; reference: string }> {
+  const lines = String(csvText || "")
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+  if (!lines.length) return [];
+  const body = lines.slice(1);
+  const rows: Array<{ date?: string; amount: number; reference: string }> = [];
+  for (const line of body) {
+    const parts = line.split(",").map((x) => x.trim());
+    if (parts.length < 3) continue;
+    const [date, amountRaw, ...refParts] = parts;
+    const amount = Number(String(amountRaw).replace(/[^\d.-]/g, ""));
+    const reference = refParts.join(",").trim();
+    if (!reference || !(amount > 0)) continue;
+    rows.push({ date, amount, reference });
+  }
+  return rows;
+}
+
+async function resolveUserFromBankReference(reference: string) {
+  const raw = String(reference || "").trim();
+  if (!raw) return null;
+  const normalized = normalizeReference(raw);
+  const digits = raw.replace(/\D/g, "");
+
+  let user =
+    (digits ? await User.findOne({ phone: { $regex: `${digits}$` } }).select("_id phone email").lean() : null) ||
+    null;
+  if (user) return user;
+
+  // Supports WLT-<mongoUserId>
+  if (normalized.startsWith("wlt-")) {
+    const maybeId = raw.slice(raw.indexOf("-") + 1).trim();
+    if (/^[a-fA-F0-9]{24}$/.test(maybeId)) {
+      user = await User.findById(maybeId).select("_id phone email").lean();
+      if (user) return user;
+    }
+  }
+  return null;
+}
+
+async function createReceipt(params: {
+  userId?: any;
+  amount: number;
+  method: "paygate" | "bank" | "agent" | "wallet";
+  reference: string;
+  purpose?: string;
+  status?: "completed" | "pending" | "failed";
+  meta?: Record<string, any>;
+}) {
+  const receipt = await PaymentReceipt.findOneAndUpdate(
+    { reference: params.reference },
+    {
+      $setOnInsert: {
+        user: params.userId,
+        amount: params.amount,
+        method: params.method,
+        reference: params.reference,
+        purpose: params.purpose || "Payment",
+        status: params.status || "completed",
+        deliveredWeb: true,
+        deliveredWhatsapp: false,
+        deliveredEmail: false,
+        meta: params.meta || {},
+      },
+    },
+    { upsert: true, new: true }
+  );
+
+  if (params.userId) {
+    const user = await User.findById(params.userId).select("phone").lean();
+    const phone = String((user as any)?.phone || "").trim();
+    if (phone) {
+      const text = [
+        "Payment Received",
+        `Amount: R${Number(params.amount || 0).toFixed(2)}`,
+        `Method: ${params.method.toUpperCase()}`,
+        `Reference: ${params.reference}`,
+        `Purpose: ${params.purpose || "Payment"}`,
+        `Status: ${(params.status || "completed").toUpperCase()}`,
+      ].join("\n");
+      try {
+        await sendSms({ phone, text, channel: "whatsapp" });
+        await PaymentReceipt.updateOne({ _id: (receipt as any)._id }, { $set: { deliveredWhatsapp: true } });
+      } catch {
+        // Non-blocking receipt delivery.
+      }
+    }
+  }
+  return receipt;
+}
 
 /** Browser/mobile open this URL after initiate — returns HTML that POSTs to PayWeb3 process.trans (GET to process.trans is invalid). */
 router.get("/paygate-redirect", (req: Request, res: Response) => {
@@ -58,7 +176,11 @@ router.get("/paygate-redirect", (req: Request, res: Response) => {
 });
 
 async function creditAdminPayGateFee(reference: string): Promise<void> {
-  const fee = getPayGateFlatFeeZar();
+  // Flat fee is only for wallet top-up style flows (not checkout/store card payments).
+  const ref = String(reference || "").trim().toUpperCase();
+  const feeEligible = ref.startsWith("TOPUP-") || ref.startsWith("PAY-");
+  if (!feeEligible) return;
+  const fee = await getPayGateFlatFeeZarResolved();
   if (!(fee > 0)) return;
   const adminEmail = String(process.env.ADMIN_EMAIL || "").trim();
   if (!adminEmail) return;
@@ -82,6 +204,31 @@ async function creditAdminPayGateFee(reference: string): Promise<void> {
     user: adminUser._id,
     meta: { reference, fee },
   });
+}
+
+async function ensureOrderVisibleInBuyerWalletHistory(order: any): Promise<void> {
+  const buyerId = String(order?.buyerId || "").trim();
+  const orderId = String(order?._id || "").trim();
+  if (!buyerId || !orderId) return;
+  const amount = Number(order?.amounts?.total ?? 0);
+  if (!(amount > 0)) return;
+  const reference = `ORDER-${orderId}`;
+
+  let wallet = await Wallet.findOne({ user: buyerId });
+  if (!wallet) wallet = await Wallet.create({ user: buyerId as any });
+  const exists = (wallet.transactions || []).some(
+    (tx: any) => String(tx?.reference || "").trim() === reference
+  );
+  if (exists) return;
+
+  // History-only debit row (no balance mutation): card checkout should still appear in ACBPay history.
+  wallet.transactions.push({
+    type: "debit",
+    amount: -amount,
+    reference,
+    createdAt: order?.paidAt ? new Date(order.paidAt) : new Date(),
+  });
+  await wallet.save();
 }
 
 async function notifyDirectWalletSendSuccess(params: {
@@ -258,8 +405,14 @@ router.post("/webhook", async (req: Request, res: Response) => {
         wallet.transactions.push({ type: "topup", amount: 1, reference: ref, createdAt: new Date() });
         await wallet.save();
         await AuditLog.create({ action: "WALLET_CARD_ADDED", user: uid, meta: { reference: ref } });
+        await createReceipt({
+          userId: uid,
+          amount: 1,
+          method: "paygate",
+          reference: ref,
+          purpose: "Add card tokenization credit",
+        });
       }
-      await creditAdminPayGateFee(ref);
       return sendOk();
     }
 
@@ -283,13 +436,24 @@ router.post("/webhook", async (req: Request, res: Response) => {
         session.status = "completed";
         session.completedAt = new Date();
         await session.save();
+        await notifyBuyerOrderPurchase({
+          buyerId: String(session.payerId),
+          orderId: String(session.reference),
+          totalZar: amount,
+        });
         await AuditLog.create({
           action: "CHECKOUT_PAY_CARD",
           user: session.payerId,
           meta: { amount, merchantId: session.merchantId, reference: session.reference },
         });
+        await createReceipt({
+          userId: session.payerId,
+          amount,
+          method: "paygate",
+          reference: String(ref),
+          purpose: "Marketplace checkout",
+        });
       }
-      await creditAdminPayGateFee(ref);
       return sendOk();
     }
 
@@ -313,8 +477,14 @@ router.post("/webhook", async (req: Request, res: Response) => {
           user: pr.fromUser,
           meta: { amount, toUser: pr.toUser, reference: pr.reference },
         });
+        await createReceipt({
+          userId: pr.fromUser,
+          amount,
+          method: "paygate",
+          reference: String(ref),
+          purpose: "QR payment by card",
+        });
       }
-      await creditAdminPayGateFee(ref);
       return sendOk();
     }
 
@@ -338,6 +508,16 @@ router.post("/webhook", async (req: Request, res: Response) => {
           order.paidAt = new Date();
           order.paymentReference = payment.reference;
           await order.save();
+          await notifyBuyerOrderPurchase({
+            buyerId: order.buyerId.toString(),
+            orderId: order._id.toString(),
+            totalZar: Number(order.amounts?.total ?? payment.amount ?? 0),
+            items: order.items.map((it: { productId: { toString(): string }; qty: number }) => ({
+              productId: it.productId.toString(),
+              qty: it.qty,
+            })),
+          });
+          await ensureOrderVisibleInBuyerWalletHistory(order);
           await notifyOrderPaid({
             orderId: order._id.toString(),
             buyerId: order.buyerId.toString(),
@@ -346,13 +526,22 @@ router.post("/webhook", async (req: Request, res: Response) => {
               qty: it.qty,
             })),
           });
+          if ((order.amounts as any)?.deliveryPrepaid) {
+            await notifyBuyerDeliveryPrepaid({
+              buyerId: order.buyerId.toString(),
+              orderId: order._id.toString(),
+              shippingZar: Number(order.amounts?.shipping ?? 0),
+            });
+          }
           forwardOrderToExternalSupplier(order._id.toString()).catch((err) =>
             console.error("Order forward to external supplier failed:", err)
           );
+          await finalizeCourierOnOrderPaid(order._id.toString());
           const musicItems = (order as any).musicItems;
           if (Array.isArray(musicItems) && musicItems.length > 0) {
             await processMusicPurchases(musicItems, order.buyerId);
           }
+          await clearBuyerCartAfterOrderPaid(order.buyerId.toString());
         }
       } else if (payment.reference.startsWith("MUSIC-")) {
         const meta = payment.metadata as { musicItems?: Array<{ songId: any; qty: number; price: number }> } | undefined;
@@ -410,6 +599,13 @@ router.post("/webhook", async (req: Request, res: Response) => {
             senderPhone: meta.senderPhone,
             recipientPhone: meta.recipientPhone,
           });
+          await createReceipt({
+            userId: meta.senderUserId || payment.user,
+            amount: Number(meta.sendAmount || payment.amount),
+            method: "paygate",
+            reference: payment.reference,
+            purpose: "Direct wallet send via card top-up",
+          });
         } else {
           let wallet = await Wallet.findOne({ user: payment.user });
           if (!wallet) wallet = await Wallet.create({ user: payment.user });
@@ -429,12 +625,30 @@ router.post("/webhook", async (req: Request, res: Response) => {
             reference: payment.reference,
             status: "successful",
           });
+          await createReceipt({
+            userId: payment.user,
+            amount: payment.amount,
+            method: "paygate",
+            reference: payment.reference,
+            purpose: "Wallet top-up",
+          });
         }
         if (meta.moneyRequestId && meta.directToRequester) {
           await finalizeMoneyRequestAfterDirectCard(meta.moneyRequestId);
         } else if (meta.moneyRequestId) {
           await trySettleMoneyRequestAfterTopup(payment.user as any, meta.moneyRequestId);
         }
+      }
+    } else if (
+      result.status === "failed" &&
+      !wasSuccessful &&
+      payment.reference.startsWith("ORDER-")
+    ) {
+      const orderId = payment.reference.replace("ORDER-", "");
+      const order = await Order.findById(orderId);
+      if (order && order.status === "pending_payment") {
+        await cancelPendingOrderIfUnpaid(orderId);
+        await restoreCartLinesFromOrder(order);
       }
     }
 
@@ -483,56 +697,531 @@ router.get("/", authenticate, async (req: AuthRequest, res: Response, next) => {
   }
 });
 
+// Manual bank deposit import (CSV reconciliation) - admin only
+router.post("/bank/import", authenticate, async (req: AuthRequest, res: Response, next) => {
+  try {
+    if (!isAdminUser(req)) throw new AppError("Admin access required", 403);
+    const fileName = String(req.body?.fileName || "bank-statement.csv").trim().slice(0, 200);
+    const csvContent = String(req.body?.csvContent || "");
+    if (!csvContent.trim()) throw new AppError("csvContent is required", 400);
+
+    const rows = parseCsvRows(csvContent);
+    if (!rows.length) throw new AppError("No valid CSV rows found", 400);
+
+    const fileHash = crypto.createHash("sha256").update(csvContent).digest("hex");
+    const existingImport = await BankImport.findOne({ fileHash }).lean();
+    if (existingImport) throw new AppError("Duplicate CSV upload blocked", 409);
+
+    const importRow = await BankImport.create({
+      fileName,
+      uploadedBy: req.user!._id,
+      fileHash,
+      rowCount: rows.length,
+      processedAt: new Date(),
+    });
+
+    let matched = 0;
+    let unmatched = 0;
+    let duplicates = 0;
+
+    for (const row of rows) {
+      const normalizedReference = normalizeReference(row.reference);
+      const txDate = row.date ? new Date(row.date) : undefined;
+      const dateKey = txDate && !Number.isNaN(txDate.getTime()) ? txDate.toISOString().slice(0, 10) : "na";
+      const dedupeKey = crypto
+        .createHash("sha256")
+        .update(`${dateKey}|${row.amount.toFixed(2)}|${normalizedReference}`)
+        .digest("hex");
+
+      const duplicateTx = await BankTransaction.findOne({ dedupeKey }).lean();
+      if (duplicateTx) {
+        duplicates += 1;
+        await BankTransaction.create({
+          importId: importRow._id,
+          txDate: txDate && !Number.isNaN(txDate.getTime()) ? txDate : undefined,
+          amount: row.amount,
+          reference: row.reference,
+          normalizedReference,
+          status: "duplicate",
+          dedupeKey: `${dedupeKey}-dup-${Date.now()}-${Math.random()}`,
+        });
+        continue;
+      }
+
+      const user = await resolveUserFromBankReference(row.reference);
+      if (!user?._id) {
+        unmatched += 1;
+        await BankTransaction.create({
+          importId: importRow._id,
+          txDate: txDate && !Number.isNaN(txDate.getTime()) ? txDate : undefined,
+          amount: row.amount,
+          reference: row.reference,
+          normalizedReference,
+          status: "unmatched",
+          dedupeKey,
+        });
+        continue;
+      }
+
+      let wallet = await Wallet.findOne({ user: user._id });
+      if (!wallet) wallet = await Wallet.create({ user: user._id });
+      const receiptReference = `BANK-${Date.now()}-${Math.round(Math.random() * 1e6)}`;
+
+      wallet.balance += row.amount;
+      wallet.transactions.push({
+        type: "topup",
+        amount: row.amount,
+        reference: receiptReference,
+        createdAt: new Date(),
+      });
+      await wallet.save();
+
+      await Transaction.create({
+        wallet: wallet._id,
+        user: user._id,
+        type: "topup",
+        amount: row.amount,
+        reference: receiptReference,
+        status: "successful",
+        meta: {
+          method: "bank",
+          sourceReference: row.reference,
+          importId: importRow._id,
+        },
+      });
+
+      await createReceipt({
+        userId: user._id,
+        amount: row.amount,
+        method: "bank",
+        reference: receiptReference,
+        purpose: "Bank deposit wallet top-up",
+        meta: { sourceReference: row.reference, importId: String(importRow._id) },
+      });
+
+      matched += 1;
+      await BankTransaction.create({
+        importId: importRow._id,
+        txDate: txDate && !Number.isNaN(txDate.getTime()) ? txDate : undefined,
+        amount: row.amount,
+        reference: row.reference,
+        normalizedReference,
+        matchedUserId: user._id,
+        walletId: wallet._id,
+        status: "matched",
+        dedupeKey,
+        receiptReference,
+      });
+    }
+
+    importRow.matchedCount = matched;
+    importRow.unmatchedCount = unmatched;
+    importRow.duplicateCount = duplicates;
+    await importRow.save();
+
+    await AuditLog.create({
+      action: "BANK_IMPORT_PROCESSED",
+      user: req.user!._id,
+      meta: {
+        importId: importRow._id,
+        rowCount: importRow.rowCount,
+        matched,
+        unmatched,
+        duplicates,
+      },
+    });
+
+    res.status(201).json({
+      message: "Bank CSV processed",
+      data: {
+        importId: importRow._id,
+        rowCount: importRow.rowCount,
+        matched,
+        unmatched,
+        duplicates,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get("/bank/imports", authenticate, async (req: AuthRequest, res: Response, next) => {
+  try {
+    if (!isAdminUser(req)) throw new AppError("Admin access required", 403);
+    const rows = await BankImport.find().sort({ processedAt: -1 }).limit(100).lean();
+    res.json({ data: rows });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get("/bank/unmatched", authenticate, async (req: AuthRequest, res: Response, next) => {
+  try {
+    if (!isAdminUser(req)) throw new AppError("Admin access required", 403);
+    const rows = await BankTransaction.find({ status: "unmatched" }).sort({ createdAt: -1 }).limit(200).lean();
+    res.json({ data: rows });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post("/bank/allocate", authenticate, async (req: AuthRequest, res: Response, next) => {
+  try {
+    if (!isAdminUser(req)) throw new AppError("Admin access required", 403);
+    const bankTxId = String(req.body?.bankTxId || "").trim();
+    const userId = String(req.body?.userId || "").trim();
+    if (!bankTxId || !userId) throw new AppError("bankTxId and userId are required", 400);
+    const bankTx = await BankTransaction.findById(bankTxId);
+    if (!bankTx) throw new AppError("Bank transaction not found", 404);
+    if (bankTx.status !== "unmatched") throw new AppError("Transaction already processed", 400);
+    const user = await User.findById(userId).select("_id").lean();
+    if (!user?._id) throw new AppError("User not found", 404);
+
+    let wallet = await Wallet.findOne({ user: user._id });
+    if (!wallet) wallet = await Wallet.create({ user: user._id });
+
+    const receiptReference = `BANK-ALLOC-${Date.now()}-${Math.round(Math.random() * 1e6)}`;
+    wallet.balance += Number(bankTx.amount || 0);
+    wallet.transactions.push({
+      type: "topup",
+      amount: Number(bankTx.amount || 0),
+      reference: receiptReference,
+      createdAt: new Date(),
+    });
+    await wallet.save();
+
+    await Transaction.create({
+      wallet: wallet._id,
+      user: user._id,
+      type: "topup",
+      amount: Number(bankTx.amount || 0),
+      reference: receiptReference,
+      status: "successful",
+      meta: { method: "bank", sourceReference: bankTx.reference, allocatedByAdmin: true },
+    });
+
+    bankTx.status = "matched";
+    bankTx.matchedUserId = user._id as any;
+    bankTx.walletId = wallet._id as any;
+    bankTx.receiptReference = receiptReference;
+    await bankTx.save();
+
+    await createReceipt({
+      userId: user._id,
+      amount: Number(bankTx.amount || 0),
+      method: "bank",
+      reference: receiptReference,
+      purpose: "Bank deposit manual allocation",
+      meta: { bankTxId: String(bankTx._id) },
+    });
+
+    await AuditLog.create({
+      action: "BANK_TX_ALLOCATED",
+      user: req.user!._id,
+      meta: { bankTxId: bankTx._id, userId: user._id, amount: bankTx.amount },
+    });
+
+    res.json({ message: "Bank transaction allocated", receiptReference });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Agent cash-in: pre-funded agent transfers wallet float to user (offline cash accepted by agent)
+router.post("/agent/cash-in", authenticate, async (req: AuthRequest, res: Response, next) => {
+  try {
+    const amount = Number(req.body?.amount || 0);
+    const targetUserId = String(req.body?.userId || "").trim();
+    if (!targetUserId || !(amount > 0)) throw new AppError("userId and amount are required", 400);
+    if (String(req.user!._id) === targetUserId) throw new AppError("Cannot cash-in to self", 400);
+
+    const actor = await User.findById(req.user!._id).select("merchantAgent isVerified suspended locked active").lean();
+    const isApprovedAgent =
+      !!(actor as any)?.isVerified &&
+      !(actor as any)?.suspended &&
+      !(actor as any)?.locked &&
+      !!(actor as any)?.active &&
+      ((actor as any)?.merchantAgent?.applicationStatus === "approved" || (actor as any)?.merchantAgent?.enabled === true);
+    if (!isApprovedAgent) throw new AppError("Approved verified agent required", 403);
+
+    let agentWallet = await Wallet.findOne({ user: req.user!._id });
+    if (!agentWallet) agentWallet = await Wallet.create({ user: req.user!._id });
+    if (Number(agentWallet.balance || 0) < amount) {
+      throw new AppError("Insufficient agent balance. Prefund your wallet first.", 400);
+    }
+
+    const targetUser = await User.findById(targetUserId).select("_id").lean();
+    if (!targetUser?._id) throw new AppError("Target user not found", 404);
+    let userWallet = await Wallet.findOne({ user: targetUser._id });
+    if (!userWallet) userWallet = await Wallet.create({ user: targetUser._id });
+
+    const reference = `AGENT-CASHIN-${Date.now()}-${Math.round(Math.random() * 1e6)}`;
+    const now = new Date();
+
+    agentWallet.balance -= amount;
+    agentWallet.transactions.push({ type: "debit", amount: -amount, reference, createdAt: now });
+    await agentWallet.save();
+
+    userWallet.balance += amount;
+    userWallet.transactions.push({ type: "credit", amount, reference, createdAt: now });
+    await userWallet.save();
+
+    await AgentTransaction.create({
+      agentId: req.user!._id,
+      userId: targetUser._id,
+      amount,
+      fee: AGENT_CASHIN_FEE_ZAR,
+      reference,
+    });
+
+    await Transaction.create({
+      wallet: agentWallet._id,
+      user: req.user!._id,
+      type: "debit",
+      amount,
+      reference,
+      status: "successful",
+      meta: { method: "agent", side: "agent_debit", feeCashKeptByAgent: AGENT_CASHIN_FEE_ZAR },
+    });
+    await Transaction.create({
+      wallet: userWallet._id,
+      user: targetUser._id,
+      type: "credit",
+      amount,
+      reference,
+      status: "successful",
+      meta: { method: "agent", side: "user_credit", feeCashKeptByAgent: AGENT_CASHIN_FEE_ZAR },
+    });
+
+    await createReceipt({
+      userId: targetUser._id,
+      amount,
+      method: "agent",
+      reference,
+      purpose: "Agent cash-in",
+      meta: { fee: AGENT_CASHIN_FEE_ZAR, agentId: String(req.user!._id) },
+    });
+
+    res.status(201).json({
+      message: "Agent cash-in completed",
+      reference,
+      amount,
+      fee: AGENT_CASHIN_FEE_ZAR,
+      agentBalance: Number(agentWallet.balance || 0),
+      userBalance: Number(userWallet.balance || 0),
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get("/agent/transactions", authenticate, async (req: AuthRequest, res: Response, next) => {
+  try {
+    const mineOnly = String(req.query.mineOnly || "true") !== "false";
+    const q: any = mineOnly || !isAdminUser(req) ? { agentId: req.user!._id } : {};
+    const rows = await AgentTransaction.find(q)
+      .populate("agentId", "name username phone")
+      .populate("userId", "name username phone")
+      .sort({ createdAt: -1 })
+      .limit(100)
+      .lean();
+    res.json({ data: rows });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get("/receipts/:reference", authenticate, async (req: AuthRequest, res: Response, next) => {
+  try {
+    const reference = String(req.params.reference || "").trim();
+    const receipt = await PaymentReceipt.findOne({ reference }).lean();
+    if (!receipt) throw new AppError("Receipt not found", 404);
+    if (!isAdminUser(req) && String((receipt as any).user || "") !== String(req.user!._id)) {
+      throw new AppError("Unauthorized", 403);
+    }
+    res.json({ data: receipt });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get("/monitoring/summary", authenticate, async (req: AuthRequest, res: Response, next) => {
+  try {
+    if (!isAdminUser(req)) throw new AppError("Admin access required", 403);
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+    const [paygate, bank, agent, unmatched, importsToday] = await Promise.all([
+      Payment.aggregate([
+        { $match: { createdAt: { $gte: start }, status: "successful" } },
+        { $group: { _id: null, total: { $sum: "$amount" }, count: { $sum: 1 } } },
+      ]),
+      BankTransaction.aggregate([
+        { $match: { createdAt: { $gte: start }, status: "matched" } },
+        { $group: { _id: null, total: { $sum: "$amount" }, count: { $sum: 1 } } },
+      ]),
+      AgentTransaction.aggregate([
+        { $match: { createdAt: { $gte: start } } },
+        { $group: { _id: null, total: { $sum: "$amount" }, count: { $sum: 1 }, fees: { $sum: "$fee" } } },
+      ]),
+      BankTransaction.countDocuments({ status: "unmatched" }),
+      BankImport.countDocuments({ processedAt: { $gte: start } }),
+    ]);
+    res.json({
+      data: {
+        dayStart: start,
+        paygate: {
+          total: Number(paygate[0]?.total || 0),
+          count: Number(paygate[0]?.count || 0),
+        },
+        bank: {
+          total: Number(bank[0]?.total || 0),
+          count: Number(bank[0]?.count || 0),
+          unmatchedCount: Number(unmatched || 0),
+          importsToday: Number(importsToday || 0),
+        },
+        agent: {
+          total: Number(agent[0]?.total || 0),
+          count: Number(agent[0]?.count || 0),
+          feeCashTotal: Number(agent[0]?.fees || 0),
+        },
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get("/reconciliation/daily", authenticate, async (req: AuthRequest, res: Response, next) => {
+  try {
+    if (!isAdminUser(req)) throw new AppError("Admin access required", 403);
+    const from = req.query.from ? new Date(String(req.query.from)) : new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const to = req.query.to ? new Date(String(req.query.to)) : new Date();
+    const [paygate, bankMatched, bankUnmatched, agentCashIn] = await Promise.all([
+      Payment.aggregate([
+        { $match: { createdAt: { $gte: from, $lte: to }, status: "successful" } },
+        { $group: { _id: null, total: { $sum: "$amount" }, count: { $sum: 1 } } },
+      ]),
+      BankTransaction.aggregate([
+        { $match: { createdAt: { $gte: from, $lte: to }, status: "matched" } },
+        { $group: { _id: null, total: { $sum: "$amount" }, count: { $sum: 1 } } },
+      ]),
+      BankTransaction.aggregate([
+        { $match: { createdAt: { $gte: from, $lte: to }, status: "unmatched" } },
+        { $group: { _id: null, total: { $sum: "$amount" }, count: { $sum: 1 } } },
+      ]),
+      AgentTransaction.aggregate([
+        { $match: { createdAt: { $gte: from, $lte: to } } },
+        { $group: { _id: null, total: { $sum: "$amount" }, count: { $sum: 1 } } },
+      ]),
+    ]);
+    res.json({
+      data: {
+        from,
+        to,
+        paygate: { total: Number(paygate[0]?.total || 0), count: Number(paygate[0]?.count || 0) },
+        bankMatched: { total: Number(bankMatched[0]?.total || 0), count: Number(bankMatched[0]?.count || 0) },
+        bankUnmatched: { total: Number(bankUnmatched[0]?.total || 0), count: Number(bankUnmatched[0]?.count || 0) },
+        agentCashIn: { total: Number(agentCashIn[0]?.total || 0), count: Number(agentCashIn[0]?.count || 0) },
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // ===== ESCROW & PAYOUT ENDPOINTS =====
 
 /**
  * POST /api/payments/webhook/paygate-escrow
- * PayGate webhook for escrow task payments
+ * PayGate settlement for task escrow — requires valid PayGate CHECKSUM.
  */
 router.post("/webhook/paygate-escrow", async (req: Request, res: Response) => {
+  const sendOk = () => res.status(200).send("OK");
+
   try {
-    const { reference, status, amount, taskId, clientId, runnerId, paymentMethod } = req.body;
+    const callbackData = { ...(req.body || {}) };
+    const result = await processPaymentCallback(callbackData);
 
-    logger.info("PayGate escrow webhook received", { reference, status, amount });
-
-    if (status !== "settled") {
-      return res.status(400).json({ error: "Payment not settled", reference });
+    if (result.status !== "successful") {
+      return res.status(400).json({ error: "Payment not successful", reference: result.reference });
     }
 
-    // Create escrow record
+    const ref = result.reference;
+
+    const existingEscrow = await Escrow.findOne({ paymentReference: ref });
+    if (existingEscrow) {
+      return sendOk();
+    }
+
+    const payment = await Payment.findOne({ reference: ref });
+    if (!payment) {
+      logger.warn("Escrow webhook: unknown payment reference", { ref });
+      return res.status(400).json({ error: "Unknown payment reference" });
+    }
+
+    const meta = (payment.metadata || {}) as {
+      escrowTaskId?: string;
+      runnerId?: string;
+      paymentMethod?: string;
+    };
+    const taskId = meta.escrowTaskId;
+    if (!taskId) {
+      logger.warn("Escrow webhook: payment is not an escrow payment", { ref });
+      return res.status(400).json({ error: "Not an escrow payment" });
+    }
+
+    const task = await Task.findById(taskId).select("client runner escrowed").lean();
+    if (!task) {
+      return res.status(400).json({ error: "Task not found" });
+    }
+
+    const clientId = String(payment.user);
+    const runnerId = meta.runnerId || (task.runner ? String(task.runner) : "");
+    if (!runnerId) {
+      return res.status(400).json({ error: "Runner not assigned for escrow" });
+    }
+
+    if (String(task.client) !== clientId) {
+      return res.status(400).json({ error: "Payment user does not match task client" });
+    }
+
+    const amount = Number(payment.amount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      return res.status(400).json({ error: "Invalid payment amount" });
+    }
+
     const escrow = await payoutService.createEscrow(
       taskId,
       clientId,
       runnerId,
       amount,
       "ZAR",
-      reference,
-      paymentMethod || "card"
+      ref,
+      meta.paymentMethod || "card"
     );
 
-    // Mark payment as settled
-    await payoutService.markPaymentSettled(escrow._id.toString(), reference);
+    await payoutService.markPaymentSettled(escrow._id.toString(), ref);
 
-    // Update task to reflect escrow
-    await Task.findByIdAndUpdate(taskId, { escrowed: true });
+    if (!task.escrowed) {
+      await Task.findByIdAndUpdate(taskId, { escrowed: true });
+    }
 
-    // Log audit
+    payment.status = "successful";
+    await payment.save();
+
     await AuditLog.create({
       user: clientId,
       action: "payment_settled",
       resource: "escrow",
       resourceId: escrow._id,
-      metadata: { amount, reference, taskId },
+      metadata: { amount, reference: ref, taskId },
     });
 
-    res.status(200).json({
-      success: true,
-      escrowId: escrow._id,
-      message: "Payment settled and escrow created",
-    });
+    return sendOk();
   } catch (error: any) {
     logger.error("PayGate escrow webhook failed", { error: error.message });
-    res.status(500).json({ error: "Webhook failed", message: error.message });
+    return res.status(400).send("INVALID");
   }
 });
 

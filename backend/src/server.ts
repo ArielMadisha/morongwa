@@ -15,6 +15,7 @@ import { initializeWebRTCSignaling } from "./services/webrtcSignaling";
 import { securityMiddleware, requestLogger, validateInput } from "./middleware/security";
 import { apiLimiter } from "./middleware/rateLimit";
 import { errorHandler, notFoundHandler } from "./middleware/errorHandler";
+import { uploadsStaticMiddleware } from "./middleware/uploadsStatic";
 
 // Import routes
 import authRoutes from "./routes/auth";
@@ -43,9 +44,15 @@ import waFlowRoutes from "./routes/waFlow";
 import waRedirectRoutes from "./routes/waRedirect";
 import webrtcRoutes from "./routes/webrtc";
 import landingBackgroundRoutes from "./routes/landingBackgrounds";
+import advertsRoutes from "./routes/adverts";
+import adminSponsoredVideoRoutes from "./routes/adminSponsoredVideoAds";
+import advertiserAdsRoutes from "./routes/advertiserAds";
 import { ensureDefaultPolicies } from "./services/policyService";
 import { ensureDefaultProducts } from "./services/marketplaceSeed";
 import { ensureDefaultLandingBackgrounds } from "./services/landingBackgroundSeed";
+import { assertRequiredSecretsAtStartup } from "./utils/secrets";
+
+assertRequiredSecretsAtStartup();
 
 const app: Application = express();
 /** Behind nginx/Cloudflare, restores real client IP for rate limits and logs. */
@@ -94,16 +101,12 @@ app.use(validateInput);
 // API rate limiting
 app.use("/api", apiLimiter);
 
-// Static files (uploads)
-app.use("/uploads", express.static("uploads"));
+// Static files (uploads) — missing music artwork falls back to placeholder SVG
+app.use("/uploads", uploadsStaticMiddleware);
 
-// Health check
-app.get("/health", (req, res) => {
-  res.json({
-    status: "ok",
-    timestamp: new Date().toISOString(),
-    uptime: process.uptime(),
-  });
+// Health check — minimal response (no uptime/DB leak on public internet)
+app.get("/health", (_req, res) => {
+  res.json({ status: "ok" });
 });
 
 // API Routes
@@ -133,6 +136,10 @@ app.use("/api/wa", waRedirectRoutes);
 app.use("/api/wa/flow", waFlowRoutes);
 app.use("/api/webrtc", webrtcRoutes);
 app.use("/api/landing-backgrounds", landingBackgroundRoutes);
+app.use("/api/adverts", advertsRoutes);
+app.use("/api/ads", advertsRoutes);
+app.use("/api/admin", adminSponsoredVideoRoutes);
+app.use("/api/ads", advertiserAdsRoutes);
 
 // Error handling
 app.use(notFoundHandler);

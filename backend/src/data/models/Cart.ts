@@ -4,6 +4,10 @@ export interface ICartItem {
   productId: mongoose.Types.ObjectId;
   qty: number;
   resellerId?: mongoose.Types.ObjectId;
+  /** Selected color name when product has color options */
+  selectedColor?: string;
+  /** Selected size when product has size options */
+  selectedSize?: string;
 }
 
 export interface ICartMusicItem {
@@ -25,6 +29,8 @@ const CartItemSchema = new Schema<ICartItem>(
     productId: { type: Schema.Types.ObjectId, ref: "Product", required: true },
     qty: { type: Number, required: true, min: 1 },
     resellerId: { type: Schema.Types.ObjectId, ref: "User" },
+    selectedColor: { type: String, trim: true },
+    selectedSize: { type: String, trim: true },
   },
   { _id: false }
 );

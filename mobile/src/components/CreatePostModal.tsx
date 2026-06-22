@@ -11,14 +11,22 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  ToastAndroid,
   View
 } from "react-native";
 import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
 import { Ionicons } from "@expo/vector-icons";
-import { musicAPI, tvAPI } from "../lib/api";
-import { imageAssetToUploadFile, fileNameFromUri, guessVideoMime } from "../lib/mediaUpload";
+import { formatApiError, musicAPI, tvAPI } from "../lib/api";
+import {
+  imageAssetToUploadFile,
+  fileNameFromUri,
+  guessVideoMime,
+  defaultImageUploadName
+} from "../lib/mediaUpload";
+import { ensureCameraAccess, ensureMediaLibraryAccess } from "../lib/mediaPermissions";
 import { SITE_ORIGIN } from "../constants/site";
+import { WEB_TV_LEGACY_PATH_PREFIX } from "../config";
 import { appTypography, socialTheme } from "../theme/socialTheme";
 
 type Props = {
@@ -28,6 +36,9 @@ type Props = {
   onCreated?: () => void;
 };
 
+type Notice = { tone: "error" | "success"; text: string };
+type MediaMenu = "video" | "qwertz" | "images" | null;
+
 function parseHashtags(raw: string): string[] {
   return raw
     .split(/[\s,]+/)
@@ -35,7 +46,6 @@ function parseHashtags(raw: string): string[] {
     .filter(Boolean);
 }
 
-// Backend only persists hashtags on text posts; embed tags in caption for media.
 function buildCaption(subject: string, tags: string[]): string | undefined {
   const s = subject.trim();
   const tagStr = tags.map((t) => (t.startsWith("#") ? t : "#" + t)).join(" ");
@@ -43,7 +53,13 @@ function buildCaption(subject: string, tags: string[]): string | undefined {
   return out || undefined;
 }
 
-const LIVE_URL = SITE_ORIGIN + "/morongwa-tv/live";
+const LIVE_URL = `${SITE_ORIGIN}${WEB_TV_LEGACY_PATH_PREFIX}/live`;
+
+function showToast(text: string) {
+  if (Platform.OS === "android") {
+    ToastAndroid.show(text, ToastAndroid.LONG);
+  }
+}
 
 export function CreatePostModal({ visible, onClose, onCreated }: Props) {
   const [heading, setHeading] = useState("");
@@ -51,6 +67,8 @@ export function CreatePostModal({ visible, onClose, onCreated }: Props) {
   const [hashtagsInput, setHashtagsInput] = useState("");
   const [posting, setPosting] = useState(false);
   const [busyLabel, setBusyLabel] = useState<string | null>(null);
+  const [notice, setNotice] = useState<Notice | null>(null);
+  const [mediaMenu, setMediaMenu] = useState<MediaMenu>(null);
 
   const reset = useCallback(() => {
     setHeading("");
@@ -58,6 +76,8 @@ export function CreatePostModal({ visible, onClose, onCreated }: Props) {
     setHashtagsInput("");
     setPosting(false);
     setBusyLabel(null);
+    setNotice(null);
+    setMediaMenu(null);
   }, []);
 
   const handleClose = () => {
@@ -65,17 +85,36 @@ export function CreatePostModal({ visible, onClose, onCreated }: Props) {
     onClose();
   };
 
+  const notify = (tone: Notice["tone"], text: string) => {
+    setNotice({ tone, text });
+    showToast(text);
+  };
+
+  const notifyError = (text: string) => notify("error", text);
+
   const tags = () => parseHashtags(hashtagsInput);
+
+  const finishSuccess = () => {
+    const msg = "Your post was published.";
+    showToast(msg);
+    if (Platform.OS === "ios") {
+      Alert.alert("Posted", msg);
+    }
+    reset();
+    onCreated?.();
+    onClose();
+  };
 
   const submitTextPost = async () => {
     const h = heading.trim();
     const s = subject.trim();
     const t = tags();
     if (!h && !s && t.length === 0) {
-      Alert.alert("Create post", "Add a heading, some text, or at least one hashtag.");
+      notifyError("Add a heading, some text, or at least one hashtag.");
       return;
     }
     setPosting(true);
+    setNotice(null);
     try {
       await tvAPI.createPost({
         type: "text",
@@ -83,63 +122,32 @@ export function CreatePostModal({ visible, onClose, onCreated }: Props) {
         subject: s || undefined,
         hashtags: t.length ? t : undefined
       });
-      Alert.alert("Posted", "Your post was published.");
-      reset();
-      onCreated?.();
-      onClose();
+      finishSuccess();
     } catch (err: unknown) {
-      const msg =
-        (err as { response?: { data?: { message?: string } } })?.response?.data?.message ||
-        "Could not create post.";
-      Alert.alert("Create post", String(msg));
+      notifyError(formatApiError(err, "Could not create post."));
     } finally {
       setPosting(false);
     }
   };
 
-  const ensureLibraryPermission = async (): Promise<boolean> => {
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== ImagePicker.PermissionStatus.GRANTED) {
-      Alert.alert("Permission needed", "Allow photo library access to attach images or videos.");
-      return false;
-    }
-    return true;
-  };
-
-  const uploadThenCreate = async (
-    label: string,
-    run: () => Promise<void>
-  ) => {
+  const uploadThenCreate = async (label: string, run: () => Promise<void>) => {
     if (posting) return;
     setPosting(true);
     setBusyLabel(label);
+    setNotice(null);
+    setMediaMenu(null);
     try {
       await run();
-      Alert.alert("Posted", "Your post was published.");
-      reset();
-      onCreated?.();
-      onClose();
+      finishSuccess();
     } catch (err: unknown) {
-      const msg =
-        (err as { response?: { data?: { message?: string } } })?.response?.data?.message ||
-        (err as Error)?.message ||
-        "Could not create post.";
-      Alert.alert("Create post", String(msg));
+      notifyError(formatApiError(err, "Could not create post."));
     } finally {
       setPosting(false);
       setBusyLabel(null);
     }
   };
 
-  const onPickVideo = async (qwertz: boolean) => {
-    if (!(await ensureLibraryPermission())) return;
-    const picked = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Videos,
-      allowsEditing: false,
-      quality: 1
-    });
-    if (picked.canceled || !picked.assets?.length) return;
-    const asset = picked.assets[0];
+  const publishVideoAsset = async (asset: ImagePicker.ImagePickerAsset, qwertz: boolean) => {
     const name = asset.fileName || fileNameFromUri(asset.uri, "upload.mp4");
     const type = asset.mimeType || guessVideoMime(name);
     const file = { uri: asset.uri, name, type, webFile: (asset as any).file };
@@ -152,6 +160,7 @@ export function CreatePostModal({ visible, onClose, onCreated }: Props) {
         type: "video",
         mediaUrls: [up.data.url],
         caption,
+        hashtags: tags().length ? tags() : undefined,
         heading: heading.trim() || undefined,
         genre: qwertz ? "qwertz" : undefined,
         sensitive: anySensitive
@@ -159,16 +168,8 @@ export function CreatePostModal({ visible, onClose, onCreated }: Props) {
     });
   };
 
-  const onPickImages = async () => {
-    if (!(await ensureLibraryPermission())) return;
-    const picked = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsMultipleSelection: true,
-      selectionLimit: 10,
-      quality: 0.92
-    });
-    if (picked.canceled || !picked.assets?.length) return;
-    const files = picked.assets.map((a, i) => imageAssetToUploadFile(a, "image-" + (i + 1) + ".jpg"));
+  const publishImageAssets = async (assets: ImagePicker.ImagePickerAsset[]) => {
+    const files = assets.map((a, i) => imageAssetToUploadFile(a, defaultImageUploadName(a, i)));
 
     await uploadThenCreate("Publishing images...", async () => {
       const up = await tvAPI.uploadImages(files);
@@ -180,67 +181,156 @@ export function CreatePostModal({ visible, onClose, onCreated }: Props) {
         type: urls.length > 1 ? "carousel" : "image",
         mediaUrls: urls,
         caption,
+        hashtags: tags().length ? tags() : undefined,
         heading: heading.trim() || undefined,
         sensitive: anySensitive
       });
     });
   };
 
-  const onPickAudio = async () => {
-    const picked = await DocumentPicker.getDocumentAsync({
-      type: ["audio/*", "audio/mpeg", "audio/mp3", "audio/mp4", "audio/x-m4a", "audio/wav"],
-      copyToCacheDirectory: true,
-      multiple: false
-    });
-    if (picked.canceled) return;
-    const asset = "assets" in picked && picked.assets?.[0] ? picked.assets[0] : null;
-    const legacyUri = !asset && "uri" in picked ? (picked as { uri?: string }).uri : undefined;
-    const uri = asset?.uri || legacyUri;
-    if (!uri) {
-      Alert.alert("Audio", "Could not read the selected file.");
+  const pickVideoFromLibrary = async (qwertz: boolean) => {
+    if (!(await ensureMediaLibraryAccess())) {
+      notifyError("Allow photo library access in Settings to attach videos.");
       return;
     }
-    const name = asset?.name || fileNameFromUri(uri, "audio.m4a");
-    const type = asset?.mimeType || "audio/mpeg";
-    const webFile = (asset as any)?.file;
-
-    let artworkUrl: string | undefined;
-    if (await ensureLibraryPermission()) {
-      const art = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: true,
-        aspect: [1, 1],
-        quality: 0.9
+    try {
+      const picked = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ["videos"],
+        allowsEditing: false,
+        quality: 1,
+        videoQuality: ImagePicker.UIImagePickerControllerQualityType.High
       });
-      if (!art.canceled && art.assets?.[0]) {
-        const img = imageAssetToUploadFile(art.assets[0], "artwork.jpg");
-        const upArt = await tvAPI.uploadMedia(img);
-        artworkUrl = upArt.data?.url;
-      }
+      if (picked.canceled || !picked.assets?.length) return;
+      await publishVideoAsset(picked.assets[0], qwertz);
+    } catch (err: unknown) {
+      notifyError(formatApiError(err, "Could not open your video library."));
     }
+  };
 
-    await uploadThenCreate("Publishing audio...", async () => {
-      const payload = { uri, name, type, webFile };
-      const up = await musicAPI.uploadAudio(payload);
-      const audioUrl = up.data?.data?.url;
-      if (!audioUrl) throw new Error("Audio upload failed.");
-      const caption = buildCaption(subject, tags());
-      await tvAPI.createPost({
-        type: "audio",
-        mediaUrls: [audioUrl],
-        caption,
-        heading: heading.trim() || undefined,
-        artworkUrl,
-        sensitive: false
+  const pickVideoFromCamera = async (qwertz: boolean) => {
+    if (!(await ensureCameraAccess())) {
+      notifyError("Allow camera access in Settings to record a video.");
+      return;
+    }
+    try {
+      const picked = await ImagePicker.launchCameraAsync({
+        mediaTypes: ["videos"],
+        allowsEditing: false,
+        quality: 1,
+        videoQuality: ImagePicker.UIImagePickerControllerQualityType.High
       });
-    });
+      if (picked.canceled || !picked.assets?.length) return;
+      await publishVideoAsset(picked.assets[0], qwertz);
+    } catch (err: unknown) {
+      notifyError(formatApiError(err, "Could not open the camera."));
+    }
+  };
+
+  const pickImagesFromLibrary = async () => {
+    if (!(await ensureMediaLibraryAccess())) {
+      notifyError("Allow photo library access in Settings to attach images.");
+      return;
+    }
+    try {
+      const picked = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ["images"],
+        allowsMultipleSelection: true,
+        selectionLimit: 10,
+        quality: 0.92
+      });
+      if (picked.canceled || !picked.assets?.length) return;
+      await publishImageAssets(picked.assets);
+    } catch (err: unknown) {
+      notifyError(formatApiError(err, "Could not open your photo library."));
+    }
+  };
+
+  const pickImagesFromCamera = async () => {
+    if (!(await ensureCameraAccess())) {
+      notifyError("Allow camera access in Settings to take a photo.");
+      return;
+    }
+    try {
+      const picked = await ImagePicker.launchCameraAsync({
+        mediaTypes: ["images"],
+        allowsEditing: false,
+        quality: 0.92
+      });
+      if (picked.canceled || !picked.assets?.length) return;
+      await publishImageAssets(picked.assets);
+    } catch (err: unknown) {
+      notifyError(formatApiError(err, "Could not open the camera."));
+    }
+  };
+
+  const onPickAudio = async () => {
+    try {
+      const picked = await DocumentPicker.getDocumentAsync({
+        type: ["audio/*", "audio/mpeg", "audio/mp3", "audio/mp4", "audio/x-m4a", "audio/wav"],
+        copyToCacheDirectory: true,
+        multiple: false
+      });
+      if (picked.canceled) return;
+      const asset = "assets" in picked && picked.assets?.[0] ? picked.assets[0] : null;
+      const legacyUri = !asset && "uri" in picked ? (picked as { uri?: string }).uri : undefined;
+      const uri = asset?.uri || legacyUri;
+      if (!uri) {
+        notifyError("Could not read the selected audio file.");
+        return;
+      }
+      const name = asset?.name || fileNameFromUri(uri, "audio.m4a");
+      const type = asset?.mimeType || "audio/mpeg";
+      const webFile = (asset as any)?.file;
+
+      let artworkUrl: string | undefined;
+      if (await ensureMediaLibraryAccess()) {
+        const art = await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ["images"],
+          allowsEditing: true,
+          aspect: [1, 1],
+          quality: 0.9
+        });
+        if (!art.canceled && art.assets?.[0]) {
+          const img = imageAssetToUploadFile(art.assets[0], "artwork.jpg");
+          const upArt = await tvAPI.uploadMedia(img);
+          artworkUrl = upArt.data?.url;
+        }
+      }
+
+      await uploadThenCreate("Publishing audio...", async () => {
+        const payload = { uri, name, type, webFile };
+        const up = await musicAPI.uploadAudio(payload);
+        const audioUrl = up.data?.data?.url;
+        if (!audioUrl) throw new Error("Audio upload failed.");
+        const caption = buildCaption(subject, tags());
+        await tvAPI.createPost({
+          type: "audio",
+          mediaUrls: [audioUrl],
+          caption,
+          heading: heading.trim() || undefined,
+          artworkUrl,
+          sensitive: false
+        });
+      });
+    } catch (err: unknown) {
+      notifyError(formatApiError(err, "Could not add audio."));
+    }
   };
 
   const onGoLive = () => {
     void Linking.openURL(LIVE_URL).catch(() => {
-      Alert.alert("Go live", "Could not open the live page.");
+      notifyError("Could not open the live page.");
     });
   };
+
+  const menuTitle =
+    mediaMenu === "images"
+      ? "Add images or GIFs"
+      : mediaMenu === "qwertz"
+        ? "Create Qwertz video"
+        : mediaMenu === "video"
+          ? "Add video"
+          : "";
 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={handleClose}>
@@ -268,6 +358,24 @@ export function CreatePostModal({ visible, onClose, onCreated }: Props) {
               contentContainerStyle={styles.scrollContent}
               showsVerticalScrollIndicator={false}
             >
+              {notice ? (
+                <View
+                  style={[
+                    styles.notice,
+                    notice.tone === "error" ? styles.noticeError : styles.noticeSuccess
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.noticeText,
+                      notice.tone === "error" ? styles.noticeTextError : styles.noticeTextSuccess
+                    ]}
+                  >
+                    {notice.text}
+                  </Text>
+                </View>
+              ) : null}
+
               <View style={styles.fieldRow}>
                 <View style={styles.plusCircle}>
                   <Ionicons name="add" size={22} color="#ffffff" />
@@ -307,7 +415,7 @@ export function CreatePostModal({ visible, onClose, onCreated }: Props) {
                 {posting && !busyLabel ? (
                   <ActivityIndicator color="#ffffff" />
                 ) : (
-                  <Text style={styles.postBtnText}>Post text</Text>
+                  <Text style={styles.postBtnText}>Post</Text>
                 )}
               </Pressable>
 
@@ -317,15 +425,20 @@ export function CreatePostModal({ visible, onClose, onCreated }: Props) {
                   icon="videocam-outline"
                   label="Video"
                   disabled={posting}
-                  onPress={() => void onPickVideo(false)}
+                  onPress={() => setMediaMenu("video")}
                 />
                 <Shortcut
                   icon="star-outline"
                   label="Qwertz"
                   disabled={posting}
-                  onPress={() => void onPickVideo(true)}
+                  onPress={() => setMediaMenu("qwertz")}
                 />
-                <Shortcut icon="images-outline" label="Images" disabled={posting} onPress={() => void onPickImages()} />
+                <Shortcut
+                  icon="images-outline"
+                  label="GIFs"
+                  disabled={posting}
+                  onPress={() => setMediaMenu("images")}
+                />
                 <Shortcut icon="radio-outline" label="Go live" disabled={posting} onPress={onGoLive} />
                 <Shortcut
                   icon="musical-notes-outline"
@@ -343,10 +456,56 @@ export function CreatePostModal({ visible, onClose, onCreated }: Props) {
               ) : null}
 
               <Text style={styles.hint}>
-                Video and images are uploaded to the server, scanned for safety, then published. Audio uses the music
-                upload endpoint. For long-form editing or live streaming, use Go live (opens the site).
+                Video, images, and GIFs upload to the server, are scanned for safety, then published. Audio uses the music
+                upload endpoint. For live streaming, use Go live (opens the site).
               </Text>
             </ScrollView>
+
+            {mediaMenu ? (
+              <View style={styles.menuOverlay} pointerEvents="box-none">
+                <Pressable style={styles.menuDim} onPress={() => setMediaMenu(null)} />
+                <View style={styles.menuCard}>
+                  <Text style={styles.menuTitle}>{menuTitle}</Text>
+                  <Pressable
+                    style={styles.menuBtn}
+                    onPress={() => {
+                      const qwertz = mediaMenu === "qwertz";
+                      setMediaMenu(null);
+                      void (mediaMenu === "images"
+                        ? pickImagesFromLibrary()
+                        : pickVideoFromLibrary(qwertz));
+                    }}
+                  >
+                    <Ionicons name="images-outline" size={20} color={socialTheme.brandBlueDark} />
+                    <Text style={styles.menuBtnText}>
+                      {mediaMenu === "images" ? "Photo library" : "Photo & video library"}
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    style={styles.menuBtn}
+                    onPress={() => {
+                      const qwertz = mediaMenu === "qwertz";
+                      setMediaMenu(null);
+                      void (mediaMenu === "images"
+                        ? pickImagesFromCamera()
+                        : pickVideoFromCamera(qwertz));
+                    }}
+                  >
+                    <Ionicons
+                      name={mediaMenu === "images" ? "camera-outline" : "videocam-outline"}
+                      size={20}
+                      color={socialTheme.brandBlueDark}
+                    />
+                    <Text style={styles.menuBtnText}>
+                      {mediaMenu === "images" ? "Take photo" : "Record video"}
+                    </Text>
+                  </Pressable>
+                  <Pressable style={styles.menuCancel} onPress={() => setMediaMenu(null)}>
+                    <Text style={styles.menuCancelText}>Cancel</Text>
+                  </Pressable>
+                </View>
+              </View>
+            ) : null}
           </View>
         </KeyboardAvoidingView>
       </View>
@@ -401,7 +560,8 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
     maxHeight: "92%",
-    paddingBottom: Platform.OS === "ios" ? 28 : 16
+    paddingBottom: Platform.OS === "ios" ? 28 : 16,
+    overflow: "hidden"
   },
   headerRow: {
     flexDirection: "row",
@@ -420,6 +580,30 @@ const styles = StyleSheet.create({
     padding: 16,
     gap: 14,
     paddingBottom: 24
+  },
+  notice: {
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderWidth: StyleSheet.hairlineWidth
+  },
+  noticeError: {
+    backgroundColor: "#fef2f2",
+    borderColor: "#fecaca"
+  },
+  noticeSuccess: {
+    backgroundColor: "#ecfdf5",
+    borderColor: "#86efac"
+  },
+  noticeText: {
+    ...appTypography.meta,
+    lineHeight: 18
+  },
+  noticeTextError: {
+    color: "#b91c1c"
+  },
+  noticeTextSuccess: {
+    color: "#047857"
   },
   fieldRow: {
     flexDirection: "row",
@@ -518,5 +702,51 @@ const styles = StyleSheet.create({
     ...appTypography.meta,
     color: socialTheme.textMuted,
     lineHeight: 18
+  },
+  menuOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: "flex-end"
+  },
+  menuDim: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(15,23,42,0.35)"
+  },
+  menuCard: {
+    backgroundColor: socialTheme.surface,
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: Platform.OS === "ios" ? 28 : 20,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: socialTheme.borderHairline,
+    gap: 8
+  },
+  menuTitle: {
+    ...appTypography.titleSm,
+    color: socialTheme.textPrimary,
+    marginBottom: 4
+  },
+  menuBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    backgroundColor: socialTheme.surfaceMuted
+  },
+  menuBtnText: {
+    ...appTypography.input,
+    color: socialTheme.textPrimary,
+    flex: 1
+  },
+  menuCancel: {
+    alignItems: "center",
+    paddingVertical: 12
+  },
+  menuCancelText: {
+    ...appTypography.cta,
+    color: socialTheme.textSecondary
   }
 });

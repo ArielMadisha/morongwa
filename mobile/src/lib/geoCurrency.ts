@@ -7,7 +7,7 @@ const COUNTRY_TO_CURRENCY: Record<string, string> = {
   ZW: "USD",
   US: "USD",
   GB: "GBP",
-  IN: "INR",
+  IN: "USD",
   EU: "EUR"
 };
 

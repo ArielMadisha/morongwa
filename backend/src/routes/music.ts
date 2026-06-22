@@ -90,6 +90,80 @@ router.get("/songs", async (req, res: Response, next) => {
   }
 });
 
+/** GET /api/music/sounds — approved catalog singles for QwertyTV video “Sounds” (public). */
+router.get("/sounds", async (req, res: Response, next) => {
+  try {
+    const page = Math.max(parseInt((req.query.page as string) || "1", 10) || 1, 1);
+    const limit = Math.min(Math.max(parseInt((req.query.limit as string) || "30", 10) || 30, 1), 60);
+    const skip = (page - 1) * limit;
+    const q = String(req.query.q || "").trim();
+    const filter: Record<string, unknown> = {
+      type: "song",
+      soundLibraryStatus: "approved",
+    };
+    if (q) {
+      const rx = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+      (filter as any).$or = [{ title: rx }, { artist: rx }];
+    }
+    const total = await Song.countDocuments(filter);
+    const songs = await Song.find(filter)
+      .sort({ updatedAt: -1, createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .populate("userId", "name")
+      .select("title artist genre artworkUrl audioUrl userId createdAt")
+      .lean();
+    res.json({
+      data: songs,
+      page,
+      limit,
+      total,
+      hasMore: skip + songs.length < total,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** GET /api/music/me/catalog — current user’s uploads + sound-library status (auth). */
+router.get("/me/catalog", authenticate, async (req: AuthRequest, res: Response, next) => {
+  try {
+    const songs = await Song.find({ userId: req.user!._id })
+      .sort({ createdAt: -1 })
+      .select(
+        "title artist genre artworkUrl audioUrl type soundLibraryStatus soundLibraryRejectedReason soundLibraryRequestedAt soundLibraryReviewedAt downloadEnabled downloadPrice createdAt"
+      )
+      .lean();
+    res.json({ data: songs });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** POST /api/music/sound-library/request/:songId — rights holder asks for catalog inclusion (auth). */
+router.post("/sound-library/request/:songId", authenticate, async (req: AuthRequest, res: Response, next) => {
+  try {
+    const verification = await ArtistVerification.findOne({ userId: req.user!._id }).lean();
+    if (!verification || verification.status !== "approved") {
+      throw new AppError("Verified artist account required", 403);
+    }
+    const song = await Song.findById(req.params.songId);
+    if (!song) throw new AppError("Song not found", 404);
+    if (String(song.userId) !== String(req.user!._id)) throw new AppError("Not your song", 403);
+    if (song.type !== "song") throw new AppError("Only single tracks can join the Sounds catalog", 400);
+    const st = (song as any).soundLibraryStatus as string | undefined;
+    if (st === "approved") throw new AppError("Already approved for Sounds", 400);
+    if (st === "pending") throw new AppError("Already pending review", 400);
+    (song as any).soundLibraryStatus = "pending";
+    (song as any).soundLibraryRequestedAt = new Date();
+    (song as any).soundLibraryRejectedReason = undefined;
+    await song.save();
+    res.json({ ok: true, data: { soundLibraryStatus: "pending" } });
+  } catch (err) {
+    next(err);
+  }
+});
+
 /** GET /api/music/artist-status - check if current user is verified artist */
 router.get("/artist-status", authenticate, async (req: AuthRequest, res: Response, next) => {
   try {

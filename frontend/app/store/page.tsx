@@ -1,10 +1,10 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { useAuth } from '@/contexts/AuthContext';
-import { storesAPI, resellerAPI, suppliersAPI, getImageUrl, getEffectivePrice } from '@/lib/api';
+import { storesAPI, resellerAPI, suppliersAPI, cartAPI, getEffectivePrice } from '@/lib/api';
 import Link from 'next/link';
 import { Loader2, Package, Plus, Store, RefreshCw } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -14,9 +14,30 @@ import { ProfileHeaderButton } from '@/components/ProfileHeaderButton';
 import { useCartAndStores, invalidateCartStoresCache } from '@/lib/useCartAndStores';
 import { MobileBottomNav } from '@/components/MobileBottomNav';
 import StoreHeader from '@/components/StoreHeader';
-import { formatCurrencyAmount } from '@/lib/formatCurrency';
+import { StorefrontProductCard } from '@/components/StorefrontProductCard';
+import { formatCatalogProductPrice } from '@/lib/productPriceZar';
 import { WALL_EXPECT_REFRESH_KEY } from '@/lib/wallRefresh';
 import { useCurrency } from '@/contexts/CurrencyContext';
+import { resellerMarkupBoundsForProductCategories } from '@/lib/marketplaceCategoryMarkups';
+
+function productQtyMapFromCartResponse(res: { data?: { data?: { items?: unknown[] } } }): Record<string, number> {
+  const items = Array.isArray(res.data?.data?.items) ? res.data!.data!.items! : [];
+  const m: Record<string, number> = {};
+  for (const it of items) {
+    const row = it as {
+      type?: string;
+      songId?: unknown;
+      productId?: { _id?: string } | string;
+      product?: { _id?: string };
+      qty?: number;
+    };
+    if (row.type === 'music' || row.songId) continue;
+    const pid = String(row.product?._id ?? (row.productId as { _id?: string } | undefined)?._id ?? row.productId ?? '');
+    if (!pid) continue;
+    m[pid] = Number(row.qty ?? 0);
+  }
+  return m;
+}
 
 interface MyStore {
   _id: string;
@@ -33,7 +54,7 @@ interface MyStore {
 
 interface WallProduct {
   productId: string;
-  product: { _id: string; title: string; slug: string; images: string[]; price: number; currency: string; discountPrice?: number };
+  product: { _id: string; title: string; slug: string; images: string[]; price: number; currency: string; discountPrice?: number; categories?: string[] };
   resellerCommissionPct?: number;
   addedAt: string;
 }
@@ -41,8 +62,9 @@ interface WallProduct {
 export default function MyStorePage() {
   const { user, logout } = useAuth();
   const router = useRouter();
-  const { cartCount, hasStore } = useCartAndStores(!!user);
+  const { cartCount, hasStore, invalidate } = useCartAndStores(!!user);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [cartQtyByProduct, setCartQtyByProduct] = useState<Record<string, number>>({});
   const [stores, setStores] = useState<MyStore[]>([]);
   const [wallProducts, setWallProducts] = useState<WallProduct[]>([]);
   const [supplierProducts, setSupplierProducts] = useState<any[]>([]);
@@ -50,7 +72,7 @@ export default function MyStorePage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState({ name: '', address: '', email: '', cellphone: '', whatsapp: '' });
   const [saving, setSaving] = useState(false);
-  const { currency: localCurrency, rates } = useCurrency();
+  const { rates } = useCurrency();
   const handleLogout = () => {
     logout();
     router.push('/');
@@ -59,7 +81,30 @@ export default function MyStorePage() {
   const authUserId =
     user?._id != null ? String(user._id) : user?.id != null ? String(user.id) : '';
 
+  const storeLoginHref = `/login?returnTo=${encodeURIComponent('/store')}`;
+
+  const refreshCartQty = useCallback(() => {
+    if (!user) {
+      setCartQtyByProduct({});
+      return;
+    }
+    cartAPI
+      .get()
+      .then((res) => setCartQtyByProduct(productQtyMapFromCartResponse(res)))
+      .catch(() => setCartQtyByProduct({}));
+  }, [user]);
+
+  const handleCartUpdated = useCallback(() => {
+    invalidate();
+    refreshCartQty();
+  }, [invalidate, refreshCartQty]);
+
+  useEffect(() => {
+    refreshCartQty();
+  }, [refreshCartQty]);
+
   const [refreshingWall, setRefreshingWall] = useState(false);
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
 
   const fetchStores = useCallback(async () => {
     try {
@@ -204,22 +249,23 @@ export default function MyStorePage() {
       setSaving(false);
     }
   };
-  const toViewerCurrency = (amount: number, sourceCurrency: string) => {
-    const from = String(sourceCurrency || 'USD').toUpperCase();
-    const to = String(localCurrency || from).toUpperCase();
-    if (!Number.isFinite(amount)) return formatCurrencyAmount(0, to || 'ZAR');
-    if (from === to) return formatCurrencyAmount(amount, to);
-    const fromRate = Number(rates?.[from] ?? 0);
-    const toRate = Number(rates?.[to] ?? 0);
-    if (!(fromRate > 0) || !(toRate > 0)) return formatCurrencyAmount(amount, from);
-    const usd = amount / fromRate;
-    const converted = Math.round(usd * toRate * 100) / 100;
-    return formatCurrencyAmount(converted, to);
+  const formatStorePrice = (amount: number, sourceCurrency: string) =>
+    formatCatalogProductPrice(amount, sourceCurrency || 'ZAR', rates);
+
+  const handleMainWheelCapture: React.WheelEventHandler<HTMLElement> = (e) => {
+    const target = e.target as HTMLElement | null;
+    if (!target) return;
+    if (target.closest('input, textarea, select, [contenteditable="true"]')) return;
+    const scroller = scrollContainerRef.current;
+    if (!scroller) return;
+    if (scroller.scrollHeight <= scroller.clientHeight) return;
+    scroller.scrollTop += e.deltaY;
+    e.preventDefault();
   };
 
   return (
     <ProtectedRoute>
-      <div className="min-h-screen flex flex-col bg-gradient-to-br from-sky-50 via-blue-50 to-white text-slate-900">
+      <div className="h-[100dvh] min-h-screen flex flex-col overflow-hidden bg-gradient-to-br from-sky-50 via-blue-50 to-white text-slate-900">
         {/* Full-width frozen header - same as QwertyHub */}
         <header className="sticky top-0 z-40 w-full bg-white/95 backdrop-blur-md border-b border-slate-100 shadow-sm flex-shrink-0">
           <div className="px-4 sm:px-6 lg:px-8 py-3 sm:py-4">
@@ -266,7 +312,10 @@ export default function MyStorePage() {
             hideLogo
             belowHeader
           />
-          <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain">
+          <div
+            ref={scrollContainerRef}
+            className="flex-1 flex flex-col min-w-0 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain touch-pan-y"
+          >
             {!loading && stores.length > 0 ? (
               <>
                 {/* When user has both supplier and reseller stores, show single unified header (prefer supplier store) */}
@@ -378,7 +427,7 @@ export default function MyStorePage() {
                 })()}
               </>
             ) : null}
-            <main className="flex-1 overflow-y-auto px-4 sm:px-6 lg:px-8 py-8 pb-24 lg:pb-8 min-h-0">
+            <main onWheelCapture={handleMainWheelCapture} className="flex-1 px-4 sm:px-6 lg:px-8 py-8 pb-24 md:pb-8 min-h-0">
             <div className="max-w-6xl mx-auto">
               {loading ? (
                 <div className="flex justify-center py-16">
@@ -413,22 +462,22 @@ export default function MyStorePage() {
                           const price = getEffectivePrice(p);
                           const isOutOfStock = p.outOfStock || (p.stock != null && p.stock < 1);
                           return (
-                            <Link key={p._id} href={`/marketplace/product/${p._id}`} className="group flex flex-col rounded-xl border border-slate-100 overflow-hidden bg-white shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200">
-                              <div className="aspect-square bg-slate-100 overflow-hidden relative">
-                                {p.images?.[0] ? (
-                                  <img src={getImageUrl(p.images[0])} alt="" className="h-full w-full object-cover group-hover:scale-105 transition-transform duration-200" data-pin-nopin="true" />
-                                ) : (
-                                  <div className="h-full w-full flex items-center justify-center text-slate-400"><Package className="h-12 w-12" /></div>
-                                )}
-                                {isOutOfStock && <span className="absolute top-2 right-2 z-10 px-2 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800">Out of stock</span>}
-                              </div>
-                              <div className="p-4 flex-1 flex flex-col">
-                                <p className="font-medium text-slate-800 line-clamp-2">{p.title}</p>
-                                <p className="text-base text-brand-600 font-semibold mt-2">
-                                  {toViewerCurrency(price, p.currency || 'ZAR')}
-                                </p>
-                              </div>
-                            </Link>
+                            <StorefrontProductCard
+                              key={p._id}
+                              productId={String(p._id)}
+                              title={p.title}
+                              image={p.images?.[0]}
+                              priceLabel={formatStorePrice(price, p.currency || 'ZAR')}
+                              productHref={`/marketplace/product/${p._id}`}
+                              resellHref={p.allowResell ? `/marketplace/product/${p._id}?view=resell` : undefined}
+                              allowResell={!!p.allowResell}
+                              outOfStock={!!isOutOfStock}
+                              cartQty={cartQtyByProduct[String(p._id)] ?? 0}
+                              isGuest={false}
+                              loginHref={storeLoginHref}
+                              onCartUpdated={handleCartUpdated}
+                              colorsRequired={Array.isArray((p as { colors?: unknown[] }).colors) && (p as { colors: unknown[] }).colors.length > 0}
+                            />
                           );
                         })}
                       </div>
@@ -452,26 +501,31 @@ export default function MyStorePage() {
                             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                               {validWallProducts.map((wp) => {
                           const p = wp.product!;
-                          const markup = wp.resellerCommissionPct ?? 5;
+                          const fb = resellerMarkupBoundsForProductCategories(p.categories ?? []);
+                          const markup = wp.resellerCommissionPct ?? fb.defaultPct;
                           const basePrice = getEffectivePrice(p);
                           const resellerPrice = Math.round(basePrice * (1 + markup / 100) * 100) / 100;
                           const rowKey = typeof wp.productId === 'string' ? wp.productId : String((wp.productId as { _id?: string })?._id ?? p._id);
+                          const productHref = authUserId
+                            ? `/marketplace/product/${p._id}?resellerId=${authUserId}&resellerCommissionPct=${markup}`
+                            : `/marketplace/product/${p._id}`;
+                          const isOutOfStock = !!(p as { outOfStock?: boolean }).outOfStock || (p.stock != null && p.stock < 1);
                           return (
-                            <Link key={rowKey} href={`/marketplace/product/${p._id}${(user as any)?._id || (user as any)?.id ? `?resellerId=${(user as any)._id || (user as any).id}&resellerCommissionPct=${wp.resellerCommissionPct ?? 5}` : ''}`} className="group flex flex-col rounded-xl border border-slate-100 overflow-hidden bg-white shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200">
-                              <div className="aspect-square bg-slate-100 overflow-hidden">
-                                {p.images?.[0] ? (
-                                  <img src={getImageUrl(p.images[0])} alt="" className="h-full w-full object-cover group-hover:scale-105 transition-transform duration-200" data-pin-nopin="true" />
-                                ) : (
-                                  <div className="h-full w-full flex items-center justify-center text-slate-400 text-sm">No image</div>
-                                )}
-                              </div>
-                              <div className="p-4 flex-1 flex flex-col">
-                                <p className="font-medium text-slate-800 line-clamp-2">{p.title}</p>
-                                <p className="text-base text-brand-600 font-semibold mt-2">
-                                  {toViewerCurrency(resellerPrice, p.currency || 'ZAR')}
-                                </p>
-                              </div>
-                            </Link>
+                            <StorefrontProductCard
+                              key={rowKey}
+                              productId={String(p._id)}
+                              title={p.title}
+                              image={p.images?.[0]}
+                              priceLabel={formatStorePrice(resellerPrice, p.currency || 'ZAR')}
+                              productHref={productHref}
+                              outOfStock={isOutOfStock}
+                              resellerId={authUserId || undefined}
+                              cartQty={cartQtyByProduct[String(p._id)] ?? 0}
+                              isGuest={false}
+                              loginHref={storeLoginHref}
+                              onCartUpdated={handleCartUpdated}
+                              colorsRequired={Array.isArray((p as { colors?: unknown[] }).colors) && (p as { colors: unknown[] }).colors.length > 0}
+                            />
                           );
                         })}
                             </div>

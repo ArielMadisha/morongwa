@@ -6,6 +6,7 @@
  * Sources: ITU E.164, national numbering plans, Wikipedia premium-rate lists.
  * Conservative: only blocks documented premium ranges; avoids blocking mobile.
  */
+import { canonicalPhoneDigits } from "./phoneE164";
 
 /** Normalize phone to digits only (E.164 without +). */
 export function normalizePhone(phone: string): string {
@@ -154,6 +155,9 @@ const PREMIUM_PREFIXES: RegExp[] = [
   /^51900/,             // Peru 0900
   /^5809/,              // Venezuela 09x
 
+  /^998900/,             // Uzbekistan 0900 premium (E.164)
+  /^99899541/,           // Uzbekistan virtual-SMS farm (bulk bot sign-ups)
+
   // === OCEANIA ===
   /^6119[0126]/,        // Australia 1900, 1901, 1902, 1906
   /^640900/,            // New Zealand 0900
@@ -182,11 +186,11 @@ export function isPremiumOrShortcode(phone: string): boolean {
 
 /** Validate phone for OTP: not premium, not shortcode, min length. */
 export function isValidForOtp(phone: string): { valid: boolean; reason?: string } {
-  const digits = normalizePhone(phone);
-  if (digits.length < 10) {
+  const digits = canonicalPhoneDigits(phone) || normalizePhone(phone);
+  if (!digits || digits.length < 10) {
     return { valid: false, reason: "Invalid phone number" };
   }
-  if (isPremiumOrShortcode(phone)) {
+  if (isPremiumOrShortcode(digits)) {
     return { valid: false, reason: "Premium and shortcode numbers are not supported for verification" };
   }
   return { valid: true };

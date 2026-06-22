@@ -12,6 +12,9 @@ import Payment from "../data/models/Payment";
 import StoredCard from "../data/models/StoredCard";
 import CheckoutSession from "../data/models/CheckoutSession";
 import MerchantAgentCashTx from "../data/models/MerchantAgentCashTx";
+import Escrow from "../data/models/Escrow";
+import TuckshopCashAgentRegistration from "../data/models/TuckshopCashAgentRegistration";
+import Supplier from "../data/models/Supplier";
 import { authenticate, AuthRequest } from "../middleware/auth";
 import {
   topupSchema,
@@ -20,6 +23,7 @@ import {
   qrPaymentFromScanSchema,
   confirmQrPaymentSchema,
   requestMoneySchema,
+  requestMoneyFromScanSchema,
   payMoneyRequestSchema,
   payWithCardSchema,
   checkoutPaySchema,
@@ -33,16 +37,122 @@ import {
 import { AppError } from "../middleware/errorHandler";
 import { getPaginationParams } from "../utils/helpers";
 import { initiatePayment } from "../services/payment";
+import { getWalletPayoutFeeZarResolved } from "../services/payment";
 import { sendSms } from "../services/otpDelivery";
 import { generateMoneyRequestActionToken, settleMoneyRequestFromWallet, initiateTopupForMoneyRequest } from "../services/moneyRequestService";
+import { getAgentCommissionSummary, emailAgentEarningsReportForUser } from "../services/agentEarningsService";
+import {
+  sendNotification,
+  emitWalletPendingPayment,
+  emitWalletMoneyRequest,
+  emitWalletPaymentCompleted,
+} from "../services/notification";
+import {
+  getOpenPendingStorePaymentForPayer,
+  listOpenPendingStorePaymentsForPayer,
+  settlePendingStorePaymentWithWallet,
+} from "../services/walletQrPaymentService";
+import { notifyWaPayAtStorePaymentRequest } from "../services/waPayAtStoreNotify";
+import { walletPaymentLimiter } from "../middleware/rateLimit";
+import { getOtpSecret } from "../utils/secrets";
 
 const router = express.Router();
-const PAYMENT_OTP_SECRET = process.env.OTP_SECRET || "otp-secret-change-me";
+router.use(walletPaymentLimiter);
 const PAYMENT_OTP_EXPIRY_MS = 5 * 60 * 1000;
 
 function sameToken(a?: string, b?: string): boolean {
   if (!a || !b) return false;
   return a.trim().toLowerCase() === b.trim().toLowerCase();
+}
+
+function parseAcbPayUserId(raw: string): string | null {
+  const t = String(raw || "").trim();
+  const prefixed = t.match(/^ACBPAY:([a-f0-9]{24})$/i);
+  if (prefixed) return prefixed[1];
+  if (/^[a-f0-9]{24}$/i.test(t)) return t;
+  return null;
+}
+
+/** In-store QR accept: approved marketplace supplier, admin, legacy supplier role, or test flag. */
+async function userCanAcceptWalletQrPayments(
+  userId: string | { toString(): string },
+  roles: string[]
+): Promise<boolean> {
+  if (roles.includes("admin") || roles.includes("superadmin")) return true;
+  if (roles.includes("supplier")) return true;
+  if (String(process.env.WALLET_QR_MERCHANT_ANY_USER || "").trim() === "1") return true;
+  const approved = await Supplier.findOne({ userId, status: "approved" }).select("_id").lean();
+  return !!approved;
+}
+
+async function notifyQrPaymentRequestToPayer(params: {
+  payerId: string;
+  paymentRequestId: string;
+  amount: number;
+  merchantName: string;
+  payerPhone?: string;
+}): Promise<void> {
+  const { payerId, paymentRequestId, amount, merchantName, payerPhone } = params;
+  const amountText = `R${amount.toFixed(2)}`;
+  const payLink = `${process.env.FRONTEND_URL || "http://localhost:3000"}/wallet?pendingPayment=${paymentRequestId}`;
+
+  await sendNotification({
+    userId: payerId,
+    type: "wallet_pending_payment",
+    message: `Pay ${amountText} to ${merchantName}? Open your wallet to confirm.`,
+    channel: "realtime",
+  });
+  emitWalletPendingPayment(payerId, { paymentRequestId, amount, merchantName });
+
+  void notifyWaPayAtStorePaymentRequest({
+    payerId,
+    paymentRequestId,
+    amount,
+    merchantName,
+  });
+
+  // In-app confirm only (no SMS OTP). Optional backup link SMS if WALLET_QR_SMS_BACKUP=1.
+  if (payerPhone && String(process.env.WALLET_QR_SMS_BACKUP || "").trim() === "1") {
+    const text = `Pay ${amountText} at ${merchantName} via ACBPayWallet. Tap to confirm: ${payLink}`;
+    await sendSms({ phone: payerPhone, text, channel: "sms" }).catch(() => {});
+  }
+}
+
+async function notifyMoneyRequestToPayee(params: {
+  payeeId: string;
+  requestId: string;
+  amount: number;
+  requesterName: string;
+  actionToken: string;
+  message?: string;
+  payeePhone?: string;
+  notifyChannel?: string;
+}): Promise<void> {
+  const { payeeId, requestId, amount, requesterName, actionToken, message, payeePhone, notifyChannel } = params;
+  const amountText = `R${amount.toFixed(2)}`;
+  const baseFe = String(process.env.FRONTEND_URL || "http://localhost:3000").replace(/\/$/, "");
+  const webLink = `${baseFe}/wallet?payRequest=${requestId}`;
+  const linkLink = `${baseFe}/pay/request?requestId=${requestId}&token=${encodeURIComponent(actionToken)}`;
+
+  await sendNotification({
+    userId: payeeId,
+    type: "wallet_money_request",
+    message: `Send ${amountText} to ${requesterName}?${message ? ` ${message}` : ""} Confirm in your wallet.`,
+    channel: "realtime",
+  });
+  emitWalletMoneyRequest(payeeId, { requestId, amount, requesterName });
+
+  if (payeePhone && notifyChannel !== "none") {
+    const channel = notifyChannel === "sms" ? "sms" : "whatsapp";
+    const text = [
+      `${requesterName} requested ${amountText} from you via ACBPayWallet.`,
+      message ? `Message: ${message}` : "",
+      `Confirm in app: ${webLink} Or pay: ${linkLink}`,
+    ]
+      .filter(Boolean)
+      .join(" ");
+    await sendSms({ phone: payeePhone, text, channel }).catch(() => {});
+  }
 }
 
 // Get wallet balance
@@ -54,7 +164,41 @@ router.get("/balance", authenticate, async (req: AuthRequest, res: Response, nex
       wallet = await Wallet.create({ user: req.user!._id });
     }
 
-    res.json({ balance: wallet.balance });
+    const pendingEscrowAgg = await Escrow.aggregate([
+      {
+        $match: {
+          client: req.user!._id,
+          status: "held",
+        },
+      },
+      {
+        $group: {
+          _id: null,
+          total: { $sum: "$totalHeld" },
+        },
+      },
+    ]);
+    const pendingInJobs = Number(pendingEscrowAgg?.[0]?.total || 0);
+    const earnings = (wallet.transactions || []).reduce((sum: number, tx: any) => {
+      if (tx.type === "credit") return sum + Number(tx.amount || 0);
+      return sum;
+    }, 0);
+    const roleRaw = (req.user as any)?.role;
+    const roles = Array.isArray(roleRaw) ? roleRaw : roleRaw ? [roleRaw] : [];
+    const merchant = await userCanAcceptWalletQrPayments(req.user!._id, roles);
+
+    res.json({
+      balance: wallet.balance,
+      availableBalance: wallet.balance,
+      pendingInJobs,
+      earnings,
+      walletRoles: {
+        user: true,
+        runner: roles.includes("runner"),
+        merchant,
+        agent: !!(req.user as any)?.merchantAgent?.enabled,
+      },
+    });
   } catch (err) {
     next(err);
   }
@@ -94,7 +238,37 @@ router.get("/transactions", authenticate, async (req: AuthRequest, res: Response
       return out;
     });
 
-    res.json(transactions);
+    // Also include recent paid card orders that may predate wallet-history rows.
+    const walletRefs = new Set(
+      (wallet.transactions || []).map((t: any) => String(t?.reference || "").trim()).filter(Boolean)
+    );
+    const paidOrders = await Order.find({
+      buyerId: req.user!._id,
+      status: "paid",
+      paymentMethod: "card",
+    })
+      .select("_id paidAt createdAt amounts paymentBreakdown")
+      .sort({ paidAt: -1, createdAt: -1 })
+      .limit(limitNum)
+      .lean();
+    for (const order of paidOrders as any[]) {
+      const ref = `ORDER-${String(order._id)}`;
+      if (walletRefs.has(ref)) continue;
+      transactions.push({
+        type: "debit",
+        amount: -Number(order?.amounts?.total ?? 0),
+        reference: ref,
+        createdAt: order?.paidAt || order?.createdAt || new Date(),
+        orderBreakdown: order?.paymentBreakdown,
+      });
+    }
+    transactions.sort((a: any, b: any) => {
+      const ta = new Date(a?.createdAt || 0).getTime();
+      const tb = new Date(b?.createdAt || 0).getTime();
+      return tb - ta;
+    });
+
+    res.json(transactions.slice(0, limitNum));
   } catch (err) {
     next(err);
   }
@@ -159,14 +333,18 @@ router.post("/payout", authenticate, async (req: AuthRequest, res: Response, nex
     const wallet = await Wallet.findOne({ user: req.user!._id });
     if (!wallet) throw new AppError("Wallet not found", 404);
 
-    if (wallet.balance < amount) {
+    const payoutFee = await getWalletPayoutFeeZarResolved();
+    const totalDebit = Math.round((Number(amount) + payoutFee) * 100) / 100;
+    if (wallet.balance < totalDebit) {
       throw new AppError("Insufficient balance", 400);
     }
 
-    wallet.balance -= amount;
+    const payoutRef = `PAYOUT-${Date.now()}`;
+    wallet.balance -= totalDebit;
     wallet.transactions.push({
       type: "payout",
-      amount: -amount,
+      amount: -totalDebit,
+      reference: payoutRef,
       createdAt: new Date(),
     });
     await wallet.save();
@@ -176,8 +354,9 @@ router.post("/payout", authenticate, async (req: AuthRequest, res: Response, nex
       user: req.user!._id,
       type: "payout",
       amount,
-      reference: `PAYOUT-${Date.now()}`,
+      reference: payoutRef,
       status: "pending",
+      meta: { payoutFeeZar: payoutFee, totalDebitZar: totalDebit },
     });
 
     await AuditLog.create({
@@ -189,6 +368,9 @@ router.post("/payout", authenticate, async (req: AuthRequest, res: Response, nex
     res.json({
       message: "Payout request submitted successfully",
       balance: wallet.balance,
+      payoutAmount: amount,
+      payoutFeeZar: payoutFee,
+      totalDebitZar: totalDebit,
     });
   } catch (err) {
     next(err);
@@ -280,26 +462,26 @@ router.post("/donate", authenticate, async (req: AuthRequest, res: Response, nex
 
 // --- QR code & in-store payment ---
 
+// List open payment requests for current user as payer (in-store scan → confirm in wallet)
+router.get("/pending-payments", authenticate, async (req: AuthRequest, res: Response, next) => {
+  try {
+    const rows = await listOpenPendingStorePaymentsForPayer(String(req.user!._id));
+    res.json(rows);
+  } catch (err) {
+    next(err);
+  }
+});
+
 // Get pending payment request (for payer - when they open link from SMS)
 router.get("/pending-payment/:id", authenticate, async (req: AuthRequest, res: Response, next) => {
   try {
-    const pr = await WalletPaymentRequest.findById(req.params.id)
-      .populate("toUser", "name username")
-      .lean();
-    if (!pr) throw new AppError("Payment request not found", 404);
-    if (String(pr.fromUser) !== String(req.user!._id)) {
-      throw new AppError("You are not the payer for this payment", 403);
-    }
-    if (pr.status !== "pending") throw new AppError("Payment already completed or expired", 400);
-    if (new Date() > pr.otpExpiresAt) {
-      await WalletPaymentRequest.findByIdAndUpdate(req.params.id, { status: "expired" });
-      throw new AppError("Payment request expired", 400);
-    }
+    const row = await getOpenPendingStorePaymentForPayer(String(req.user!._id), req.params.id);
+    if (!row) throw new AppError("Payment request not found or expired", 404);
     res.json({
-      _id: pr._id,
-      amount: pr.amount,
-      merchantName: (pr.metadata as any)?.merchantName || (pr.toUser as any)?.name || (pr.toUser as any)?.username || "Store",
-      expiresAt: pr.otpExpiresAt,
+      _id: row._id,
+      amount: row.amount,
+      merchantName: row.merchantName,
+      expiresAt: row.expiresAt,
     });
   } catch (err) {
     next(err);
@@ -321,7 +503,7 @@ router.get("/qr-payload", authenticate, async (req: AuthRequest, res: Response, 
   }
 });
 
-// Create payment from scan (merchant/store). Sends SMS OTP to payer.
+// Create payment from scan (merchant/store). Payer confirms in app (biometrics / wallet).
 router.post("/payment-from-scan", authenticate, async (req: AuthRequest, res: Response, next) => {
   try {
     const { error } = qrPaymentFromScanSchema.validate(req.body);
@@ -329,40 +511,57 @@ router.post("/payment-from-scan", authenticate, async (req: AuthRequest, res: Re
 
     const { fromUserId, amount, merchantName } = req.body;
     const toUser = req.user!._id;
+    const roleRaw = (req.user as any)?.role;
+    const roles = Array.isArray(roleRaw) ? roleRaw : roleRaw ? [roleRaw] : [];
+    if (!(await userCanAcceptWalletQrPayments(toUser, roles))) {
+      throw new AppError(
+        "Merchant account required to accept in-store QR payments. Apply as a supplier or use an admin account.",
+        403
+      );
+    }
 
     if (String(fromUserId) === String(toUser)) {
       throw new AppError("Cannot pay yourself", 400);
     }
 
-    const payer = await User.findById(fromUserId).select("phone name").lean();
-    if (!payer) throw new AppError("Payer not found", 404);
-    if (!(payer as any).phone) throw new AppError("Payer has no phone number for verification", 400);
+    const payerUserId = parseAcbPayUserId(fromUserId);
+    if (!payerUserId) throw new AppError("Invalid payer QR — use ACBPAY:userId format", 400);
 
-    const otp = crypto.randomInt(100000, 999999).toString();
-    const otpHash = crypto.createHmac("sha256", PAYMENT_OTP_SECRET).update(otp).digest("hex");
+    const payer = await User.findById(payerUserId).select("phone name").lean();
+    if (!payer) throw new AppError("Payer not found", 404);
+
+    const otpPlaceholder = crypto.randomBytes(16).toString("hex");
+    const otpHash = crypto.createHmac("sha256", getOtpSecret()).update(otpPlaceholder).digest("hex");
     const otpExpiresAt = new Date(Date.now() + PAYMENT_OTP_EXPIRY_MS);
     const reference = `QR-${Date.now()}-${Math.round(Math.random() * 1e6)}`;
+    const storeName =
+      merchantName || (req.user as any)?.name || (req.user as any)?.username || "Store";
 
     const paymentRequest = await WalletPaymentRequest.create({
-      fromUser: fromUserId,
+      fromUser: payerUserId,
       toUser,
       amount,
       otpHash,
       otpExpiresAt,
       status: "pending",
       reference,
-      metadata: { merchantName: merchantName || (req.user as any)?.name },
+      metadata: { merchantName: storeName },
     });
 
-    const payLink = `${process.env.FRONTEND_URL || "http://localhost:3000"}/wallet?pendingPayment=${paymentRequest._id}`;
-    const text = `Pay R${amount.toFixed(2)}${merchantName ? ` at ${merchantName}` : ""} via ACBPayWallet. Pay now: ${payLink} Or give code to teller: ${otp}. Expires in 5 min.`;
-    await sendSms({ phone: (payer as any).phone, text, channel: "sms" });
+    await notifyQrPaymentRequestToPayer({
+      payerId: payerUserId,
+      paymentRequestId: String(paymentRequest._id),
+      amount,
+      merchantName: storeName,
+      payerPhone: (payer as any).phone,
+    });
 
     res.status(201).json({
       paymentRequestId: paymentRequest._id,
       amount,
       expiresIn: 300,
-      message: "Verification code sent to payer",
+      merchantName: storeName,
+      message: "Payment request sent — customer confirms in ACBPayWallet",
     });
   } catch (err) {
     next(err);
@@ -389,7 +588,7 @@ router.post("/confirm-payment", authenticate, async (req: AuthRequest, res: Resp
       throw new AppError("Verification code expired", 400);
     }
 
-    const otpHash = crypto.createHmac("sha256", PAYMENT_OTP_SECRET).update(otp).digest("hex");
+    const otpHash = crypto.createHmac("sha256", getOtpSecret()).update(otp).digest("hex");
     if (otpHash !== pr.otpHash) throw new AppError("Invalid verification code", 400);
 
     const payerWallet = await Wallet.findOne({ user: pr.fromUser });
@@ -427,10 +626,40 @@ router.post("/confirm-payment", authenticate, async (req: AuthRequest, res: Resp
       meta: { amount: pr.amount, toUser: pr.toUser, reference: pr.reference },
     });
 
+    emitWalletPaymentCompleted(String(pr.toUser), {
+      paymentRequestId: String(pr._id),
+      amount: pr.amount,
+      status: "completed",
+    });
+
     res.json({
       message: "Payment successful",
       amount: pr.amount,
       reference: pr.reference,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Merchant polls after scan (Scan → Request → Confirm → Done)
+router.get("/payment-request/:id/status", authenticate, async (req: AuthRequest, res: Response, next) => {
+  try {
+    const pr = await WalletPaymentRequest.findById(req.params.id).lean();
+    if (!pr) throw new AppError("Payment request not found", 404);
+    if (String(pr.toUser) !== String(req.user!._id)) {
+      throw new AppError("You are not the payee for this payment", 403);
+    }
+    const expired = pr.status === "pending" && new Date() > new Date(pr.otpExpiresAt);
+    if (expired && pr.status === "pending") {
+      await WalletPaymentRequest.findByIdAndUpdate(pr._id, { status: "expired" });
+    }
+    res.json({
+      paymentRequestId: String(pr._id),
+      status: expired ? "expired" : pr.status,
+      amount: pr.amount,
+      merchantName: (pr.metadata as any)?.merchantName || "Store",
+      completedAt: pr.completedAt || null,
     });
   } catch (err) {
     next(err);
@@ -457,6 +686,8 @@ router.post("/add-card", authenticate, async (req: AuthRequest, res: Response, n
       returnUrl: `${process.env.FRONTEND_URL || "http://localhost:3000"}/wallet?addCard=success`,
       notifyUrl: `${process.env.BACKEND_URL || "http://localhost:4000"}/api/payments/webhook`,
       vault: true,
+      // Card tokenization is not a wallet top-up flow.
+      skipPayGateFee: true,
     });
 
     if (!paymentResult.success || (!paymentResult.paymentUrl && !paymentResult.payGateRedirect)) {
@@ -532,57 +763,12 @@ router.post("/pay-pending-with-wallet", authenticate, async (req: AuthRequest, r
     const { paymentRequestId } = req.body;
     if (!paymentRequestId) throw new AppError("Payment request ID required", 400);
 
-    const pr = await WalletPaymentRequest.findById(paymentRequestId);
-    if (!pr) throw new AppError("Payment request not found", 404);
-    if (pr.status !== "pending") throw new AppError("Payment already completed or expired", 400);
-    if (String(pr.fromUser) !== String(req.user!._id)) {
-      throw new AppError("You are not the payer for this payment", 403);
-    }
-    if (new Date() > pr.otpExpiresAt) {
-      pr.status = "expired";
-      await pr.save();
-      throw new AppError("Payment request expired", 400);
-    }
-
-    const payerWallet = await Wallet.findOne({ user: pr.fromUser });
-    const payeeWallet = await Wallet.findOne({ user: pr.toUser });
-    if (!payerWallet || payerWallet.balance < pr.amount) {
-      throw new AppError("Insufficient balance", 400);
-    }
-    const recipientWallet = payeeWallet || (await Wallet.create({ user: pr.toUser }));
-
-    payerWallet.balance -= pr.amount;
-    payerWallet.transactions.push({
-      type: "debit",
-      amount: -pr.amount,
-      reference: pr.reference,
-      createdAt: new Date(),
-    });
-    await payerWallet.save();
-
-    recipientWallet.balance += pr.amount;
-    recipientWallet.transactions.push({
-      type: "credit",
-      amount: pr.amount,
-      reference: pr.reference,
-      createdAt: new Date(),
-    });
-    await recipientWallet.save();
-
-    pr.status = "completed";
-    pr.completedAt = new Date();
-    await pr.save();
-
-    await AuditLog.create({
-      action: "WALLET_QR_PAYMENT_WALLET",
-      user: pr.fromUser,
-      meta: { amount: pr.amount, toUser: pr.toUser, reference: pr.reference },
-    });
+    const result = await settlePendingStorePaymentWithWallet(String(req.user!._id), String(paymentRequestId));
 
     res.json({
       message: "Payment successful",
-      amount: pr.amount,
-      balance: payerWallet.balance,
+      amount: result.amount,
+      balance: result.balance,
     });
   } catch (err) {
     next(err);
@@ -621,6 +807,8 @@ router.post("/pay-with-card", authenticate, async (req: AuthRequest, res: Respon
       returnUrl: `${process.env.FRONTEND_URL || "http://localhost:3000"}/wallet?cardPayment=done`,
       notifyUrl: `${process.env.BACKEND_URL || "http://localhost:4000"}/api/payments/webhook`,
       vaultId: card.vaultId,
+      // In-ecosystem store/QR card payment: no flat top-up fee.
+      skipPayGateFee: true,
     });
 
     if (!paymentResult.success || (!paymentResult.paymentUrl && !paymentResult.payGateRedirect)) {
@@ -649,21 +837,65 @@ router.post("/pay-with-card", authenticate, async (req: AuthRequest, res: Respon
 
 // --- E-commerce checkout (ACBPayWallet payment page for merchant sites) ---
 
-// Get checkout details (public - for pay page to display merchant info)
+const CHECKOUT_SESSION_TTL_MS = 30 * 60 * 1000;
+
+function checkoutSessionExpired(session: { expiresAt?: Date; createdAt?: Date }): boolean {
+  const exp = session.expiresAt
+    ? new Date(session.expiresAt).getTime()
+    : new Date(session.createdAt || 0).getTime() + CHECKOUT_SESSION_TTL_MS;
+  return Date.now() > exp;
+}
+
+// Get checkout details — creates a server-side session (amount locked in DB).
 router.get("/checkout/details", async (req: AuthRequest, res: Response, next) => {
   try {
+    const sessionId = String(req.query.sessionId || "").trim();
+    if (sessionId) {
+      const session = await CheckoutSession.findById(sessionId).lean();
+      if (!session || session.status !== "pending" || checkoutSessionExpired(session)) {
+        throw new AppError("Checkout session expired or invalid", 400);
+      }
+      const merchant = await User.findById(session.merchantId).select("name username").lean();
+      if (!merchant) throw new AppError("Merchant not found", 404);
+      return res.json({
+        sessionId: String(session._id),
+        merchantId: String(session.merchantId),
+        amount: session.amount,
+        reference: session.reference,
+        returnUrl: session.returnUrl,
+        cancelUrl: session.cancelUrl,
+        merchantName: (merchant as any).name || (merchant as any).username || "Merchant",
+      });
+    }
+
     const { merchantId, amount, reference, name } = req.query;
-    if (!merchantId || !amount || !reference) {
-      throw new AppError("merchantId, amount, reference required", 400);
+    const returnUrl = String(req.query.return_url || req.query.returnUrl || "").trim();
+    const cancelUrl = String(req.query.cancel_url || req.query.cancelUrl || "").trim() || undefined;
+    if (!merchantId || !amount || !reference || !returnUrl) {
+      throw new AppError("merchantId, amount, reference, and return_url required", 400);
     }
     const merchant = await User.findById(merchantId).select("name username").lean();
     if (!merchant) throw new AppError("Merchant not found", 404);
     const amt = parseFloat(amount as string);
-    if (isNaN(amt) || amt < 0.01) throw new AppError("Invalid amount", 400);
-    res.json({
+    if (isNaN(amt) || amt < 0.01 || amt > 50000) throw new AppError("Invalid amount", 400);
+
+    const session = await CheckoutSession.create({
       merchantId,
       amount: amt,
       reference: String(reference),
+      returnUrl,
+      cancelUrl,
+      status: "pending",
+      expiresAt: new Date(Date.now() + CHECKOUT_SESSION_TTL_MS),
+    });
+
+    res.json({
+      sessionId: String(session._id),
+      merchantId: String(merchantId),
+      amount: amt,
+      reference: String(reference),
+      returnUrl,
+      cancelUrl,
       merchantName: (name as string) || (merchant as any).name || (merchant as any).username || "Merchant",
     });
   } catch (err) {
@@ -671,65 +903,76 @@ router.get("/checkout/details", async (req: AuthRequest, res: Response, next) =>
   }
 });
 
-// Pay checkout (wallet or card)
+// Pay checkout (wallet or card) — amount always from CheckoutSession, never request body.
 router.post("/checkout/pay", authenticate, async (req: AuthRequest, res: Response, next) => {
   try {
     const { error } = checkoutPaySchema.validate(req.body);
     if (error) throw new AppError(error.details[0].message, 400);
 
-    const { merchantId, amount, reference, returnUrl, cancelUrl, method, cardId } = req.body;
+    const { sessionId, method, cardId } = req.body;
     const payerId = req.user!._id;
 
-    if (String(merchantId) === String(payerId)) {
+    const session = await CheckoutSession.findById(sessionId);
+    if (!session || session.status !== "pending" || checkoutSessionExpired(session)) {
+      throw new AppError("Checkout session expired or invalid", 400);
+    }
+
+    if (String(session.merchantId) === String(payerId)) {
       throw new AppError("Cannot pay yourself", 400);
     }
 
-    const merchant = await User.findById(merchantId).select("name").lean();
+    const merchant = await User.findById(session.merchantId).select("name").lean();
     if (!merchant) throw new AppError("Merchant not found", 404);
 
+    const amount = Number(session.amount);
+    if (!Number.isFinite(amount) || amount < 0.01) {
+      throw new AppError("Invalid session amount", 400);
+    }
+
+    session.payerId = payerId;
+    await session.save();
+
     if (method === "wallet") {
-      const payerWallet = await Wallet.findOne({ user: payerId });
-      const merchantWallet = await Wallet.findOne({ user: merchantId });
-      if (!payerWallet || payerWallet.balance < amount) {
-        throw new AppError("Insufficient balance", 400);
-      }
-      const recipientWallet = merchantWallet || (await Wallet.create({ user: merchantId }));
-      const ref = `CHECKOUT-${reference}-${Date.now()}`;
+      const ref = `CHECKOUT-${session.reference}-${Date.now()}`;
 
-      payerWallet.balance -= amount;
-      payerWallet.transactions.push({ type: "debit", amount: -amount, reference: ref, createdAt: new Date() });
-      await payerWallet.save();
+      const debited = await Wallet.findOneAndUpdate(
+        { user: payerId, balance: { $gte: amount } },
+        {
+          $inc: { balance: -amount },
+          $push: { transactions: { type: "debit", amount: -amount, reference: ref, createdAt: new Date() } },
+        },
+        { new: true }
+      );
+      if (!debited) throw new AppError("Insufficient balance", 400);
 
-      recipientWallet.balance += amount;
-      recipientWallet.transactions.push({ type: "credit", amount, reference: ref, createdAt: new Date() });
-      await recipientWallet.save();
+      await Wallet.findOneAndUpdate(
+        { user: session.merchantId },
+        {
+          $inc: { balance: amount },
+          $push: { transactions: { type: "credit", amount, reference: ref, createdAt: new Date() } },
+        },
+        { upsert: true, new: true }
+      );
+
+      session.status = "completed";
+      session.completedAt = new Date();
+      await session.save();
 
       await AuditLog.create({
         action: "CHECKOUT_PAY_WALLET",
         user: payerId,
-        meta: { amount, merchantId, reference },
+        meta: { amount, merchantId: session.merchantId, reference: session.reference, sessionId },
       });
 
-      const sep = returnUrl.includes("?") ? "&" : "?";
+      const sep = session.returnUrl.includes("?") ? "&" : "?";
       return res.json({
         success: true,
-        redirectUrl: `${returnUrl}${sep}status=success&reference=${encodeURIComponent(reference)}&amount=${amount}`,
+        redirectUrl: `${session.returnUrl}${sep}status=success&reference=${encodeURIComponent(session.reference)}&amount=${amount}`,
       });
     }
 
-    // method === "card"
     const card = await StoredCard.findOne({ _id: cardId, user: payerId });
     if (!card) throw new AppError("Card not found", 404);
-
-    const session = await CheckoutSession.create({
-      merchantId,
-      payerId,
-      amount,
-      reference,
-      returnUrl,
-      cancelUrl,
-      status: "pending",
-    });
 
     const paymentResult = await initiatePayment({
       amount,
@@ -738,10 +981,12 @@ router.post("/checkout/pay", authenticate, async (req: AuthRequest, res: Respons
       returnUrl: `${process.env.FRONTEND_URL || "http://localhost:3000"}/pay/return?session=${session._id}`,
       notifyUrl: `${process.env.BACKEND_URL || "http://localhost:4000"}/api/payments/webhook`,
       vaultId: card.vaultId,
+      skipPayGateFee: true,
     });
 
     if (!paymentResult.success || (!paymentResult.paymentUrl && !paymentResult.payGateRedirect)) {
-      await CheckoutSession.findByIdAndUpdate(session._id, { status: "failed" });
+      session.status = "failed";
+      await session.save();
       throw new AppError(paymentResult.error || "Could not start payment", 500);
     }
 
@@ -893,7 +1138,6 @@ router.post("/request-money", authenticate, async (req: AuthRequest, res: Respon
 
     const payee = await User.findById(toUserIdResolved).select("phone name").lean();
     if (!payee) throw new AppError("User not found", 404);
-    if (!(payee as any).phone) throw new AppError("User has no phone number to notify", 400);
 
     const requester = await User.findById(fromUser).select("name username").lean();
     const requesterName = (requester as any)?.name || (requester as any)?.username || "Someone";
@@ -912,22 +1156,78 @@ router.post("/request-money", authenticate, async (req: AuthRequest, res: Respon
       actionToken,
     });
 
-    const baseFe = String(process.env.FRONTEND_URL || "http://localhost:3000").replace(/\/$/, "");
-    const webLink = `${baseFe}/pay/request?requestId=${moneyRequest._id}&token=${encodeURIComponent(actionToken)}`;
-    const text = [
-      `${requesterName} requested R${amount.toFixed(2)} from you via ACBPayWallet.`,
-      message ? `Message: ${message}` : "",
-      `Pay now: ${webLink}`,
-    ]
-      .filter(Boolean)
-      .join(" ");
-    const channel = notifyChannel === "sms" ? "sms" : "whatsapp";
-    await sendSms({ phone: (payee as any).phone, text, channel });
+    await notifyMoneyRequestToPayee({
+      payeeId: String(toUserIdResolved),
+      requestId: String(moneyRequest._id),
+      amount,
+      requesterName,
+      actionToken,
+      message,
+      payeePhone: (payee as any).phone,
+      notifyChannel,
+    });
 
     res.status(201).json({
       requestId: moneyRequest._id,
       amount,
-      message: "Request sent. Payee will receive notification.",
+      message: "Request sent — they confirm in ACBPayWallet",
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Face-to-face P2P: requester scanned payee QR (payee confirms send in wallet)
+router.post("/request-money-from-scan", authenticate, async (req: AuthRequest, res: Response, next) => {
+  try {
+    const { error } = requestMoneyFromScanSchema.validate(req.body);
+    if (error) throw new AppError(error.details[0].message, 400);
+
+    const { payeeUserId: payeeRaw, amount, message } = req.body;
+    const fromUser = req.user!._id;
+    const payeeUserId = parseAcbPayUserId(payeeRaw);
+    if (!payeeUserId) throw new AppError("Invalid QR — use ACBPAY:userId format", 400);
+
+    if (String(payeeUserId) === String(fromUser)) {
+      throw new AppError("Cannot request money from yourself", 400);
+    }
+
+    const payee = await User.findById(payeeUserId).select("phone name username").lean();
+    if (!payee) throw new AppError("User not found", 404);
+
+    const requester = await User.findById(fromUser).select("name username").lean();
+    const requesterName = (requester as any)?.name || (requester as any)?.username || "Someone";
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    const actionToken = generateMoneyRequestActionToken().toLowerCase();
+
+    const moneyRequest = await MoneyRequest.create({
+      fromUser,
+      toUser: payeeUserId,
+      amount,
+      message,
+      status: "pending",
+      notifyChannel: "whatsapp",
+      expiresAt,
+      reference: `REQ-SCAN-${Date.now()}-${Math.round(Math.random() * 1e6)}`,
+      actionToken,
+    });
+
+    await notifyMoneyRequestToPayee({
+      payeeId: payeeUserId,
+      requestId: String(moneyRequest._id),
+      amount,
+      requesterName,
+      actionToken,
+      message,
+      payeePhone: (payee as any).phone,
+      notifyChannel: "none",
+    });
+
+    res.status(201).json({
+      requestId: moneyRequest._id,
+      amount,
+      payeeName: (payee as any).name || (payee as any).username || "User",
+      message: "Request sent — they confirm in their wallet",
     });
   } catch (err) {
     next(err);
@@ -1109,6 +1409,27 @@ router.post("/merchant-agent/apply", authenticate, async (req: AuthRequest, res:
       meta: { businessName: (user as any).merchantAgent.businessName },
     });
 
+    // WhatsApp-first follow-up to improve completion and reduce uncertainty.
+    try {
+      const phone = String((user as any).phone || "").trim();
+      if (phone) {
+        const base = String(process.env.FRONTEND_URL || "https://www.qwertymates.com").replace(/\/$/, "");
+        const uploadLink = `${base}/support?category=wallet:other`;
+        const statusLink = `${base}/wallet`;
+        const waText = [
+          "✅ Merchant application received!",
+          "",
+          `Hi ${(user as any).name || "there"}, your merchant application is under review.`,
+          "Next step:",
+          `📎 Submit supporting documents here: ${uploadLink}`,
+          `Track status: ${statusLink}`,
+        ].join("\n");
+        await sendSms({ phone, text: waText, channel: "whatsapp" });
+      }
+    } catch {
+      // Non-blocking: application still succeeds if WhatsApp delivery fails.
+    }
+
     res.status(201).json({
       message: "Application submitted. We will notify you after admin review.",
       applicationStatus: "pending",
@@ -1153,24 +1474,45 @@ router.patch("/merchant-agent/me", authenticate, async (req: AuthRequest, res: R
 router.get("/merchant-agents", authenticate, async (req: AuthRequest, res: Response, next) => {
   try {
     const q = typeof req.query.q === "string" ? req.query.q.trim() : "";
-    const limit = Math.min(30, Math.max(1, parseInt(String(req.query.limit || "20"), 10) || 20));
+    const location =
+      typeof req.query.location === "string" ? req.query.location.trim() : "";
+    const limit = Math.min(50, Math.max(1, parseInt(String(req.query.limit || "30"), 10) || 30));
+    const approvedOr = [
+      { "merchantAgent.applicationStatus": "approved" },
+      { "merchantAgent.applicationStatus": { $exists: false } },
+    ];
+    const and: Record<string, unknown>[] = [{ $or: approvedOr }];
+    if (q.length >= 1) {
+      const rx = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+      and.push({
+        $or: [
+          { name: rx },
+          { username: rx },
+          { "merchantAgent.businessName": rx },
+        ],
+      });
+    }
+    if (location.length >= 1) {
+      const locRx = new RegExp(location.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+      and.push({
+        $or: [
+          { countryCode: locRx },
+          { "merchantAgent.publicNote": locRx },
+          { "merchantAgent.businessDescription": locRx },
+        ],
+      });
+    }
     const filter: Record<string, unknown> = {
       isVerified: true,
       suspended: { $ne: true },
       active: true,
       "merchantAgent.enabled": true,
       "merchantAgent.applicationStatus": { $nin: ["suspended", "rejected", "pending", "none"] },
-      $or: [
-        { "merchantAgent.applicationStatus": "approved" },
-        { "merchantAgent.applicationStatus": { $exists: false } },
-      ],
+      $and: and,
     };
-    if (q.length >= 2) {
-      const rx = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
-      filter.$or = [{ username: rx }, { name: rx }];
-    }
     const agents = await User.find(filter)
-      .select("_id name username merchantAgent")
+      .select("_id name username countryCode merchantAgent")
+      .sort({ name: 1 })
       .limit(limit)
       .lean();
     res.json(
@@ -1178,7 +1520,10 @@ router.get("/merchant-agents", authenticate, async (req: AuthRequest, res: Respo
         _id: a._id,
         name: a.name,
         username: a.username,
+        countryCode: a.countryCode || "",
         publicNote: a.merchantAgent?.publicNote || "",
+        businessName: a.merchantAgent?.businessName || "",
+        businessDescription: a.merchantAgent?.businessDescription || "",
       }))
     );
   } catch (err) {
@@ -1489,6 +1834,45 @@ router.get("/merchant-agent/history", authenticate, async (req: AuthRequest, res
       .limit(limit)
       .lean();
     res.json(rows);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** Tuckshop / cash-agent commission dashboard (web + WhatsApp parity). */
+router.get("/agent-earnings/summary", authenticate, async (req: AuthRequest, res: Response, next) => {
+  try {
+    const uid = req.user!._id;
+    const summary = await getAgentCommissionSummary(uid);
+    const registrations = await TuckshopCashAgentRegistration.find({ applicantUser: uid })
+      .sort({ createdAt: -1 })
+      .limit(100)
+      .lean();
+    res.json({ summary, registrations });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post("/agent-earnings/email-report", authenticate, async (req: AuthRequest, res: Response, next) => {
+  try {
+    const uid = req.user!._id;
+    const recent = await AuditLog.findOne({
+      action: "AGENT_EARNINGS_REPORT_EMAIL",
+      user: uid,
+      createdAt: { $gte: new Date(Date.now() - 60 * 60 * 1000) },
+    })
+      .select("_id")
+      .lean();
+    if (recent) throw new AppError("Please wait up to an hour between report emails.", 429);
+    const result = await emailAgentEarningsReportForUser(uid);
+    if (!result.ok) throw new AppError(result.message, 400);
+    await AuditLog.create({
+      action: "AGENT_EARNINGS_REPORT_EMAIL",
+      user: uid,
+      meta: { channel: "web" },
+    });
+    res.json({ ok: true, message: result.message });
   } catch (err) {
     next(err);
   }

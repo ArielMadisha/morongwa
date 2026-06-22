@@ -1,0 +1,80 @@
+---
+description: Never commit .env; fix-test-deploy; sync standalone/AskMacGyver & standalone/ACBPayWallet with Qwertymates backend
+alwaysApply: true
+---
+
+# Secrets, workflow, and satellite mirrors (Ask MacGyver + ACBPayWallet)
+
+## Environment and secrets (never commit)
+
+- **Do not commit** real environment files: `.env`, `backend/.env`, `frontend/.env`, `mobile/.env`, `deploy-server.secrets`, `deploy-server.config`, or any file containing live API keys, tokens, or passwords.
+- The repo root **`.gitignore`** already excludes these; keep it that way and **never** force-add them.
+- Prefer **`.env.example` / `*.env.*.example`** for documented placeholders only.
+- Do not paste production secrets into chat or commit history.
+
+## Fix → test → deploy
+
+For changes that affect **behavior** users see (backend, frontend, **mobile**, deploy scripts, production build config):
+
+1. **Fix** the code or config.
+2. **Test**: run **`npm run build`** in `backend/` (and in `frontend/` when frontend touched); **`npm run typecheck`** in `mobile/` when mobile touched; run targeted tests or smoke scripts when they exist for the area changed.
+3. **Deploy** per **`deploy-after-changes`** rule:
+   - Web: `backend/` → **`npm run deploy:production`**
+   - Android: `mobile/` → EAS production build + Play Store submit (**`npm run release:android:play`** or build + submit by build id)
+4. After web deploy, follow **`website-502-guardrail`** for `https://www.qwertymates.com/` and `/wall`.
+
+Skip deploy only when the task is docs-only, local-only, the user explicitly defers release, or you lack access to an external system (e.g. Facebook accounts) — report the blocker.
+
+## Standalone sync (one command, two mirrors)
+
+Canonical script: **`backend/scripts/syncStandaloneSatellites.mjs`**  
+Run from **`backend/`**:
+
+```bash
+npm run standalone:sync-ask-macgyver
+```
+
+This **refreshes both**:
+
+| Tracked mirror in this repo | What gets overwritten |
+|-----------------------------|-------------------------|
+| **`standalone/AskMacGyver/src/`** | MacGyver services + knowledge + learned model — see **`standalone/AskMacGyver/README.md`** (source table matches `backend/src/...`). |
+| **`standalone/ACBPayWallet/src/services/satelliteSync.ts`** | Dispatcher used for signed satellite events — see **`standalone/ACBPayWallet/README.md`**. |
+
+After MacGyver or **`satelliteSync.ts`** backend changes affecting satellites:
+
+1. Run the sync command above.
+2. **Commit** the updated **`standalone/AskMacGyver`** and **`standalone/ACBPayWallet`** files in **this** repo when the change should be tracked.
+
+Additional MacGyver route behaviour lives in **`backend/src/routes/macgyver.ts`**; mirror/satellite repos should follow the same handler pattern (`POST /api/macgyver/ask`, etc.) as documented in **`standalone/AskMacGyver/README.md`**.
+
+## ACBPay wallet beyond `satelliteSync.ts`
+
+Wallet logic (`walletBalanceSideEffects.ts`, `wallet.ts`, `waFlow.ts`, etc.) is listed in **`standalone/ACBPayWallet/README.md`**. When changing **ACBPay-facing** flows in the monorepo, reconcile the **standalone mirror** or downstream deploy repo so satellites do not drift (not only `satelliteSync.ts`).
+
+## Optional sibling workspaces (separate Cursor projects)
+
+The owner keeps **additional working copies** outside this monorepo (typical Windows Cursor layout):
+
+- **`C:\Users\Dell\.cursor\projects\AskMacGyver`** — Ask MacGyver standalone app; align with **`standalone/AskMacGyver/src/`** after sync.
+- **`C:\Users\Dell\.cursor\projects\ACBPayWallet`** — ACBPayWallet standalone; align with **`standalone/ACBPayWallet/`** (especially **`src/services/satelliteSync.ts`**) after sync.
+
+Those folders are **not** updated by this repo’s git or scripts. Workflow: change code in **Qwertymates (`morongwa` monorepo)** → from **`backend/`** run **`npm run standalone:sync-ask-macgyver`** → commit **`standalone/`** here → **copy or merge** into **AskMacGyver** / **ACBPayWallet** sibling projects (or push their remotes) when deploying from those trees.
+
+## Recurring owner schedules (persist after Cursor updates)
+
+**Non-negotiable cadence** — see **`.cursor/rules/recurring-owner-schedules.mdc`** (`alwaysApply: true`).
+
+| Job | Cadence |
+|-----|---------|
+| **School gallery import** | **One school per calendar day** @ 06:30 Windows task |
+| **World News sports** | **Tuesday + Friday** (Facebook TV ingest Tue; `runFacebookNewsBots` sports `tue`/`fri`) |
+
+Detail: **`.cursor/rules/school-gallery-daily-import.mdc`**, **`DOCS/SCHOOL_GALLERY_DAILY_IMPORT.md`**, `backend/src/config/facebookTvIngest.ts`.
+
+After Cursor rule refreshes: verify both rule files exist; re-register `Qwertymates-SchoolGallery-Daily` if the scheduled task is missing.
+
+- **One school folder per calendar day** from `Documents\Coding\Schools` (OneDrive).
+- **Existing account** → append photos; **no account** → create school user and load photos.
+- **Never repeat** the same folder (`school-gallery-daily-state.json`).
+- From **`backend/`**: `npm run school:import-gallery-daily` (or `Register-SchoolGalleryDailyTask.ps1`).

@@ -4,6 +4,9 @@
  * - nginx + nginx-rtmp (RTMP ingest + HLS playback)
  * - basic UFW rules
  *
+ * Alternative (often better beside Nginx Proxy Manager): Docker stack in repo
+ * `infra/media-server/docker-compose.yml` — see DEPLOYMENT.md "Livestream media server".
+ *
  * Usage:
  *   node scripts/setupRealtimeInfraRemote.mjs --dry-run
  *   node scripts/setupRealtimeInfraRemote.mjs
@@ -70,6 +73,7 @@ function buildRemoteScript(cfg) {
   const turnRealm = must(cfg, "TURN_REALM");
   const turnUser = must(cfg, "TURN_USERNAME");
   const turnPass = must(cfg, "TURN_PASSWORD");
+  const turnSharedSecret = (cfg.TURN_SHARED_SECRET || turnPass).trim();
   const hlsDomain = (cfg.LIVESTREAM_HLS_DOMAIN || cfg.PUBLIC_APP_DOMAIN || "").trim();
   const hlsPort = parseInt(cfg.LIVESTREAM_HLS_PORT || "8081", 10) || 8081;
   const hlsPath = (cfg.LIVESTREAM_HLS_PATH || "/var/www/morongwa-hls").trim();
@@ -88,9 +92,8 @@ listening-port=3478
 tls-listening-port=5349
 fingerprint
 use-auth-secret
-lt-cred-mech
+static-auth-secret=${esc(turnSharedSecret)}
 realm=${esc(turnRealm)}
-user=${esc(turnUser)}:${esc(turnPass)}
 total-quota=100
 bps-capacity=0
 stale-nonce=600
@@ -98,6 +101,9 @@ no-loopback-peers
 no-multicast-peers
 min-port=10000
 max-port=20000
+# Static fallback for legacy clients (optional)
+lt-cred-mech
+user=${esc(turnUser)}:${esc(turnPass)}
 EOF
 
 sed -i 's/^#\\?TURNSERVER_ENABLED=.*/TURNSERVER_ENABLED=1/' /etc/default/coturn

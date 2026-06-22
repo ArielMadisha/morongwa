@@ -6,7 +6,7 @@ const router = express.Router();
 
 /**
  * POST /api/macgyver/ask
- * Ask MacGyver a question. Uses OpenAI for Qwertymates + general knowledge.
+ * Ask MacGyver: static FAQ → learned DB → platform search → open web snippets → OpenAI synthesis.
  * Body: { query: string }
  */
 router.post("/ask", authenticate, async (req: AuthRequest, res: Response, next) => {

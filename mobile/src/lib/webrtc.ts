@@ -17,6 +17,21 @@ async function loadWebRTC(): Promise<RNW> {
   return import("react-native-webrtc");
 }
 
+function expandTurnIceServers(turn: {
+  urls: string[] | string;
+  username: string;
+  credential: string;
+}): RTCIceServer[] {
+  const raw = Array.isArray(turn.urls) ? turn.urls : String(turn.urls || "").split(",");
+  const urls = raw.map((u) => String(u || "").trim()).filter(Boolean);
+  if (!urls.length || !turn.username || !turn.credential) return [];
+  return urls.map((url) => ({
+    urls: url,
+    username: turn.username,
+    credential: turn.credential,
+  }));
+}
+
 export async function getLocalUserMedia(
   constraints: RNConstraints = { audio: true, video: true }
 ): Promise<CallMedia> {
@@ -36,14 +51,9 @@ export async function createPeerConnection() {
   try {
     const res = await webrtcAPI.getTurnCredentials();
     const turn = res.data?.data;
-    if (Array.isArray(turn?.urls) && turn.urls.length && turn.username && turn.credential) {
-      iceServers.push({
-        urls: turn.urls,
-        username: turn.username,
-        credential: turn.credential,
-      });
+    if (turn?.username && turn.credential) {
+      iceServers.push(...expandTurnIceServers(turn));
     } else if (MOBILE_TURN_URLS.length) {
-      // URL fallback only; credentials are expected from backend.
       iceServers.push({ urls: MOBILE_TURN_URLS });
     }
   } catch {
@@ -55,6 +65,7 @@ export async function createPeerConnection() {
   return new RTCPeerConnection({
     iceServers,
     iceCandidatePoolSize: 8,
+    bundlePolicy: "max-bundle",
   });
 }
 
@@ -62,4 +73,3 @@ export function stopStream(stream?: RNMediaStream | null) {
   if (!stream) return;
   for (const t of stream.getTracks()) t.stop();
 }
-

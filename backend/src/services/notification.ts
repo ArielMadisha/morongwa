@@ -5,6 +5,12 @@ import Notification from "../data/models/Notification";
 import User from "../data/models/User";
 import Task from "../data/models/Task";
 import { logger } from "./monitoring";
+import {
+  authenticateSocket,
+  assertOwnUserRoom,
+  assertTaskParticipant,
+  socketUserId,
+} from "../utils/socketAuth";
 
 let io: SocketServer | null = null;
 
@@ -53,23 +59,32 @@ export const initializeNotificationService = (socketServer: SocketServer): void 
   // Setup notifications namespace for realtime user notifications
   try {
     const notifNs = io.of('/notifications');
+    notifNs.use(authenticateSocket);
     notifNs.on('connection', (socket) => {
-      // clients should emit 'join' with their userId or room id to receive personal notifications
-      socket.on('join', (roomId: string) => {
-        try { socket.join(roomId); } catch { /* best-effort join */ }
+      socket.on('join', async (roomId: string) => {
+        try {
+          assertOwnUserRoom(String(roomId), socketUserId(socket));
+          socket.join(String(roomId));
+        } catch {
+          /* ignore unauthorized join */
+        }
       });
     });
   } catch (e) {
     logger.warn('Failed to initialize /notifications namespace', { error: e });
   }
 
-  // Setup locations namespace for live runner locations
   try {
     const locNs = io.of('/locations');
+    locNs.use(authenticateSocket);
     locNs.on('connection', (socket) => {
-      // clients should emit 'join' with taskId or clientId to receive runner location updates
-      socket.on('join', (roomId: string) => {
-        try { socket.join(roomId); } catch { /* best-effort join */ }
+      socket.on('join', async (roomId: string) => {
+        try {
+          await assertTaskParticipant(String(roomId), socketUserId(socket));
+          socket.join(String(roomId));
+        } catch {
+          /* ignore unauthorized join */
+        }
       });
     });
   } catch (e) {
@@ -78,6 +93,68 @@ export const initializeNotificationService = (socketServer: SocketServer): void 
 
   logger.info("Notification service initialized");
 };
+
+/** Push a saved notification document to a user's realtime channel. */
+export function emitUserNotification(userId: string, payload: unknown): void {
+  try {
+    if (!io || !userId) return;
+    io.of("/notifications").to(userId).emit("notification", payload);
+  } catch (e) {
+    logger.warn("emitUserNotification failed (non-fatal)", { error: e });
+  }
+}
+
+/** Realtime wallet balance for web/mobile (Socket.IO `/notifications`, event `wallet_balance`). */
+export function emitWalletBalanceSync(
+  userId: string,
+  payload: { balance: number; transaction?: unknown; updatedAt: string }
+): void {
+  try {
+    if (!io || !userId) return;
+    io.of("/notifications").to(userId).emit("wallet_balance", payload);
+  } catch (e) {
+    logger.warn("emitWalletBalanceSync failed (non-fatal)", { error: e });
+  }
+}
+
+/** Store scan: payer should confirm in wallet (event `wallet_pending_payment`). */
+export function emitWalletPendingPayment(
+  userId: string,
+  payload: { paymentRequestId: string; amount: number; merchantName: string }
+): void {
+  try {
+    if (!io || !userId) return;
+    io.of("/notifications").to(userId).emit("wallet_pending_payment", payload);
+  } catch (e) {
+    logger.warn("emitWalletPendingPayment failed (non-fatal)", { error: e });
+  }
+}
+
+/** P2P: payee should confirm send (event `wallet_money_request`). */
+export function emitWalletMoneyRequest(
+  userId: string,
+  payload: { requestId: string; amount: number; requesterName: string }
+): void {
+  try {
+    if (!io || !userId) return;
+    io.of("/notifications").to(userId).emit("wallet_money_request", payload);
+  } catch (e) {
+    logger.warn("emitWalletMoneyRequest failed (non-fatal)", { error: e });
+  }
+}
+
+/** Store scan: merchant notified when payer confirmed (event `wallet_payment_completed`). */
+export function emitWalletPaymentCompleted(
+  userId: string,
+  payload: { paymentRequestId: string; amount: number; status: string }
+): void {
+  try {
+    if (!io || !userId) return;
+    io.of("/notifications").to(userId).emit("wallet_payment_completed", payload);
+  } catch (e) {
+    logger.warn("emitWalletPaymentCompleted failed (non-fatal)", { error: e });
+  }
+}
 
 interface NotificationOptions {
   userId?: string;
@@ -172,6 +249,55 @@ export const emitRunnerLocation = async (runnerId: string, location: { type: str
     logger.warn("Failed to emit runner location", { error: err });
   }
 };
+
+/** Send SMTP email with optional attachments (CSV/PDF). Best-effort; returns false on failure. */
+export async function sendEmailWithAttachments(params: {
+  to: string;
+  subject: string;
+  text: string;
+  html?: string;
+  attachments?: Array<{ filename: string; content: string | Buffer; contentType?: string }>;
+}): Promise<boolean> {
+  try {
+    const transporter = await getTransporter();
+    const attachments = Array.isArray(params.attachments) ? params.attachments : [];
+    await transporter.sendMail({
+      from: process.env.SMTP_USER || "no-reply@qwertymates.local",
+      to: params.to,
+      subject: params.subject,
+      text: params.text,
+      html: params.html,
+      attachments,
+    });
+    return true;
+  } catch (error) {
+    logger.warn("sendEmailWithAttachments failed (non-fatal)", { error: String((error as any)?.message || error) });
+    return false;
+  }
+}
+
+/** Notify admin/superadmin users via realtime (saved + Socket.IO room per user id). */
+export async function notifyPlatformAdminsRealtime(payload: { type: string; message: string }): Promise<void> {
+  try {
+    const admins = await User.find({
+      role: { $in: ["admin", "superadmin"] },
+      active: true,
+      suspended: false,
+    })
+      .select("_id")
+      .lean();
+    for (const a of admins) {
+      await sendNotification({
+        userId: String(a._id),
+        type: payload.type,
+        message: payload.message,
+        channel: "realtime",
+      });
+    }
+  } catch (error) {
+    logger.warn("notifyPlatformAdminsRealtime failed (non-fatal)", { error: String((error as any)?.message || error) });
+  }
+}
 
 export const sendBroadcastNotification = async (
   message: string,

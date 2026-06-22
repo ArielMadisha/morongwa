@@ -9,7 +9,6 @@ import {
   Image,
   ImageBackground,
   KeyboardAvoidingView,
-  Linking,
   Modal,
   Platform,
   Pressable,
@@ -30,8 +29,11 @@ import { CheckoutScreen } from "./CheckoutScreen";
 import { MessagesScreen } from "./MessagesScreen";
 import { WorldScreen } from "./WorldScreen";
 import { MusicScreen } from "./MusicScreen";
+import { ErrandsScreen } from "./ErrandsScreen";
 import { CreatePostModal } from "../components/CreatePostModal";
+import { ErrandsTshwaneBookModal } from "../components/ErrandsTshwaneBookModal";
 import { StoriesStrip } from "../components/StoriesStrip";
+import { StatusStoryViewer } from "../components/StatusStoryViewer";
 import { SiteNavIcon } from "../components/SiteNavIcon";
 import { SITE_NAV_ICONS } from "../constants/site";
 import {
@@ -44,8 +46,18 @@ import {
   toAbsoluteMediaUrl,
   tvAPI
 } from "../lib/api";
-import { Product, StoreSummary } from "../types";
+import {
+  normalizeStatusStripItem,
+  postsForStatusItem,
+  sortStatusStripNewestFirst,
+  tvPostFromStatusStripRow,
+  type StatusStripItem
+} from "../lib/statusStripItem";
+import { statusProductId } from "../lib/statusProductLink";
+import { Product, StoreSummary, TVPost } from "../types";
 import { appTypography, socialChrome, socialTheme } from "../theme/socialTheme";
+import { CallPresenceService } from "../lib/callPresence";
+import { CallUserPicker, type CallUserPickerResult } from "../components/CallUserPicker";
 
 /** Expo Go has no WebRTC native module; lazy-load real CallScreen only in dev/custom builds. */
 const isExpoGo = Constants.executionEnvironment === "storeClient";
@@ -56,9 +68,8 @@ const CallScreenLazy = React.lazy(() =>
     : import("./CallScreen").then((m) => ({ default: m.CallScreen }))
 );
 
-const SAVED_POSTS_KEY = "morongwa.mobile.savedPosts";
+const SAVED_POSTS_KEY = "qwertymates.mobile.savedPosts";
 
-const SITE_ORIGIN = "https://www.qwertymates.com";
 const SCREEN_W = Dimensions.get("window").width;
 
 type PrimaryTab = "wall" | "hub" | "tv" | "world" | "music";
@@ -92,25 +103,38 @@ export function HomeScreen() {
   const [callSession, setCallSession] = useState(0);
   const [callLaunch, setCallLaunch] = useState<{
     peerUserId: string;
+    peerUserName?: string;
     roomId: string;
     autoJoin: boolean;
+    autoStartCall?: boolean;
     audioOnly?: boolean;
+    answerIncoming?: boolean;
+    callerId?: string;
+    invitedUserIds?: string[];
   } | null>(null);
+  const [callPickerOpen, setCallPickerOpen] = useState(false);
   const [macGyverOpen, setMacGyverOpen] = useState(false);
+  const [aboutQwertymatesOpen, setAboutQwertymatesOpen] = useState(false);
   const [macGyverFabExpanded, setMacGyverFabExpanded] = useState(false);
   const [macGyverQuery, setMacGyverQuery] = useState("");
   const [macGyverLoading, setMacGyverLoading] = useState(false);
   const [macGyverResults, setMacGyverResults] = useState<Product[]>([]);
   const [macGyverAiText, setMacGyverAiText] = useState<string | null>(null);
   const [hubOpenProductId, setHubOpenProductId] = useState<string | null>(null);
-  const [storyCreators, setStoryCreators] = useState<
-    { id: string; name?: string; avatar?: string }[]
-  >([]);
+  const [statusItems, setStatusItems] = useState<StatusStripItem[]>([]);
+  const [statusViewerOpen, setStatusViewerOpen] = useState(false);
+  const [statusViewerLoading, setStatusViewerLoading] = useState(false);
+  const [statusViewerPost, setStatusViewerPost] = useState<TVPost | null>(null);
+  const [statusViewerMeta, setStatusViewerMeta] = useState<{ name?: string; avatar?: string }>({});
+  const [statusViewerItem, setStatusViewerItem] = useState<StatusStripItem | null>(null);
+  const [statusPostIndex, setStatusPostIndex] = useState(0);
   const [showMyStoreQuick, setShowMyStoreQuick] = useState(false);
   const [storePanelStores, setStorePanelStores] = useState<StoreSummary[]>([]);
   const [storePanelLoading, setStorePanelLoading] = useState(false);
   const [createPostOpen, setCreatePostOpen] = useState(false);
   const [errandsMenuOpen, setErrandsMenuOpen] = useState(false);
+  const [errandsOverlay, setErrandsOverlay] = useState<"client" | "runner" | null>(null);
+  const [errandTshwaneBookOpen, setErrandTshwaneBookOpen] = useState(false);
   const [errandsAnchor, setErrandsAnchor] = useState<{
     x: number;
     y: number;
@@ -118,8 +142,10 @@ export function HomeScreen() {
     height: number;
   } | null>(null);
   const errandsRef = useRef<View>(null);
+  const callPresenceRef = useRef(new CallPresenceService());
   const [landingBgs, setLandingBgs] = useState<string[]>([]);
   const [landingBgIdx, setLandingBgIdx] = useState(0);
+  const [landingBgBroken, setLandingBgBroken] = useState(false);
 
   const bumpCart = useCallback(() => {
     setCartRefreshKey((v) => v + 1);
@@ -142,6 +168,34 @@ export function HomeScreen() {
   }, [user, cartRefreshKey]);
 
   useEffect(() => {
+    const uid = String(user?._id || user?.id || "").trim();
+    if (!uid) {
+      callPresenceRef.current.stop();
+      return;
+    }
+    callPresenceRef.current.start(uid, (call) => {
+      if (callOpen) return;
+      callPresenceRef.current.showIncomingAlert(
+        call,
+        () => {
+          setCallLaunch({
+            peerUserId: call.callerId,
+            roomId: call.roomId,
+            autoJoin: true,
+            audioOnly: false,
+            answerIncoming: true,
+            callerId: call.callerId,
+          });
+          setCallSession((s) => s + 1);
+          setCallOpen(true);
+        },
+        () => callPresenceRef.current.emitCallReject(call)
+      );
+    });
+    return () => callPresenceRef.current.stop();
+  }, [user?._id, user?.id, callOpen]);
+
+  useEffect(() => {
     void contentAPI
       .getLandingBackgrounds()
       .then((res) => {
@@ -161,6 +215,10 @@ export function HomeScreen() {
   }, [landingBgs.length]);
 
   useEffect(() => {
+    setLandingBgBroken(false);
+  }, [landingBgIdx, landingBgs]);
+
+  useEffect(() => {
     void tvAPI
       .getStatuses()
       .then((res) => {
@@ -172,14 +230,117 @@ export function HomeScreen() {
               typeof uid === "object" && uid && "_id" in (uid as { _id?: string })
                 ? String((uid as { _id?: string })._id)
                 : String(uid ?? "");
-            if (!id) return null;
-            return { id, name: r.name, avatar: r.avatar };
+            if (!id || !r.latestPost?._id) return null;
+            const rowKey =
+              typeof r.statusKey === "string" && r.statusKey.trim()
+                ? String(r.statusKey).trim()
+                : id;
+            const item: StatusStripItem = {
+              id: rowKey,
+              name: r.name,
+              avatar: r.avatar,
+              isStoreStatus: r.isStoreStatus === true,
+              latestPost: r.latestPost,
+              posts: r.posts
+            };
+            return normalizeStatusStripItem(item);
           })
-          .filter(Boolean) as { id: string; name?: string; avatar?: string }[];
-        setStoryCreators(mapped);
+          .filter(Boolean) as StatusStripItem[];
+        setStatusItems(sortStatusStripNewestFirst(mapped));
       })
-      .catch(() => setStoryCreators([]));
+      .catch(() => setStatusItems([]));
   }, [feedVersion]);
+
+  const loadStatusPostAt = useCallback(async (item: StatusStripItem, index: number) => {
+    const posts = postsForStatusItem(item);
+    const stripPost = posts[index];
+    if (!stripPost?._id) {
+      setStatusViewerPost(null);
+      setStatusViewerLoading(false);
+      return;
+    }
+
+    setStatusViewerLoading(true);
+    setStatusViewerPost(null);
+
+    const finish = (post: TVPost | null) => {
+      setStatusViewerPost(post);
+      setStatusViewerLoading(false);
+    };
+
+    if (String(stripPost._id).startsWith("join-")) {
+      finish(tvPostFromStatusStripRow(item, stripPost));
+      return;
+    }
+
+    try {
+      const res = await tvAPI.getPost(String(stripPost._id));
+      const post = res.data?.data;
+      if (post?._id) {
+        finish(post);
+        return;
+      }
+    } catch {
+      /* fall through */
+    }
+
+    if (stripPost.type === "product") {
+      try {
+        const res = await productsAPI.getByIdOrSlug(String(stripPost._id));
+        const product = res.data?.data;
+        if (product?._id && product.images?.length) {
+          finish({
+            _id: product._id,
+            type: "image",
+            mediaUrls: product.images,
+            caption: product.title,
+            creatorId: { _id: item.id, name: item.name, avatar: item.avatar }
+          });
+          return;
+        }
+      } catch {
+        /* fall through */
+      }
+    }
+
+    finish(tvPostFromStatusStripRow(item, stripPost));
+  }, []);
+
+  const openStatusViewer = useCallback(
+    async (item: StatusStripItem) => {
+      const normalized = normalizeStatusStripItem(item);
+      const posts = postsForStatusItem(normalized);
+      if (!posts.length) return;
+
+      setStatusViewerItem(normalized);
+      setStatusPostIndex(0);
+      setStatusViewerMeta({ name: normalized.name, avatar: normalized.avatar });
+      setStatusViewerOpen(true);
+      await loadStatusPostAt(normalized, 0);
+    },
+    [loadStatusPostAt]
+  );
+
+  const goNextStatusPost = useCallback(() => {
+    if (!statusViewerItem) return;
+    const posts = postsForStatusItem(statusViewerItem);
+    const next = statusPostIndex + 1;
+    if (next >= posts.length) {
+      setStatusViewerOpen(false);
+      setStatusViewerItem(null);
+      setStatusViewerPost(null);
+      return;
+    }
+    setStatusPostIndex(next);
+    void loadStatusPostAt(statusViewerItem, next);
+  }, [statusViewerItem, statusPostIndex, loadStatusPostAt]);
+
+  const goPrevStatusPost = useCallback(() => {
+    if (!statusViewerItem || statusPostIndex <= 0) return;
+    const prev = statusPostIndex - 1;
+    setStatusPostIndex(prev);
+    void loadStatusPostAt(statusViewerItem, prev);
+  }, [statusViewerItem, statusPostIndex, loadStatusPostAt]);
 
   useEffect(() => {
     if (!user) {
@@ -212,8 +373,37 @@ export function HomeScreen() {
     if (overlay === "store") void loadStorePanel();
   }, [overlay, loadStorePanel]);
 
-  const openVideoCallManual = () => {
-    setCallLaunch(null);
+  const openCallPicker = () => {
+    setCallPickerOpen(true);
+  };
+
+  const handlePickerStart = (result: CallUserPickerResult) => {
+    setCallLaunch({
+      peerUserId: result.peerUserId,
+      peerUserName: result.peerUserName,
+      roomId: result.roomId,
+      autoJoin: true,
+      autoStartCall: true,
+      audioOnly: result.audioOnly,
+      invitedUserIds: result.invitedUserIds,
+    });
+    setCallSession((s) => s + 1);
+    setCallOpen(true);
+  };
+
+  const launchDirectCall = (
+    peerUserId: string,
+    roomId: string,
+    opts: { audioOnly?: boolean; peerUserName?: string } = {}
+  ) => {
+    setCallLaunch({
+      peerUserId,
+      peerUserName: opts.peerUserName,
+      roomId,
+      autoJoin: true,
+      autoStartCall: true,
+      audioOnly: opts.audioOnly,
+    });
     setCallSession((s) => s + 1);
     setCallOpen(true);
   };
@@ -238,13 +428,12 @@ export function HomeScreen() {
     setPrimaryTab(id);
   };
 
-  const openErrandsPath = (path: string) => {
+  const openErrandsInApp = (mode: "client" | "runner") => {
     setErrandsMenuOpen(false);
     setErrandsAnchor(null);
-    const url = `${SITE_ORIGIN}${path}`;
-    void Linking.openURL(url).catch(() => {
-      Alert.alert("Errands", "Could not open the link.");
-    });
+    setErrandTshwaneBookOpen(false);
+    setOverlay(null);
+    setErrandsOverlay(mode);
   };
 
   const onErrandsPress = () => {
@@ -325,19 +514,18 @@ export function HomeScreen() {
   };
 
   const mainContent = () => {
+    if (errandsOverlay) {
+      return <ErrandsScreen mode={errandsOverlay} onBack={() => setErrandsOverlay(null)} />;
+    }
     if (overlay === "messages") {
       return (
         <MessagesScreen
           currentUserId={String(user?._id || user?.id || "")}
           onRequestVideoCall={(peerUserId, roomId) => {
-            setCallLaunch({ peerUserId, roomId, autoJoin: true, audioOnly: false });
-            setCallSession((s) => s + 1);
-            setCallOpen(true);
+            launchDirectCall(peerUserId, roomId, { audioOnly: false });
           }}
           onRequestVoiceCall={(peerUserId, roomId) => {
-            setCallLaunch({ peerUserId, roomId, autoJoin: true, audioOnly: true });
-            setCallSession((s) => s + 1);
-            setCallOpen(true);
+            launchDirectCall(peerUserId, roomId, { audioOnly: true });
           }}
         />
       );
@@ -347,7 +535,7 @@ export function HomeScreen() {
         <ProfileScreen
           user={user}
           onSignOut={logout}
-          onOpenVideoCall={openVideoCallManual}
+          onOpenVideoCall={openCallPicker}
           onBack={() => setOverlay(null)}
           onOpenWallet={() => setOverlay("wallet")}
         />
@@ -429,6 +617,10 @@ export function HomeScreen() {
           hideStoriesHeader
           onPressCreateStory={() => setCreatePostOpen(true)}
           onCartUpdated={bumpCart}
+          onOpenProduct={(id) => {
+            setHubOpenProductId(id);
+            goToPrimary("hub");
+          }}
           userName={user?.name}
           currentUserId={user?._id || user?.id}
           onSavedCountChange={setSavedCount}
@@ -467,6 +659,10 @@ export function HomeScreen() {
             hideStoriesHeader
             onPressCreateStory={() => setCreatePostOpen(true)}
             onCartUpdated={bumpCart}
+            onOpenProduct={(id) => {
+              setHubOpenProductId(id);
+              goToPrimary("hub");
+            }}
             userName={user?.name}
             currentUserId={user?._id || user?.id}
             savedOnly={tab === "saved"}
@@ -508,9 +704,10 @@ export function HomeScreen() {
   };
 
   const landingBgUri = landingBgs.length ? landingBgs[landingBgIdx % landingBgs.length] : null;
+  const showLandingPhotoBg = !!(landingBgUri && !landingBgBroken);
 
   const mainShell = (
-    <View style={[styles.container, landingBgUri ? styles.containerOnPhotoBg : null]}>
+    <View style={[styles.container, showLandingPhotoBg ? styles.containerOnPhotoBg : null]}>
       <View style={styles.fixedChrome}>
         <View style={styles.statusTopRow}>
           <Pressable
@@ -520,7 +717,7 @@ export function HomeScreen() {
             accessibilityLabel="Home: Qwertymates wall feed"
           >
             <Image
-              source={require("../../assets/images/qwertymates-logo-icon.png")}
+              source={require("../../assets/images/qwertymates-q-mark-official.png")}
               style={styles.brandLogoImage}
               resizeMode="contain"
               accessibilityIgnoresInvertColors
@@ -528,10 +725,10 @@ export function HomeScreen() {
           </Pressable>
           <View style={styles.storiesSlot}>
             <StoriesStrip
-              creators={storyCreators}
+              items={statusItems}
               onPressSelf={() => setCreatePostOpen(true)}
-              onPressCreator={() => {
-                goToPrimary("wall");
+              onPressItem={(item) => {
+                void openStatusViewer(item);
               }}
             />
           </View>
@@ -550,8 +747,8 @@ export function HomeScreen() {
           {mainContent()}
         </View>
 
-        {/* Right FABs: cart (optional), Ask MacGyver AI (above), Morongwa messages (below). */}
-        {overlay || createPostOpen || errandsMenuOpen || macGyverOpen ? null : (
+        {/* Right FABs: cart (optional), About, Ask MacGyver AI (above), messages (below). */}
+        {overlay || errandsOverlay || createPostOpen || statusViewerOpen || errandsMenuOpen || macGyverOpen || aboutQwertymatesOpen ? null : (
           <View style={styles.rightFabColumn} pointerEvents="box-none">
             {cartCount > 0 ? (
               <Pressable
@@ -619,12 +816,21 @@ export function HomeScreen() {
               </Pressable>
             )}
             <Pressable
+              onPress={() => setAboutQwertymatesOpen(true)}
+              style={styles.fab}
+              accessibilityRole="button"
+              accessibilityLabel="About Qwertymates"
+              accessibilityHint="Open about information"
+            >
+              <Ionicons name="information-circle-outline" size={24} color={socialTheme.brandBlueDark} />
+            </Pressable>
+            <Pressable
               onPress={() => setOverlay("messages")}
               style={styles.fab}
               accessibilityRole="button"
-              accessibilityLabel="Open Morongwa messages"
+              accessibilityLabel="Open messages"
             >
-              <SiteNavIcon path={SITE_NAV_ICONS.morongwa} size={24} fallback="chatbubbles-outline" active />
+              <SiteNavIcon path={SITE_NAV_ICONS.messages} size={24} fallback="chatbubbles-outline" active />
             </Pressable>
             <Pressable
               onPress={() => setOverlay("profile")}
@@ -718,7 +924,7 @@ export function HomeScreen() {
               </Pressable>
             </View>
             <Text style={styles.macGyverSub}>
-              When there&apos;s no solution… MacGyver makes one. Search or ask anything about Qwertymates.
+              When there is no solution… MacGyver makes one. Search or ask anything about Qwertymates.
             </Text>
             {!user ? (
               <Text style={styles.macGyverSignInHint}>Sign in to use Ask MacGyver.</Text>
@@ -807,6 +1013,64 @@ export function HomeScreen() {
       </Modal>
 
       <Modal
+        visible={aboutQwertymatesOpen}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setAboutQwertymatesOpen(false)}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+          style={styles.macGyverOverlay}
+        >
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setAboutQwertymatesOpen(false)} />
+          <View style={styles.macGyverCard}>
+            <View style={styles.macGyverHeaderRow}>
+              <View style={styles.macGyverTitleRow}>
+                <Ionicons name="information-circle" size={22} color={socialTheme.brandBlueDark} />
+                <Text style={styles.macGyverTitle}>About Qwertymates</Text>
+              </View>
+              <Pressable
+                onPress={() => setAboutQwertymatesOpen(false)}
+                hitSlop={12}
+                accessibilityRole="button"
+                accessibilityLabel="Close About Qwertymates"
+              >
+                <Ionicons name="close" size={26} color={socialTheme.textSecondary} />
+              </Pressable>
+            </View>
+            <ScrollView style={styles.macGyverBodyScroll} keyboardShouldPersistTaps="handled" nestedScrollEnabled>
+              <View style={styles.macGyverAiBox}>
+                <Text style={styles.macGyverAiText}>💡 Welcome to Qwertymates{"\n"}</Text>
+                <Text style={styles.macGyverAiText}>
+                  Qwertymates is an all‑in‑one digital platform where you can earn, pay, sell, communicate, and
+                  explore content — all in one place.{"\n\n"}
+                </Text>
+                <Text style={styles.macGyverAiText}>🚀 What you can do:{"\n\n"}</Text>
+                <Text style={styles.macGyverAiText}>
+                  🛒 Earn & Sell (QwertyHub + MyStore){"\n"}
+                  Browse products, resell instantly, and get your own store — no stock or logistics needed.{"\n\n"}
+                  💸 Pay & Get Paid (ACBPayWallet){"\n"}
+                  Send money, pay shops, receive payments, and manage everything securely.{"\n\n"}
+                  🧰 Do & Post Tasks (Errands){"\n"}
+                  Find tasks or earn money by completing them, with secure payments.{"\n\n"}
+                  💬 Chat & Call (Morongwa){"\n"}
+                  Message, call, and communicate for business or social.{"\n\n"}
+                  🎥 Watch & 🎵 Listen (QwertyTV & QwertyMusic){"\n"}
+                  Stream videos, music, and content from creators.{"\n\n"}
+                  🤖 Ask MacGyver (AI Assistant){"\n"}
+                  Get help, recommendations, and answers instantly.{"\n\n"}
+                  ✅ One account. One platform. Everything connected.
+                </Text>
+              </View>
+            </ScrollView>
+            <Pressable onPress={() => setAboutQwertymatesOpen(false)} style={styles.macGyverDone}>
+              <Text style={styles.macGyverDoneText}>Done</Text>
+            </Pressable>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      <Modal
         visible={errandsMenuOpen}
         transparent
         animationType="fade"
@@ -838,7 +1102,21 @@ export function HomeScreen() {
             >
               <Pressable
                 style={styles.errandsMenuItem}
-                onPress={() => openErrandsPath("/dashboard/client")}
+                onPress={() => {
+                  setErrandsMenuOpen(false);
+                  setErrandsAnchor(null);
+                  setErrandTshwaneBookOpen(true);
+                }}
+                accessibilityRole="button"
+                accessibilityLabel="Book Tshwane errand in app"
+              >
+                <Ionicons name="location-outline" size={18} color={socialTheme.brandBlueDark} />
+                <Text style={styles.errandsMenuItemText}>Book (Tshwane)</Text>
+              </Pressable>
+              <View style={styles.errandsMenuDivider} />
+              <Pressable
+                style={styles.errandsMenuItem}
+                onPress={() => openErrandsInApp("client")}
                 accessibilityRole="button"
                 accessibilityLabel="Client errands"
               >
@@ -848,7 +1126,7 @@ export function HomeScreen() {
               <View style={styles.errandsMenuDivider} />
               <Pressable
                 style={styles.errandsMenuItem}
-                onPress={() => openErrandsPath("/dashboard/runner")}
+                onPress={() => openErrandsInApp("runner")}
                 accessibilityRole="button"
                 accessibilityLabel="Runner errands"
               >
@@ -868,6 +1146,44 @@ export function HomeScreen() {
         }}
       />
 
+      <StatusStoryViewer
+        visible={statusViewerOpen}
+        post={statusViewerPost}
+        loading={statusViewerLoading}
+        creatorName={statusViewerMeta.name}
+        creatorAvatar={statusViewerMeta.avatar}
+        productId={
+          statusViewerItem
+            ? statusProductId(
+                postsForStatusItem(statusViewerItem)[statusPostIndex],
+                statusViewerPost
+              )
+            : null
+        }
+        onOpenProduct={(id) => {
+          setStatusViewerOpen(false);
+          setStatusViewerItem(null);
+          setStatusViewerPost(null);
+          setStatusViewerLoading(false);
+          setStatusPostIndex(0);
+          setHubOpenProductId(id);
+          goToPrimary("hub");
+        }}
+        segmentCount={statusViewerItem ? postsForStatusItem(statusViewerItem).length : 1}
+        postIndex={statusPostIndex}
+        onNextPost={goNextStatusPost}
+        onPrevPost={goPrevStatusPost}
+        onClose={() => {
+          setStatusViewerOpen(false);
+          setStatusViewerItem(null);
+          setStatusViewerPost(null);
+          setStatusViewerLoading(false);
+          setStatusPostIndex(0);
+        }}
+      />
+
+      <ErrandsTshwaneBookModal visible={errandTshwaneBookOpen} onClose={() => setErrandTshwaneBookOpen(false)} user={user} />
+
       {callOpen && user ? (
         <Suspense
           fallback={
@@ -884,21 +1200,36 @@ export function HomeScreen() {
               setCallLaunch(null);
             }}
             initialPeerUserId={callLaunch?.peerUserId}
+            initialPeerName={callLaunch?.peerUserName}
             initialRoomId={callLaunch?.roomId}
             autoJoinRoom={callLaunch?.autoJoin}
+            autoStartCall={callLaunch?.autoStartCall}
             initialAudioOnly={callLaunch?.audioOnly}
+            answerIncoming={callLaunch?.answerIncoming}
+            incomingCallerId={callLaunch?.callerId}
+            invitedUserIds={callLaunch?.invitedUserIds}
           />
         </Suspense>
+      ) : null}
+
+      {user ? (
+        <CallUserPicker
+          visible={callPickerOpen}
+          currentUserId={String(user._id || user.id || "")}
+          onClose={() => setCallPickerOpen(false)}
+          onStartCall={handlePickerStart}
+        />
       ) : null}
     </View>
   );
 
-  return landingBgUri ? (
+  return showLandingPhotoBg ? (
     <ImageBackground
-      source={{ uri: landingBgUri }}
+      source={{ uri: landingBgUri! }}
       style={{ flex: 1 }}
       imageStyle={styles.landingBgImage}
       resizeMode="cover"
+      onError={() => setLandingBgBroken(true)}
     >
       <View style={styles.landingScrim}>{mainShell}</View>
     </ImageBackground>
@@ -936,7 +1267,7 @@ const styles = StyleSheet.create({
   },
   storiesSlot: {
     flex: 1,
-    minHeight: 58
+    minHeight: 136
   },
   /** Full-width row so shortcuts sit centered (ScrollView only sized to content and stayed left on web). */
   quickActionsBar: {
@@ -1200,7 +1531,7 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: socialTheme.surface,
+    backgroundColor: "transparent",
     alignItems: "center",
     justifyContent: "center",
     borderWidth: StyleSheet.hairlineWidth,

@@ -102,6 +102,7 @@ export function computeOrderProfitFromLoadedOrder(
   const subtotal = Math.round(Number(amounts.subtotal || 0) * 100) / 100;
   const shipping = Math.round(Number(amounts.shipping || 0) * 100) / 100;
   const commissionTotal = Math.round(Number(amounts.commissionTotal || 0) * 100) / 100;
+  const storedPlatformFee = Math.round(Number(amounts.platformFee || 0) * 100) / 100;
   const musicRev = Math.round(musicSubtotalZar(order) * 100) / 100;
   const paygateFee =
     String((order as any).paymentMethod || "") === "card" ? getPayGateFlatFeeZar() : 0;
@@ -120,7 +121,7 @@ export function computeOrderProfitFromLoadedOrder(
     const lineRev = Math.round(Number(it.price || 0) * qty * 100) / 100;
     const { cogsZar, missing } = lineCogsZar(product, qty, rates);
     supplierCogsSum += cogsZar;
-    if (missing && (src === "cj" || src === "eprolo" || src === "spocket")) {
+    if (missing && (src === "cj" || src === "eprolo" || src === "spocket" || src === "shein")) {
       notes.push(`Missing supplierCost for product ${String(product?._id || "")} (${title}).`);
     }
     lines.push({
@@ -142,6 +143,12 @@ export function computeOrderProfitFromLoadedOrder(
     (total - commissionTotal - supplierCogsSum - musicArtistShare - paygateFee) * 100
   ) / 100;
 
+  const hasSheinLine = lines.some((l) => l.supplierSource === "shein");
+  const adjustedNetPlatform =
+    hasSheinLine && storedPlatformFee > 0
+      ? Math.round((storedPlatformFee + shipping - paygateFee) * 100) / 100
+      : netPlatformCommissionZar;
+
   return {
     orderId: String((order as any)._id || ""),
     status: String((order as any).status || ""),
@@ -156,7 +163,7 @@ export function computeOrderProfitFromLoadedOrder(
     supplierCogsZar: supplierCogsSum,
     musicArtistShareZar: musicArtistShare,
     musicPlatformShareZar: musicPlatformShare,
-    netPlatformCommissionZar: netPlatformCommissionZar,
+    netPlatformCommissionZar: adjustedNetPlatform,
     lines,
     notes,
   };

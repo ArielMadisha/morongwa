@@ -4,6 +4,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import { User } from "../types";
 import { toAbsoluteMediaUrl, usersAPI } from "../lib/api";
+import { ensureMediaLibraryAccess } from "../lib/mediaPermissions";
 
 type ProfileScreenProps = {
   user: User | null;
@@ -27,8 +28,7 @@ export function ProfileScreen({ user, onSignOut, onOpenVideoCall, onBack, onOpen
   const onPickAvatar = async () => {
     if (!userId || avatarBusy) return;
     try {
-      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (!perm.granted) {
+      if (!(await ensureMediaLibraryAccess())) {
         Alert.alert("Permission needed", "Allow photo access to upload your profile picture.");
         return;
       }
@@ -96,7 +96,7 @@ export function ProfileScreen({ user, onSignOut, onOpenVideoCall, onBack, onOpen
       <Text style={styles.role}>Role: {roleText}</Text>
       {onOpenVideoCall ? (
         <Pressable onPress={onOpenVideoCall} style={styles.callBtn}>
-          <Text style={styles.callBtnText}>Video call (beta)</Text>
+          <Text style={styles.callBtnText}>Start a call</Text>
         </Pressable>
       ) : null}
       {onOpenWallet ? (

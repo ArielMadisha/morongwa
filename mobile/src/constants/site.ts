@@ -9,7 +9,7 @@ export const SITE_NAV_ICONS = {
   qwertyWorld: "/qwertyworld-icon.png",
   qwertyMusic: "/music-icon.png",
   myStore: "/mystore-icon.png",
-  morongwa: "/messages-icon.png"
+  messages: "/messages-icon.png"
 } as const;
 
 export function siteAssetUrl(path: string): string {

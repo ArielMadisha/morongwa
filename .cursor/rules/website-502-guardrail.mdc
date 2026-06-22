@@ -1,0 +1,20 @@
+---
+description: Always verify website post-change and auto-remediate 502
+alwaysApply: true
+---
+
+# Website 502 Guardrail
+
+After any change that can affect live behavior (backend, frontend, deploy scripts, env wiring):
+
+1. Verify public website health after deploy:
+   - `https://www.qwertymates.com/`
+   - `https://www.qwertymates.com/wall`
+2. If either URL returns `502`:
+   - Diagnose and fix immediately (frontend container health, NPM/openresty proxy config, upstream port mapping, missing frontend deps).
+   - Re-run deploy steps needed to restore service.
+   - Re-verify both URLs return non-502 (prefer `200`).
+3. Do not close the task while public site still returns `502`.
+4. If SSH/auth blocks remediation, report the exact blocker and the minimum credential/config needed.
+
+Use existing project scripts first where possible (`deploy:production`, `deploy:frontend-remote:rebuild`, `remoteNpmEdgePermanentFix.mjs`, `remotePostDeployHealth.mjs`).

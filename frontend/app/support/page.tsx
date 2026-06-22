@@ -18,6 +18,7 @@ import ProtectedRoute from '@/components/ProtectedRoute';
 import SiteHeader from '@/components/SiteHeader';
 import { supportAPI } from '@/lib/api';
 import { SUPPORT_CATEGORIES } from '@/lib/supportCategories';
+import { buildProductSupportSubject } from '@/lib/productSupportSubject';
 
 function SupportPageContent() {
   const { user } = useAuth();
@@ -38,11 +39,25 @@ function SupportPageContent() {
 
   useEffect(() => {
     const category = searchParams.get('category');
-    if (category) {
-      const isValid = Object.values(SUPPORT_CATEGORIES).some((c) =>
-        c.subcategories.some((s) => s.value === category)
-      );
-      setFormData((f) => ({ ...f, category: isValid ? category : 'general:other' }));
+    const subjectParam = searchParams.get('subject');
+    const productId = searchParams.get('productId');
+    const productTitle = searchParams.get('productTitle');
+
+    let subject = subjectParam?.trim() || '';
+    if (!subject && productId?.trim()) {
+      subject = buildProductSupportSubject(productTitle || '', productId.trim());
+    }
+
+    const isValidCategory = (value: string) =>
+      Object.values(SUPPORT_CATEGORIES).some((c) => c.subcategories.some((s) => s.value === value));
+
+    setFormData((f) => ({
+      ...f,
+      ...(category && isValidCategory(category) ? { category } : {}),
+      ...(subject ? { subject } : {}),
+    }));
+
+    if (category || subject) {
       setShowCreateForm(true);
     }
   }, [searchParams]);
@@ -205,12 +220,12 @@ function SupportPageContent() {
                     <label className="block text-xs uppercase tracking-[0.1em] text-sky-600 font-semibold mb-1">
                       Subject
                     </label>
-                    <input
-                      type="text"
+                    <textarea
                       placeholder="Brief subject..."
                       value={formData.subject}
                       onChange={(e) => setFormData({ ...formData, subject: e.target.value })}
-                      className="w-full rounded-lg border border-slate-200 bg-white/80 px-3 py-2 text-sm text-slate-900 transition focus:border-sky-300 focus:outline-none focus:ring-2 focus:ring-sky-100"
+                      className="w-full rounded-lg border border-slate-200 bg-white/80 px-3 py-2 text-sm text-slate-900 transition focus:border-sky-300 focus:outline-none focus:ring-2 focus:ring-sky-100 resize-y min-h-[2.75rem]"
+                      rows={2}
                     />
                   </div>
                   <div>

@@ -8,6 +8,16 @@ const FOLLOW_STATUS_TTL_MS = 60_000;
 const followStatusCache = new Map<string, { following: boolean; status: 'accepted' | 'pending' | null; ts: number }>();
 const inflightStatusRequests = new Map<string, Promise<{ following: boolean; status: 'accepted' | 'pending' | null }>>();
 
+/** Seed follow cache so buttons render the correct label on first paint (e.g. status strip batch). */
+export function seedFollowStatusCache(
+  currentUserId: string,
+  targetUserId: string,
+  following: boolean,
+  status: 'accepted' | 'pending' | null
+) {
+  followStatusCache.set(`${currentUserId}:${targetUserId}`, { following, status, ts: Date.now() });
+}
+
 interface FollowButtonProps {
   targetUserId: string;
   currentUserId?: string;
@@ -15,13 +25,29 @@ interface FollowButtonProps {
   className?: string;
   /** When true, show "Following" even when already following (for profile pages) */
   showWhenFollowing?: boolean;
+  /** Known follow state from a parent (avoids Follow → Following flicker on load) */
+  initialFollowing?: boolean;
+  initialStatus?: 'accepted' | 'pending' | null;
   /** Called when follow state changes (e.g. to refresh follower count) */
   onFollowChange?: (following: boolean) => void;
 }
 
-export function FollowButton({ targetUserId, currentUserId, targetIsPrivate, className = '', showWhenFollowing, onFollowChange }: FollowButtonProps) {
-  const [following, setFollowing] = useState<boolean | null>(null);
-  const [status, setStatus] = useState<'accepted' | 'pending' | null>(null);
+export function FollowButton({
+  targetUserId,
+  currentUserId,
+  targetIsPrivate,
+  className = '',
+  showWhenFollowing,
+  initialFollowing,
+  initialStatus,
+  onFollowChange,
+}: FollowButtonProps) {
+  const [following, setFollowing] = useState<boolean | null>(() =>
+    initialFollowing !== undefined ? initialFollowing : null
+  );
+  const [status, setStatus] = useState<'accepted' | 'pending' | null>(() =>
+    initialStatus !== undefined ? initialStatus : null
+  );
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -108,6 +134,8 @@ export function FollowButton({ targetUserId, currentUserId, targetIsPrivate, cla
   if (!currentUserId || currentUserId === targetUserId) return null;
   // Hide button when already following (no need to show "Following" reminder) unless showWhenFollowing
   if (following && !isPending && !showWhenFollowing) return null;
+  // Avoid flashing "Follow" before follow status is known
+  if (following === null) return null;
 
   return (
     <button

@@ -66,3 +66,21 @@ export function convertUsdTo(amountUsd: number, targetCurrency: string, rates: R
   if (!rate) return amountUsd;
   return Math.round(amountUsd * rate * 100) / 100;
 }
+
+/** Convert between currencies using USD as cross-rate (rates = units per 1 USD). */
+export function convertBetweenCurrencies(
+  amount: number,
+  fromCurrency: string,
+  toCurrency: string,
+  rates: Record<string, number>
+): number {
+  const from = String(fromCurrency || "ZAR").trim().toUpperCase();
+  const to = String(toCurrency || "ZAR").trim().toUpperCase();
+  if (!Number.isFinite(amount)) return 0;
+  if (from === to) return Math.round(amount * 100) / 100;
+  const fromRate = rates[from];
+  const toRate = rates[to];
+  if (!(fromRate > 0) || !(toRate > 0)) return amount;
+  const usd = amount / fromRate;
+  return Math.round(usd * toRate * 100) / 100;
+}

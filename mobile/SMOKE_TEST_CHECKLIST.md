@@ -1,4 +1,4 @@
-# Morongwa Mobile Smoke Test (iPhone + Expo Go)
+# Qwertymates Mobile Smoke Test (iPhone + Expo Go)
 
 Use this checklist before merging large feed/profile changes.
 
@@ -61,3 +61,20 @@ Use this checklist before merging large feed/profile changes.
 
 - [ ] `npm run typecheck` passes.
 - [ ] Manual smoke pass completed with no blocker or P1 regression.
+
+## 10) Android — large screens & orientation (Play / Android 16)
+
+Manifest uses **unlocked orientation** (`app.json` → `"orientation": "default"`). Phones lock **portrait at runtime** via `expo-screen-orientation` when the shortest window side is **under 600** (density-independent).
+
+**Phone emulator (API 34–36)**
+
+- [ ] Install a debug or Play build, open Login and Home.
+- [ ] Rotate to **landscape**: UI should remain usable (no clipped auth fields); app may stay portrait on phones — that is expected.
+- [ ] Rotate back to portrait.
+
+**Tablet or resizable emulator (smallest width ≥ 600dp, e.g. Pixel Tablet / resizable AVD)**
+
+- [ ] Open the same screens in **portrait** and **landscape**; no hard requirement for portrait lock — layout should not crash.
+- [ ] If using **resizable** device definition, drag to resize; app should not white-screen.
+
+**CLI helper:** `npm run smoke:checklist` prints quick commands.

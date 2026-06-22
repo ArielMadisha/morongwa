@@ -46,7 +46,7 @@ export function MobileBottomNav({ cartCount = 0, hasStore }: MobileBottomNavProp
 
   return (
     <nav
-      className="lg:hidden fixed bottom-0 left-0 right-0 z-50 bg-white border-t border-slate-100 shadow-lg"
+      className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-white border-t border-slate-100 shadow-lg"
       style={{ paddingBottom: 'max(env(safe-area-inset-bottom, 0px), 8px)' }}
       aria-label="Bottom navigation"
     >

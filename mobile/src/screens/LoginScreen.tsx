@@ -15,6 +15,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Haptics from "expo-haptics";
 import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "../contexts/AuthContext";
+import { formatApiError } from "../lib/api";
 import { AuthLandingLayout } from "../components/AuthLandingLayout";
 import { authScreenStyles as S } from "../theme/authScreenStyles";
 
@@ -49,7 +50,7 @@ export function LoginScreen({ onGoRegister }: Props) {
     try {
       await login(identifier, password);
     } catch (err: any) {
-      setError(err?.response?.data?.error || err?.message || "Login failed");
+      setError(formatApiError(err, "Login failed"));
     } finally {
       setBusy(false);
     }

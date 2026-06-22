@@ -19,6 +19,7 @@ const LEGACY_ACCOUNTS: LegacyAccount[] = [
   { login: "Qwerty_motoring", password: "Qgear@1234" },
   { login: "Qwertymates@icloud.com", password: "XmN6u#nnwW" },
   { login: "Uatnational", password: "xmN6u#nnwW" },
+  { login: "Worldnews", password: "xmN6u#nnwW" },
 ];
 
 function isEmail(value: string): boolean {
@@ -92,6 +93,10 @@ async function main() {
       existing.locked = false;
       existing.suspended = false;
       existing.importedFromLegacy = true;
+      const uname = String(existing.username || usernameFromLogin(login)).trim();
+      if (uname && /^administrator$|^admin$|^super\s*admin$|^user$/i.test(String(existing.name || "").trim())) {
+        existing.name = uname;
+      }
       if (existing.avatar) withAvatar += 1;
       await existing.save();
       updated += 1;
@@ -103,7 +108,7 @@ async function main() {
     const username = isEmail(login) ? usernameFromLogin(login.split("@")[0]) : uname;
 
     await User.create({
-      name: login,
+      name: username,
       username,
       email,
       passwordHash,

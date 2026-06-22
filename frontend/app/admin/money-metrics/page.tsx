@@ -4,7 +4,7 @@ import { useCallback, useMemo, useState } from 'react';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { adminAPI } from '@/lib/api';
 import Link from 'next/link';
-import { ArrowLeft, Download, Loader2, TrendingUp } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Download, Loader2, TrendingUp } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 type MoneyMetricsResponse = {
@@ -283,21 +283,71 @@ function MoneyMetricsPageInner() {
             </div>
 
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-              {[
-                { label: 'Wallet float', value: `R${Number(mm?.wallet?.floatTotal || 0).toFixed(2)}`, sub: 'Current total balances' },
-                { label: 'PayGate successful', value: `R${Number(mm?.paygate?.successfulAmount || 0).toFixed(2)}`, sub: `${Number(mm?.paygate?.successfulCount || 0)} tx` },
-                { label: 'Direct disbursed', value: `R${Number(mm?.directWalletSend?.successfulAmount || 0).toFixed(2)}`, sub: `${Number(mm?.directWalletSend?.successfulCount || 0)} tx` },
-                { label: 'Direct pending', value: `R${Number(mm?.directWalletSend?.pendingAmount || 0).toFixed(2)}`, sub: `${Number(mm?.directWalletSend?.pendingCount || 0)} awaiting` },
-                { label: 'Money requests paid', value: `R${Number(mm?.moneyRequests?.paidAmount || 0).toFixed(2)}`, sub: `${Number(mm?.moneyRequests?.paidCount || 0)} requests` },
-                { label: 'Money requests pending', value: `R${Number(mm?.moneyRequests?.pendingAmount || 0).toFixed(2)}`, sub: `${Number(mm?.moneyRequests?.pendingCount || 0)} open` },
-                { label: 'Admin PayGate fee earned', value: `R${Number(mm?.adminCommission?.paygateFeeCreditsAmount || 0).toFixed(2)}`, sub: `${Number(mm?.adminCommission?.paygateFeeCreditsCount || 0)} credits` },
-                { label: 'Expected fee vs successful', value: `R${Number(mm?.adminCommission?.expectedFeeAmountFromSuccessfulPaygate || 0).toFixed(2)}`, sub: `R${Number(mm?.adminCommission?.paygateFlatFee || 0).toFixed(2)} per tx` },
-              ].map((card) => (
-                <div key={card.label} className="rounded-xl border border-slate-100 bg-white/90 p-4 shadow-sm">
+              {(
+                [
+                  {
+                    label: 'Wallet float',
+                    value: `R${Number(mm?.wallet?.floatTotal || 0).toFixed(2)}`,
+                    sub: 'Current total balances',
+                    metric: 'wallet_float',
+                  },
+                  {
+                    label: 'PayGate successful',
+                    value: `R${Number(mm?.paygate?.successfulAmount || 0).toFixed(2)}`,
+                    sub: `${Number(mm?.paygate?.successfulCount || 0)} tx`,
+                    metric: 'paygate_successful',
+                  },
+                  {
+                    label: 'Direct disbursed',
+                    value: `R${Number(mm?.directWalletSend?.successfulAmount || 0).toFixed(2)}`,
+                    sub: `${Number(mm?.directWalletSend?.successfulCount || 0)} tx`,
+                    metric: 'direct_disbursed',
+                  },
+                  {
+                    label: 'Direct pending',
+                    value: `R${Number(mm?.directWalletSend?.pendingAmount || 0).toFixed(2)}`,
+                    sub: `${Number(mm?.directWalletSend?.pendingCount || 0)} awaiting`,
+                    metric: 'direct_pending',
+                  },
+                  {
+                    label: 'Money requests paid',
+                    value: `R${Number(mm?.moneyRequests?.paidAmount || 0).toFixed(2)}`,
+                    sub: `${Number(mm?.moneyRequests?.paidCount || 0)} requests`,
+                    metric: 'money_requests_paid',
+                  },
+                  {
+                    label: 'Money requests pending',
+                    value: `R${Number(mm?.moneyRequests?.pendingAmount || 0).toFixed(2)}`,
+                    sub: `${Number(mm?.moneyRequests?.pendingCount || 0)} open`,
+                    metric: 'money_requests_pending',
+                  },
+                  {
+                    label: 'Admin PayGate fee earned',
+                    value: `R${Number(mm?.adminCommission?.paygateFeeCreditsAmount || 0).toFixed(2)}`,
+                    sub: `${Number(mm?.adminCommission?.paygateFeeCreditsCount || 0)} credits`,
+                    metric: 'admin_paygate_fee',
+                  },
+                  {
+                    label: 'Expected fee vs successful',
+                    value: `R${Number(mm?.adminCommission?.expectedFeeAmountFromSuccessfulPaygate || 0).toFixed(2)}`,
+                    sub: `R${Number(mm?.adminCommission?.paygateFlatFee || 0).toFixed(2)} per tx`,
+                    metric: 'expected_fee',
+                  },
+                ] as const
+              ).map((card) => (
+                <Link
+                  key={card.label}
+                  href={`/admin/money-metric-detail?metric=${card.metric}`}
+                  title={`View breakdown: ${card.label}`}
+                  className="group block rounded-xl border border-slate-100 bg-white/90 p-4 shadow-sm outline-none transition hover:-translate-y-0.5 hover:border-sky-200 hover:shadow-md focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2"
+                >
                   <p className="text-xs uppercase tracking-[0.2em] text-slate-500">{card.label}</p>
-                  <p className="mt-2 text-2xl font-semibold text-slate-900">{card.value}</p>
-                  <p className="mt-1 text-xs font-medium text-sky-700">{card.sub}</p>
-                </div>
+                  <p className="mt-2 flex items-baseline justify-between gap-2 text-2xl font-semibold text-slate-900">
+                    <span>{card.value}</span>
+                    <ArrowRight className="h-4 w-4 shrink-0 text-slate-300 transition group-hover:translate-x-0.5 group-hover:text-sky-600" aria-hidden />
+                  </p>
+                  <p className="mt-1 text-xs font-medium text-sky-700 underline-offset-2 group-hover:text-sky-900 group-hover:underline">{card.sub}</p>
+                </Link>
               ))}
             </div>
           </>

@@ -6,32 +6,57 @@ import MusicPurchase from "../data/models/MusicPurchase";
 import ResellerWall from "../data/models/ResellerWall";
 import { authenticate, AuthRequest } from "../middleware/auth";
 import { AppError } from "../middleware/errorHandler";
+import { effectiveResellerMarkupPctFromWall } from "../config/marketplaceCategoryMarkups";
+import { getProductPriceForQty } from "../utils/productPricing";
+import { normalizeColorName } from "../utils/productColorTypes";
+import { normalizeSizeToken, resolveSelectedSize } from "../utils/productSizeTypes";
 
 const router = express.Router();
 
-function getEffectivePrice(product: { price: number; discountPrice?: number }): number {
-  const p = product as any;
-  if (p.discountPrice != null && p.discountPrice >= 0 && p.discountPrice < p.price) return p.discountPrice;
-  return p.price;
+function resolveSelectedColor(
+  raw: unknown,
+  product: { colors?: Array<{ name: string }> | null }
+): string | undefined {
+  const colors = Array.isArray(product.colors) ? product.colors : [];
+  if (colors.length === 0) return undefined;
+  const sel = normalizeColorName(String(raw || ""));
+  if (!sel) throw new AppError("Please select a color", 400);
+  const match = colors.find((c) => c.name.toLowerCase() === sel.toLowerCase());
+  if (!match) throw new AppError("Invalid color selection", 400);
+  return match.name;
 }
 
-/** Get price per unit for given quantity, considering bulk tiers. */
-function getProductPriceForQty(product: any, qty: number): number {
-  const tiers = product?.bulkTiers;
-  if (Array.isArray(tiers) && tiers.length > 0) {
-    const tier = tiers
-      .filter((t: any) => qty >= t.minQty && qty <= t.maxQty)
-      .sort((a: any, b: any) => b.minQty - a.minQty)[0];
-    if (tier && tier.price >= 0) return Number(tier.price);
-  }
-  return getEffectivePrice(product);
+function cartLineMatches(
+  item: { productId: unknown; resellerId?: unknown; selectedColor?: string | null; selectedSize?: string | null },
+  productId: string,
+  resellerId?: string | null,
+  selectedColor?: string | null,
+  selectedSize?: string | null
+): boolean {
+  const pid = String((item.productId as any)?.toString?.() ?? item.productId);
+  if (pid !== String(productId)) return false;
+  const rid = item.resellerId ? String(item.resellerId) : "";
+  const wantRid = resellerId ? String(resellerId) : "";
+  if (rid !== wantRid) return false;
+  const c = normalizeColorName(item.selectedColor || "").toLowerCase();
+  const wantC = normalizeColorName(selectedColor || "").toLowerCase();
+  if (c !== wantC) return false;
+  const s = normalizeSizeToken(item.selectedSize || "");
+  const wantS = normalizeSizeToken(selectedSize || "");
+  return s === wantS;
 }
 
-async function getResellerPrice(resellerId: string, productId: string, basePrice: number): Promise<number> {
+async function getResellerPrice(
+  resellerId: string,
+  productId: string,
+  basePrice: number,
+  categories?: string[]
+): Promise<number> {
   const wall = await ResellerWall.findOne({ resellerId });
   if (!wall) return basePrice;
   const wp = (wall.products as any[]).find((p) => (p.productId as any).toString() === productId);
-  const pct = wp?.resellerCommissionPct ?? 0;
+  if (!wp) return basePrice;
+  const pct = effectiveResellerMarkupPctFromWall(wp.resellerCommissionPct, categories);
   if (pct <= 0) return basePrice;
   return Math.round(basePrice * (1 + pct / 100) * 100) / 100;
 }
@@ -46,7 +71,7 @@ router.get("/", authenticate, async (req: AuthRequest, res: Response, next) => {
 
     const productIds = cart.items.map((i) => i.productId);
     const products = await Product.find({ _id: { $in: productIds }, active: true })
-      .select("title slug images price discountPrice bulkTiers currency stock outOfStock allowResell")
+      .select("title slug images price discountPrice bulkTiers currency stock outOfStock allowResell categories colors sizes")
       .lean();
 
     const productMap = new Map(products.map((p) => [p._id.toString(), p]));
@@ -56,18 +81,26 @@ router.get("/", authenticate, async (req: AuthRequest, res: Response, next) => {
       if (!product) continue;
       let price = getProductPriceForQty(product, item.qty);
       if (item.resellerId) {
-        price = await getResellerPrice((item.resellerId as any).toString(), (item.productId as any).toString(), price);
+        price = await getResellerPrice(
+          (item.resellerId as any).toString(),
+          (item.productId as any).toString(),
+          price,
+          (product as any).categories
+        );
       }
       items.push({
         type: "product",
         productId: item.productId,
         qty: item.qty,
         resellerId: item.resellerId,
+        selectedColor: item.selectedColor,
+        selectedSize: item.selectedSize,
         product: {
           _id: product._id,
           title: product.title,
           slug: product.slug,
           images: product.images,
+          colors: (product as any).colors,
           price,
           originalPrice: (product as any).price,
           discountPrice: (product as any).discountPrice,
@@ -118,7 +151,7 @@ router.get("/", authenticate, async (req: AuthRequest, res: Response, next) => {
 // Add or update item in cart (product or music)
 router.post("/", authenticate, async (req: AuthRequest, res: Response, next) => {
   try {
-    const { productId, songId, qty = 1, resellerId, type } = req.body;
+    const { productId, songId, qty = 1, resellerId, type, selectedColor, selectedSize } = req.body;
 
     if (type === "music" || songId) {
       if (!songId || qty < 1) throw new AppError("songId and qty (min 1) required for music", 400);
@@ -154,12 +187,14 @@ router.post("/", authenticate, async (req: AuthRequest, res: Response, next) => 
     if (!product) throw new AppError("Product not found", 404);
     if ((product as any).outOfStock) throw new AppError("Product is out of stock", 400);
     if (product.stock < qty) throw new AppError("Insufficient stock", 400);
+    const colorChoice = resolveSelectedColor(selectedColor, product as any);
+    const sizeChoice = resolveSelectedSize(selectedSize, product as any);
 
     let cart = await Cart.findOne({ user: req.user!._id });
     if (!cart) cart = await Cart.create({ user: req.user!._id, items: [], musicItems: [] });
 
-    const existing = cart.items.find(
-      (i) => (i.productId as any).toString() === productId.toString()
+    const existing = cart.items.find((i) =>
+      cartLineMatches(i, String(productId), resellerId || undefined, colorChoice, sizeChoice)
     );
     if (existing) {
       const newQty = existing.qty + qty;
@@ -171,6 +206,8 @@ router.post("/", authenticate, async (req: AuthRequest, res: Response, next) => 
         productId: product._id,
         qty,
         resellerId: resellerId || undefined,
+        ...(colorChoice ? { selectedColor: colorChoice } : {}),
+        ...(sizeChoice ? { selectedSize: sizeChoice } : {}),
       });
     }
 
@@ -178,7 +215,7 @@ router.post("/", authenticate, async (req: AuthRequest, res: Response, next) => 
 
     const productIds = cart.items.map((i) => i.productId);
     const products = await Product.find({ _id: { $in: productIds }, active: true })
-      .select("title slug images price discountPrice bulkTiers currency stock outOfStock")
+      .select("title slug images price discountPrice bulkTiers currency stock outOfStock categories colors sizes")
       .lean();
     const productMap = new Map(products.map((p) => [p._id.toString(), p]));
     const items: any[] = [];
@@ -186,12 +223,19 @@ router.post("/", authenticate, async (req: AuthRequest, res: Response, next) => 
       const product = productMap.get((item.productId as any).toString());
       let price = product ? getProductPriceForQty(product, item.qty) : 0;
       if (product && item.resellerId) {
-        price = await getResellerPrice((item.resellerId as any).toString(), (item.productId as any).toString(), price);
+        price = await getResellerPrice(
+          (item.resellerId as any).toString(),
+          (item.productId as any).toString(),
+          price,
+          (product as any).categories
+        );
       }
       items.push({
         productId: item.productId,
         qty: item.qty,
         resellerId: item.resellerId,
+        selectedColor: item.selectedColor,
+        selectedSize: item.selectedSize,
         product: product ? { _id: product._id, title: product.title, price, currency: product.currency } : null,
         lineTotal: price * item.qty,
       });
@@ -207,7 +251,9 @@ router.post("/", authenticate, async (req: AuthRequest, res: Response, next) => 
 router.put("/item/:productId", authenticate, async (req: AuthRequest, res: Response, next) => {
   try {
     const { productId } = req.params;
-    const { qty } = req.body;
+    const { qty, selectedColor, selectedSize } = req.body;
+    const colorQ = selectedColor != null ? String(selectedColor) : undefined;
+    const sizeQ = selectedSize != null ? String(selectedSize) : undefined;
     if (qty !== undefined && (qty < 1 || !Number.isInteger(qty))) {
       throw new AppError("qty must be a positive integer", 400);
     }
@@ -215,17 +261,24 @@ router.put("/item/:productId", authenticate, async (req: AuthRequest, res: Respo
     const cart = await Cart.findOne({ user: req.user!._id });
     if (!cart) throw new AppError("Cart not found", 404);
 
-    const item = cart.items.find((i) => (i.productId as any).toString() === productId);
-    if (!item) throw new AppError("Item not in cart", 404);
+    const sameProduct = cart.items.filter((i) => String(i.productId) === String(productId));
+    const target =
+      (colorQ != null || sizeQ != null
+        ? cart.items.find((i) => cartLineMatches(i, productId, i.resellerId as any, colorQ, sizeQ))
+        : undefined) ||
+      (sameProduct.length === 1 ? sameProduct[0] : undefined);
+    if (!target) throw new AppError("Item not in cart", 404);
 
     if (qty === 0) {
-      cart.items = cart.items.filter((i) => (i.productId as any).toString() !== productId);
+      cart.items = cart.items.filter(
+        (i) => !cartLineMatches(i, productId, target.resellerId as any, target.selectedColor, target.selectedSize)
+      );
     } else {
       const product = await Product.findById(productId);
       if (!product) throw new AppError("Product not found", 404);
       if ((product as any).outOfStock) throw new AppError("Product is out of stock", 400);
       if (product.stock < qty) throw new AppError("Insufficient stock", 400);
-      item.qty = qty;
+      target.qty = qty;
     }
 
     await cart.save();
@@ -239,10 +292,25 @@ router.put("/item/:productId", authenticate, async (req: AuthRequest, res: Respo
 router.delete("/item/:productId", authenticate, async (req: AuthRequest, res: Response, next) => {
   try {
     const { productId } = req.params;
+    const selectedColor = req.query.selectedColor != null ? String(req.query.selectedColor) : undefined;
+    const selectedSize = req.query.selectedSize != null ? String(req.query.selectedSize) : undefined;
     const cart = await Cart.findOne({ user: req.user!._id });
     if (!cart) return res.json({ message: "Cart empty" });
 
-    cart.items = cart.items.filter((i) => (i.productId as any).toString() !== productId);
+    const sameProduct = cart.items.filter((i) => String(i.productId) === String(productId));
+    const target =
+      (selectedColor != null || selectedSize != null
+        ? cart.items.find((i) => cartLineMatches(i, productId, i.resellerId as any, selectedColor, selectedSize))
+        : undefined) ||
+      (sameProduct.length === 1 ? sameProduct[0] : undefined);
+
+    if (target) {
+      cart.items = cart.items.filter(
+        (i) => !cartLineMatches(i, productId, target.resellerId as any, target.selectedColor, target.selectedSize)
+      );
+    } else {
+      cart.items = cart.items.filter((i) => (i.productId as any).toString() !== productId);
+    }
     await cart.save();
     res.json({ message: "Item removed", data: { items: cart.items, musicItems: cart.musicItems || [], updatedAt: cart.updatedAt } });
   } catch (err) {

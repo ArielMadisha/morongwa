@@ -1,6 +1,6 @@
 import mongoose, { Schema, Document } from "mongoose";
 
-export type ProductSupplierSource = "internal" | "cj" | "spocket" | "eprolo";
+export type ProductSupplierSource = "internal" | "cj" | "spocket" | "eprolo" | "shein";
 
 export interface IProduct extends Document {
   supplierId?: mongoose.Types.ObjectId; // required for internal; null for external
@@ -37,12 +37,20 @@ export interface IProduct extends Document {
   outOfStock?: boolean;
   sku?: string;
   sizes?: string[];
+  /** Auto-detected or supplier-derived color options for the product gallery */
+  colors?: Array<{ name: string; hex: string; imageIndex: number }>;
+  /** When true, admin-set colors are kept; auto-detect does not overwrite unless forced. */
+  colorsManual?: boolean;
   allowResell: boolean;
   commissionPct?: number; // deprecated: moved to reseller wall; kept for backward compat
   categories: string[];
   tags: string[];
   /** Countries where this product is available (e.g. ["South Africa", "Botswana"]). Empty = no restriction. */
   availableCountries?: string[];
+  /** Qwertymates warehouse: free delivery when buyer address is in this town (set on product load). */
+  warehouseFreeLocalCity?: string;
+  /** ISO country for warehouse free local delivery (e.g. ZA, BW). */
+  warehouseFreeLocalCountry?: string;
   ratingAvg?: number;
   ratingCount?: number;
   active: boolean;
@@ -53,7 +61,7 @@ export interface IProduct extends Document {
 const ProductSchema = new Schema<IProduct>(
   {
     supplierId: { type: Schema.Types.ObjectId, ref: "Supplier" },
-    supplierSource: { type: String, enum: ["internal", "cj", "spocket", "eprolo"], default: "internal" },
+    supplierSource: { type: String, enum: ["internal", "cj", "spocket", "eprolo", "shein"], default: "internal" },
     externalSupplierId: { type: Schema.Types.ObjectId, ref: "ExternalSupplier" },
     externalProductId: { type: String },
     externalData: { type: Schema.Types.Mixed },
@@ -83,11 +91,24 @@ const ProductSchema = new Schema<IProduct>(
     outOfStock: { type: Boolean, default: false },
     sku: { type: String },
     sizes: { type: [String], default: [] },
+    colors: {
+      type: [
+        {
+          name: { type: String, required: true, trim: true },
+          hex: { type: String, required: true, trim: true },
+          imageIndex: { type: Number, required: true, min: 0 },
+        },
+      ],
+      default: undefined,
+    },
+    colorsManual: { type: Boolean, default: false },
     allowResell: { type: Boolean, default: false },
-    commissionPct: { type: Number }, // deprecated; reseller sets 3-7% when adding to wall
+    commissionPct: { type: Number }, // deprecated; reseller markup is set on ResellerWall within category bounds
     categories: { type: [String], default: [] },
     tags: { type: [String], default: [] },
     availableCountries: { type: [String], default: [] },
+    warehouseFreeLocalCity: { type: String, trim: true },
+    warehouseFreeLocalCountry: { type: String, trim: true, uppercase: true },
     ratingAvg: { type: Number },
     ratingCount: { type: Number, default: 0 },
     active: { type: Boolean, default: true },

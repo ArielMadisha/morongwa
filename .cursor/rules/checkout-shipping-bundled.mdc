@@ -1,0 +1,30 @@
+---
+description: Marketplace checkout must always include delivery in one payment with products
+alwaysApply: true
+---
+
+# Checkout shipping (bundled with products)
+
+## Policy (non-negotiable)
+
+- **Never** let customers pay for marketplace **products** and **delivery/courier** in separate payments.
+- **Always** calculate and show shipping on **cart** and **checkout** before payment.
+- When courier tariffs exist for the destination, the shopper **must select** a delivery method; do not show **R 0** shipping for physical carts while selection is pending.
+- **Pay** (`POST /checkout/pay`) must reject orders with physical products and `shipping <= 0` or missing courier when tariffs require it (`checkoutDeliveryPolicy.ts`, `assertPhysicalOrderIncludesPrepaidDelivery`).
+- Delivery is **prepaid at checkout** only — no “pay courier later” flows.
+- **Same store = one delivery fee:** multiple products from the same storefront share **one** shipping charge (not per bag/line). Different stores in one cart each get their own fee. Courier tariffs use **combined qty/weight per store** so larger orders can land in higher weight bands when the courier catalog defines them (`checkoutShipping.ts` → `buildInternalShippingStoreGroups`).
+
+## Implementation touchpoints
+
+| Area | Files |
+|------|--------|
+| Quote + pay | `backend/src/routes/checkout.ts`, `backend/src/services/checkoutShipping.ts` (`buildInternalShippingStoreGroups`), `backend/src/services/checkoutDeliveryPolicy.ts` |
+| Courier tariffs | `backend/src/services/courierPricingService.ts`, Admin → Couriers |
+| Cart UI | `frontend/app/cart/page.tsx` — country + courier picker + quote with `courierTariffId` |
+| Checkout UI | `frontend/app/checkout/page.tsx` — address + same courier picker; single total |
+
+## UX
+
+- Cart: show **Delivery** line with selected tariff price, or prompt to choose a method (not R 0).
+- Checkout link from cart should pass `courierTariffId` and `deliveryCountry` when a method was chosen on the cart.
+- Copy should state: one payment covers products and delivery.

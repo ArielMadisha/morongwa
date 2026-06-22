@@ -1,0 +1,60 @@
+---
+description: EAS Android Play release resumes 1 July 2026 after free-tier quota reset — do not forget
+alwaysApply: true
+---
+
+# EAS Android production build (quota resume — 1 July 2026)
+
+**Owner policy — treat like school gallery and deploy guardrails.** Expo free-tier Android builds were exhausted **June 2026**; quota resets **1 July 2026**. This automation must survive Cursor rule refreshes.
+
+## After every Cursor update or rules reset
+
+Confirm this file exists with **`alwaysApply: true`**. Re-register the Windows task if missing:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File mobile/scripts/windows/Register-EasAndroidJulyBuildTask.ps1
+Get-ScheduledTask -TaskName "Qwertymates-EAS-Android-July-Release"
+```
+
+## What ships in the July build (June 2026 mobile backlog)
+
+| Area | Source |
+|------|--------|
+| **Play tablet compatibility** (JTY K108 etc.) | `mobile/plugins/withAndroidDeviceCompatibility.js`, `app.json` v**1.3.1** |
+| **P2P call signaling** (polling-first) | `mobile/src/lib/callSignaling.ts` |
+| **Status strip multi-segment viewer** (swipe school gallery statuses) | `mobile/src/lib/statusStripItem.ts`, `StatusStoryViewer.tsx`, `HomeScreen.tsx` |
+| **Official Q logo / branding** | `mobile/assets/images/qwertymates-q-mark-official.png`, `HomeScreen.tsx` |
+
+Backend school-gallery URL fixes are **server-side** — no extra mobile work for A.C.J. Phakade thumbs once API serves correct `/uploads/school-gallery/` URLs.
+
+## Scheduled job (owner PC)
+
+| Item | Value |
+|------|--------|
+| **Task name** | `Qwertymates-EAS-Android-July-Release` |
+| **First run** | **2026-07-01 08:00** local (SAST) |
+| **Retries** | Daily **08:00** through **2026-07-07** if quota still blocked |
+| **Script** | `mobile/scripts/windows/Run-EasAndroidPlayRelease.ps1` |
+| **State** | `mobile/exports/eas-android-release-state.json` |
+| **Log** | `mobile/exports/eas-android-release-task.log` |
+| **Runbook** | `DOCS/EAS_ANDROID_JULY_BUILD.md` |
+
+## Manual (from `mobile/`)
+
+```bash
+npm run verify:android-release-readiness
+npm run release:android:play
+```
+
+If quota error persists after 1 July, retry daily — do **not** skip Play submit once build succeeds.
+
+## Agent duty on/after 1 July 2026
+
+When owner opens Cursor and EAS quota has reset:
+
+1. Run `npm run verify:android-release-readiness` in `mobile/`.
+2. Run `npm run release:android:play` (build + submit by build id).
+3. Report `version`, `versionCode`, EAS build URL, Play submission URL.
+4. Update `mobile/exports/eas-android-release-state.json` with `completedAt`.
+
+Do not close a “resume Android release” task while quota is available but no production build was attempted.

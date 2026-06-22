@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -10,9 +10,13 @@ import {
   Video,
   Music2,
   LayoutGrid,
+  ShoppingBag,
   User,
   X,
   Settings,
+  Mail,
+  Pencil,
+  Trash2,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import ProtectedRoute from '@/components/ProtectedRoute';
@@ -20,25 +24,95 @@ import { useCartAndStores } from '@/lib/useCartAndStores';
 import { AppSidebar, AppSidebarMenuButton } from '@/components/AppSidebar';
 import { SearchButton } from '@/components/SearchButton';
 import { FollowButton } from '@/components/FollowButton';
-import { TVGridTile } from '@/components/tv/TVGridTile';
 import type { TVGridItem } from '@/components/tv/TVGridTile';
 import { MobileBottomNav } from '@/components/MobileBottomNav';
-import { usersAPI, tvAPI, getImageUrl } from '@/lib/api';
+import { PAGE_PAD_BOTTOM_MOBILE_NAV } from '@/lib/appShellLayout';
+import { usersAPI, tvAPI, getImageUrl, getImageUrlFull, checkoutAPI, musicAPI } from '@/lib/api';
+import { SchoolDonateButton } from '@/components/SchoolDonateButton';
+import { ProfileLocationButton } from '@/components/ProfileLocationButton';
+import {
+  hasPublicProfileMapCoords,
+  type PublicProfileLocation,
+} from '@/lib/publicProfileLocation';
 import toast from 'react-hot-toast';
+import { userPublicDisplayName, userAtUsername } from '@/lib/userDisplayLabel';
+import { inferIsSchoolProfile } from '@/lib/schoolProfile';
+import { publicContactPhoneFromUser, type PublicProfileKind } from '@/lib/publicContactPrivacy';
+import { StatusStoryViewer } from '@/components/tv/StatusStoryViewer';
+import type { StatusItem } from '@/components/tv/StatusesStrip';
 
-type TabType = 'posts' | 'images' | 'videos' | 'music';
+type TabType = 'posts' | 'images' | 'videos' | 'music' | 'orders';
 
 const TABS: { id: TabType; label: string; icon: React.ReactNode }[] = [
   { id: 'posts', label: 'Posts', icon: <LayoutGrid className="h-4 w-4" /> },
   { id: 'images', label: 'Images', icon: <ImageIcon className="h-4 w-4" /> },
   { id: 'videos', label: 'Videos', icon: <Video className="h-4 w-4" /> },
   { id: 'music', label: 'Music', icon: <Music2 className="h-4 w-4" /> },
+  { id: 'orders', label: 'Orders', icon: <ShoppingBag className="h-4 w-4" /> },
 ];
+
+type ProductOrderRow = {
+  _id: string;
+  createdAt?: string;
+  paidAt?: string;
+  status?: string;
+  amounts?: { total?: number };
+};
+
+type MusicPurchaseRow = {
+  songId?: string;
+  amount?: number;
+  createdAt?: string;
+  reference?: string;
+  song?: { title?: string; artist?: string };
+};
 
 function getThumbnailUrl(item: TVGridItem): string | null {
   if (item.type === 'product_tile' && item.images?.[0]) return item.images[0];
   if (item.mediaUrls?.[0]) return item.mediaUrls[0];
   return null;
+}
+
+function profilePostStatusItem(userId: string, item: TVGridItem, profileUser: { name?: string; username?: string; avatar?: string }): StatusItem {
+  const kind = item.type === 'product_tile' ? 'product' : item.type || 'image';
+  const media = item.type === 'product_tile' ? item.images || [] : item.mediaUrls || [];
+  return {
+    userId,
+    name: profileUser.name,
+    username: profileUser.username,
+    avatar: profileUser.avatar,
+    latestPost: {
+      _id: String(item._id),
+      type: kind,
+      mediaUrls: media.filter(Boolean) as string[],
+      artworkUrl: item.artworkUrl,
+      createdAt: item.createdAt || new Date().toISOString(),
+    },
+  };
+}
+
+function galleryStatusItem(userId: string, url: string, idx: number, profileUser: { name?: string; username?: string; avatar?: string }): StatusItem {
+  return {
+    userId,
+    name: profileUser.name,
+    username: profileUser.username,
+    avatar: profileUser.avatar,
+    latestPost: {
+      _id: `gallery-${userId}-${idx}`,
+      type: 'image',
+      mediaUrls: [url],
+      createdAt: new Date().toISOString(),
+    },
+  };
+}
+
+const TV_POST_ID_RE = /^[a-f0-9]{24}$/i;
+
+function isDeletableImageItem(item: TVGridItem): boolean {
+  const type = item.type;
+  if (type === 'image' || type === 'carousel') return true;
+  if (type === 'video' || type === 'audio' || type === 'product_tile') return false;
+  return !!item.mediaUrls?.[0];
 }
 
 function UserProfileContent() {
@@ -63,8 +137,21 @@ function UserProfileContent() {
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [hasMore, setHasMore] = useState(true);
-  const [likedMap, setLikedMap] = useState<Record<string, boolean>>({});
-  const [viewingPost, setViewingPost] = useState<TVGridItem | null>(null);
+  const [viewingGallerySrc, setViewingGallerySrc] = useState<string | null>(null);
+  const [storyViewerOpen, setStoryViewerOpen] = useState(false);
+  const [storyViewerIndex, setStoryViewerIndex] = useState(0);
+  const [storyViewerRows, setStoryViewerRows] = useState<StatusItem[]>([]);
+  const [orderRows, setOrderRows] = useState<ProductOrderRow[]>([]);
+  const [musicPurchaseRows, setMusicPurchaseRows] = useState<MusicPurchaseRow[]>([]);
+  const [ordersLoading, setOrdersLoading] = useState(false);
+  const [avatarBroken, setAvatarBroken] = useState(false);
+  const [deletingPhotoKey, setDeletingPhotoKey] = useState<string | null>(null);
+  const [schoolPage, setSchoolPage] = useState<{
+    canEditProfile: boolean;
+    canManageManagers: boolean;
+    managerCount: number;
+    isOwner: boolean;
+  } | null>(null);
   const { cartCount, hasStore } = useCartAndStores(!!user);
   const containerRef = useRef<HTMLDivElement>(null);
   const loadMoreSentinelRef = useRef<HTMLDivElement>(null);
@@ -85,6 +172,7 @@ function UserProfileContent() {
       const res = await usersAPI.getProfileStats(userId);
       const data = res.data;
       setProfileUser(data?.user ?? null);
+      setSchoolPage(data?.schoolPage ?? null);
       setStats({
         postCount: data?.postCount ?? 0,
         imageCount: data?.imageCount ?? 0,
@@ -103,6 +191,13 @@ function UserProfileContent() {
 
   const loadFeed = useCallback(
     async (pageNum = 1, append = false) => {
+      if (activeTab === 'orders') {
+        setItems([]);
+        setLoading(false);
+        setLoadingMore(false);
+        setHasMore(false);
+        return;
+      }
       if (!userId) return;
       if (pageNum === 1) setLoading(true);
       else setLoadingMore(true);
@@ -138,15 +233,52 @@ function UserProfileContent() {
     [userId, activeTab, getFeedType]
   );
 
+  const loadOrders = useCallback(async () => {
+    const currentUserId = user?._id || user?.id;
+    if (!currentUserId || currentUserId !== userId) {
+      setOrderRows([]);
+      setMusicPurchaseRows([]);
+      return;
+    }
+    setOrdersLoading(true);
+    try {
+      const [ordersRes, musicRes] = await Promise.all([
+        checkoutAPI.getMyOrders({ page: 1, limit: 50 }),
+        musicAPI.getMyPurchases(),
+      ]);
+      const ordersData = ordersRes.data?.data ?? [];
+      const musicData = musicRes.data?.data ?? [];
+      const successfulOrders = (Array.isArray(ordersData) ? ordersData : []).filter(
+        (o: any) => String(o?.status || '').toLowerCase() === 'paid'
+      );
+      setOrderRows(successfulOrders);
+      setMusicPurchaseRows(Array.isArray(musicData) ? musicData : []);
+    } catch {
+      setOrderRows([]);
+      setMusicPurchaseRows([]);
+      toast.error('Failed to load order history');
+    } finally {
+      setOrdersLoading(false);
+    }
+  }, [user?._id, user?.id, userId]);
+
   useEffect(() => {
     loadProfile();
   }, [loadProfile]);
 
   useEffect(() => {
+    setAvatarBroken(false);
+  }, [profileUser?.avatar, userId]);
+
+  useEffect(() => {
     if (!profileUser) return;
+    if (activeTab === 'orders') {
+      loadOrders();
+      return;
+    }
     setPage(1);
     loadFeed(1);
-  }, [activeTab, userId, loadFeed, profileUser]);
+  }, [activeTab, userId, loadFeed, loadOrders, profileUser]);
 
   const loadMore = useCallback(() => {
     if (!hasMore || loadingMore || items.length >= total) return;
@@ -172,32 +304,6 @@ function UserProfileContent() {
     return () => observer.disconnect();
   }, [loadMore, hasMore, loading, loadingMore, items.length, total]);
 
-  const handleLike = (id: string, liked: boolean) => {
-    setLikedMap((m) => ({ ...m, [id]: liked }));
-    setItems((prev) =>
-      prev.map((p) =>
-        p._id === id ? { ...p, likeCount: Math.max(0, (p.likeCount ?? 0) + (liked ? 1 : -1)) } : p
-      )
-    );
-    tvAPI
-      .like(id)
-      .then((res) => {
-        const likeCount = res.data?.data?.likeCount ?? res.data?.likeCount;
-        if (typeof likeCount === 'number') {
-          setItems((prev) => prev.map((p) => (p._id === id ? { ...p, likeCount } : p)));
-        }
-      })
-      .catch(() => {
-        setLikedMap((m) => ({ ...m, [id]: !liked }));
-      });
-  };
-
-  const handleCommentAdded = (id: string) => {
-    setItems((prev) =>
-      prev.map((p) => (p._id === id ? { ...p, commentCount: (p.commentCount ?? 0) + 1 } : p))
-    );
-  };
-
   const handleFollowChange = (following: boolean) => {
     setStats((s) => ({ ...s, followerCount: Math.max(0, s.followerCount + (following ? 1 : -1)) }));
   };
@@ -212,6 +318,8 @@ function UserProfileContent() {
         return stats.videoCount;
       case 'music':
         return stats.musicCount;
+      case 'orders':
+        return orderRows.length + musicPurchaseRows.length;
       default:
         return 0;
     }
@@ -221,6 +329,85 @@ function UserProfileContent() {
     logout();
     router.push('/');
   };
+
+  const galleryUrls: string[] = useMemo(
+    () =>
+      Array.isArray(profileUser?.profileGalleryUrls)
+        ? profileUser.profileGalleryUrls.filter((u: unknown) => typeof u === 'string' && u.trim())
+        : [],
+    [profileUser?.profileGalleryUrls]
+  );
+
+  const canDeleteOwnPhotos = !!(user && (user._id || user.id) === userId);
+
+  const showProfilePhotosSection =
+    galleryUrls.length > 0 &&
+    !((activeTab === 'posts' || activeTab === 'images') && items.length > 0);
+
+  const handleDeletePhoto = useCallback(
+    async (opts: { url: string; postId?: string }) => {
+      if (!canDeleteOwnPhotos) return;
+      if (!confirm('Delete this photo? This cannot be undone.')) return;
+      const key = opts.postId || opts.url;
+      setDeletingPhotoKey(key);
+      try {
+        const postId = String(opts.postId || '');
+        if (TV_POST_ID_RE.test(postId)) {
+          await tvAPI.deletePost(postId);
+        } else {
+          await usersAPI.removeGalleryPhoto(userId, opts.url);
+        }
+        setProfileUser((prev: typeof profileUser) => {
+          if (!prev) return prev;
+          const urls = Array.isArray(prev.profileGalleryUrls)
+            ? prev.profileGalleryUrls.filter((u: string) => u !== opts.url)
+            : [];
+          return { ...prev, profileGalleryUrls: urls };
+        });
+        setItems((prev) =>
+          prev.filter((item) => {
+            if (postId && String(item._id) === postId) return false;
+            const thumb = getThumbnailUrl(item);
+            return thumb !== opts.url;
+          })
+        );
+        setStats((s) => ({
+          ...s,
+          postCount: Math.max(0, s.postCount - 1),
+          imageCount: Math.max(0, s.imageCount - 1),
+        }));
+        toast.success('Photo deleted');
+        void loadProfile();
+      } catch (e: unknown) {
+        const msg =
+          e && typeof e === 'object' && 'response' in e
+            ? (e as { response?: { data?: { message?: string } } }).response?.data?.message
+            : undefined;
+        toast.error(msg || 'Failed to delete photo');
+      } finally {
+        setDeletingPhotoKey(null);
+      }
+    },
+    [canDeleteOwnPhotos, userId, loadProfile]
+  );
+
+  const openStoryAt = useCallback((rows: StatusItem[], index: number) => {
+    setStoryViewerRows(rows);
+    setStoryViewerIndex(index);
+    setStoryViewerOpen(true);
+  }, []);
+
+  const profileStoryRows = useMemo((): StatusItem[] => {
+    if (!profileUser) return [];
+    const base = {
+      name: profileUser.name,
+      username: profileUser.username,
+      avatar: profileUser.avatar,
+    };
+    const fromFeed = items.map((item) => profilePostStatusItem(userId, item, base));
+    if (fromFeed.length) return fromFeed;
+    return galleryUrls.map((url, idx) => galleryStatusItem(userId, url, idx, base));
+  }, [profileUser, items, userId, galleryUrls]);
 
   if (loading && !profileUser) {
     return (
@@ -242,11 +429,26 @@ function UserProfileContent() {
     );
   }
 
-  const displayName = profileUser.name || profileUser.username || 'User';
-  const username = profileUser.username ? `@${profileUser.username}` : '';
+  const displayName = userPublicDisplayName(profileUser);
+  const atHandle = userAtUsername(profileUser);
+  const isSchoolProfile = inferIsSchoolProfile(profileUser, { hasSchoolPageAccess: !!schoolPage });
+  const publicProfileKind = (profileUser.publicProfileKind as PublicProfileKind | undefined) || (isSchoolProfile ? 'school' : 'individual');
+  const publicContactPhone = publicContactPhoneFromUser(profileUser);
+  const schoolEmail =
+    typeof profileUser.schoolPublicEmail === 'string'
+      ? profileUser.schoolPublicEmail.trim()
+      : '';
+  const publicLocation = profileUser.publicProfileLocation as PublicProfileLocation | undefined;
+  const showProfileLocation = hasPublicProfileMapCoords(publicLocation);
 
   return (
     <div className="min-h-screen flex bg-slate-50 text-slate-900">
+      <StatusStoryViewer
+        open={storyViewerOpen}
+        onClose={() => setStoryViewerOpen(false)}
+        statuses={storyViewerRows}
+        startIndex={storyViewerIndex}
+      />
       <AppSidebar
         variant="wall"
         userName={user?.name}
@@ -285,16 +487,25 @@ function UserProfileContent() {
         </header>
 
         <main className="flex-1 min-w-0 overflow-y-auto" ref={containerRef}>
-          <div className="max-w-2xl mx-auto px-4 sm:px-6 pt-2 pb-24 lg:pb-8">
+          <div className={`max-w-2xl md:max-w-4xl lg:max-w-5xl mx-auto px-4 sm:px-6 pt-2 ${PAGE_PAD_BOTTOM_MOBILE_NAV}`}>
             {/* Profile header - compact at top */}
             <div className="flex flex-col sm:flex-row sm:items-start gap-3 sm:gap-4 mb-4">
               <div className="flex items-start gap-3">
                 <div className="h-16 w-16 sm:h-20 sm:w-20 rounded-full bg-slate-200 overflow-hidden flex-shrink-0">
-                  {profileUser.avatar ? (
+                  {profileUser.avatar && !avatarBroken ? (
                     <img
                       src={getImageUrl(profileUser.avatar)}
                       alt=""
                       className="w-full h-full object-cover"
+                      onError={(e) => {
+                        const el = e.currentTarget;
+                        const full = getImageUrlFull(profileUser.avatar);
+                        if (full && el.src !== full) {
+                          el.src = full;
+                          return;
+                        }
+                        setAvatarBroken(true);
+                      }}
                     />
                   ) : (
                     <div className="w-full h-full flex items-center justify-center text-2xl font-bold text-slate-500">
@@ -306,8 +517,8 @@ function UserProfileContent() {
                   <h1 className="text-lg sm:text-xl font-bold text-slate-900 truncate">
                     {displayName}
                   </h1>
-                  {username && (
-                    <p className="text-slate-500 text-sm truncate">{username}</p>
+                  {atHandle && (
+                    <p className="text-slate-500 text-sm truncate">{atHandle}</p>
                   )}
                   <div className="flex items-center gap-3 mt-1.5 text-sm text-slate-600">
                     <span>
@@ -320,7 +531,7 @@ function UserProfileContent() {
                       <strong className="text-slate-900">{stats.followingCount}</strong> Following
                     </span>
                   </div>
-                  <div className="mt-2">
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
                     <FollowButton
                       targetUserId={userId}
                       currentUserId={user?._id || user?.id}
@@ -329,84 +540,277 @@ function UserProfileContent() {
                       onFollowChange={handleFollowChange}
                       className="text-sm"
                     />
+                    {publicContactPhone && (
+                      <span className="shrink-0 tabular-nums text-sm text-slate-500">{publicContactPhone}</span>
+                    )}
+                    {schoolPage?.canEditProfile && (
+                      <Link
+                        href={`/profile/school/${userId}`}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:border-sky-300 hover:text-sky-700"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                        Manage page
+                      </Link>
+                    )}
                   </div>
+                  {schoolEmail && (
+                    <div className="mt-2 text-sm">
+                      <a
+                        href={`mailto:${schoolEmail}`}
+                        className="inline-flex min-w-0 items-center gap-2 text-sky-600 hover:text-sky-800"
+                      >
+                        <Mail className="h-4 w-4 shrink-0" />
+                        <span className="break-all">{schoolEmail}</span>
+                      </a>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
 
-            {/* Tabs */}
-            <div className="flex gap-1 border-b border-slate-200 mb-3 overflow-x-auto">
-              {TABS.map((tab) => (
-                <button
-                  key={tab.id}
-                  type="button"
-                  onClick={() => setActiveTab(tab.id)}
-                  className={`flex items-center gap-2 px-4 py-3 text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
-                    activeTab === tab.id
-                      ? 'border-sky-500 text-sky-600'
-                      : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-200'
-                  }`}
-                >
-                  {tab.icon}
-                  {tab.label}
-                  <span className="text-slate-400 font-normal">({getTabCount(tab.id)})</span>
-                </button>
-              ))}
+            {/* Tabs + Donate — above profile Photos gallery */}
+            <div className="mb-3 border-b border-slate-200">
+              <div className="flex min-w-0 items-center gap-1 overflow-x-auto scroll-smooth [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+                {TABS.map((tab) => (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => setActiveTab(tab.id)}
+                    className={`flex shrink-0 items-center gap-2 px-3 sm:px-4 py-2.5 text-sm font-medium whitespace-nowrap border-b-2 -mb-px transition-colors ${
+                      activeTab === tab.id
+                        ? 'border-sky-500 text-sky-600'
+                        : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-200'
+                    }`}
+                  >
+                    {tab.icon}
+                    {tab.label}
+                    <span className="text-slate-400 font-normal">({getTabCount(tab.id)})</span>
+                  </button>
+                ))}
+                {isSchoolProfile && (
+                  <div className="relative z-20 shrink-0 self-center pb-2.5 pl-1">
+                    <SchoolDonateButton
+                      recipientId={userId}
+                      recipientName={displayName}
+                      currentUserId={user?._id || user?.id}
+                      compact
+                    />
+                  </div>
+                )}
+                {showProfileLocation && publicLocation && (
+                  <div className="relative z-20 shrink-0 self-center pb-2.5 pl-1">
+                    <ProfileLocationButton
+                      profileName={displayName}
+                      location={publicLocation}
+                      compact
+                    />
+                  </div>
+                )}
+              </div>
             </div>
 
+            {showProfilePhotosSection && (
+              <div className="mb-4 rounded-2xl border border-slate-100 bg-white p-3 shadow-sm">
+                <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">Photos</h2>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  {galleryUrls.map((src, idx) => (
+                    <div key={src} className="relative group">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const rows = galleryUrls.map((url, i) =>
+                            galleryStatusItem(userId, url, i, {
+                              name: profileUser.name,
+                              username: profileUser.username,
+                              avatar: profileUser.avatar,
+                            })
+                          );
+                          openStoryAt(rows, idx);
+                        }}
+                        className="aspect-[4/3] w-full overflow-hidden rounded-lg bg-slate-100 cursor-pointer hover:opacity-90 transition-opacity focus:outline-none focus:ring-2 focus:ring-sky-500"
+                        aria-label="View profile photo"
+                      >
+                        <img
+                          src={getImageUrl(src)}
+                          alt=""
+                          className="h-full w-full object-cover pointer-events-none"
+                          loading="lazy"
+                          onError={(e) => {
+                            const el = e.currentTarget;
+                            const full = getImageUrlFull(src);
+                            if (full && el.src !== full) el.src = full;
+                          }}
+                        />
+                      </button>
+                      {canDeleteOwnPhotos && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void handleDeletePhoto({ url: src });
+                          }}
+                          disabled={deletingPhotoKey === src}
+                          className="absolute top-1.5 right-1.5 z-10 rounded-full bg-black/55 p-1.5 text-white opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:focus:opacity-100 transition-opacity hover:bg-rose-600 disabled:opacity-60"
+                          aria-label="Delete photo"
+                        >
+                          {deletingPhotoKey === src ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Trash2 className="h-4 w-4" />
+                          )}
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* Grid */}
-            {loading ? (
+            {activeTab === 'orders' ? (
+              ordersLoading ? (
+                <div className="flex justify-center py-16">
+                  <Loader2 className="h-10 w-10 animate-spin text-sky-500" />
+                </div>
+              ) : (user?._id || user?.id) !== userId ? (
+                <div className="py-16 text-center text-slate-500">
+                  <ShoppingBag className="h-12 w-12 mx-auto mb-3 opacity-50" />
+                  <p>Orders are visible only on your own profile.</p>
+                </div>
+              ) : orderRows.length === 0 && musicPurchaseRows.length === 0 ? (
+                <div className="py-16 text-center text-slate-500">
+                  <ShoppingBag className="h-12 w-12 mx-auto mb-3 opacity-50" />
+                  <p>No orders yet</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {orderRows
+                    .slice()
+                    .sort((a, b) => {
+                      const ta = new Date(a?.paidAt || a?.createdAt || 0).getTime();
+                      const tb = new Date(b?.paidAt || b?.createdAt || 0).getTime();
+                      return tb - ta;
+                    })
+                    .map((o) => (
+                      <div key={`order-${o._id}`} className="rounded-xl border border-slate-200 bg-white p-4">
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="text-sm font-semibold text-slate-900">ORDER-{String(o._id).slice(-12)}</p>
+                          <p className="text-sm font-semibold text-slate-900">
+                            R{Number(o?.amounts?.total || 0).toFixed(2)}
+                          </p>
+                        </div>
+                        <p className="mt-1 text-xs text-slate-500">
+                          {o?.paidAt || o?.createdAt ? new Date(o.paidAt || o.createdAt || '').toLocaleString() : '—'} · successful
+                        </p>
+                      </div>
+                    ))}
+                  {musicPurchaseRows
+                    .slice()
+                    .sort((a, b) => {
+                      const ta = new Date(a?.createdAt || 0).getTime();
+                      const tb = new Date(b?.createdAt || 0).getTime();
+                      return tb - ta;
+                    })
+                    .map((m, idx) => (
+                      <div key={`music-${m.reference || m.songId || idx}`} className="rounded-xl border border-slate-200 bg-white p-4">
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="text-sm font-semibold text-slate-900">
+                            Music purchase{m.song?.title ? `: ${m.song.title}` : ''}
+                          </p>
+                          <p className="text-sm font-semibold text-slate-900">
+                            R{Number(m?.amount || 0).toFixed(2)}
+                          </p>
+                        </div>
+                        <p className="mt-1 text-xs text-slate-500">
+                          {m?.createdAt ? new Date(m.createdAt).toLocaleString() : '—'} · successful
+                        </p>
+                      </div>
+                    ))}
+                </div>
+              )
+            ) : loading ? (
               <div className="flex justify-center py-16">
                 <Loader2 className="h-10 w-10 animate-spin text-sky-500" />
               </div>
-            ) : items.length === 0 ? (
+            ) : items.length === 0 && galleryUrls.length === 0 ? (
               <div className="py-16 text-center text-slate-500">
                 <LayoutGrid className="h-12 w-12 mx-auto mb-3 opacity-50" />
                 <p>No {activeTab} yet</p>
               </div>
             ) : (
-              <div className="grid grid-cols-3 gap-1 sm:gap-2">
-                {items.map((item) => {
+              <div className="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-1 sm:gap-2">
+                {(items.length ? items : galleryUrls.map((url, idx) => ({
+                  _id: `gallery-${userId}-${idx}`,
+                  type: 'image' as const,
+                  mediaUrls: [url],
+                }))).map((item, idx) => {
                   const thumb = getThumbnailUrl(item);
+                  const mediaUrl = thumb || item.mediaUrls?.[0] || '';
+                  const showDelete = canDeleteOwnPhotos && isDeletableImageItem(item) && !!mediaUrl;
+                  const deleteKey = String(item._id);
                   return (
-                    <button
-                      key={item._id}
-                      type="button"
-                      onClick={() => setViewingPost(item)}
-                      className="aspect-square bg-slate-200 rounded-lg overflow-hidden focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-offset-2"
-                    >
-                      {thumb ? (
-                        item.type === 'video' ? (
-                          <video
-                            src={getImageUrl(thumb)}
-                            className="w-full h-full object-cover"
-                            muted
-                            playsInline
-                          />
-                        ) : (
-                          <img
-                            src={getImageUrl(thumb)}
-                            alt=""
-                            className="w-full h-full object-cover"
-                          />
-                        )
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center">
-                          {item.type === 'audio' ? (
-                            <Music2 className="h-12 w-12 text-slate-400" />
+                    <div key={item._id} className="relative group">
+                      <button
+                        type="button"
+                        onClick={() => openStoryAt(profileStoryRows, idx)}
+                        className="aspect-square bg-slate-200 rounded-lg overflow-hidden cursor-pointer hover:opacity-90 active:scale-[0.98] transition-all focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-offset-2 block w-full border-0 p-0"
+                        aria-label={`View post ${item.caption || item.heading || item._id}`}
+                      >
+                        {thumb ? (
+                          item.type === 'video' ? (
+                            <video
+                              src={getImageUrl(thumb)}
+                              className="w-full h-full object-cover pointer-events-none"
+                              muted
+                              playsInline
+                              preload="metadata"
+                            />
                           ) : (
-                            <LayoutGrid className="h-12 w-12 text-slate-400" />
+                            <img
+                              src={getImageUrl(thumb)}
+                              alt=""
+                              className="w-full h-full object-cover pointer-events-none"
+                            />
+                          )
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center pointer-events-none">
+                            {item.type === 'audio' ? (
+                              <Music2 className="h-12 w-12 text-slate-400" />
+                            ) : (
+                              <LayoutGrid className="h-12 w-12 text-slate-400" />
+                            )}
+                          </div>
+                        )}
+                      </button>
+                      {showDelete && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void handleDeletePhoto({
+                              url: mediaUrl,
+                              postId: TV_POST_ID_RE.test(deleteKey) ? deleteKey : undefined,
+                            });
+                          }}
+                          disabled={deletingPhotoKey === deleteKey || deletingPhotoKey === mediaUrl}
+                          className="absolute top-1.5 right-1.5 z-10 rounded-full bg-black/55 p-1.5 text-white opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:focus:opacity-100 transition-opacity hover:bg-rose-600 disabled:opacity-60"
+                          aria-label="Delete photo"
+                        >
+                          {deletingPhotoKey === deleteKey || deletingPhotoKey === mediaUrl ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Trash2 className="h-4 w-4" />
                           )}
-                        </div>
+                        </button>
                       )}
-                    </button>
+                    </div>
                   );
                 })}
-                <div ref={loadMoreSentinelRef} className="col-span-3 h-4" />
+                <div ref={loadMoreSentinelRef} className="col-span-3 md:col-span-4 lg:col-span-5 h-4" />
               </div>
             )}
 
-            {loadingMore && (
+            {activeTab !== 'orders' && loadingMore && (
               <div className="flex justify-center py-4">
                 <Loader2 className="h-6 w-6 animate-spin text-sky-500" />
               </div>
@@ -415,31 +819,34 @@ function UserProfileContent() {
         </main>
       </div>
 
-      {/* Full post modal */}
-      {viewingPost && (
-        <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
+      {/* Profile gallery lightbox */}
+      {viewingGallerySrc && (
+        <div
+          className="fixed inset-0 z-[100] bg-black/90 flex items-center justify-center p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Profile photo"
+          onClick={() => setViewingGallerySrc(null)}
+        >
           <button
             type="button"
-            onClick={() => setViewingPost(null)}
-            className="absolute top-4 right-4 p-2 rounded-full bg-white/10 text-white hover:bg-white/20"
+            onClick={() => setViewingGallerySrc(null)}
+            className="absolute top-4 right-4 p-2 rounded-full bg-white/10 text-white hover:bg-white/20 z-10"
             aria-label="Close"
           >
             <X className="h-6 w-6" />
           </button>
-          <div className="w-full max-w-md max-h-[90vh] overflow-y-auto">
-            <TVGridTile
-              item={viewingPost}
-              liked={likedMap[viewingPost._id]}
-              onLike={handleLike}
-              onCommentAdded={handleCommentAdded}
-              onDelete={(id) => {
-                setViewingPost(null);
-                setItems((prev) => prev.filter((i) => i._id !== id));
-              }}
-              currentUserId={user?._id || user?.id}
-              isVisible
-            />
-          </div>
+          <img
+            src={getImageUrl(viewingGallerySrc)}
+            alt=""
+            className="max-w-full max-h-[90vh] object-contain"
+            onClick={(e) => e.stopPropagation()}
+            onError={(e) => {
+              const el = e.currentTarget;
+              const full = getImageUrlFull(viewingGallerySrc);
+              if (full && el.src !== full) el.src = full;
+            }}
+          />
         </div>
       )}
 

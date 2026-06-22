@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
+import { useAdminPermissions } from '@/contexts/AdminPermissionsContext';
 import { adminAPI } from '@/lib/api';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -14,33 +15,19 @@ import {
   Shield,
   Loader2,
   ArrowRight,
-  Settings,
-  Wallet,
-  FileText,
-  Mail,
   Lock,
   AlertCircle,
   Home,
-  Building2,
-  ShoppingBag,
-  LayoutGrid,
-  Tv,
-  Car,
-  Truck,
-  Megaphone,
-  Image,
-  Music2,
-  BarChart2,
-  TrendingUp,
+  Mail,
 } from 'lucide-react';
+import { userHasWebsiteAdminAccess } from '@/lib/adminAccess';
+import { canAccessAdminSection } from '@/lib/adminSectionAccess';
+import { groupedAdminQuickModulesForDashboard } from '@/lib/adminNavModules';
 import toast from 'react-hot-toast';
-
-const ADMIN_ROLES = ['admin', 'superadmin'];
+import { userPublicDisplayName } from '@/lib/userDisplayLabel';
 
 function isAdmin(user: { role?: string | string[] } | null): boolean {
-  if (!user?.role) return false;
-  const roles = Array.isArray(user.role) ? user.role : [user.role];
-  return roles.some((r) => ADMIN_ROLES.includes(r));
+  return userHasWebsiteAdminAccess(user);
 }
 
 /** Admin sign-in form shown at /admin when not logged in */
@@ -83,7 +70,7 @@ function AdminLoginForm() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-slate-100 via-white to-sky-50 text-slate-800 px-4">
+    <div className="min-h-[calc(100dvh-2.75rem)] flex flex-col items-center justify-center bg-gradient-to-br from-slate-100 via-white to-sky-50 text-slate-800 px-4">
       <div className="absolute inset-0 pointer-events-none overflow-hidden">
         <div className="absolute -left-20 -top-20 h-72 w-72 rounded-full bg-sky-200/30 blur-3xl" />
         <div className="absolute right-0 top-1/3 h-80 w-80 rounded-full bg-slate-200/20 blur-3xl" />
@@ -167,7 +154,7 @@ function AdminLoginForm() {
 /** Shown when logged in but user is not admin/superadmin */
 function AdminAccessDenied() {
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-slate-100 via-white to-sky-50 text-slate-800 px-4">
+    <div className="min-h-[calc(100dvh-2.75rem)] flex flex-col items-center justify-center bg-gradient-to-br from-slate-100 via-white to-sky-50 text-slate-800 px-4">
       <div className="text-center max-w-sm">
         <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-amber-100 text-amber-700 mb-4">
           <AlertCircle className="h-8 w-8" />
@@ -198,39 +185,50 @@ function AdminAccessDenied() {
 function AdminDashboard() {
   const { user, logout } = useAuth();
   const router = useRouter();
+  const { perms, loading: permLoading } = useAdminPermissions();
   const [stats, setStats] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
+  const [statsLoading, setStatsLoading] = useState(true);
+
+  const quickModuleGroups = useMemo(() => groupedAdminQuickModulesForDashboard(perms), [perms]);
+  const quickModuleCount = useMemo(
+    () => quickModuleGroups.reduce((n, g) => n + g.items.length, 0),
+    [quickModuleGroups],
+  );
 
   useEffect(() => {
-    fetchStats();
-  }, []);
-
-  const fetchStats = async () => {
-    try {
-      const response = await adminAPI.getStats();
-      setStats(response.data);
-    } catch (error: any) {
-      toast.error('Failed to load statistics');
-    } finally {
-      setLoading(false);
-    }
-  };
+    if (permLoading) return;
+    let cancelled = false;
+    (async () => {
+      setStatsLoading(true);
+      try {
+        const r = await adminAPI.getStats();
+        if (!cancelled) setStats(r.data);
+      } catch {
+        if (!cancelled) toast.error('Failed to load statistics');
+      } finally {
+        if (!cancelled) setStatsLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [permLoading]);
 
   const handleLogout = () => {
     logout();
     router.push('/');
   };
 
-  if (loading) {
+  if (permLoading || statsLoading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-sky-50 via-white to-sky-100">
+      <div className="flex min-h-[calc(100dvh-2.75rem)] items-center justify-center bg-gradient-to-br from-sky-50 via-white to-sky-100">
         <Loader2 className="h-8 w-8 animate-spin text-sky-600" />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-sky-50 via-white to-sky-100 text-slate-800">
+    <div className="min-h-[calc(100dvh-2.75rem)] bg-gradient-to-br from-sky-50 via-white to-sky-100 text-slate-800">
       <header className="border-b border-white/60 bg-white/70 backdrop-blur">
         <div className="mx-auto flex max-w-6xl flex-col gap-4 px-6 py-6 md:flex-row md:items-center md:justify-between">
           <div>
@@ -239,7 +237,7 @@ function AdminDashboard() {
               <Shield className="h-4 w-4 text-sky-500" />
               <span>Admin headquarters</span>
             </div>
-            <h1 className="mt-1 text-3xl font-semibold text-slate-900">Welcome, {user?.name}</h1>
+            <h1 className="mt-1 text-3xl font-semibold text-slate-900">Welcome, {user ? userPublicDisplayName(user) : ''}</h1>
             <p className="text-slate-600">Platform oversight. Verify trust. Scale growth.</p>
           </div>
           <button
@@ -254,12 +252,52 @@ function AdminDashboard() {
 
       <main className="mx-auto max-w-6xl px-6 py-8">
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-          {[
-            { label: 'Total users', value: stats?.totalUsers ?? 0, active: stats?.activeUsers ?? 0, icon: Users, accent: 'from-sky-50 to-white', color: 'text-sky-600', href: '/admin/users' },
-            { label: 'Total tasks', value: stats?.totalTasks ?? 0, active: stats?.completedTasks ?? 0, sub: 'completed', icon: Package, accent: 'from-emerald-50 to-white', color: 'text-emerald-600', href: '/admin/tasks' },
-            { label: 'Total revenue', value: `R${Number(stats?.totalRevenue || 0).toFixed(2)}`, active: stats?.fnbBalance != null ? `Balance R${Number(stats.fnbBalance).toFixed(2)}` : '—', icon: DollarSign, accent: 'from-purple-50 to-white', color: 'text-purple-600' },
-            { label: 'Escrow / Payouts', value: `${stats?.escrowHeld ?? 0} held`, active: `${stats?.escrowPendingPayoutCount ?? 0} pending · R${Number(stats?.pendingPayoutAmount || 0).toFixed(2)}`, icon: Activity, accent: 'from-orange-50 to-white', color: 'text-orange-600', href: '/admin/escrows' }
-          ].map((card) => {
+          {(
+            [
+              {
+                label: 'Total users',
+                value: stats?.totalUsers ?? 0,
+                active: stats?.activeUsers ?? 0,
+                icon: Users,
+                accent: 'from-sky-50 to-white',
+                color: 'text-sky-600',
+                href: '/admin/users',
+                sectionGate: ['users'] as const,
+              },
+              {
+                label: 'Total tasks',
+                value: stats?.totalTasks ?? 0,
+                active: stats?.completedTasks ?? 0,
+                sub: 'completed',
+                icon: Package,
+                accent: 'from-emerald-50 to-white',
+                color: 'text-emerald-600',
+                href: '/admin/tasks',
+                sectionGate: ['tasks'] as const,
+              },
+              {
+                label: 'Total revenue',
+                value: `R${Number(stats?.totalRevenue || 0).toFixed(2)}`,
+                active: stats?.fnbBalance != null ? `Balance R${Number(stats.fnbBalance).toFixed(2)}` : '—',
+                icon: DollarSign,
+                accent: 'from-purple-50 to-white',
+                color: 'text-purple-600',
+                sectionGate: ['money_metrics'] as const,
+              },
+              {
+                label: 'Escrow / Payouts',
+                value: `${stats?.escrowHeld ?? 0} held`,
+                active: `${stats?.escrowPendingPayoutCount ?? 0} pending · R${Number(stats?.pendingPayoutAmount || 0).toFixed(2)}`,
+                icon: Activity,
+                accent: 'from-orange-50 to-white',
+                color: 'text-orange-600',
+                href: '/admin/escrows',
+                sectionGate: ['escrows'] as const,
+              },
+            ] as const
+          )
+            .filter((card) => canAccessAdminSection(perms, [...card.sectionGate]))
+            .map((card) => {
             const IconComponent = card.icon;
             const cardContent = (
               <div className="flex items-center justify-between">
@@ -286,6 +324,7 @@ function AdminDashboard() {
           })}
         </div>
 
+        {canAccessAdminSection(perms, ['money_metrics']) ? (
         <div className="mt-8 rounded-2xl border border-white/60 bg-white/80 p-6 shadow-xl shadow-sky-50 backdrop-blur">
           <div className="mb-6 flex items-center justify-between">
             <div>
@@ -295,24 +334,84 @@ function AdminDashboard() {
             </div>
           </div>
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-            {[
-              { label: 'Wallet float', value: `R${Number(stats?.moneyMetrics?.wallet?.floatTotal || 0).toFixed(2)}`, sub: 'Current total wallet balances' },
-              { label: 'PayGate successful', value: `R${Number(stats?.moneyMetrics?.paygate?.successfulAmount || 0).toFixed(2)}`, sub: `${Number(stats?.moneyMetrics?.paygate?.successfulCount || 0)} tx` },
-              { label: 'Direct disbursed', value: `R${Number(stats?.moneyMetrics?.directWalletSend?.successfulAmount || 0).toFixed(2)}`, sub: `${Number(stats?.moneyMetrics?.directWalletSend?.successfulCount || 0)} tx` },
-              { label: 'Direct pending', value: `R${Number(stats?.moneyMetrics?.directWalletSend?.pendingAmount || 0).toFixed(2)}`, sub: `${Number(stats?.moneyMetrics?.directWalletSend?.pendingCount || 0)} tx awaiting` },
-              { label: 'Money requests paid', value: `R${Number(stats?.moneyMetrics?.moneyRequests?.paidAmount || 0).toFixed(2)}`, sub: `${Number(stats?.moneyMetrics?.moneyRequests?.paidCount || 0)} requests` },
-              { label: 'Money requests pending', value: `R${Number(stats?.moneyMetrics?.moneyRequests?.pendingAmount || 0).toFixed(2)}`, sub: `${Number(stats?.moneyMetrics?.moneyRequests?.pendingCount || 0)} open` },
-              { label: 'Admin PayGate fee earned', value: `R${Number(stats?.moneyMetrics?.adminCommission?.paygateFeeCreditsAmount || 0).toFixed(2)}`, sub: `${Number(stats?.moneyMetrics?.adminCommission?.paygateFeeCreditsCount || 0)} fee credits` },
-              { label: 'Expected fee vs successful', value: `R${Number(stats?.moneyMetrics?.adminCommission?.expectedFeeAmountFromSuccessfulPaygate || 0).toFixed(2)}`, sub: `R${Number(stats?.moneyMetrics?.adminCommission?.paygateFlatFee || 0).toFixed(2)} per tx` },
-            ].map((card) => (
-              <div key={card.label} className="rounded-xl border border-slate-100 bg-white/90 p-4 shadow-sm">
+            {(
+              [
+                {
+                  label: 'Wallet float',
+                  value: `R${Number(stats?.moneyMetrics?.wallet?.floatTotal || 0).toFixed(2)}`,
+                  sub: 'Current total wallet balances',
+                  metric: 'wallet_float',
+                },
+                {
+                  label: 'PayGate successful',
+                  value: `R${Number(stats?.moneyMetrics?.paygate?.successfulAmount || 0).toFixed(2)}`,
+                  sub: `${Number(stats?.moneyMetrics?.paygate?.successfulCount || 0)} tx`,
+                  metric: 'paygate_successful',
+                },
+                {
+                  label: 'Direct disbursed',
+                  value: `R${Number(stats?.moneyMetrics?.directWalletSend?.successfulAmount || 0).toFixed(2)}`,
+                  sub: `${Number(stats?.moneyMetrics?.directWalletSend?.successfulCount || 0)} tx`,
+                  metric: 'direct_disbursed',
+                },
+                {
+                  label: 'Direct pending',
+                  value: `R${Number(stats?.moneyMetrics?.directWalletSend?.pendingAmount || 0).toFixed(2)}`,
+                  sub: `${Number(stats?.moneyMetrics?.directWalletSend?.pendingCount || 0)} tx awaiting`,
+                  metric: 'direct_pending',
+                },
+                {
+                  label: 'Money requests paid',
+                  value: `R${Number(stats?.moneyMetrics?.moneyRequests?.paidAmount || 0).toFixed(2)}`,
+                  sub: `${Number(stats?.moneyMetrics?.moneyRequests?.paidCount || 0)} requests`,
+                  metric: 'money_requests_paid',
+                },
+                {
+                  label: 'Money requests pending',
+                  value: `R${Number(stats?.moneyMetrics?.moneyRequests?.pendingAmount || 0).toFixed(2)}`,
+                  sub: `${Number(stats?.moneyMetrics?.moneyRequests?.pendingCount || 0)} open`,
+                  metric: 'money_requests_pending',
+                },
+                {
+                  label: 'Admin PayGate fee earned',
+                  value: `R${Number(stats?.moneyMetrics?.adminCommission?.paygateFeeCreditsAmount || 0).toFixed(2)}`,
+                  sub: `${Number(stats?.moneyMetrics?.adminCommission?.paygateFeeCreditsCount || 0)} fee credits`,
+                  metric: 'admin_paygate_fee',
+                },
+                {
+                  label: 'Expected fee vs successful',
+                  value: `R${Number(stats?.moneyMetrics?.adminCommission?.expectedFeeAmountFromSuccessfulPaygate || 0).toFixed(2)}`,
+                  sub: `R${Number(stats?.moneyMetrics?.adminCommission?.paygateFlatFee || 0).toFixed(2)} per tx`,
+                  metric: 'expected_fee',
+                },
+              ] as const
+            ).map((card) => (
+              <Link
+                key={card.label}
+                href={`/admin/money-metric-detail?metric=${card.metric}`}
+                title={`View breakdown: ${card.label}`}
+                className="group block rounded-xl border border-slate-100 bg-white/90 p-4 shadow-sm outline-none transition hover:-translate-y-0.5 hover:border-sky-200 hover:shadow-md focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2"
+              >
                 <p className="text-xs uppercase tracking-[0.2em] text-slate-500">{card.label}</p>
-                <p className="mt-2 text-2xl font-semibold text-slate-900">{card.value}</p>
-                <p className="mt-1 text-xs font-medium text-sky-700">{card.sub}</p>
-              </div>
+                <p className="mt-2 flex items-baseline justify-between gap-2 text-2xl font-semibold text-slate-900">
+                  <span>{card.value}</span>
+                  <ArrowRight className="h-4 w-4 shrink-0 text-slate-300 transition group-hover:translate-x-0.5 group-hover:text-sky-600" aria-hidden />
+                </p>
+                <p className="mt-1 text-xs font-medium text-sky-700 underline-offset-2 group-hover:text-sky-900 group-hover:underline">
+                  {card.sub}
+                </p>
+              </Link>
             ))}
           </div>
+          <p className="mt-4 text-center text-xs text-slate-500">
+            For date-range totals and CSV export, open{' '}
+            <Link href="/admin/money-metrics" className="font-semibold text-sky-700 hover:underline">
+              Money metrics
+            </Link>
+            .
+          </p>
         </div>
+        ) : null}
 
         <div className="mt-8 rounded-2xl border border-white/60 bg-white/80 p-6 shadow-xl shadow-sky-50 backdrop-blur">
           <div className="mb-6 flex items-center justify-between">
@@ -322,54 +421,53 @@ function AdminDashboard() {
             </div>
             <span className="rounded-full bg-sky-100 px-3 py-1 text-xs font-semibold text-sky-700">Admin tools</span>
           </div>
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {[
-              { href: '/admin/users', icon: Users, title: 'Manage users', desc: 'View, suspend, activate accounts', color: 'sky' },
-              { href: '/admin/merchant-agents', icon: Wallet, title: 'Merchant agents', desc: 'Approve KYC’d cash agents (ACBPayWallet)', color: 'cyan' },
-              { href: '/admin/runners', icon: Car, title: 'Runner applications', desc: 'Verify PDP and vehicle documents', color: 'cyan' },
-              { href: '/admin/adverts', icon: Megaphone, title: 'Adverts', desc: 'Create and manage platform adverts', color: 'purple' },
-              { href: '/admin/landing-backgrounds', icon: Image, title: 'Landing backgrounds', desc: 'Upload login/register page background images', color: 'sky' },
-              { href: '/admin/tasks', icon: Package, title: 'Manage tasks', desc: 'Monitor & cancel tasks', color: 'emerald' },
-              { href: '/admin/suppliers', icon: Building2, title: 'Suppliers / Sellers', desc: 'Verify company & individual sellers', color: 'cyan' },
-              { href: '/admin/orders', icon: ShoppingBag, title: 'Marketplace orders', desc: 'Checkout & wallet orders', color: 'purple' },
-              { href: '/admin/money-metrics', icon: TrendingUp, title: 'Money metrics', desc: 'Date range: PayGate, wallet, requests, fees (CSV)', color: 'emerald' },
-              { href: '/admin/dropshipping-profit', icon: BarChart2, title: 'Dropshipping profit', desc: 'COGS, fees, net margin by order & period', color: 'emerald' },
-              { href: '/admin/products', icon: Package, title: 'Marketplace products', desc: 'Load and manage products for sale', color: 'emerald' },
-              { href: '/admin/dropship', icon: Truck, title: 'Dropshipping', desc: 'Search, import & manage products', color: 'cyan' },
-              { href: '/admin/tv', icon: Tv, title: 'QwertyTV', desc: 'Moderate posts, comments & reports', color: 'purple' },
-              { href: '/admin/music', icon: Music2, title: 'QwertyMusic', desc: 'Load songs/albums, manage music catalog', color: 'purple' },
-              { href: '/admin/artists', icon: Users, title: 'Artist accounts', desc: 'Create artist/publisher accounts, approve applications', color: 'indigo' },
-              { href: '/admin/admins', icon: Shield, title: 'Create admins', desc: 'Super-admin: create admins with section permissions', color: 'indigo' },
-              { href: '/admin/stores', icon: Building2, title: 'Stores', desc: 'Create and manage supplier/reseller stores', color: 'cyan' },
-              { href: '/admin/reseller', icon: LayoutGrid, title: 'Reseller stats', desc: 'Walls and products on walls', color: 'indigo' },
-              { href: '/admin/escrows', icon: DollarSign, title: 'View escrow & ledger', desc: 'Escrow list, full ledger, release, refund', color: 'orange' },
-              { href: '/admin/payouts', icon: Wallet, title: 'FNB payouts', desc: 'Initiate payouts, poll status, view balance', color: 'orange' },
-              { href: '/admin/audit', icon: FileText, title: 'Audit log', desc: 'Role-based actions & audit trail', color: 'indigo' },
-              { href: '/admin/pricing', icon: Settings, title: 'Pricing config', desc: 'Manage fees & FX rates', color: 'cyan' },
-              { href: '/admin/support', icon: Mail, title: 'Support tickets', desc: 'View and respond to user support requests', color: 'sky' }
-            ].map((action) => {
-              const IconComponent = action.icon;
-              const colorMap: any = { 
-                sky: 'text-sky-600', 
-                emerald: 'text-emerald-600', 
-                purple: 'text-purple-600', 
-                orange: 'text-orange-600', 
-                red: 'text-red-600', 
-                indigo: 'text-indigo-600',
-                cyan: 'text-cyan-600'
-              };
-              return (
-                <Link key={action.href} href={action.href} className="group rounded-xl border border-slate-100 bg-white/90 p-4 shadow-sm transition hover:-translate-y-1 hover:shadow-md">
-                  <div className="mb-3 flex items-center justify-between">
-                    <IconComponent className={`h-10 w-10 ${colorMap[action.color]}`} />
-                    <ArrowRight className="h-5 w-5 text-slate-300 transition group-hover:text-sky-600" />
+          {perms?.isSuperAdmin ? (
+            <p className="mb-5 text-xs text-slate-500">
+              New:{' '}
+              <Link href="/admin/coverage" className="font-semibold text-sky-700 hover:underline">
+                Site coverage matrix
+              </Link>{' '}
+              (maps public pages to admin).
+            </p>
+          ) : null}
+          {quickModuleCount === 0 ? (
+            <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/80 px-4 py-8 text-center text-sm text-slate-600">
+              No admin tools are assigned to your account yet. Use the <strong className="font-semibold text-slate-800">Modules</strong> menu
+              (if any items appear there) or ask a super-admin to grant the sections you need (for example adverts, tasks, or TV).
+            </div>
+          ) : (
+            <div className="space-y-8">
+              {quickModuleGroups.map(({ group, items }) => (
+                <div key={group}>
+                  <p className="mb-3 text-[10px] font-semibold uppercase tracking-wider text-slate-400">{group}</p>
+                  <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                    {items.map((action) => {
+                      const IconComponent = action.icon;
+                      const colorMap: Record<string, string> = {
+                        sky: 'text-sky-600',
+                        emerald: 'text-emerald-600',
+                        purple: 'text-purple-600',
+                        orange: 'text-orange-600',
+                        red: 'text-red-600',
+                        indigo: 'text-indigo-600',
+                        cyan: 'text-cyan-600',
+                      };
+                      return (
+                        <Link key={action.href} href={action.href} className="group rounded-xl border border-slate-100 bg-white/90 p-4 shadow-sm transition hover:-translate-y-1 hover:shadow-md">
+                          <div className="mb-3 flex items-center justify-between">
+                            <IconComponent className={`h-10 w-10 ${colorMap[action.color] || 'text-slate-600'}`} />
+                            <ArrowRight className="h-5 w-5 text-slate-300 transition group-hover:text-sky-600" />
+                          </div>
+                          <h3 className="font-semibold text-slate-900">{action.title}</h3>
+                          <p className="text-xs text-slate-600 mt-1">{action.desc}</p>
+                        </Link>
+                      );
+                    })}
                   </div>
-                  <h3 className="font-semibold text-slate-900">{action.title}</h3>
-                  <p className="text-xs text-slate-600 mt-1">{action.desc}</p>
-                </Link>
-              );
-            })}
-          </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         <div className="mt-8 rounded-2xl border border-white/60 bg-white/80 p-6 shadow-xl shadow-sky-50 backdrop-blur">
@@ -414,7 +512,7 @@ export default function AdminPage() {
 
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-sky-50 via-white to-sky-100">
+      <div className="flex min-h-[calc(100dvh-2.75rem)] items-center justify-center bg-gradient-to-br from-sky-50 via-white to-sky-100">
         <Loader2 className="h-8 w-8 animate-spin text-sky-600" />
       </div>
     );

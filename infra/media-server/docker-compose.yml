@@ -1,0 +1,32 @@
+# Qwertymates media server on the SAME VPS as the API / NPM edge.
+#
+# RTMP (OBS, FFmpeg restream):  tcp/1935   → application "live"
+# HLS HTTP (players):           tcp/8081   → https://your-domain/hls/... via reverse proxy
+#
+# Run on the droplet:
+#   cd /var/www/morongwa/infra/media-server   # or your checkout path
+#   docker compose up -d --build
+#
+# Point Nginx Proxy Manager (or similar) at http://127.0.0.1:8081 with path /hls → Enable websockets off, HTTP OK.
+# Backend env (API):
+#   LIVESTREAM_RTMP_PUBLIC_HOST=live.your-domain.com   # DNS → VPS IP; RTMP uses :1935
+#   LIVESTREAM_RTMP_APP=live
+#   LIVESTREAM_HLS_PUBLIC_BASE=https://live.your-domain.com/hls
+#
+# Linear channel FFmpeg (optional), when API runs on same host:
+#   TV_CHANNEL_FFMPEG_RTMP_URL=rtmp://127.0.0.1:1935/live/qwertytv-linear
+
+services:
+  qwertymates-media:
+    build: .
+    image: qwertymates-media:local
+    container_name: qwertymates-media
+    restart: unless-stopped
+    ports:
+      - "1935:1935"
+      - "8081:8081"
+    volumes:
+      - qwertymates-hls:/opt/hls
+
+volumes:
+  qwertymates-hls:

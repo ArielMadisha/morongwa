@@ -72,7 +72,7 @@ export interface TrackingInfo {
   deliveredAt?: string;
 }
 
-export type ExternalSupplierSource = "cj" | "spocket" | "eprolo";
+export type ExternalSupplierSource = "cj" | "spocket" | "eprolo" | "shein";
 
 export interface FreightQuoteRequest {
   startCountryCode: string;

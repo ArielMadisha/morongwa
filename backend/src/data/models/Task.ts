@@ -2,8 +2,10 @@
 import mongoose, { Schema, Document } from "mongoose";
 
 export interface ITask extends Document {
+  taskType?: "collect_send" | "shop_send" | "transport" | "general";
   title: string;
   description: string;
+  workflowMeta?: Record<string, any>;
   budget: number;
   // Primary pickup point (where task starts)
   pickupLocation: {
@@ -17,7 +19,7 @@ export interface ITask extends Document {
     coordinates: number[];
     address?: string;
   } | null;
-  status: "posted" | "accepted" | "in_progress" | "completed" | "cancelled";
+  status: "pending_quote" | "posted" | "accepted" | "in_progress" | "completed" | "cancelled";
   client: mongoose.Types.ObjectId;
   runner?: mongoose.Types.ObjectId;
   escrowed: boolean;
@@ -25,6 +27,21 @@ export interface ITask extends Document {
   estimatedDistanceKm?: number;
   // Suggested fee calculated from pricing rules (local currency)
   suggestedFee?: number;
+  parcelDetails?: {
+    lengthCm?: number;
+    widthCm?: number;
+    heightCm?: number;
+    weightKg?: number;
+    volumetricWeightKg?: number;
+    chargeableWeightKg?: number;
+  };
+  supplierInvoice?: {
+    filename: string;
+    path: string;
+    mimetype: string;
+    size: number;
+    uploadedAt: Date;
+  } | null;
   attachments: Array<{
     filename: string;
     path: string;
@@ -44,8 +61,10 @@ export interface ITask extends Document {
 
 const TaskSchema = new Schema<ITask>(
   {
+    taskType: { type: String, enum: ["collect_send", "shop_send", "transport", "general"] },
     title: { type: String, required: true, trim: true },
     description: { type: String, required: true },
+    workflowMeta: { type: Schema.Types.Mixed },
     budget: { type: Number, required: true, min: 0 },
     pickupLocation: {
       type: { type: String, enum: ["Point"], default: "Point" },
@@ -59,9 +78,24 @@ const TaskSchema = new Schema<ITask>(
     },
     estimatedDistanceKm: { type: Number },
     suggestedFee: { type: Number },
+    parcelDetails: {
+      lengthCm: { type: Number },
+      widthCm: { type: Number },
+      heightCm: { type: Number },
+      weightKg: { type: Number },
+      volumetricWeightKg: { type: Number },
+      chargeableWeightKg: { type: Number },
+    },
+    supplierInvoice: {
+      filename: String,
+      path: String,
+      mimetype: String,
+      size: Number,
+      uploadedAt: Date,
+    },
     status: {
       type: String,
-      enum: ["posted", "accepted", "in_progress", "completed", "cancelled"],
+      enum: ["pending_quote", "posted", "accepted", "in_progress", "completed", "cancelled"],
       default: "posted",
     },
     client: { type: Schema.Types.ObjectId, ref: "User", required: true },

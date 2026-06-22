@@ -1,0 +1,125 @@
+              {isMerchantWallet && walletView === 'accept' && (
+              <div className="rounded-2xl border-2 border-amber-300 bg-white/90 p-4 sm:p-5 shadow-xl shadow-amber-100">
+                <div className="mb-4 flex items-center gap-2">
+                  <ScanLine className="h-5 w-5 text-amber-600" />
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.2em] text-amber-600">Store / merchant</p>
+                    <h3 className="text-lg font-semibold text-slate-900">Accept payment</h3>
+                  </div>
+                </div>
+                <p className="text-sm text-slate-600 mb-4">
+                  Scan the customer&apos;s QR → enter amount → they confirm in their wallet.
+                </p>
+                {!showAcceptPayment ? (
+                  <button
+                    onClick={() => setShowAcceptPayment(true)}
+                    className="w-full rounded-full bg-amber-500 px-4 py-3 text-sm font-semibold text-white hover:bg-amber-600"
+                  >
+                    Start accepting
+                  </button>
+                ) : (
+                  <div className="space-y-3">
+                    {acceptStep === 'scan' ? (
+                      <>
+                        {!showMerchantScanner ? (
+                          <button
+                            type="button"
+                            onClick={() => setShowMerchantScanner(true)}
+                            className="w-full rounded-lg border-2 border-dashed border-amber-300 py-3 text-sm font-semibold text-amber-800 hover:bg-amber-50"
+                          >
+                            Open camera to scan customer QR
+                          </button>
+                        ) : (
+                          <WalletQrScanner
+                            title="Scan customer QR"
+                            onClose={() => setShowMerchantScanner(false)}
+                            onScan={(text) => {
+                              const id = parseAcbPayUserId(text);
+                              if (!id) {
+                                toast.error('Not a valid ACBPayWallet QR');
+                                return;
+                              }
+                              setAcceptPayerId(`ACBPAY:${id}`);
+                              setShowMerchantScanner(false);
+                              toast.success('Customer QR scanned');
+                            }}
+                          />
+                        )}
+                        <input
+                          placeholder="Or paste payer ID (ACBPAY:...)"
+                          value={acceptPayerId}
+                          onChange={(e) => setAcceptPayerId(e.target.value)}
+                          className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                        />
+                        <input
+                          type="number"
+                          placeholder="Amount (ZAR)"
+                          value={acceptAmount}
+                          onChange={(e) => setAcceptAmount(e.target.value)}
+                          className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                        />
+                        <input
+                          placeholder="Store name (optional)"
+                          value={acceptMerchantName}
+                          onChange={(e) => setAcceptMerchantName(e.target.value)}
+                          className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                        />
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => {
+                              setShowAcceptPayment(false);
+                              setWalletView('pay');
+                            }}
+                            className="rounded-lg border px-3 py-2 text-sm"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            onClick={handleAcceptPaymentStep1}
+                            disabled={acceptSubmitting}
+                            className="flex-1 rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-white"
+                          >
+                            {acceptSubmitting ? <Loader2 className="inline h-4 w-4 animate-spin" /> : 'Request payment'}
+                          </button>
+                        </div>
+                      </>
+                    ) : acceptStep === 'waiting' ? (
+                      <>
+                        <div className="rounded-lg bg-amber-50 border border-amber-200 p-4 text-center">
+                          <Loader2 className="h-8 w-8 animate-spin text-amber-600 mx-auto mb-2" />
+                          <p className="font-semibold text-amber-900">Waiting for customer to confirm…</p>
+                        </div>
+                        <p className="text-xs text-amber-800 text-center">Customer confirms in their wallet on their phone</p>
+                        <button
+                          onClick={() => {
+                            setAcceptStep('scan');
+                            setAcceptPaymentRequestId(null);
+                          }}
+                          className="rounded-lg border px-3 py-2 text-sm w-full mt-2"
+                        >
+                          Cancel
+                        </button>
+                      </>
+                    ) : acceptStep === 'done' ? (
+                      <>
+                        <div className="rounded-lg bg-emerald-50 border border-emerald-200 p-4 text-center text-emerald-800 font-semibold">
+                          Payment received successfully
+                        </div>
+                        <button
+                          onClick={() => {
+                            setShowAcceptPayment(false);
+                            setAcceptStep('scan');
+                            setAcceptPayerId('');
+                            setAcceptAmount('');
+                            setAcceptPaymentRequestId(null);
+                          }}
+                          className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-white w-full"
+                        >
+                          New payment
+                        </button>
+                      </>
+                    ) : null}
+                  </div>
+                )}
+              </div>
+              )}

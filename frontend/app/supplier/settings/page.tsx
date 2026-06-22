@@ -97,7 +97,7 @@ export default function SupplierSettingsPage() {
           <header className="bg-white/85 backdrop-blur-md border-b border-slate-100 px-4 sm:px-6 lg:px-8 py-3 sm:py-4 flex items-center justify-between gap-3 sm:gap-4">
             <AppSidebarMenuButton onClick={() => setMenuOpen((v) => !v)} />
           </header>
-          <main className="flex-1 overflow-y-auto px-4 sm:px-6 lg:px-8 py-8 pb-24 lg:pb-8">
+          <main className="flex-1 overflow-y-auto px-4 sm:px-6 lg:px-8 py-8 pb-24 md:pb-8">
             <div className="max-w-xl mx-auto">
               <h1 className="text-2xl font-bold text-slate-900 mb-2">Supplier settings</h1>
               <p className="text-slate-600 mb-6">Configure shipping, store info, and add products.</p>

@@ -4,6 +4,10 @@ import Product from "../data/models/Product";
 import { authenticate, AuthRequest } from "../middleware/auth";
 import { AppError } from "../middleware/errorHandler";
 import { upload } from "../middleware/upload";
+import {
+  listApprovedSupplierProfilesForUser,
+  resolveSupplierForProductUpload,
+} from "../utils/supplierAccess";
 
 const router = express.Router();
 
@@ -137,11 +141,26 @@ router.put("/me", authenticate, async (req: AuthRequest, res: Response, next) =>
 // Get my supplier application/status – auth required
 router.get("/me", authenticate, async (req: AuthRequest, res: Response, next) => {
   try {
+    const profiles = await listApprovedSupplierProfilesForUser(req.user!._id);
+    if (profiles.length > 0) {
+      const primary = await Supplier.findById(profiles[0]._id).lean();
+      return res.json({ data: primary, profiles });
+    }
     const supplier = await Supplier.findOne({ userId: req.user!._id }).lean();
     if (!supplier) {
-      return res.json({ data: null });
+      return res.json({ data: null, profiles: [] });
     }
-    res.json({ data: supplier });
+    res.json({ data: supplier, profiles: [] });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** All approved supplier profiles for this user (multi-store / multi-country). */
+router.get("/me/profiles", authenticate, async (req: AuthRequest, res: Response, next) => {
+  try {
+    const profiles = await listApprovedSupplierProfilesForUser(req.user!._id);
+    res.json({ data: profiles });
   } catch (err) {
     next(err);
   }
@@ -150,7 +169,17 @@ router.get("/me", authenticate, async (req: AuthRequest, res: Response, next) =>
 // Get my products (approved suppliers only) – auth required
 router.get("/me/products", authenticate, async (req: AuthRequest, res: Response, next) => {
   try {
-    const supplier = await Supplier.findOne({ userId: req.user!._id, status: "approved" });
+    const supplierIdQ = String(req.query.supplierId || "").trim();
+    let supplier;
+    if (supplierIdQ) {
+      supplier = await resolveSupplierForProductUpload(req.user!._id, supplierIdQ);
+    } else {
+      const profiles = await listApprovedSupplierProfilesForUser(req.user!._id);
+      if (profiles.length !== 1) {
+        return res.json({ data: [] });
+      }
+      supplier = await Supplier.findById(profiles[0]._id);
+    }
     if (!supplier) {
       return res.json({ data: [] });
     }

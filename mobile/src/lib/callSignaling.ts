@@ -8,15 +8,29 @@ export function getWebrtcSocketUrl(): string {
 
 type SignalPayload = Record<string, unknown>;
 
+let sharedClient: CallSignalingClient | null = null;
+
+/** One socket for presence + active call (avoids duplicate connections dropping presence). */
+export function getSharedCallSignalingClient(): CallSignalingClient {
+  if (!sharedClient) sharedClient = new CallSignalingClient();
+  return sharedClient;
+}
+
 export class CallSignalingClient {
   private socket: Socket | null = null;
+  private refCount = 0;
 
-  /** Connect to the `/webrtc` namespace (Morongwa calls). */
+  /** Connect to the `/webrtc` namespace (Qwertymates calls). */
   connect(): Socket {
+    this.refCount = Math.max(0, this.refCount) + 1;
     if (this.socket?.connected) return this.socket;
     const token = getAuthToken();
     this.socket = io(getWebrtcSocketUrl(), {
-      transports: ["websocket", "polling"],
+      transports: ["polling", "websocket"],
+      upgrade: true,
+      reconnection: true,
+      reconnectionAttempts: 12,
+      timeout: 20000,
       auth: token ? { token } : {},
     });
     return this.socket;
@@ -26,7 +40,12 @@ export class CallSignalingClient {
     return this.socket;
   }
 
-  disconnect() {
+  disconnect(force = false) {
+    if (!force) {
+      this.refCount = Math.max(0, this.refCount - 1);
+      if (this.refCount > 0) return;
+    }
+    this.refCount = 0;
     this.socket?.disconnect();
     this.socket = null;
   }

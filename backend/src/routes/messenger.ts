@@ -9,6 +9,8 @@ import { authenticate, AuthRequest } from "../middleware/auth";
 import { messageSchema } from "../utils/validators";
 import { AppError } from "../middleware/errorHandler";
 import { getTaskMessages, markMessagesAsRead } from "../services/chat";
+import { pushMessengerSyncEvent } from "../services/messengerSyncBridge";
+import { sanitizeUsersForClientView } from "../utils/publicContactPrivacy";
 
 const router = express.Router();
 
@@ -128,11 +130,15 @@ router.get("/users/search", authenticate, async (req: AuthRequest, res: Response
       ];
     }
     const users = await User.find(query)
-      .select("_id name username avatar role")
+      .select("_id name username avatar role isSchoolAccount")
       .sort({ updatedAt: -1 })
       .limit(limit)
       .lean();
-    res.json({ data: users });
+    const sanitized = await sanitizeUsersForClientView(
+      users as Record<string, unknown>[],
+      req.user!._id.toString()
+    );
+    res.json({ data: sanitized });
   } catch (err) {
     next(err);
   }
@@ -156,6 +162,12 @@ router.get("/direct/:userId", authenticate, async (req: AuthRequest, res: Respon
       { sender: other, receiver: me, read: false },
       { $set: { read: true, readAt: new Date() } }
     );
+    pushMessengerSyncEvent("message.read", me, {
+      conversationType: "direct",
+      conversationId: `direct-${other}`,
+      fromUserId: other,
+      userId: me,
+    });
 
     res.json({
       messages: (messages as any[]).map((m) => ({
@@ -187,6 +199,15 @@ router.post("/direct/:userId", authenticate, async (req: AuthRequest, res: Respo
       content: content.substring(0, 1000),
     });
     await message.populate("sender", "name avatar");
+    pushMessengerSyncEvent("message.created", req.user!._id.toString(), {
+      conversationType: "direct",
+      conversationId: `direct-${otherUserId}`,
+      messageId: message._id.toString(),
+      senderUserId: req.user!._id.toString(),
+      receiverUserId: otherUserId,
+      body: message.content,
+      createdAt: message.createdAt.toISOString(),
+    });
 
     res.status(201).json({
       message: "Message sent successfully",
@@ -265,6 +286,16 @@ router.post("/task/:taskId", authenticate, async (req: AuthRequest, res: Respons
     });
 
     await message.populate("sender", "name avatar");
+    pushMessengerSyncEvent("message.created", senderId.toString(), {
+      conversationType: "task",
+      conversationId: task._id.toString(),
+      taskId: task._id.toString(),
+      messageId: message._id.toString(),
+      senderUserId: senderId.toString(),
+      receiverUserId: receiverId.toString(),
+      body: message.content,
+      createdAt: message.createdAt.toISOString(),
+    });
 
     await AuditLog.create({
       action: "MESSAGE_SENT",
@@ -295,6 +326,12 @@ router.post(
       }
 
       await markMessagesAsRead(req.params.taskId, req.user!._id.toString());
+      pushMessengerSyncEvent("message.read", req.user!._id.toString(), {
+        conversationType: "task",
+        conversationId: req.params.taskId,
+        taskId: req.params.taskId,
+        userId: req.user!._id.toString(),
+      });
 
       res.json({ message: "Messages marked as read" });
     } catch (err) {

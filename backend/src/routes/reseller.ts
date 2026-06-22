@@ -8,6 +8,10 @@ import TVPost from "../data/models/TVPost";
 import { authenticate, AuthRequest } from "../middleware/auth";
 import { AppError } from "../middleware/errorHandler";
 import { slugify } from "../utils/helpers";
+import {
+  effectiveResellerMarkupPctFromWall,
+  resellerMarkupBoundsForProductCategories,
+} from "../config/marketplaceCategoryMarkups";
 
 const router = express.Router();
 
@@ -88,6 +92,7 @@ function sanitizeWallProduct(raw: any): any {
           : undefined,
       currency: String(raw.currency ?? "ZAR"),
       allowResell: !!raw.allowResell,
+      categories: Array.isArray(raw.categories) ? raw.categories.map((x: unknown) => String(x)) : [],
       supplierId,
       supplierSource: raw.supplierSource,
       active: raw.active !== false,
@@ -156,16 +161,21 @@ async function buildWallProductsResponse(resellerId: string) {
           (hex ? productMap.get(hex) : null) ?? (isPopulatedProductDoc(pid) ? pid : null);
         const product = raw != null ? sanitizeWallProduct(raw) : null;
         const productIdOut = hex ?? (raw && (raw as any)._id != null ? String((raw as any)._id) : pid);
+        const cats = (raw as any)?.categories;
+        const resellerCommissionPct = effectiveResellerMarkupPctFromWall(wp.resellerCommissionPct, cats);
         return {
           productId: productIdOut != null ? String(productIdOut) : "",
           product,
-          resellerCommissionPct: wp.resellerCommissionPct ?? 5,
+          resellerCommissionPct,
           addedAt: wp.addedAt,
         };
       })
       .filter((wp) => wp.product != null);
 
     const reseller = await User.findById(resellerOid).select("name email").lean();
+    const resellerStore = await Store.findOne({ userId: resellerOid, type: "reseller" })
+      .select("name slug")
+      .lean();
     return {
       resellerId: String(wall.resellerId),
       products: wallProducts.map((wp) => ({
@@ -178,6 +188,12 @@ async function buildWallProductsResponse(resellerId: string) {
               : undefined,
       })),
       reseller: reseller ? { name: reseller.name, _id: String((reseller as any)._id) } : null,
+      resellerStore: resellerStore
+        ? {
+            name: String((resellerStore as { name?: string }).name || "").trim() || "Store",
+            slug: String((resellerStore as { slug?: string }).slug || "").trim(),
+          }
+        : null,
     };
   } catch (err) {
     console.error("[reseller] buildWallProductsResponse", err);
@@ -235,22 +251,30 @@ router.get("/wall/:userId", async (req: express.Request, res: Response, next) =>
   }
 });
 
-// Add product to my reseller wall (auth). Body: resellerCommissionPct (3-7, default 5)
+// Add product to my reseller wall (auth). Body: resellerCommissionPct (category min–max; default = midpoint)
 router.post("/wall/add/:productId", authenticate, async (req: AuthRequest, res: Response, next) => {
   try {
     const { productId } = req.params;
-    let resellerCommissionPct = 5;
-    if (req.body?.resellerCommissionPct != null) {
-      const val = Number(req.body.resellerCommissionPct);
-      if (val < 3 || val > 7) throw new AppError("Reseller commission must be between 3% and 7%", 400);
-      resellerCommissionPct = Math.round(val);
-    }
     const product = await Product.findOne({ _id: productId, active: true })
       .populate("supplierId")
       .lean();
     if (!product) throw new AppError("Product not found", 404);
     if (!(product as any).allowResell) {
       throw new AppError("Product is not available for reselling", 400);
+    }
+
+    const bounds = resellerMarkupBoundsForProductCategories((product as any).categories);
+    let resellerCommissionPct = bounds.defaultPct;
+    if (req.body?.resellerCommissionPct != null) {
+      const val = Math.round(Number(req.body.resellerCommissionPct));
+      if (!Number.isFinite(val)) throw new AppError("Invalid reseller commission value", 400);
+      if (val < bounds.minPct || val > bounds.maxPct) {
+        throw new AppError(
+          `Reseller markup must be between ${bounds.minPct}% and ${bounds.maxPct}% for this product category`,
+          400
+        );
+      }
+      resellerCommissionPct = val;
     }
 
     const supplierSource = (product as any).supplierSource;
@@ -359,4 +383,5 @@ router.delete("/wall/remove/:productId", authenticate, async (req: AuthRequest, 
   }
 });
 
+export { buildWallProductsResponse };
 export default router;

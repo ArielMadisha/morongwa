@@ -21,6 +21,7 @@ const LEGACY_ACCOUNTS = [
   { login: "Qwerty_motoring", password: "Qgear@1234" },
   { login: "Qwertymates@icloud.com", password: "XmN6u#nnwW" },
   { login: "Uatnational", password: "xmN6u#nnwW" },
+  { login: "Worldnews", password: "xmN6u#nnwW" },
 ];
 
 function isEmail(value) {
@@ -105,7 +106,7 @@ async function main() {
     const email = await uniqueEmail(users, baseEmail);
 
     await users.insertOne({
-      name: login,
+      name: username,
       username,
       email,
       passwordHash,

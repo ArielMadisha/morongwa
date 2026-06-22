@@ -2,7 +2,9 @@
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { api } from '@/lib/api';
+import { lsGetItem, lsSetItem } from '@/lib/browserStorage';
 import { getCurrencyForCountry } from '@/lib/countryCurrency';
+import { FX_RATES_FALLBACK, readCachedFxRates, writeCachedFxRates } from '@/lib/fxRatesCache';
 import { useAuth } from '@/contexts/AuthContext';
 
 interface CurrencyContextType {
@@ -30,7 +32,6 @@ function readGeoCookieCountry(): string | null {
 
 function intlLocaleForCurrency(currency: string): string {
   const c = currency.toUpperCase();
-  if (c === 'INR') return 'en-IN';
   if (c === 'ZAR') return 'en-ZA';
   if (c === 'EUR') return 'de-DE';
   if (c === 'CAD') return 'en-CA';
@@ -41,17 +42,21 @@ function intlLocaleForCurrency(currency: string): string {
 function browserHintCountry(): string | null {
   if (typeof window === 'undefined') return null;
 
-  // Strong hint first: timezone (works even when CDN geo headers are absent).
-  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
-  if (tz === 'Africa/Johannesburg' || tz.startsWith('Africa/')) return 'ZA';
+  try {
+    // Strong hint first: timezone (works even when CDN geo headers are absent).
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+    if (tz === 'Africa/Johannesburg' || tz.startsWith('Africa/')) return 'ZA';
 
-  // Secondary hint: locale region (e.g. en-ZA).
-  const nav = window.navigator;
-  const rawLocale = nav.language || (Array.isArray(nav.languages) ? nav.languages[0] : '') || '';
-  const locale = String(rawLocale).trim();
-  const parts = locale.split('-');
-  const region = parts.length >= 2 ? String(parts[1]).toUpperCase() : '';
-  if (/^[A-Z]{2}$/.test(region)) return region;
+    // Secondary hint: locale region (e.g. en-ZA).
+    const nav = window.navigator;
+    const rawLocale = nav.language || (Array.isArray(nav.languages) ? nav.languages[0] : '') || '';
+    const locale = String(rawLocale).trim();
+    const parts = locale.split('-');
+    const region = parts.length >= 2 ? String(parts[1]).toUpperCase() : '';
+    if (/^[A-Z]{2}$/.test(region)) return region;
+  } catch {
+    /* Some embedded WebViews throw on Intl */
+  }
 
   return null;
 }
@@ -65,43 +70,67 @@ export function CurrencyProvider({ children }: { children: React.ReactNode }) {
 
   /** Logged-in: phone-derived locale from API (strict). Anonymous: geo cookie → localStorage. */
   useEffect(() => {
-    const u = user as { countryCode?: string; preferredCurrency?: string } | null;
-    if (u?.countryCode && u?.preferredCurrency) {
-      setCountryCode(String(u.countryCode).toUpperCase());
-      setCurrency(String(u.preferredCurrency).toUpperCase());
-      if (typeof window !== 'undefined') localStorage.setItem(STORAGE_KEY, String(u.countryCode).toUpperCase());
-      return;
-    }
-    const geo = readGeoCookieCountry();
-    if (geo) {
-      setCountryCode(geo);
-      setCurrency(getCurrencyForCountry(geo));
-      if (typeof window !== 'undefined') localStorage.setItem(STORAGE_KEY, geo);
-      return;
-    }
-    const browserCountry = browserHintCountry();
-    if (browserCountry) {
-      setCountryCode(browserCountry);
-      setCurrency(getCurrencyForCountry(browserCountry));
-      if (typeof window !== 'undefined') localStorage.setItem(STORAGE_KEY, browserCountry);
-      return;
-    }
-    const stored = typeof window !== 'undefined' ? localStorage.getItem(STORAGE_KEY) : null;
-    if (stored && /^[A-Z]{2}$/i.test(stored)) {
-      const country = stored.toUpperCase();
-      setCountryCode(country);
-      setCurrency(getCurrencyForCountry(country));
+    try {
+      const u = user as { countryCode?: string; preferredCurrency?: string } | null;
+      if (u?.countryCode && u?.preferredCurrency) {
+        setCountryCode(String(u.countryCode).toUpperCase());
+        const pc = String(u.preferredCurrency).toUpperCase();
+        setCurrency(pc === 'INR' ? 'ZAR' : pc);
+        if (typeof window !== 'undefined') {
+          lsSetItem(STORAGE_KEY, String(u.countryCode).toUpperCase());
+        }
+        return;
+      }
+      const geo = readGeoCookieCountry();
+      if (geo) {
+        setCountryCode(geo);
+        setCurrency(getCurrencyForCountry(geo));
+        if (typeof window !== 'undefined') {
+          lsSetItem(STORAGE_KEY, geo);
+        }
+        return;
+      }
+      const browserCountry = browserHintCountry();
+      if (browserCountry) {
+        setCountryCode(browserCountry);
+        setCurrency(getCurrencyForCountry(browserCountry));
+        if (typeof window !== 'undefined') {
+          lsSetItem(STORAGE_KEY, browserCountry);
+        }
+        return;
+      }
+      const stored =
+        typeof window !== 'undefined'
+          ? lsGetItem(STORAGE_KEY)
+          : null;
+      if (stored && /^[A-Z]{2}$/i.test(stored)) {
+        const country = stored.toUpperCase();
+        setCountryCode(country);
+        setCurrency(getCurrencyForCountry(country));
+      }
+    } catch {
+      /* avoid crashing the whole app on strict / broken storage or Intl */
     }
   }, [user]);
 
   useEffect(() => {
+    const cached = readCachedFxRates();
+    if (cached && Object.keys(cached).length > 0) {
+      setRates(cached);
+      setLoading(false);
+      return;
+    }
+
     api
       .get('/fx/rates')
       .then((res) => {
         const r = res.data?.rates ?? {};
-        setRates(r);
+        if (r && Object.keys(r).length > 0) {
+          setRates(r);
+          writeCachedFxRates(r);
+        }
       })
-      .catch(() => setRates({ USD: 1, ZAR: 18.5, EUR: 0.92 }))
+      .catch(() => setRates(FX_RATES_FALLBACK))
       .finally(() => setLoading(false));
   }, []);
 
@@ -109,7 +138,9 @@ export function CurrencyProvider({ children }: { children: React.ReactNode }) {
     const c = (code || 'ZA').toUpperCase().trim();
     setCountryCode(c);
     setCurrency(getCurrencyForCountry(c));
-    if (typeof window !== 'undefined') localStorage.setItem(STORAGE_KEY, c);
+    if (typeof window !== 'undefined') {
+      lsSetItem(STORAGE_KEY, c);
+    }
   }, []);
 
   const convertUsd = useCallback(
@@ -123,10 +154,11 @@ export function CurrencyProvider({ children }: { children: React.ReactNode }) {
 
   const formatPrice = useCallback(
     (amountUsd: number): string => {
+      const cur = currency.toUpperCase() === 'INR' ? 'ZAR' : currency;
       const local = convertUsd(amountUsd);
-      return new Intl.NumberFormat(intlLocaleForCurrency(currency), {
+      return new Intl.NumberFormat(intlLocaleForCurrency(cur), {
         style: 'currency',
-        currency,
+        currency: cur,
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
       }).format(local);
@@ -145,15 +177,15 @@ export function useCurrency() {
   const ctx = useContext(CurrencyContext);
   if (!ctx) {
     return {
-      currency: 'USD',
-      countryCode: 'US',
-      rates: { USD: 1 },
+      currency: 'ZAR',
+      countryCode: 'ZA',
+      rates: { USD: 1, ZAR: 18.5 },
       setCountry: () => {},
       convertUsd: (n: number) => n,
       formatPrice: (n: number) =>
-        new Intl.NumberFormat('en-US', {
+        new Intl.NumberFormat('en-ZA', {
           style: 'currency',
-          currency: 'USD',
+          currency: 'ZAR',
           minimumFractionDigits: 2,
           maximumFractionDigits: 2,
         }).format(n),

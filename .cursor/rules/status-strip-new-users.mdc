@@ -1,0 +1,25 @@
+# Status strip — new joiners (24h)
+
+The wall / QwertyTV **status strip** (`StatusesStrip`, `GET /api/tv/statuses`) uses one shared window:
+
+- **`STATUS_STRIP_TTL_MS`** = 24 hours (`backend/src/services/statusStripPolicy.ts`)
+
+A user appears on the strip when **any** of these is true within that window:
+
+1. **Approved TV post** (image, video, carousel, etc.)
+2. **New marketplace product** (supplier-linked)
+3. **New account** — `User.createdAt` within the last 24h (active, not suspended, not superadmin)
+
+## Registration wiring
+
+After `User.create` on public signup paths, call **`bumpStatusStripCache()`** so the next statuses fetch is not served from a stale cache:
+
+- `backend/src/routes/auth.ts` — web register
+- `backend/src/routes/waFlow.ts` — WhatsApp register
+
+New joiners without a post show their **avatar** (or initial) on the ring; tap opens their profile feed.
+
+## Do not
+
+- Require a TV post before a new user can appear on the strip (registration alone is enough for 24h).
+- Use a different TTL for joiners vs posts unless the owner explicitly changes `STATUS_STRIP_TTL_MS`.

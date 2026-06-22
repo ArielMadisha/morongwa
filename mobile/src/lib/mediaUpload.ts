@@ -20,6 +20,23 @@ function guessImageMime(name: string): string {
   return "image/jpeg";
 }
 
+export function defaultImageUploadName(asset: ImagePickerAsset, index: number): string {
+  if (asset.fileName) return asset.fileName;
+  const uri = asset.uri || "";
+  const fromUri = uri.replace(/\\/g, "/").match(/\.([a-z0-9]+)(?:\?|$)/i);
+  if (fromUri?.[1]) {
+    const ext = fromUri[1].toLowerCase();
+    if (["jpg", "jpeg", "png", "gif", "webp"].includes(ext)) {
+      return `image-${index + 1}.${ext === "jpg" ? "jpg" : ext}`;
+    }
+  }
+  const mt = (asset.mimeType || "").toLowerCase();
+  if (mt.includes("gif")) return `image-${index + 1}.gif`;
+  if (mt.includes("png")) return `image-${index + 1}.png`;
+  if (mt.includes("webp")) return `image-${index + 1}.webp`;
+  return `image-${index + 1}.jpg`;
+}
+
 export function guessVideoMime(name: string): string {
   const lower = name.toLowerCase();
   if (lower.endsWith(".webm")) return "video/webm";

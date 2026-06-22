@@ -7,7 +7,6 @@ import { productsAPI, getImageUrl, getEffectivePrice } from '@/lib/api';
 import type { Product } from '@/lib/types';
 import { useCurrency } from '@/contexts/CurrencyContext';
 import { formatCurrencyAmount } from '@/lib/formatCurrency';
-
 function formatZar(price: number) {
   return formatCurrencyAmount(price, 'ZAR');
 }

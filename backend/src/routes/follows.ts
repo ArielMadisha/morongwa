@@ -3,8 +3,72 @@ import Follow from "../data/models/Follow";
 import User from "../data/models/User";
 import { authenticate, AuthRequest } from "../middleware/auth";
 import { AppError } from "../middleware/errorHandler";
+import { sanitizeUsersForClientView } from "../utils/publicContactPrivacy";
+import { isEligibleForPublicDiscovery, publicDiscoveryUserFilter } from "../utils/registrationSecurity";
 
 const router = express.Router();
+
+/** Recency half-life (days) for weighted random picks — newer joiners score higher. */
+const SUGGESTED_NEW_USER_HALF_LIFE_DAYS = 14;
+
+function shuffleInPlace<T>(arr: T[]): T[] {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+function rankSuggestedUsersByRecency<T extends { createdAt?: Date | string }>(
+  pool: T[],
+  limit: number
+): T[] {
+  const now = Date.now();
+  return pool
+    .map((u) => {
+      const createdMs = u.createdAt ? new Date(u.createdAt).getTime() : 0;
+      const ageDays = createdMs > 0 ? Math.max(0, (now - createdMs) / 86400000) : 365;
+      const boost = 1 / (1 + ageDays / SUGGESTED_NEW_USER_HALF_LIFE_DAYS);
+      return { u, score: boost * Math.random() };
+    })
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit)
+    .map((row) => row.u);
+}
+
+async function attachFollowerCounts<T extends { _id: unknown }>(users: T[]): Promise<(T & { followerCount: number })[]> {
+  if (!users.length) return [];
+  const ids = users.map((u) => u._id);
+  const counts = await Follow.aggregate([
+    { $match: { followingId: { $in: ids }, status: "accepted" } },
+    { $group: { _id: "$followingId", count: { $sum: 1 } } },
+  ]);
+  const countMap = new Map(counts.map((c) => [String(c._id), c.count as number]));
+  return users.map((u) => ({
+    ...u,
+    followerCount: countMap.get(String(u._id)) ?? 0,
+  }));
+}
+
+const suggestedFollowerCountStages = [
+  {
+    $lookup: {
+      from: "follows",
+      let: { uid: "$_id" },
+      pipeline: [
+        { $match: { $expr: { $and: [{ $eq: ["$followingId", "$$uid"] }, { $eq: ["$status", "accepted"] }] } } },
+        { $count: "count" },
+      ],
+      as: "followerCountArr",
+    },
+  },
+  {
+    $addFields: {
+      followerCount: { $ifNull: [{ $arrayElemAt: ["$followerCountArr.count", 0] }, 0] },
+    },
+  },
+  { $project: { passwordHash: 0, followerCountArr: 0 } },
+];
 
 // Friend request a user (force pending regardless of target privacy)
 router.post("/friend/:userId", authenticate, async (req: AuthRequest, res: Response, next) => {
@@ -156,6 +220,7 @@ router.get("/suggested", authenticate, async (req: AuthRequest, res: Response, n
       active: { $ne: false },
       suspended: { $ne: true },
       role: { $nin: ["admin", "superadmin"] },
+      ...publicDiscoveryUserFilter(),
     };
     if (search.length >= 1) {
       baseMatch.$or = [
@@ -199,32 +264,28 @@ router.get("/suggested", authenticate, async (req: AuthRequest, res: Response, n
           { $sort: { _relevance: -1 as 1 | -1, name: 1 as 1 | -1 } },
           { $limit: limit },
           { $project: { _relevance: 0 } },
+          ...suggestedFollowerCountStages,
         ]
-      : [{ $sample: { size: limit } }];
+      : null;
 
-    const suggested = await User.aggregate([
-      { $match: baseMatch },
-      ...sortOrSample,
-      {
-        $lookup: {
-          from: "follows",
-          let: { uid: "$_id" },
-          pipeline: [
-            { $match: { $expr: { $and: [{ $eq: ["$followingId", "$$uid"] }, { $eq: ["$status", "accepted"] }] } } },
-            { $count: "count" },
-          ],
-          as: "followerCountArr",
-        },
-      },
-      {
-        $addFields: {
-          followerCount: { $ifNull: [{ $arrayElemAt: ["$followerCountArr.count", 0] }, 0] },
-        },
-      },
-      { $project: { passwordHash: 0, followerCountArr: 0 } },
-    ]);
+    let suggested: Record<string, unknown>[];
+    if (sortOrSample) {
+      suggested = await User.aggregate([{ $match: baseMatch }, ...sortOrSample]);
+    } else {
+      const poolSize = Math.min(250, Math.max(limit * 20, 60));
+      const pool = await User.aggregate([
+        { $match: baseMatch },
+        { $sample: { size: poolSize } },
+        { $project: { passwordHash: 0 } },
+      ]);
+      const ranked = rankSuggestedUsersByRecency(
+        pool.filter((u) => isEligibleForPublicDiscovery(u as Parameters<typeof isEligibleForPublicDiscovery>[0])),
+        limit
+      );
+      suggested = await attachFollowerCounts(ranked);
+    }
 
-    res.json({ data: suggested });
+    res.json({ data: shuffleInPlace(await sanitizeUsersForClientView(suggested, currentId.toString())) });
   } catch (err) {
     next(err);
   }
@@ -235,13 +296,14 @@ router.get("/:userId/followers", async (req: AuthRequest, res: Response, next) =
   try {
     const followingId = req.params.userId;
     const followers = await Follow.find({ followingId, status: "accepted" })
-      .populate("followerId", "name avatar username")
+      .populate("followerId", "name avatar username isSchoolAccount")
       .sort({ createdAt: -1 })
       .lean();
     const users = followers
       .map((f: any) => f.followerId)
       .filter(Boolean);
-    res.json({ data: users });
+    const viewerId = req.user?._id?.toString();
+    res.json({ data: await sanitizeUsersForClientView(users as Record<string, unknown>[], viewerId) });
   } catch (err) {
     next(err);
   }
@@ -252,13 +314,14 @@ router.get("/:userId/following", async (req: AuthRequest, res: Response, next) =
   try {
     const followerId = req.params.userId;
     const following = await Follow.find({ followerId, status: "accepted" })
-      .populate("followingId", "name avatar username")
+      .populate("followingId", "name avatar username isSchoolAccount")
       .sort({ createdAt: -1 })
       .lean();
     const users = following
       .map((f: any) => f.followingId)
       .filter(Boolean);
-    res.json({ data: users });
+    const viewerId = req.user?._id?.toString();
+    res.json({ data: await sanitizeUsersForClientView(users as Record<string, unknown>[], viewerId) });
   } catch (err) {
     next(err);
   }

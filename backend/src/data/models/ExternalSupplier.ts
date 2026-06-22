@@ -1,6 +1,6 @@
 import mongoose, { Schema, Document } from "mongoose";
 
-export type ExternalSupplierSource = "cj" | "spocket" | "eprolo";
+export type ExternalSupplierSource = "cj" | "spocket" | "eprolo" | "shein";
 export type ExternalSupplierStatus = "active" | "paused" | "disabled";
 
 export interface IExternalSupplier extends Document {
@@ -21,7 +21,7 @@ export interface IExternalSupplier extends Document {
 
 const ExternalSupplierSchema = new Schema<IExternalSupplier>(
   {
-    source: { type: String, enum: ["cj", "spocket", "eprolo"], required: true },
+    source: { type: String, enum: ["cj", "spocket", "eprolo", "shein"], required: true },
     name: { type: String, required: true },
     apiKey: { type: String, required: true },
     apiSecret: { type: String },

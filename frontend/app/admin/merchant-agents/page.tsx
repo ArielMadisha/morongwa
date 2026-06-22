@@ -4,8 +4,9 @@ import { useState, useEffect } from 'react';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { adminAPI } from '@/lib/api';
 import Link from 'next/link';
-import { ArrowLeft, Store, Loader2, CheckCircle, XCircle, Ban, RotateCcw } from 'lucide-react';
+import { ArrowLeft, Store, Loader2, CheckCircle, XCircle, Ban, RotateCcw, ShieldCheck } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { AdminLocationFollowupLinks, AdminMessageFollowupLinks } from '@/components/admin/AdminDocumentFollowup';
 
 interface AgentRow {
   _id: string;
@@ -13,6 +14,8 @@ interface AgentRow {
   email?: string;
   username?: string;
   phone?: string;
+  countryCode?: string;
+  location?: { type?: string; coordinates?: number[] };
   isVerified?: boolean;
   merchantAgent?: {
     applicationStatus?: string;
@@ -39,8 +42,12 @@ export default function AdminMerchantAgentsPage() {
       });
       const list = res.data?.data ?? [];
       setRows(Array.isArray(list) ? list : []);
-    } catch {
-      toast.error('Failed to load applications');
+    } catch (e: any) {
+      if (e?.response?.status === 403) {
+        toast.error('You need the merchant_agents permission (super-admin can assign it under Create admins).');
+      } else {
+        toast.error('Failed to load applications');
+      }
       setRows([]);
     } finally {
       setLoading(false);
@@ -119,6 +126,8 @@ export default function AdminMerchantAgentsPage() {
                       <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700">Business</th>
                       <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700">KYC</th>
                       <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700">Status</th>
+                      <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700">Message</th>
+                      <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700">Location</th>
                       <th className="text-right py-3 px-4 text-sm font-semibold text-slate-700">Actions</th>
                     </tr>
                   </thead>
@@ -126,6 +135,7 @@ export default function AdminMerchantAgentsPage() {
                     {rows.map((u) => {
                       const st = u.merchantAgent?.applicationStatus || '—';
                       const busy = actionId === u._id;
+                      const displayName = u.name || u.username || u.email || 'Applicant';
                       return (
                         <tr key={u._id} className="border-b border-slate-50 hover:bg-slate-50/50 align-top">
                           <td className="py-3 px-4 text-sm">
@@ -146,10 +156,45 @@ export default function AdminMerchantAgentsPage() {
                                 <CheckCircle className="h-3.5 w-3.5" /> Verified
                               </span>
                             ) : (
-                              <span className="text-xs text-amber-700">Not verified</span>
+                              <div className="space-y-1.5">
+                                <span className="text-xs text-amber-700">Not verified</span>
+                                <button
+                                  type="button"
+                                  disabled={busy}
+                                  onClick={() => {
+                                    if (
+                                      !window.confirm(
+                                        `Mark KYC verified for ${displayName}? Confirm you reviewed ID/documents (e.g. via WhatsApp).`
+                                      )
+                                    ) {
+                                      return;
+                                    }
+                                    setActionId(u._id);
+                                    run(() => adminAPI.verifyMerchantAgentKyc(u._id), 'KYC verified');
+                                  }}
+                                  className="inline-flex items-center gap-1 rounded-lg border border-sky-200 bg-sky-50 px-2 py-1 text-xs font-semibold text-sky-800 hover:bg-sky-100 disabled:opacity-50"
+                                >
+                                  {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <ShieldCheck className="h-3 w-3" />}
+                                  Verify KYC
+                                </button>
+                              </div>
                             )}
                           </td>
                           <td className="py-3 px-4 text-sm capitalize text-slate-700">{st}</td>
+                          <td className="py-3 px-4 text-sm align-top min-w-[140px]">
+                            <AdminMessageFollowupLinks
+                              displayName={displayName}
+                              phone={u.phone}
+                              email={u.email}
+                              context="merchant"
+                            />
+                          </td>
+                          <td className="py-3 px-4 text-sm align-top min-w-[120px]">
+                            <AdminLocationFollowupLinks
+                              countryCode={u.countryCode}
+                              coordinates={u.location?.coordinates}
+                            />
+                          </td>
                           <td className="py-3 px-4 text-right">
                             <div className="flex flex-col items-end gap-2">
                               {st === 'pending' && (

@@ -1,0 +1,88 @@
+---
+description: Daily school gallery import from OneDrive Schools folder — one school per day, append or create accounts, never repeat (owner policy; survives Cursor updates)
+alwaysApply: true
+---
+
+# School gallery daily import (OneDrive → Qwertymates)
+
+**Owner policy — non-negotiable.** Same class of rule as **World News sports Tuesday/Friday** posts (see **`.cursor/rules/recurring-owner-schedules.mdc`**). This is a **recurring local job**, not part of `deploy:production`.
+
+**After every Cursor update or rules reset:** confirm this file still exists with **`alwaysApply: true`**. If missing, restore from git or `DOCS/SCHOOL_GALLERY_DAILY_IMPORT.md`. Re-register the Windows task if needed (below).
+
+## Hard limits (do not weaken in code or scripts)
+
+1. **One school folder per calendar day** — never two successful imports on the same `lastRunDate`.
+2. **Never repeat** a folder in `processedFolderKeys` / successful `history`.
+3. **Append** to existing school accounts (`--append`); create account only when no match.
+4. **No batching** multiple schools into the daily orchestrator (no `--limit=5` on the daily path).
+
+Enforced in `importSchoolGalleriesDaily.ts` via `lastRunDate`, single success `break`, and state file.
+
+## What the folders are
+
+Under the OneDrive **Schools** tree, each subfolder is named after a school and contains **school pictures**. Most schools **already have accounts** on Qwertymates; some do not yet.
+
+## Daily job (one school per calendar day)
+
+Every day, process **exactly one** school folder:
+
+| Situation | Action |
+|-----------|--------|
+| School **already has** a Qwertymates account (fuzzy name match) | **Append** photos to that account’s gallery (`profileGalleryUrls`). Do **not** replace the gallery. |
+| School **has no account** but the folder has photos | **Create** a school account (`isSchoolAccount: true`, `zagal*` username) and **load all photos**. |
+| Same school folder **already imported** on a previous day | **Skip** — never repeat the same folder (tracked in state). |
+| Empty folder / junk name / no images | Skip and try the next folder in sort order (same day). |
+
+**Source root (default):**
+
+`C:\Users\Dell\OneDrive - Bonakude Consulting PTY LTD\Documents\Coding\Schools`
+
+## Commands (from `backend/`)
+
+```bash
+# Preview next school (does not update state)
+npm run school:import-gallery-daily -- --dry-run --force
+
+# Live — once per calendar day
+npm run school:import-gallery-daily
+```
+
+**Windows scheduled task (06:30 daily, register once on owner PC):**
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/windows/Register-SchoolGalleryDailyTask.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/windows/Run-SchoolGalleryDailyImport.ps1 -DryRun
+```
+
+**Verify task after Cursor updates:**
+
+```powershell
+Get-ScheduledTask -TaskName "Qwertymates-SchoolGallery-Daily"
+Get-ScheduledTaskInfo -TaskName "Qwertymates-SchoolGallery-Daily"
+```
+
+Re-run `Register-SchoolGalleryDailyTask.ps1` if the task is missing or `LastTaskResult` is not `0` after a completed run.
+
+## State & scripts (source of truth)
+
+| Item | Path |
+|------|------|
+| Daily orchestrator | `backend/scripts/importSchoolGalleriesDaily.ts` |
+| Batch import (single folder) | `backend/scripts/importSchoolGalleriesBatchFromDir.ts` |
+| Folder listing / junk filter | `backend/scripts/lib/schoolGalleryFiles.ts`, `schoolNameMatching.ts` |
+| Progress state | `backend/exports/school-gallery-daily-state.json` |
+| Task log | `backend/exports/school-gallery-daily-task.log` |
+| Runbook | `DOCS/SCHOOL_GALLERY_DAILY_IMPORT.md` |
+| npm script | `school:import-gallery-daily` in `backend/package.json` |
+
+State tracks `nextOffset` (alphabetical folder order), `processedFolderKeys` (no repeats), and `lastRunDate` (one run per day unless `--force`).
+
+## Env
+
+- `SCHOOL_GALLERY_IMPORT_ROOT` — override Schools folder path
+- `SCHOOL_GALLERY_IMPORT_COUNTRY` — default `ZA`
+- `MONGO_URI` in `backend/.env` — required for live import
+
+## After live import
+
+Script auto-runs `pushSchoolGalleryRemote.mjs --incremental` so production serves new gallery files. **No backend deploy** needed for the scheduler itself.

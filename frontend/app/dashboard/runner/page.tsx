@@ -19,6 +19,8 @@ import {
   Car,
   ArrowRight,
   Box,
+  Home,
+  IdCard,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import ProtectedRoute from '@/components/ProtectedRoute';
@@ -33,6 +35,7 @@ import { MobileBottomNav } from '@/components/MobileBottomNav';
 import { useCartAndStores } from '@/lib/useCartAndStores';
 import { Task } from '@/lib/types';
 import type { Product } from '@/lib/types';
+import { getRunnerCategoryConfig, parseRunnerCategory, RUNNER_CATEGORIES } from '@/lib/runnerCategories';
 
 function RunnerDashboard() {
   const { user, logout, refreshUser } = useAuth();
@@ -46,12 +49,17 @@ function RunnerDashboard() {
   const [commissionRate, setCommissionRate] = useState<number>(0.15);
   const [pdpUploading, setPdpUploading] = useState(false);
   const [vehicleUploading, setVehicleUploading] = useState(false);
+  const [idUploading, setIdUploading] = useState(false);
+  const [residenceUploading, setResidenceUploading] = useState(false);
   const [vehicleMake, setVehicleMake] = useState('');
   const [vehicleModel, setVehicleModel] = useState('');
   const [vehiclePlate, setVehiclePlate] = useState('');
   const { cartCount, hasStore } = useCartAndStores(!!user);
 
   const hasRunnerRole = user?.role && (Array.isArray(user.role) ? user.role.includes('runner') : user.role === 'runner');
+  const runnerCategory = parseRunnerCategory(user?.runnerCategory);
+  const runnerCategoryConfig = getRunnerCategoryConfig(runnerCategory);
+  const isStoreParcelRunner = runnerCategory === 'store_parcel';
   const needsVerification = hasRunnerRole && !user?.runnerVerified;
   const userId = user?._id || user?.id;
 
@@ -172,6 +180,38 @@ function RunnerDashboard() {
     }
   };
 
+  const handleIdDocumentUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !userId) return;
+    setIdUploading(true);
+    try {
+      await usersAPI.uploadRunnerIdDocument(userId, file);
+      toast.success('ID document uploaded. Awaiting admin verification.');
+      await refreshUser();
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'Failed to upload ID document');
+    } finally {
+      setIdUploading(false);
+      e.target.value = '';
+    }
+  };
+
+  const handleProofOfResidenceUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !userId) return;
+    setResidenceUploading(true);
+    try {
+      await usersAPI.uploadRunnerProofOfResidence(userId, file);
+      toast.success('Proof of residence uploaded. Awaiting admin verification.');
+      await refreshUser();
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'Failed to upload proof of residence');
+    } finally {
+      setResidenceUploading(false);
+      e.target.value = '';
+    }
+  };
+
   const handleCheckArrival = async (taskId: string) => {
     if (!navigator.geolocation) {
       toast.error('Geolocation not supported');
@@ -252,50 +292,117 @@ function RunnerDashboard() {
         />
         <div className="flex-1 flex flex-col min-w-0 overflow-x-hidden">
         <div className="flex w-full min-w-0 flex-1 flex-col lg:flex-row gap-0 pt-3 sm:pt-6 min-h-0">
-      <main className="order-2 lg:order-none flex-1 min-w-0 w-full max-w-6xl mx-auto px-3 sm:px-6 lg:px-8 pb-24 lg:pb-0 box-border">
+      <main className="order-2 lg:order-none flex-1 min-w-0 w-full max-w-6xl mx-auto px-3 sm:px-6 lg:px-8 pb-24 md:pb-0 box-border">
         {!hasRunnerRole && (
-          <div className="mb-8 rounded-2xl border-2 border-sky-200 bg-sky-50/80 p-8">
+          <div className="mb-8 rounded-2xl border-2 border-sky-200 bg-sky-50/80 p-6 sm:p-8">
             <h2 className="text-xl font-bold text-slate-900 mb-2">Become a verified runner</h2>
-            <p className="text-slate-600 mb-6">Complete runner verification to accept tasks and earn. Requirements (Bolt-style):</p>
-            <div className="grid sm:grid-cols-3 gap-4 mb-6">
-              <div className="flex gap-3 p-4 rounded-xl bg-white border border-sky-100">
-                <FileCheck className="h-8 w-8 text-sky-600 shrink-0" />
-                <div>
-                  <h3 className="font-semibold text-slate-900">Driver&apos;s licence + PDP</h3>
-                  <p className="text-sm text-slate-600">Professional Driving Permit required</p>
-                </div>
-              </div>
-              <div className="flex gap-3 p-4 rounded-xl bg-white border border-sky-100">
-                <Shield className="h-8 w-8 text-sky-600 shrink-0" />
-                <div>
-                  <h3 className="font-semibold text-slate-900">Clear criminal record</h3>
-                  <p className="text-sm text-slate-600">From recommended supplier; results shared with admin</p>
-                </div>
-              </div>
-              <div className="flex gap-3 p-4 rounded-xl bg-white border border-sky-100">
-                <Car className="h-8 w-8 text-sky-600 shrink-0" />
-                <div>
-                  <h3 className="font-semibold text-slate-900">Vehicle inspection</h3>
-                  <p className="text-sm text-slate-600">CarScan or similar; automated report</p>
-                </div>
-              </div>
+            <p className="text-slate-600 mb-6">
+              Choose a runner type that matches how you want to earn. Each path has its own verification requirements.
+            </p>
+            <div className="grid gap-6 lg:grid-cols-2">
+              {RUNNER_CATEGORIES.map((cat) => {
+                const Icon = cat.icon;
+                return (
+                  <div
+                    key={cat.id}
+                    className={`rounded-2xl border-2 ${cat.border} bg-gradient-to-br ${cat.accent} p-5 sm:p-6 flex flex-col`}
+                  >
+                    <div className="flex items-start gap-3 mb-4">
+                      <div className="shrink-0 w-11 h-11 rounded-xl bg-white border border-slate-100 flex items-center justify-center">
+                        <Icon className="h-6 w-6 text-sky-600" />
+                      </div>
+                      <div>
+                        <h3 className="text-lg font-bold text-slate-900">{cat.title}</h3>
+                        <p className="text-sm text-slate-600 mt-0.5">{cat.summary}</p>
+                      </div>
+                    </div>
+                    <ul className="text-sm text-slate-600 space-y-1.5 mb-4 list-disc list-inside">
+                      {cat.duties.map((duty) => (
+                        <li key={duty}>{duty}</li>
+                      ))}
+                    </ul>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">Verification</p>
+                    <div className="space-y-2 mb-6 flex-1">
+                      {cat.requirements.map((req) => (
+                        <div key={req.title} className="flex gap-3 p-3 rounded-xl bg-white/90 border border-white">
+                          <req.icon className="h-5 w-5 text-sky-600 shrink-0 mt-0.5" />
+                          <div>
+                            <p className="font-semibold text-slate-900 text-sm">{req.title}</p>
+                            <p className="text-xs text-slate-600">{req.desc}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <Link
+                      href={cat.applyHref}
+                      className="inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-sky-600 text-white rounded-xl font-semibold hover:bg-sky-700 transition-colors text-sm"
+                    >
+                      Apply as {cat.title.split(' ')[0]} runner
+                      <ArrowRight className="h-4 w-4" />
+                    </Link>
+                  </div>
+                );
+              })}
             </div>
-            <Link
-              href="/runner/apply"
-              className="inline-flex items-center gap-2 px-6 py-3 bg-sky-600 text-white rounded-xl font-semibold hover:bg-sky-700 transition-colors"
-            >
-              Apply to become a runner
-              <ArrowRight className="h-5 w-5" />
-            </Link>
           </div>
         )}
         {needsVerification && (
           <div className="mb-8 rounded-2xl border-2 border-amber-200 bg-amber-50/80 p-4 sm:p-8 w-full min-w-0 max-w-full">
             <h2 className="text-xl font-bold text-slate-900 mb-2 break-words">Complete runner verification</h2>
-            <p className="text-slate-600 mb-6 text-sm sm:text-base leading-relaxed break-words">
-              Upload your documents for admin approval. You need PDP and at least one vehicle to become verified.
+            <p className="text-slate-600 mb-2 text-sm sm:text-base leading-relaxed break-words">
+              <span className="font-semibold text-slate-800">{runnerCategoryConfig.title}</span>
+              {' — '}
+              {isStoreParcelRunner
+                ? 'Upload your ID/passport and proof of residence for admin approval.'
+                : 'Upload your PDP and vehicle documents (licence + inspection) for admin approval.'}
             </p>
-            <div className="grid sm:grid-cols-2 gap-6">
+            {isStoreParcelRunner ? (
+              <div className="grid sm:grid-cols-2 gap-6 mt-6">
+                <div className="p-5 rounded-xl bg-white border border-amber-100">
+                  <h3 className="font-semibold text-slate-900 mb-2 flex items-center gap-2">
+                    <IdCard className="h-5 w-5 text-sky-600" />
+                    ID or passport
+                  </h3>
+                  {user?.runnerIdDocument ? (
+                    <div className="flex items-center gap-2 text-sm">
+                      <CheckCircle className={`h-5 w-5 ${user.runnerIdDocument.verified ? 'text-emerald-600' : 'text-amber-500'}`} />
+                      <span>{user.runnerIdDocument.verified ? 'Verified by admin' : 'Uploaded – pending verification'}</span>
+                      {user.runnerIdDocument.path && (
+                        <a href={user.runnerIdDocument.path} target="_blank" rel="noopener noreferrer" className="text-sky-600 hover:underline">View</a>
+                      )}
+                    </div>
+                  ) : (
+                    <label className="inline-flex items-center gap-2 mt-2 px-4 py-2 bg-sky-100 text-sky-700 rounded-lg cursor-pointer hover:bg-sky-200 transition">
+                      <input type="file" accept=".pdf,.jpg,.jpeg,.png" onChange={handleIdDocumentUpload} disabled={idUploading} className="hidden" />
+                      {idUploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <IdCard className="h-4 w-4" />}
+                      {idUploading ? 'Uploading...' : 'Upload ID or passport'}
+                    </label>
+                  )}
+                </div>
+                <div className="p-5 rounded-xl bg-white border border-amber-100">
+                  <h3 className="font-semibold text-slate-900 mb-2 flex items-center gap-2">
+                    <Home className="h-5 w-5 text-sky-600" />
+                    Proof of residence
+                  </h3>
+                  {user?.runnerProofOfResidence ? (
+                    <div className="flex items-center gap-2 text-sm">
+                      <CheckCircle className={`h-5 w-5 ${user.runnerProofOfResidence.verified ? 'text-emerald-600' : 'text-amber-500'}`} />
+                      <span>{user.runnerProofOfResidence.verified ? 'Verified by admin' : 'Uploaded – pending verification'}</span>
+                      {user.runnerProofOfResidence.path && (
+                        <a href={user.runnerProofOfResidence.path} target="_blank" rel="noopener noreferrer" className="text-sky-600 hover:underline">View</a>
+                      )}
+                    </div>
+                  ) : (
+                    <label className="inline-flex items-center gap-2 mt-2 px-4 py-2 bg-sky-100 text-sky-700 rounded-lg cursor-pointer hover:bg-sky-200 transition">
+                      <input type="file" accept=".pdf,.jpg,.jpeg,.png" onChange={handleProofOfResidenceUpload} disabled={residenceUploading} className="hidden" />
+                      {residenceUploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Home className="h-4 w-4" />}
+                      {residenceUploading ? 'Uploading...' : 'Upload proof of residence'}
+                    </label>
+                  )}
+                </div>
+              </div>
+            ) : (
+            <div className="grid sm:grid-cols-2 gap-6 mt-6">
               <div className="p-5 rounded-xl bg-white border border-amber-100">
                 <h3 className="font-semibold text-slate-900 mb-2 flex items-center gap-2">
                   <FileCheck className="h-5 w-5 text-sky-600" />
@@ -348,6 +455,7 @@ function RunnerDashboard() {
                 )}
               </div>
             </div>
+            )}
           </div>
         )}
         {hasRunnerRole && (

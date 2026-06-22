@@ -6,6 +6,8 @@ export interface User {
   email: string;
   username?: string;
   phone?: string;
+  /** GeoJSON Point from last runner location update [lng, lat] */
+  location?: { type?: string; coordinates?: number[]; updatedAt?: string };
   /** ISO 3166-1 alpha-2 from phone */
   countryCode?: string;
   /** ISO 4217 — derived from phone + platform rules */
@@ -28,8 +30,16 @@ export interface User {
     documents: Array<{ filename: string; path: string; uploadedAt: string }>;
     verified?: boolean;
   }>;
-  /** Runner: admin has verified PDP + all vehicles */
+  /** Runner: admin has verified category-specific documents */
   runnerVerified?: boolean;
+  /** courier = inter-city transport; store_parcel = wholesale / parcel pickup */
+  runnerCategory?: 'courier' | 'store_parcel';
+  /** Store/parcel runner: ID or passport */
+  runnerIdDocument?: { filename: string; path: string; uploadedAt: string; verified?: boolean } | null;
+  /** Store/parcel runner: proof of residence */
+  runnerProofOfResidence?: { filename: string; path: string; uploadedAt: string; verified?: boolean } | null;
+  runnerServiceCountry?: string;
+  runnerServiceCity?: string;
   /** Feed content preferences */
   contentPreferences?: {
     showProducts?: boolean;
@@ -40,9 +50,20 @@ export interface User {
 
 export interface Task {
   _id: string;
+  /** Client dashboard + WhatsApp errands; legacy WhatsApp values included */
+  taskType?:
+    | 'collect_send'
+    | 'shop_send'
+    | 'transport'
+    | 'general'
+    | 'cross_border_collection'
+    | 'shop_and_send'
+    | 'large_transport'
+    | string;
   title: string;
   description: string;
   category: string;
+  workflowMeta?: Record<string, any>;
   budget: number;
   // Location can be a simple string or a GeoJSON-like object with an address
   // e.g. { type: 'Point', coordinates: [lng, lat], address: '123 Main St' }
@@ -51,7 +72,22 @@ export interface Task {
   deliveryLocation?: { type?: string; coordinates?: number[]; address?: string };
   estimatedDistanceKm?: number;
   suggestedFee?: number;
-  status: 'pending' | 'posted' | 'accepted' | 'in_progress' | 'completed' | 'cancelled';
+  parcelDetails?: {
+    lengthCm?: number;
+    widthCm?: number;
+    heightCm?: number;
+    weightKg?: number;
+    volumetricWeightKg?: number;
+    chargeableWeightKg?: number;
+  };
+  supplierInvoice?: {
+    filename: string;
+    path: string;
+    mimetype: string;
+    size: number;
+    uploadedAt: string;
+  } | null;
+  status: 'pending_quote' | 'pending' | 'posted' | 'accepted' | 'in_progress' | 'completed' | 'cancelled';
   client: User;
   runner?: User;
   review?: any;
@@ -155,6 +191,12 @@ export interface AdminStats {
   totalRevenue: number;
 }
 
+export interface ProductColorOption {
+  name: string;
+  hex: string;
+  imageIndex: number;
+}
+
 export interface Product {
   _id: string;
   supplierId: { _id: string; storeName?: string } | string;
@@ -171,6 +213,7 @@ export interface Product {
   stock: number;
   outOfStock?: boolean;
   sizes?: string[];
+  colors?: ProductColorOption[];
   categories: string[];
   tags: string[];
   /** Countries where this product is available (e.g. ["South Africa", "Botswana"]). Empty = no restriction. */

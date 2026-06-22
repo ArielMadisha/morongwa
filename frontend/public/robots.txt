@@ -1,0 +1,10 @@
+User-agent: *
+Allow: /
+Disallow: /admin/
+Disallow: /api/
+Disallow: /dashboard/
+Disallow: /wallet/
+Disallow: /checkout/
+Disallow: /pay/
+
+Sitemap: https://www.qwertymates.com/sitemap.xml

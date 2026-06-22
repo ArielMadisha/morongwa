@@ -2,7 +2,8 @@ import mongoose, { Schema, Document } from "mongoose";
 
 export interface IResellerWallProduct {
   productId: mongoose.Types.ObjectId;
-  resellerCommissionPct?: number; // 3-7% set by reseller when adding
+  /** Markup % on catalog list price; allowed range comes from product category (see marketplaceCategoryMarkups). */
+  resellerCommissionPct?: number;
   addedAt: Date;
 }
 
@@ -16,7 +17,7 @@ export interface IResellerWall extends Document {
 const ResellerWallProductSchema = new Schema<IResellerWallProduct>(
   {
     productId: { type: Schema.Types.ObjectId, ref: "Product", required: true },
-    resellerCommissionPct: { type: Number, min: 3, max: 7, default: 5 },
+    resellerCommissionPct: { type: Number, min: 0, max: 200 },
     addedAt: { type: Date, default: Date.now },
   },
   { _id: false }

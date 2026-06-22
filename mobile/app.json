@@ -1,40 +1,55 @@
 {
   "expo": {
-    "name": "Morongwa",
+    "name": "Qwertymates",
     "slug": "morongwa-mobile",
-    "scheme": "morongwa",
-    "version": "1.0.0",
-    "orientation": "portrait",
+    "scheme": "qwertymates",
+    "version": "1.3.1",
+    "orientation": "default",
+    "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
     "platforms": [
       "ios",
-      "android",
-      "web"
+      "android"
     ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.morongwa.app",
+      "bundleIdentifier": "com.qwertymates.app",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
-        "NSCameraUsageDescription": "Morongwa uses the camera for video calls with other users.",
-        "NSMicrophoneUsageDescription": "Morongwa uses the microphone for voice and video calls.",
-        "NSPhotoLibraryUsageDescription": "Morongwa needs access to your photos and videos to create QwertyTV posts (images, video, Qwertz, cover art).",
-        "NSPhotoLibraryAddUsageDescription": "Morongwa may save media to your library when you choose to export or save content."
+        "NSCameraUsageDescription": "Qwertymates uses the camera for video calls with other users.",
+        "NSMicrophoneUsageDescription": "Qwertymates uses the microphone for voice and video calls.",
+        "NSPhotoLibraryUsageDescription": "Qwertymates needs access to your photos and videos to create QwertyTV posts (images, video, Qwertz, cover art).",
+        "NSPhotoLibraryAddUsageDescription": "Qwertymates may save media to your library when you choose to export or save content.",
+        "NSLocationWhenInUseUsageDescription": "Qwertymates uses your location to verify runner arrival at the delivery address for errands."
       }
     },
     "android": {
-      "package": "com.morongwa.app",
+      "package": "com.qwertymates",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#FFFFFF"
+      },
+      "compileSdkVersion": 35,
+      "targetSdkVersion": 35,
       "permissions": [
-        "CAMERA",
-        "RECORD_AUDIO",
-        "INTERNET",
-        "ACCESS_NETWORK_STATE",
-        "READ_MEDIA_IMAGES",
-        "READ_MEDIA_VIDEO",
-        "READ_EXTERNAL_STORAGE"
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.INTERNET",
+        "android.permission.ACCESS_NETWORK_STATE",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION"
+      ],
+      "blockedPermissions": [
+        "android.permission.READ_MEDIA_IMAGES",
+        "android.permission.READ_MEDIA_VIDEO",
+        "android.permission.READ_MEDIA_AUDIO",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE"
       ]
     },
     "extra": {
+      "brandDisplayName": "Qwertymates",
+      "webTvLegacyPathPrefix": "/morongwa-tv",
       "apiUrl": "https://api.qwertymates.com/api",
       "socketUrl": "https://api.qwertymates.com",
       "turnUrls": "turn:165.227.237.142:3478?transport=udp,turns:165.227.237.142:5349?transport=tcp",
@@ -45,11 +60,25 @@
     "owner": "qwertymates",
     "plugins": [
       [
+        "expo-build-properties",
+        {
+          "android": {
+            "minSdkVersion": 23,
+            "compileSdkVersion": 35,
+            "targetSdkVersion": 35,
+            "buildArchs": ["armeabi-v7a", "arm64-v8a", "x86", "x86_64"]
+          }
+        }
+      ],
+      "./plugins/withAndroidDeviceCompatibility.js",
+      [
         "expo-image-picker",
         {
-          "photosPermission": "Morongwa needs access to your photos and videos to create QwertyTV posts (images, video, Qwertz, cover art)."
+          "photosPermission": "Qwertymates needs access to your photos and videos to create QwertyTV posts (images, video, Qwertz, cover art)."
         }
-      ]
+      ],
+      "expo-font",
+      "expo-screen-orientation"
     ]
   }
 }

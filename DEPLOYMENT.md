@@ -32,7 +32,14 @@ cd backend
 npm run deploy:production
 ```
 
-Needs **`deploy-server.config`** and **`deploy-server.secrets`** at the repo root, and **`backend/.env`** with Twilio vars for the flow step: `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_STUDIO_FLOW_SID`.
+Needs **`deploy-server.config`** and **`deploy-server.secrets`** at the repo root, and **`backend/.env`** with Twilio vars for the flow step.
+Recommended minimum for multi-number WhatsApp publish safety:
+- `TWILIO_ACCOUNT_SID`
+- `TWILIO_AUTH_TOKEN`
+- `TWILIO_SUBACCOUNT_SID`
+- `TWILIO_SUBACCOUNT_AUTH_TOKEN`
+
+`deploy:twilio-flow` now auto-discovers active WhatsApp sender webhook flow SIDs and publishes to all of them, so new numbers added later are included automatically.
 
 Individual steps: `npm run deploy:backend-remote`, `npm run deploy:twilio-flow`, `npm run deploy:frontend-remote:rebuild`.
 
@@ -89,6 +96,43 @@ pm2 startup
 ## Nginx reverse proxy (example)
 
 Point `qwertymates.com` at your Next port (e.g. 3000 or 3010) and `api.qwertymates.com` at the API port (e.g. 4000).
+
+## Livestream media server (same VPS)
+
+The API already expects **RTMP ingest** and an **HTTPS URL base for HLS** (`LIVESTREAM_HLS_PUBLIC_BASE`, `LIVESTREAM_RTMP_PUBLIC_HOST`, `LIVESTREAM_RTMP_APP` — see `backend/.env.production.example` and `backend/src/services/livestream.ts`).
+
+You can run nginx with nginx-rtmp **on the same droplet** in either of these ways:
+
+1. **Docker (recommended beside Nginx Proxy Manager)** — build and run the bundled stack from the repo:
+
+   ```bash
+   cd infra/media-server
+   docker compose up -d --build
+   ```
+
+   Or from `backend/`: `npm run media-server:compose-up`.
+
+   **Automated remote deploy** (upload `infra/media-server`, `docker compose up`, UFW `1935`/`8081`, merge livestream env + restart API — NPM HTTPS steps printed at end):
+
+   ```bash
+   cd backend
+   npm run deploy:media-server-remote
+   ```
+
+   Requires the same SSH/deploy files as `deploy:production`. Put `LIVESTREAM_HLS_PUBLIC_BASE` and `LIVESTREAM_RTMP_PUBLIC_HOST` (or `RTMP_INGEST_URL`) in local `backend/.env` before running so the script can sync server `.env`.
+
+   This publishes **RTMP on port 1935** (application name **`live`**) and **HLS HTTP on 8081** at `/hls`. Add an NPM proxy host (HTTPS) to `http://127.0.0.1:8081`, forward `/hls`, allow large requests/timeouts as needed, and open **1935/tcp** on the firewall for OBS/mobile publishers.
+
+2. **One-shot SSH provisioning (nginx + coturn on the host)** — installs distro nginx + `libnginx-mod-rtmp` and serves HLS on a configurable port (default **8081**). From `backend/`:
+
+   ```bash
+   npm run setup:realtime-remote:dry   # preview remote shell script
+   npm run setup:realtime-remote       # requires deploy-server.* + TURN_* secrets
+   ```
+
+   Prefer the **Docker** option if you already rely on containerized edge routing and want to avoid touching host nginx.
+
+After either setup, set backend env (and run `npm run sync:livestream-env-remote` if you use that helper), then `/api/live/start` and the admin live hub can show OBS + playback URLs.
 
 ## Other options
 

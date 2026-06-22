@@ -37,12 +37,26 @@ export interface IUser extends Document {
   pdp?: { filename: string; path: string; uploadedAt: Date; verified?: boolean } | null;
   // Runner current geolocation
   location?: { type: string; coordinates: number[]; updatedAt?: Date };
-  // Runner verification flag (vehicles + PDP verified by admin)
+  /** courier = inter-city transport; store_parcel = wholesale collection / parcel shipping */
+  runnerCategory?: "courier" | "store_parcel";
+  /** Store/parcel runner: ID or passport */
+  runnerIdDocument?: { filename: string; path: string; uploadedAt: Date; verified?: boolean } | null;
+  /** Store/parcel runner: proof of residence */
+  runnerProofOfResidence?: { filename: string; path: string; uploadedAt: Date; verified?: boolean } | null;
+  /** ISO country code for runner service area (store/parcel hubs) */
+  runnerServiceCountry?: string;
+  /** City id from runnerServiceAreas (e.g. durban, gaborone) */
+  runnerServiceCity?: string;
+  // Runner verification flag (category-specific docs verified by admin)
   runnerVerified?: boolean;
   /** Private account: follow requests require acceptance */
   isPrivate?: boolean;
   /** Currently broadcasting live - shows in statuses and LiveTV */
   isLive?: boolean;
+  /** Stable RTMP/HLS stream key name (set by POST /api/live/start) */
+  liveStreamName?: string;
+  /** When the current HLS/RTMP session started (if applicable) */
+  liveStartedAt?: Date;
   /** Set when user ends a live session; LIVE badge stays visible for 24h after this time */
   lastLiveEndedAt?: Date;
   /** Verified music artist/company/producer - can upload music to QwertyMusic */
@@ -80,6 +94,24 @@ export interface IUser extends Document {
     /** When user explicitly set preferences */
     preferencesSetAt?: Date;
   };
+  /** When true, user may own more than one supplier/reseller store (see multiStoreOwners config). */
+  canOwnMultipleStores?: boolean;
+  /** School / institution profile (optional; used for /profile/school co-managers) */
+  isSchoolAccount?: boolean;
+  schoolPageManagers?: Types.ObjectId[];
+  /** Public gallery on `/user/:id` (paths under /uploads/) */
+  profileGalleryUrls?: string[];
+  /** Shown on public school profile (does not replace login email) */
+  schoolPublicEmail?: string;
+  /** Optional map pin on public profile (/user/:id) when enabled */
+  publicProfileLocation?: {
+    enabled: boolean;
+    label?: string;
+    lat?: number;
+    lng?: number;
+  };
+  /** Individual accounts: when true, phone may appear on public /user/:id profile */
+  showPhonePublicly?: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -133,9 +165,26 @@ const UserSchema = new Schema<IUser>(
       coordinates: { type: [Number], default: [0, 0] },
       updatedAt: { type: Date },
     },
+    runnerCategory: { type: String, enum: ["courier", "store_parcel"], default: "courier" },
+    runnerIdDocument: {
+      filename: String,
+      path: String,
+      uploadedAt: Date,
+      verified: { type: Boolean, default: false },
+    },
+    runnerProofOfResidence: {
+      filename: String,
+      path: String,
+      uploadedAt: Date,
+      verified: { type: Boolean, default: false },
+    },
+    runnerServiceCountry: { type: String, trim: true, uppercase: true, maxlength: 2 },
+    runnerServiceCity: { type: String, trim: true, lowercase: true, maxlength: 64 },
     runnerVerified: { type: Boolean, default: false },
     isPrivate: { type: Boolean, default: false },
     isLive: { type: Boolean, default: false },
+    liveStreamName: { type: String, trim: true, sparse: true },
+    liveStartedAt: { type: Date },
     lastLiveEndedAt: { type: Date },
     artistVerified: { type: Boolean, default: false },
     notificationPreferences: {
@@ -166,6 +215,18 @@ const UserSchema = new Schema<IUser>(
       preferencesAskedAt: { type: Date },
       preferencesSetAt: { type: Date },
     },
+    canOwnMultipleStores: { type: Boolean, default: false, index: true },
+    isSchoolAccount: { type: Boolean, default: false, index: true },
+    schoolPageManagers: [{ type: Schema.Types.ObjectId, ref: "User" }],
+    profileGalleryUrls: [{ type: String, trim: true, maxlength: 512 }],
+    schoolPublicEmail: { type: String, trim: true, lowercase: true, maxlength: 254, sparse: true },
+    publicProfileLocation: {
+      enabled: { type: Boolean, default: false },
+      label: { type: String, trim: true, maxlength: 200 },
+      lat: { type: Number },
+      lng: { type: Number },
+    },
+    showPhonePublicly: { type: Boolean, default: false },
     importedFromLegacy: { type: Boolean, default: false, index: true },
     isVerified: { type: Boolean, default: false },
     active: { type: Boolean, default: true },
@@ -179,6 +240,7 @@ const UserSchema = new Schema<IUser>(
 );
 
 UserSchema.index({ role: 1 });
+UserSchema.index({ liveStreamName: 1 }, { sparse: true });
 
 UserSchema.set("toJSON", {
   transform: (_doc: any, ret: any) => {

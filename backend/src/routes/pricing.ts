@@ -7,8 +7,12 @@ import { Router } from 'express';
 import { calculateQuote, validateQuoteParams, QuoteParams } from '../services/pricing';
 import { PRICING_CONFIG, Country } from '../config/fees.config';
 import { authenticate, AuthRequest } from '../middleware/auth';
+import { geocodeSuggestHandler, geocodeSuggestLimiter } from '../services/geocodeSuggestService';
 
 const router = Router();
+
+/** GET /api/pricing/address-suggest — SA address hints (Photon + Nominatim); public */
+router.get('/address-suggest', geocodeSuggestLimiter, geocodeSuggestHandler);
 
 /**
  * POST /api/pricing/quote
@@ -19,9 +23,21 @@ router.post('/quote', async (req, res) => {
   try {
     const params: Partial<QuoteParams> = {
       currency: req.body.currency,
-      taskPrice: parseFloat(req.body.taskPrice),
       distanceKm: parseFloat(req.body.distanceKm),
-      weightKg: parseFloat(req.body.weightKg),
+      taskType: req.body.taskType,
+      deliveryMethod: req.body.deliveryMethod,
+      itemType: req.body.itemType,
+      vehicleType: req.body.vehicleType,
+      urgency: req.body.urgency,
+      itemCount: req.body.itemCount != null ? parseFloat(req.body.itemCount) : undefined,
+      waitingRequired: req.body.waitingRequired === true || req.body.waitingRequired === 'true',
+      locationZone: req.body.locationZone,
+      taskPrice: req.body.taskPrice != null ? parseFloat(req.body.taskPrice) : undefined,
+      weightKg: req.body.weightKg != null ? parseFloat(req.body.weightKg) : undefined,
+      actualWeightKg: req.body.actualWeightKg != null ? parseFloat(req.body.actualWeightKg) : undefined,
+      lengthCm: req.body.lengthCm != null ? parseFloat(req.body.lengthCm) : undefined,
+      widthCm: req.body.widthCm != null ? parseFloat(req.body.widthCm) : undefined,
+      heightCm: req.body.heightCm != null ? parseFloat(req.body.heightCm) : undefined,
       isPeak: req.body.isPeak === true || req.body.isPeak === 'true',
       isUrgent: req.body.isUrgent === true || req.body.isUrgent === 'true',
     };
@@ -137,11 +153,65 @@ router.put('/config/:currency', authenticate, async (req: AuthRequest, res) => {
       'perKmRateLocal',
       'heavySurchargeLocal',
       'urgencyFeeLocal',
+      'volumetricDivisor',
+      'parcelBandSurcharges',
+      'pricingV2',
+      'runnerPricing',
     ];
 
     Object.keys(updates).forEach((key) => {
-      if (allowedFields.includes(key)) {
-        (PRICING_CONFIG[currency] as any)[key] = parseFloat(updates[key]);
+      if (!allowedFields.includes(key)) return;
+      if (key === 'parcelBandSurcharges') {
+        const incoming = updates[key] || {};
+        const current = PRICING_CONFIG[currency].parcelBandSurcharges;
+        (PRICING_CONFIG[currency] as any).parcelBandSurcharges = {
+          upTo2kg: Number.isFinite(Number(incoming.upTo2kg)) ? Number(incoming.upTo2kg) : current.upTo2kg,
+          upTo5kg: Number.isFinite(Number(incoming.upTo5kg)) ? Number(incoming.upTo5kg) : current.upTo5kg,
+          upTo10kg: Number.isFinite(Number(incoming.upTo10kg)) ? Number(incoming.upTo10kg) : current.upTo10kg,
+          upTo20kg: Number.isFinite(Number(incoming.upTo20kg)) ? Number(incoming.upTo20kg) : current.upTo20kg,
+          above20kgPerKg: Number.isFinite(Number(incoming.above20kgPerKg))
+            ? Number(incoming.above20kgPerKg)
+            : current.above20kgPerKg,
+        };
+        return;
+      }
+      if (key === 'pricingV2') {
+        const current = PRICING_CONFIG[currency].pricingV2 || ({} as any);
+        const incoming = updates[key] || {};
+        (PRICING_CONFIG[currency] as any).pricingV2 = {
+          ...current,
+          ...incoming,
+          deliveryFees: {
+            ...(current as any).deliveryFees,
+            ...(incoming.deliveryFees || {}),
+          },
+        };
+        return;
+      }
+      if (key === 'runnerPricing') {
+        const current = (PRICING_CONFIG[currency] as any).runnerPricing || {};
+        const incoming = updates[key] || {};
+        (PRICING_CONFIG[currency] as any).runnerPricing = {
+          ...current,
+          ...incoming,
+          locationZones: {
+            ...(current.locationZones || {}),
+            ...(incoming.locationZones || {}),
+          },
+          categories: {
+            ...(current.categories || {}),
+            ...(incoming.categories || {}),
+          },
+          settings: {
+            ...(current.settings || {}),
+            ...(incoming.settings || {}),
+          },
+        };
+        return;
+      }
+      const n = Number(updates[key]);
+      if (Number.isFinite(n)) {
+        (PRICING_CONFIG[currency] as any)[key] = n;
       }
     });
 
@@ -176,8 +246,9 @@ router.post('/examples', async (req, res) => {
       
       examples[currency as Country] = calculateQuote({
         currency: currency as Country,
-        taskPrice: localPrice,
         distanceKm: 12,
+        taskType: 'general',
+        taskPrice: localPrice,
         weightKg: 8,
         isPeak: true,
         isUrgent: true,

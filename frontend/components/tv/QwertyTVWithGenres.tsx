@@ -37,46 +37,48 @@ export function QwertyTVWithGenres({ selectedGenre, onGenreSelect }: QwertyTVWit
       </div>
       {open && (
         <div
-          className="absolute right-0 top-full mt-1 py-2 bg-white rounded-xl border border-slate-200 shadow-xl z-[120] min-w-[240px] max-w-[320px]"
+          className="absolute right-0 top-full mt-1 flex max-h-[min(75vh,28rem)] min-w-[240px] max-w-[320px] flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl z-[120]"
         >
           <Link
             href="/morongwa-tv/live"
             onClick={() => setOpen(false)}
-            className="flex items-center gap-3 px-4 py-2.5 hover:bg-slate-50 transition-colors text-slate-700 border-b border-slate-100"
+            className="flex shrink-0 items-center gap-3 border-b border-slate-100 px-4 py-2.5 text-slate-700 transition-colors hover:bg-slate-50"
           >
-            <Radio className="h-4 w-4 text-brand-600 shrink-0" />
+            <Radio className="h-4 w-4 shrink-0 text-brand-600" />
             <span className="font-medium">Live TV</span>
           </Link>
-          {GENRES.map((g) => (
-            g.id === 'qwertz' ? (
-              <Link
-                key={g.id}
-                href="/morongwa-tv?compose=qwertz"
-                onClick={() => setOpen(false)}
-                className={`block w-full px-4 py-2.5 text-left hover:bg-slate-50 transition-colors cursor-pointer ${
-                  selectedGenre === g.id ? 'bg-sky-50 text-sky-700' : 'text-slate-700'
-                }`}
-              >
-                <span className="font-medium block">{g.label}</span>
-                <span className="text-xs text-slate-500 block mt-0.5">{g.desc}</span>
-              </Link>
-            ) : (
-              <button
-                key={g.id}
-                type="button"
-                onClick={() => {
-                  onGenreSelect?.(g.id);
-                  setOpen(false);
-                }}
-                className={`w-full px-4 py-2.5 text-left hover:bg-slate-50 transition-colors cursor-pointer ${
-                  selectedGenre === g.id ? 'bg-sky-50 text-sky-700' : 'text-slate-700'
-                }`}
-              >
-                <span className="font-medium block">{g.label}</span>
-                <span className="text-xs text-slate-500 block mt-0.5">{g.desc}</span>
-              </button>
-            )
-          ))}
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain touch-pan-y py-1 [scrollbar-gutter:stable]">
+            {GENRES.map((g) =>
+              g.id === 'qwertz' ? (
+                <Link
+                  key={g.id}
+                  href="/morongwa-tv?compose=qwertz"
+                  onClick={() => setOpen(false)}
+                  className={`block w-full px-4 py-2.5 text-left transition-colors hover:bg-slate-50 cursor-pointer ${
+                    selectedGenre === g.id ? 'bg-sky-50 text-sky-700' : 'text-slate-700'
+                  }`}
+                >
+                  <span className="block font-medium">{g.label}</span>
+                  <span className="mt-0.5 block text-xs text-slate-500">{g.desc}</span>
+                </Link>
+              ) : (
+                <button
+                  key={g.id}
+                  type="button"
+                  onClick={() => {
+                    onGenreSelect?.(g.id);
+                    setOpen(false);
+                  }}
+                  className={`w-full px-4 py-2.5 text-left transition-colors hover:bg-slate-50 cursor-pointer ${
+                    selectedGenre === g.id ? 'bg-sky-50 text-sky-700' : 'text-slate-700'
+                  }`}
+                >
+                  <span className="block font-medium">{g.label}</span>
+                  <span className="mt-0.5 block text-xs text-slate-500">{g.desc}</span>
+                </button>
+              )
+            )}
+          </div>
         </div>
       )}
     </div>

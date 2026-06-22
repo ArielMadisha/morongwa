@@ -3,10 +3,9 @@
 #
 #   cp deploy-server.config.example deploy-server.config
 #
-# Password-based deploy: also copy deploy-server.secrets.example -> deploy-server.secrets
-# and run: cd backend && node scripts/publishFrontendRemote.mjs --rebuild
-#
-# Optional: DEPLOY_SSH_KEY for key-based ssh/rsync (PowerShell deploy scripts).
+# Also copy deploy-server.secrets.example -> deploy-server.secrets and set SSH password
+# and/or DEPLOY_SSH_PRIVATE_KEY_PATH (see that file). Then:
+#   cd backend && npm run deploy:production
 
 # Host only IP or hostname (if you set DEPLOY_SSH_USER separately):
 # DEPLOY_SSH_HOST=165.227.237.142
@@ -26,4 +25,5 @@ MORONGWA_LIVE_DIR=/var/www/morongwa
 # Optional: docker name for API container (default morongwa-api-test)
 # MORONGWA_API_DOCKER_NAME=morongwa-api-test
 
-# DEPLOY_SSH_KEY=~/.ssh/id_ed25519
+# Key path belongs in deploy-server.secrets (not here), e.g.:
+# DEPLOY_SSH_PRIVATE_KEY_PATH=C:/Users/You/.ssh/id_ed25519

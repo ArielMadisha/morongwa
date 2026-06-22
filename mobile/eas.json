@@ -6,6 +6,10 @@
   "build": {
     "preview": {
       "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://api.qwertymates.com/api",
+        "EXPO_PUBLIC_SOCKET_URL": "https://api.qwertymates.com"
+      },
       "android": {
         "buildType": "apk"
       },
@@ -23,6 +27,42 @@
         "buildType": "app-bundle"
       }
     },
+    "production-local": {
+      "extends": "production",
+      "android": {
+        "buildType": "app-bundle",
+        "credentialsSource": "local"
+      }
+    },
+    "huawei": {
+      "extends": "production",
+      "android": {
+        "buildType": "app-bundle"
+      },
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://api.qwertymates.com/api",
+        "EXPO_PUBLIC_SOCKET_URL": "https://api.qwertymates.com",
+        "EXPO_PUBLIC_DISTRIBUTION": "huawei-appgallery"
+      }
+    },
+    "huawei-apk": {
+      "extends": "production",
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://api.qwertymates.com/api",
+        "EXPO_PUBLIC_SOCKET_URL": "https://api.qwertymates.com",
+        "EXPO_PUBLIC_DISTRIBUTION": "huawei-appgallery"
+      }
+    },
+    "huawei-local": {
+      "extends": "huawei",
+      "android": {
+        "buildType": "app-bundle",
+        "credentialsSource": "local"
+      }
+    },
     "preview-simulator": {
       "distribution": "internal",
       "ios": {
@@ -31,6 +71,23 @@
     }
   },
   "submit": {
-    "production": {}
+    "production": {
+      "android": {
+        "serviceAccountKeyPath": "./credentials/google-play-service-account.json",
+        "track": "production"
+      }
+    },
+    "open-testing": {
+      "android": {
+        "serviceAccountKeyPath": "./credentials/google-play-service-account.json",
+        "track": "beta"
+      }
+    },
+    "internal": {
+      "android": {
+        "serviceAccountKeyPath": "./credentials/google-play-service-account.json",
+        "track": "internal"
+      }
+    }
   }
 }

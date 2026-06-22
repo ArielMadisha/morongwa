@@ -1,4 +1,5 @@
 import axios from "axios";
+import { Platform } from "react-native";
 import { MOBILE_API_URL } from "../config";
 import {
   Advert,
@@ -13,6 +14,7 @@ import {
   User,
   UserProfileStats,
   WalletTransaction,
+  Task,
 } from "../types";
 
 let authToken: string | null = null;
@@ -41,18 +43,49 @@ export function getAuthToken(): string | null {
 
 export const api = axios.create({
   baseURL: MOBILE_API_URL,
+  timeout: 45_000,
   headers: {
     "Content-Type": "application/json"
   }
 });
 
+/** User-facing message when the app cannot reach the API (release builds use api.qwertymates.com). */
+export function formatApiError(err: unknown, fallback = "Request failed"): string {
+  const ax = err as {
+    message?: string;
+    response?: { data?: { error?: string; message?: string } };
+    code?: string;
+  };
+  const server =
+    ax?.response?.data?.error ||
+    ax?.response?.data?.message ||
+    (typeof ax?.response?.data === "string" ? ax.response.data : "");
+  if (server) return String(server);
+  if (ax?.code === "ECONNABORTED" || /timeout/i.test(String(ax?.message || ""))) {
+    return "Connection timed out. Check your internet and try again.";
+  }
+  if (ax?.code === "ERR_NETWORK" || !ax?.response) {
+    return "Cannot reach Qwertymates servers. Check your connection and try again.";
+  }
+  return ax?.message || fallback;
+}
+
+function isMultipartBody(data: unknown): boolean {
+  if (data == null) return false;
+  if (typeof FormData !== "undefined" && data instanceof FormData) return true;
+  return typeof data === "object" && typeof (data as FormData).append === "function";
+}
+
 api.interceptors.request.use((config) => {
   if (authToken) {
     config.headers.Authorization = `Bearer ${authToken}`;
   }
-  // Let the runtime set multipart boundaries for file uploads
-  if (config.data instanceof FormData) {
-    delete (config.headers as Record<string, unknown>)["Content-Type"];
+  // React Native FormData often fails `instanceof FormData`; never send JSON Content-Type on multipart.
+  if (isMultipartBody(config.data)) {
+    const headers = config.headers as Record<string, unknown>;
+    delete headers["Content-Type"];
+    delete headers["content-type"];
+    config.transformRequest = [(body) => body];
   }
   return config;
 });
@@ -80,7 +113,80 @@ function toMultipartPart(file: RNUploadFile): any {
   const maybeWebFile = file.webFile;
   if (typeof File !== "undefined" && maybeWebFile instanceof File) return maybeWebFile;
   if (typeof Blob !== "undefined" && maybeWebFile instanceof Blob) return maybeWebFile;
-  return { uri: file.uri, name: file.name, type: file.type };
+  let uri = String(file.uri || "").trim();
+  if (
+    Platform.OS === "android" &&
+    uri &&
+    !uri.startsWith("file://") &&
+    !uri.startsWith("content://") &&
+    !uri.startsWith("http://") &&
+    !uri.startsWith("https://")
+  ) {
+    uri = `file://${uri}`;
+  }
+  return {
+    uri,
+    name: file.name || "upload.bin",
+    type: file.type || "application/octet-stream"
+  };
+}
+
+/** Native multipart uploads via fetch — axios + RN FormData often yields ERR_NETWORK. */
+async function apiMultipartPost<T>(path: string, buildForm: (fd: FormData) => void, timeoutMs: number) {
+  const fd = new FormData();
+  buildForm(fd);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const url = `${MOBILE_API_URL.replace(/\/$/, "")}${path.startsWith("/") ? path : `/${path}`}`;
+  const headers: Record<string, string> = {};
+  if (authToken) headers.Authorization = `Bearer ${authToken}`;
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers,
+      body: fd,
+      signal: controller.signal
+    });
+    const text = await res.text();
+    let payload: Record<string, unknown> = {};
+    if (text) {
+      try {
+        payload = JSON.parse(text) as Record<string, unknown>;
+      } catch {
+        if (!res.ok) {
+          const err = new Error(text.slice(0, 200) || `Upload failed (${res.status})`);
+          (err as { response?: { status: number; data: unknown } }).response = {
+            status: res.status,
+            data: text
+          };
+          throw err;
+        }
+      }
+    }
+    if (!res.ok) {
+      const message =
+        (typeof payload.message === "string" && payload.message) ||
+        (typeof payload.error === "string" && payload.error) ||
+        `Upload failed (${res.status})`;
+      const err = new Error(message);
+      (err as { response?: { status: number; data: unknown } }).response = {
+        status: res.status,
+        data: payload
+      };
+      throw err;
+    }
+    return { data: payload as T };
+  } catch (e: unknown) {
+    const err = e as { name?: string; code?: string; message?: string };
+    if (err?.name === "AbortError") {
+      const timeoutErr = new Error("Connection timed out. Check your internet and try again.");
+      (timeoutErr as { code?: string }).code = "ECONNABORTED";
+      throw timeoutErr;
+    }
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export const tvAPI = {
@@ -89,10 +195,27 @@ export const tvAPI = {
   getStatuses: () =>
     api.get<{
       data: Array<{
+        statusKey?: string;
         userId: string | { _id?: string };
         name?: string;
         avatar?: string;
-        latestPost?: unknown;
+        isStoreStatus?: boolean;
+        supplierId?: string;
+        storeSlug?: string;
+        latestPost?: {
+          _id: string;
+          type: string;
+          mediaUrls?: string[];
+          artworkUrl?: string;
+          createdAt?: string;
+        } | null;
+        posts?: Array<{
+          _id: string;
+          type: string;
+          mediaUrls?: string[];
+          artworkUrl?: string;
+          createdAt?: string;
+        }>;
       }>;
     }>("/tv/statuses"),
   getFeed: (params?: {
@@ -109,17 +232,19 @@ export const tvAPI = {
   addComment: (id: string, text: string) => api.post<{ data: TVComment }>(`/tv/${id}/comments`, { text }),
   report: (id: string, reason: string) => api.post<{ message?: string }>(`/tv/${id}/report`, { reason }),
   /** POST /tv/upload — single image or video; field name `media`. */
-  uploadMedia: (file: RNUploadFile) => {
-    const fd = new FormData();
-    fd.append("media", toMultipartPart(file));
-    return api.post<{ url: string; sensitive?: boolean }>("/tv/upload", fd);
-  },
+  uploadMedia: (file: RNUploadFile) =>
+    apiMultipartPost<{ url: string; sensitive?: boolean }>(
+      "/tv/upload",
+      (fd) => fd.append("media", toMultipartPart(file)),
+      300_000
+    ),
   /** POST /tv/upload-images — multiple images; field name `images` (max 20). */
-  uploadImages: (files: RNUploadFile[]) => {
-    const fd = new FormData();
-    files.forEach((f) => fd.append("images", toMultipartPart(f)));
-    return api.post<{ urls: string[]; sensitive?: boolean }>("/tv/upload-images", fd);
-  },
+  uploadImages: (files: RNUploadFile[]) =>
+    apiMultipartPost<{ urls: string[]; sensitive?: boolean }>(
+      "/tv/upload-images",
+      (fd) => files.forEach((f) => fd.append("images", toMultipartPart(f))),
+      180_000
+    ),
   /** Create TV post (text, image, video, etc.) — same contract as web `CreatePostModal`. */
   createPost: (body: {
     type: "video" | "image" | "carousel" | "product" | "text" | "audio";
@@ -145,11 +270,12 @@ export const advertsAPI = {
 export const usersAPI = {
   getProfile: (id: string) => api.get<{ user: User }>(`/users/${id}`),
   getProfileStats: (id: string) => api.get<UserProfileStats>(`/users/${id}/profile-stats`),
-  uploadAvatar: (id: string, file: RNUploadFile) => {
-    const fd = new FormData();
-    fd.append("avatar", toMultipartPart(file));
-    return api.post<{ message?: string; avatar?: string; user?: User }>(`/users/${id}/avatar`, fd);
-  }
+  uploadAvatar: (id: string, file: RNUploadFile) =>
+    apiMultipartPost<{ message?: string; avatar?: string; user?: User }>(
+      `/users/${id}/avatar`,
+      (fd) => fd.append("avatar", toMultipartPart(file)),
+      120_000
+    )
 };
 
 export const followsAPI = {
@@ -181,6 +307,43 @@ export const macgyverAPI = {
   ask: (query: string) => api.post<{ data: MacGyverAskResult }>("/macgyver/ask", { query })
 };
 
+/** Errands / tasks — matches backend `routes/tasks.ts` (mounted at /api/tasks). */
+export const tasksAPI = {
+  getMine: () => api.get<Task[]>("/tasks/my-tasks"),
+  getMyAccepted: () => api.get<Task[]>("/tasks/my-accepted"),
+  getAvailable: () => api.get<Task[]>("/tasks/available"),
+  create: (body: {
+    title: string;
+    description: string;
+    budget: number;
+    pickupLocation: { type: string; coordinates: number[]; address?: string };
+    deliveryLocation: { type: string; coordinates: number[]; address?: string };
+  }) => api.post<{ message?: string; task?: Task }>("/tasks", body),
+  accept: (id: string) => api.post<{ message?: string; task?: Task }>(`/tasks/${id}/accept`),
+  start: (id: string) => api.post<{ message?: string; task?: Task }>(`/tasks/${id}/start`),
+  complete: (id: string) => api.post<{ message?: string; task?: Task }>(`/tasks/${id}/complete`),
+  cancel: (id: string) => api.post<{ message?: string; task?: Task }>(`/tasks/${id}/cancel`),
+  checkArrival: (id: string, lat: number, lon: number) =>
+    api.post<{ atDestination?: boolean; message?: string; distance?: number }>(`/tasks/${id}/check-arrival`, {
+      lat,
+      lon,
+    }),
+  confirmDelivery: (id: string) =>
+    api.post<{ message?: string; task?: Task }>(`/tasks/${id}/confirm-delivery`),
+};
+
+/** City of Tshwane errands — `routes/errandsTshwane.ts` (same pricing as WhatsApp). */
+export type TshwaneRegionRow = { id: string; label: string };
+export type TshwaneTownshipRow = { id: string; name: string; regionId: string; lat: number; lng: number };
+
+export const errandsTshwaneAPI = {
+  getCoverage: () =>
+    api.get<{ regions: TshwaneRegionRow[]; townships: TshwaneTownshipRow[] }>("/tasks/tshwane/coverage"),
+  quote: (body: Record<string, unknown>) => api.post<{ quote: unknown }>("/tasks/tshwane/quote", body),
+  book: (body: Record<string, unknown>) =>
+    api.post<{ message?: string; task?: Task; estimate?: number }>("/tasks/tshwane/book", body),
+};
+
 export const storesAPI = {
   getMine: () => api.get<{ data?: StoreSummary[] }>("/stores/me")
 };
@@ -196,11 +359,12 @@ export const resellerAPI = {
 
 export const musicAPI = {
   /** POST /music/upload-audio — field name `audio` (MP3, WAV, M4A, …). */
-  uploadAudio: (file: RNUploadFile) => {
-    const fd = new FormData();
-    fd.append("audio", toMultipartPart(file));
-    return api.post<{ data: { url: string } }>("/music/upload-audio", fd);
-  },
+  uploadAudio: (file: RNUploadFile) =>
+    apiMultipartPost<{ data: { url: string } }>(
+      "/music/upload-audio",
+      (fd) => fd.append("audio", toMultipartPart(file)),
+      300_000
+    ),
   getGenres: () => api.get<{ data: { id: string; label: string }[] }>("/music/genres"),
   getSongs: (params?: {
     page?: number;
@@ -311,7 +475,10 @@ export const walletAPI = {
     api.post<{ message?: string; amount?: number; reference?: string }>("/wallet/confirm-payment", {
       paymentRequestId,
       otp
-    })
+    }),
+  /** Peer-to-peer donation to another user’s wallet (same as web `POST /wallet/donate`). */
+  donate: (amount: number, recipientId: string) =>
+    api.post<{ message?: string; balance?: number }>("/wallet/donate", { amount, recipientId })
 };
 
 export const messengerAPI = {
@@ -336,7 +503,7 @@ export const checkoutAPI = {
         currency?: string;
       };
     }>("/checkout/quote", { deliveryCountry: params?.deliveryCountry ?? "ZA" }),
-  pay: (paymentMethod: "wallet" | "card", deliveryAddress: string, deliveryCountry?: string) =>
+  pay: (paymentMethod: "wallet" | "card" | "eft" | "orange_money", deliveryAddress: string, deliveryCountry?: string) =>
     api.post<{
       data?: {
         orderId?: string;

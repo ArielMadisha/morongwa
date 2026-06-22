@@ -42,6 +42,53 @@ export const SUPPORT_CATEGORIES = {
       { value: 'products:other', label: 'Other' },
     ],
   },
+  suppliers: {
+    label: 'Suppliers & stores',
+    subcategories: [
+      { value: 'suppliers:application', label: 'Supplier application' },
+      { value: 'suppliers:verification', label: 'Verification & KYC' },
+      { value: 'suppliers:documents', label: 'Documents & uploads' },
+      { value: 'suppliers:store', label: 'Storefront & settings' },
+      { value: 'suppliers:payouts', label: 'Payouts & fees' },
+      { value: 'suppliers:other', label: 'Other' },
+    ],
+  },
+  catalog: {
+    label: 'Product catalog & uploads',
+    subcategories: [
+      { value: 'catalog:upload', label: 'Product uploads & images' },
+      { value: 'catalog:import', label: 'Imports & dropshipping sync' },
+      { value: 'catalog:categories', label: 'Categories & tagging' },
+      { value: 'catalog:pricing', label: 'Pricing & stock' },
+      { value: 'catalog:other', label: 'Other' },
+    ],
+  },
+  tasks: {
+    label: 'Tasks & errands',
+    subcategories: [
+      { value: 'tasks:runner', label: 'Runner / delivery' },
+      { value: 'tasks:client', label: 'Posting & booking tasks' },
+      { value: 'tasks:pricing', label: 'Quotes & pricing' },
+      { value: 'tasks:other', label: 'Other' },
+    ],
+  },
+  livestream: {
+    label: 'Live streaming',
+    subcategories: [
+      { value: 'livestream:broadcast', label: 'Going live / OBS' },
+      { value: 'livestream:playback', label: 'Playback & buffering' },
+      { value: 'livestream:other', label: 'Other' },
+    ],
+  },
+  merchant: {
+    label: 'Merchant & cash agents',
+    subcategories: [
+      { value: 'merchant:agent', label: 'Merchant agent (wallet)' },
+      { value: 'merchant:tuckshop', label: 'Tuckshop / cash agent' },
+      { value: 'merchant:qr', label: 'QR payments at shop' },
+      { value: 'merchant:other', label: 'Other' },
+    ],
+  },
   general: {
     label: 'General',
     subcategories: [
@@ -59,6 +106,11 @@ export const SUPPORT_CATEGORIES = {
 export const SUPPORT_CATEGORY_VALUES = [
   ...Object.values(SUPPORT_CATEGORIES).flatMap((c) => c.subcategories.map((s) => s.value)),
 ];
+
+/** Main keys for delegated-admin “support queues” checkboxes (Create admins UI). */
+export const SUPPORT_MAIN_CATEGORY_OPTIONS: { value: string; label: string }[] = (
+  Object.keys(SUPPORT_CATEGORIES) as Array<keyof typeof SUPPORT_CATEGORIES>
+).map((k) => ({ value: k as string, label: SUPPORT_CATEGORIES[k].label }));
 
 /** Get category label for display */
 export function getSupportCategoryLabel(value: string): string {

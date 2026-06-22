@@ -2,6 +2,7 @@
 import crypto from "crypto";
 import axios from "axios";
 import { logger } from "./monitoring";
+import Setting from "../data/models/Setting";
 
 interface PaymentRequest {
   /** Base amount in ZAR (before PayGate flat fee). */
@@ -32,7 +33,19 @@ interface PaymentResponse {
   chargedZar?: number;
 }
 
-/** Flat ZAR fee added to every PayGate card transaction site-wide (default R5). Set PAYGATE_FLAT_FEE_ZAR=0 to disable. */
+export const PAYGATE_FLAT_FEE_SETTING_KEY = "paygate_flat_fee_zar";
+export const WALLET_PAYOUT_FEE_SETTING_KEY = "wallet_payout_fee_zar";
+
+let paymentFeeCache:
+  | {
+      expiresAt: number;
+      paygateFlatFeeZar: number;
+      walletPayoutFeeZar: number;
+    }
+  | null = null;
+const PAYMENT_FEE_CACHE_TTL_MS = 15_000;
+
+/** Flat ZAR fee for wallet top-up card flows (default R5). Set PAYGATE_FLAT_FEE_ZAR=0 to disable. */
 export function getPayGateFlatFeeZar(): number {
   const raw = process.env.PAYGATE_FLAT_FEE_ZAR;
   if (raw !== undefined && raw !== "") {
@@ -40,6 +53,69 @@ export function getPayGateFlatFeeZar(): number {
     if (Number.isFinite(v) && v >= 0) return Math.round(v * 100) / 100;
   }
   return 5;
+}
+
+/** Flat ZAR fee for wallet disbursement/payout requests (default R5). */
+export function getWalletPayoutFeeZar(): number {
+  const raw = process.env.WALLET_PAYOUT_FEE_ZAR;
+  if (raw !== undefined && raw !== "") {
+    const v = Number(raw);
+    if (Number.isFinite(v) && v >= 0) return Math.round(v * 100) / 100;
+  }
+  return 5;
+}
+
+function toNonNegativeMoney(value: unknown, fallback: number): number {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 0) return fallback;
+  return Math.round(n * 100) / 100;
+}
+
+export function invalidatePaymentFeeCache(): void {
+  paymentFeeCache = null;
+}
+
+async function loadPaymentFeesFromSettings(): Promise<{
+  paygateFlatFeeZar: number;
+  walletPayoutFeeZar: number;
+}> {
+  const now = Date.now();
+  if (paymentFeeCache && paymentFeeCache.expiresAt > now) {
+    return {
+      paygateFlatFeeZar: paymentFeeCache.paygateFlatFeeZar,
+      walletPayoutFeeZar: paymentFeeCache.walletPayoutFeeZar,
+    };
+  }
+
+  const defaults = {
+    paygateFlatFeeZar: getPayGateFlatFeeZar(),
+    walletPayoutFeeZar: getWalletPayoutFeeZar(),
+  };
+  const docs = await Setting.find({
+    key: { $in: [PAYGATE_FLAT_FEE_SETTING_KEY, WALLET_PAYOUT_FEE_SETTING_KEY] },
+  })
+    .select("key value")
+    .lean();
+  const byKey = new Map(docs.map((d: any) => [String(d?.key || "").trim(), d?.value]));
+  const resolved = {
+    paygateFlatFeeZar: toNonNegativeMoney(byKey.get(PAYGATE_FLAT_FEE_SETTING_KEY), defaults.paygateFlatFeeZar),
+    walletPayoutFeeZar: toNonNegativeMoney(byKey.get(WALLET_PAYOUT_FEE_SETTING_KEY), defaults.walletPayoutFeeZar),
+  };
+  paymentFeeCache = {
+    expiresAt: now + PAYMENT_FEE_CACHE_TTL_MS,
+    ...resolved,
+  };
+  return resolved;
+}
+
+export async function getPayGateFlatFeeZarResolved(): Promise<number> {
+  const cfg = await loadPaymentFeesFromSettings();
+  return cfg.paygateFlatFeeZar;
+}
+
+export async function getWalletPayoutFeeZarResolved(): Promise<number> {
+  const cfg = await loadPaymentFeesFromSettings();
+  return cfg.walletPayoutFeeZar;
 }
 
 function isLocalHostUrl(raw?: string): boolean {
@@ -212,7 +288,7 @@ export const initiatePayment = async (request: PaymentRequest): Promise<PaymentR
       /* ignore URL parse */
     }
 
-    const feeZar = request.skipPayGateFee ? 0 : getPayGateFlatFeeZar();
+    const feeZar = request.skipPayGateFee ? 0 : await getPayGateFlatFeeZarResolved();
     const chargedZar = Math.round((Number(request.amount) + feeZar) * 100) / 100;
     const publicFrontendBase = coercePublicBaseUrl(process.env.FRONTEND_URL, "https://qwertymates.com");
     const publicBackendBase = coercePublicBaseUrl(process.env.BACKEND_URL, "https://api.qwertymates.com");

@@ -4,6 +4,8 @@ export interface User {
   id?: string;
   _id?: string;
   name: string;
+  /** Set for school/institution pages; profile-stats may infer from name when DB flag is unset. */
+  isSchoolAccount?: boolean;
   email?: string;
   username?: string;
   /** E.164 digits only (no +), same as backend User.phone */
@@ -87,6 +89,12 @@ export interface MusicSong {
   createdAt?: string;
 }
 
+export interface ProductSupplierRef {
+  _id?: string;
+  storeName?: string;
+  userId?: string;
+}
+
 export interface Product {
   _id: string;
   title: string;
@@ -100,6 +108,10 @@ export interface Product {
   outOfStock?: boolean;
   /** When true, buyers may resell via reseller wall */
   allowResell?: boolean;
+  /** Populated supplier storefront name (API enrich / populate). */
+  storeName?: string;
+  storeSlug?: string;
+  supplierId?: string | ProductSupplierRef;
 }
 
 /** Seller store summary (GET /api/stores/me). */
@@ -120,6 +132,18 @@ export interface CartItem {
   qty: number;
   lineTotal?: number;
   product?: Product;
+}
+
+/** Errand/task row (GET /api/tasks/*). */
+export interface Task {
+  _id: string;
+  title: string;
+  description?: string;
+  budget?: number;
+  status: "posted" | "accepted" | "in_progress" | "completed" | "cancelled";
+  closedAtDestination?: boolean;
+  pickupLocation?: { type?: string; coordinates?: number[]; address?: string };
+  deliveryLocation?: { type?: string; coordinates?: number[]; address?: string };
 }
 
 export interface WalletTransaction {

@@ -1,11 +1,11 @@
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
-import { useRouter } from 'next/navigation';
+import { Suspense, useEffect, useState, useRef } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
 import Image from 'next/image';
-import { Send, Loader2, MessageCircle, Plus, X, Video, Search } from 'lucide-react';
+import { Send, Loader2, MessageCircle, Plus, X, Video, Phone, Search } from 'lucide-react';
 import { SearchButton } from '@/components/SearchButton';
 import { useAuth } from '@/contexts/AuthContext';
 import ProtectedRoute from '@/components/ProtectedRoute';
@@ -15,19 +15,21 @@ import { AppShellHeader } from '@/components/AppShellHeader';
 import { AdvertSlot } from '@/components/AdvertSlot';
 import { MobileBottomNav } from '@/components/MobileBottomNav';
 import { ProfileHeaderButton } from '@/components/ProfileHeaderButton';
-import { VideoCallView } from '@/components/VideoCallView';
-import { useWebRTC } from '@/hooks/useWebRTC';
-import { messengerAPI, productEnquiryAPI } from '@/lib/api';
-
-/** Same WebRTC room for both DM participants (caller/callee must match). */
-function canonicalDirectDmRoomId(me: string, other: string) {
-  const [a, b] = [String(me), String(other)].sort();
-  return `direct-${a}-${b}`;
-}
+import { useWebRTCCall } from '@/contexts/WebRTCCallContext';
+import { messengerAPI, productEnquiryAPI, usersAPI } from '@/lib/api';
+import { userPublicDisplayName } from '@/lib/userDisplayLabel';
+import { useMessengerUnread } from '@/contexts/MessengerUnreadContext';
+import { directCallRoomId } from '@/lib/callRoom';
+import { MorongwaMessengerToolbar } from '@/components/morongwa/MorongwaMessengerToolbar';
+import { MorongwaGroupChatModal, type GroupChatParticipant } from '@/components/morongwa/MorongwaGroupChatModal';
 
 function MessagesPageContent() {
   const { user, logout } = useAuth();
+  const { refreshUnread } = useMessengerUnread();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const withUserHandledRef = useRef(false);
+  const { startOutgoingCall, acceptIncomingCall } = useWebRTCCall();
   const [menuOpen, setMenuOpen] = useState(false);
   const { cartCount, hasStore } = useCartAndStores(!!user);
 
@@ -55,31 +57,34 @@ function MessagesPageContent() {
   const [enquiryMessagesLoading, setEnquiryMessagesLoading] = useState(false);
   const [enquirySending, setEnquirySending] = useState(false);
   const [enquiryNewMessage, setEnquiryNewMessage] = useState('');
+  const [groupChatOpen, setGroupChatOpen] = useState(false);
 
   const roomId =
     activeTab === 'tasks'
       ? selectedChat?.taskId ||
         (selectedChat?.kind === 'direct' && selectedChat?.user?._id && user?._id
-          ? canonicalDirectDmRoomId(String(user._id), String(selectedChat.user._id))
+          ? directCallRoomId(String(user._id), String(selectedChat.user._id))
           : '')
       : '';
   const peerUserId = activeTab === 'tasks' && selectedChat?.user?._id ? String(selectedChat.user._id) : '';
   const peerUserName = activeTab === 'tasks' && selectedChat?.user?.name ? selectedChat.user.name : undefined;
 
-  const webrtc = useWebRTC({
-    roomId,
-    userId: user?._id || user?.id || '',
-    userName: user?.name,
-    peerUserId,
-    peerUserName,
-    onCallEnded: () => {},
-  });
-
+  /** Legacy deep link: /messages?acceptCall=1&callerId=… (global modal now accepts in place). */
   useEffect(() => {
-    if (!user?._id) return;
-    webrtc.joinRoomForIncoming();
-    return () => webrtc.leaveRoomForIncoming();
-  }, [user?._id, roomId, webrtc.joinRoomForIncoming, webrtc.leaveRoomForIncoming]);
+    if (searchParams.get('acceptCall') !== '1') return;
+    const callerId = searchParams.get('callerId') || '';
+    const callRoomId = searchParams.get('roomId') || '';
+    const callerName = searchParams.get('callerName') || undefined;
+    const audioOnly = searchParams.get('audioOnly') === '1';
+    const uid = user?._id || user?.id;
+    if (!callerId || !callRoomId || !uid) return;
+
+    const conv = conversations.find((c) => String(c.user?._id) === callerId);
+    if (conv) setSelectedChat(conv);
+
+    acceptIncomingCall({ callerId, roomId: callRoomId, callerName, audioOnly });
+    router.replace('/messages');
+  }, [searchParams, user?._id, user?.id, conversations, acceptIncomingCall, router]);
 
   const fetchConversations = async () => {
     try {
@@ -193,6 +198,7 @@ function MessagesPageContent() {
       }));
       setMessages(msgs);
       if (!isDirect) messengerAPI.markAsRead(conversation.taskId).catch(() => {});
+      void refreshUnread();
     } catch (error) {
       toast.error('Failed to load messages');
     } finally {
@@ -273,9 +279,87 @@ function MessagesPageContent() {
     void handleSelectChat(conv);
   };
 
+  /** Open direct chat from profile hover card: /messages?with={userId} */
+  useEffect(() => {
+    const withId = (searchParams.get('with') || '').trim();
+    if (!withId) {
+      withUserHandledRef.current = false;
+      return;
+    }
+    if (!user || loading || withUserHandledRef.current) return;
+    withUserHandledRef.current = true;
+
+    const existing = conversations.find(
+      (c) =>
+        (c.kind === 'direct' || !c.taskId) &&
+        String(c.user?._id || c.otherUserId || '') === withId
+    );
+    if (existing) {
+      void handleSelectChat(existing);
+      router.replace('/messages');
+      return;
+    }
+
+    void (async () => {
+      let chatUser: { _id: string; name?: string; username?: string } = { _id: withId, name: 'User' };
+      try {
+        const res = await usersAPI.getProfileStats(withId);
+        const u = res.data?.user;
+        if (u) {
+          chatUser = {
+            _id: withId,
+            name: userPublicDisplayName(u),
+            username: typeof u.username === 'string' ? u.username : undefined,
+          };
+        }
+      } catch {
+        /* use fallback name */
+      }
+      startDirectChat(chatUser);
+      router.replace('/messages');
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- run once per ?with= navigation
+  }, [searchParams, user, loading, conversations]);
+
   const filteredConversations = conversations.filter((conv) =>
     `${conv.user?.name ?? ''} ${conv.taskTitle ?? ''}`.toLowerCase().includes(searchQuery.toLowerCase())
   );
+
+  const handleToolbarVideoCall = () => {
+    if (peerUserId && roomId) {
+      startOutgoingCall({
+        roomId,
+        peerUserId,
+        peerUserName,
+        audioOnly: false,
+      });
+      return;
+    }
+    router.push('/calls?mode=video');
+  };
+
+  const handleToolbarAudioCall = () => {
+    if (peerUserId && roomId) {
+      startOutgoingCall({
+        roomId,
+        peerUserId,
+        peerUserName,
+        audioOnly: true,
+      });
+      return;
+    }
+    router.push('/calls?mode=voice');
+  };
+
+  const handleGroupChatCreate = (participants: GroupChatParticipant[]) => {
+    try {
+      sessionStorage.setItem('morongwa.groupParticipants', JSON.stringify(participants));
+    } catch {
+      /* ignore */
+    }
+    setGroupChatOpen(false);
+    router.push('/calls?meeting=1');
+  };
 
   return (
     <div className="min-h-screen flex flex-col bg-gradient-to-br from-sky-50 via-blue-50 to-white text-slate-900">
@@ -310,7 +394,7 @@ function MessagesPageContent() {
         />
         <div className="flex-1 flex flex-col min-w-0 overflow-visible">
         <div className="flex-1 flex flex-col lg:flex-row gap-0 pt-6 min-h-0 overflow-hidden min-w-0">
-          <main className="flex-1 min-w-0 overflow-auto pb-24 lg:pb-0 order-2 lg:order-none w-full">
+          <main className="flex-1 min-w-0 overflow-auto pb-24 md:pb-0 order-2 lg:order-none w-full">
           {loading ? (
             <div className="flex min-h-[400px] items-center justify-center">
               <Loader2 className="h-8 w-8 animate-spin text-sky-600" />
@@ -320,21 +404,7 @@ function MessagesPageContent() {
           <div className="grid gap-6 lg:grid-cols-3 h-[600px]">
             <div className="rounded-2xl border border-white/60 bg-white/80 shadow-xl shadow-sky-50 backdrop-blur overflow-hidden flex flex-col">
               <div className="p-4 border-b border-slate-100">
-                <div className="flex gap-2 mb-4">
-                  <button
-                    onClick={() => { setActiveTab('tasks'); setSelectedEnquiry(null); }}
-                    className={`flex-1 py-2 rounded-lg text-sm font-medium ${activeTab === 'tasks' ? 'bg-sky-500 text-white' : 'bg-slate-100 text-slate-700'}`}
-                  >
-                    Tasks
-                  </button>
-                  <button
-                    onClick={() => { setActiveTab('enquiries'); setSelectedChat(null); }}
-                    className={`flex-1 py-2 rounded-lg text-sm font-medium ${activeTab === 'enquiries' ? 'bg-sky-500 text-white' : 'bg-slate-100 text-slate-700'}`}
-                  >
-                    Product enquiries
-                  </button>
-                </div>
-                <div className="relative mb-4">
+                <div className="relative">
                   <Search className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
                   <input
                     type="text"
@@ -344,18 +414,9 @@ function MessagesPageContent() {
                     className="w-full rounded-lg border border-slate-200 bg-white/80 pl-10 pr-4 py-2 text-sm text-slate-900 transition focus:border-sky-300 focus:outline-none focus:ring-2 focus:ring-sky-100"
                   />
                 </div>
-                {activeTab === 'tasks' && (
-                  <button
-                    onClick={openNewChat}
-                    className="w-full rounded-lg border border-sky-200 bg-sky-50 px-4 py-2 text-sm font-semibold text-sky-700 transition hover:bg-sky-100 flex items-center justify-center gap-2"
-                  >
-                    <Plus className="h-4 w-4" />
-                    New chat
-                  </button>
-                )}
               </div>
 
-              <div className="flex-1 overflow-y-auto space-y-2 p-2">
+              <div className="flex-1 overflow-y-auto overflow-x-hidden space-y-2 p-2">
                 {activeTab === 'tasks' ? (
                   filteredConversations.length === 0 ? (
                   <div className="py-8 text-center text-slate-600">
@@ -376,10 +437,10 @@ function MessagesPageContent() {
                           : 'hover:bg-slate-50'
                       }`}
                     >
-                      <div className="flex items-start justify-between">
-                        <div>
-                          <p className="font-semibold text-slate-900">{conv.user?.name ?? 'Unknown'}</p>
-                          <p className="text-xs text-slate-600 truncate">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0 flex-1">
+                          <p className="font-semibold text-slate-900 break-words">{conv.user?.name ?? 'Unknown'}</p>
+                          <p className="text-xs text-slate-600 break-words whitespace-normal leading-snug">
                             {conv.lastMessage || conv.taskTitle || 'No messages yet'}
                           </p>
                         </div>
@@ -421,9 +482,9 @@ function MessagesPageContent() {
                           selectedEnquiry?._id === enq._id ? 'bg-sky-100' : 'hover:bg-slate-50'
                         }`}
                       >
-                        <div>
-                          <p className="font-semibold text-slate-900">{(enq.productId as any)?.title ?? 'Product'}</p>
-                          <p className="text-xs text-slate-600">
+                        <div className="min-w-0">
+                          <p className="font-semibold text-slate-900 break-words">{(enq.productId as any)?.title ?? 'Product'}</p>
+                          <p className="text-xs text-slate-600 break-words whitespace-normal leading-snug">
                             {enq.buyerId?._id === user?._id || String(enq.buyerId?._id) === String(user?._id)
                               ? `You → ${(enq.sellerId as any)?.name ?? 'Seller'}`
                               : `${(enq.buyerId as any)?.name ?? 'Buyer'} → You`}
@@ -436,6 +497,51 @@ function MessagesPageContent() {
             </div>
 
             <div className="lg:col-span-2 rounded-2xl border border-white/60 bg-white/80 shadow-xl shadow-sky-50 backdrop-blur overflow-hidden flex flex-col">
+              <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-3 py-2 shrink-0 bg-white/90">
+                <div className="flex items-center gap-2 min-w-0 flex-wrap">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveTab('tasks');
+                      setSelectedEnquiry(null);
+                    }}
+                    className={`rounded-lg px-3 py-1.5 text-sm font-semibold transition ${
+                      activeTab === 'tasks'
+                        ? 'bg-sky-500 text-white'
+                        : 'text-slate-700 hover:bg-slate-100'
+                    }`}
+                  >
+                    Tasks
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveTab('enquiries');
+                      setSelectedChat(null);
+                    }}
+                    className={`rounded-lg px-3 py-1.5 text-sm font-semibold transition ${
+                      activeTab === 'enquiries'
+                        ? 'bg-sky-500 text-white'
+                        : 'text-slate-700 hover:bg-slate-100'
+                    }`}
+                  >
+                    Product enquiries
+                  </button>
+                  <button
+                    type="button"
+                    onClick={openNewChat}
+                    className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-semibold text-sky-600 transition hover:bg-sky-50"
+                  >
+                    <Plus className="h-4 w-4" />
+                    New chat
+                  </button>
+                </div>
+                <MorongwaMessengerToolbar
+                  onVideoCall={handleToolbarVideoCall}
+                  onAudioCall={handleToolbarAudioCall}
+                  onStartGroupChat={() => setGroupChatOpen(true)}
+                />
+              </div>
               {activeTab === 'enquiries' && selectedEnquiry ? (
                 <>
                   <div className="border-b border-slate-100 p-4">
@@ -458,13 +564,13 @@ function MessagesPageContent() {
                           className={`flex ${String(msg.senderId?._id ?? msg.senderId) === String(user?._id) ? 'justify-end' : 'justify-start'}`}
                         >
                           <div
-                            className={`rounded-lg px-4 py-2 max-w-xs ${
+                            className={`rounded-lg px-4 py-2 max-w-[85%] sm:max-w-md break-words ${
                               String(msg.senderId?._id ?? msg.senderId) === String(user?._id)
                                 ? 'bg-gradient-to-r from-sky-500 via-cyan-500 to-teal-500 text-white'
                                 : 'bg-slate-100 text-slate-900'
                             }`}
                           >
-                            <p className="text-sm">{msg.content}</p>
+                            <p className="text-sm break-words whitespace-pre-wrap">{msg.content}</p>
                             <p className={`text-xs mt-1 ${String(msg.senderId?._id ?? msg.senderId) === String(user?._id) ? 'text-white/70' : 'text-slate-600'}`}>
                               {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                             </p>
@@ -498,14 +604,38 @@ function MessagesPageContent() {
                       <h2 className="text-lg font-semibold text-slate-900">{selectedChat.user?.name ?? 'Unknown'}</h2>
                       <p className="text-xs text-slate-600 capitalize">{selectedChat.user?.role ?? '—'}</p>
                     </div>
-                    <button
-                      onClick={() => webrtc.startCall()}
-                      disabled={!roomId || !peerUserId}
-                      className="p-2.5 rounded-xl bg-sky-100 text-sky-600 hover:bg-sky-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                      title="Start video call"
-                    >
-                      <Video className="h-5 w-5" />
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() =>
+                          startOutgoingCall({
+                            roomId,
+                            peerUserId,
+                            peerUserName,
+                            audioOnly: true,
+                          })
+                        }
+                        disabled={!roomId || !peerUserId}
+                        className="p-2.5 rounded-xl bg-indigo-100 text-indigo-600 hover:bg-indigo-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        title="Start voice call"
+                      >
+                        <Phone className="h-5 w-5" />
+                      </button>
+                      <button
+                        onClick={() =>
+                          startOutgoingCall({
+                            roomId,
+                            peerUserId,
+                            peerUserName,
+                            audioOnly: false,
+                          })
+                        }
+                        disabled={!roomId || !peerUserId}
+                        className="p-2.5 rounded-xl bg-sky-100 text-sky-600 hover:bg-sky-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        title="Start video call"
+                      >
+                        <Video className="h-5 w-5" />
+                      </button>
+                    </div>
                   </div>
 
                   <div className="flex-1 overflow-y-auto p-4 space-y-4">
@@ -520,13 +650,13 @@ function MessagesPageContent() {
                         className={`flex ${msg.sender === user?._id || String(msg.sender) === String(user?._id) ? 'justify-end' : 'justify-start'}`}
                       >
                         <div
-                          className={`rounded-lg px-4 py-2 max-w-xs ${
+                          className={`rounded-lg px-4 py-2 max-w-[85%] sm:max-w-md break-words ${
                             msg.sender === user?._id || String(msg.sender) === String(user?._id)
                               ? 'bg-gradient-to-r from-sky-500 via-cyan-500 to-teal-500 text-white'
                               : 'bg-slate-100 text-slate-900'
                           }`}
                         >
-                          <p className="text-sm">{msg.text}</p>
+                          <p className="text-sm break-words whitespace-pre-wrap">{msg.text}</p>
                           <p className={`text-xs mt-1 ${msg.sender === user?._id || String(msg.sender) === String(user?._id) ? 'text-white/70' : 'text-slate-600'}`}>
                             {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                           </p>
@@ -575,27 +705,12 @@ function MessagesPageContent() {
       </div>
       <MobileBottomNav cartCount={cartCount} hasStore={hasStore} />
 
-      {/* Video call overlay */}
-      {webrtc.callStatus !== 'idle' && (
-        <VideoCallView
-          callStatus={webrtc.callStatus}
-          localVideoRef={webrtc.localVideoRef}
-          remoteVideoRef={webrtc.remoteVideoRef}
-          localStream={webrtc.localStream}
-          remoteStream={webrtc.remoteStream}
-          peerName={peerUserName}
-          incomingCaller={webrtc.incomingCaller}
-          isMuted={webrtc.isMuted}
-          isVideoOff={webrtc.isVideoOff}
-          onStartCall={webrtc.startCall}
-          onAcceptCall={webrtc.acceptCall}
-          onRejectCall={webrtc.rejectCall}
-          onCancelCall={webrtc.cancelCall}
-          onEndCall={webrtc.endCall}
-          onToggleMute={webrtc.toggleMute}
-          onToggleVideo={webrtc.toggleVideo}
-        />
-      )}
+      <MorongwaGroupChatModal
+        open={groupChatOpen}
+        onClose={() => setGroupChatOpen(false)}
+        onCreate={handleGroupChatCreate}
+        currentUserId={String(user?._id || user?.id || '')}
+      />
 
       {/* New Chat modal */}
       {newChatOpen && (
@@ -636,8 +751,8 @@ function MessagesPageContent() {
                         onClick={() => startDirectChat(u)}
                         className="w-full rounded-lg border border-slate-200 bg-white p-3 text-left transition hover:border-sky-200 hover:bg-sky-50/50"
                       >
-                        <p className="font-semibold text-slate-900">{u.name || u.username || 'User'}</p>
-                        <p className="text-xs text-slate-600 truncate">@{u.username || 'user'}</p>
+                        <p className="font-semibold text-slate-900 break-words">{u.name || u.username || 'User'}</p>
+                        <p className="text-xs text-slate-600 break-words">@{u.username || 'user'}</p>
                       </button>
                     ))}
                   </div>
@@ -657,8 +772,10 @@ function MessagesPageContent() {
                         }}
                         className="w-full rounded-lg border border-slate-200 bg-white p-3 text-left transition hover:border-sky-200 hover:bg-sky-50/50"
                       >
-                        <p className="font-semibold text-slate-900">{conv.user?.name ?? 'Unknown'}</p>
-                        <p className="text-xs text-slate-600 truncate">{conv.kind === 'direct' ? 'Direct message' : conv.taskTitle}</p>
+                        <p className="font-semibold text-slate-900 break-words">{conv.user?.name ?? 'Unknown'}</p>
+                        <p className="text-xs text-slate-600 break-words whitespace-normal leading-snug">
+                          {conv.kind === 'direct' ? 'Direct message' : conv.taskTitle}
+                        </p>
                       </button>
                     ))}
                   </div>
@@ -675,7 +792,15 @@ function MessagesPageContent() {
 export default function MessagesPage() {
   return (
     <ProtectedRoute>
-      <MessagesPageContent />
+      <Suspense
+        fallback={
+          <div className="flex min-h-[50vh] items-center justify-center">
+            <Loader2 className="h-8 w-8 animate-spin text-sky-600" />
+          </div>
+        }
+      >
+        <MessagesPageContent />
+      </Suspense>
     </ProtectedRoute>
   );
 }

@@ -15,7 +15,7 @@ export async function ensureCallMediaPermissions(): Promise<boolean> {
     if (cam !== PermissionsAndroid.RESULTS.GRANTED || mic !== PermissionsAndroid.RESULTS.GRANTED) {
       Alert.alert(
         "Camera and microphone",
-        "Morongwa needs camera and microphone access for video calls. You can enable them in Settings.",
+        "Qwertymates needs camera and microphone access for video calls. You can enable them in Settings.",
         [
           { text: "Not now", style: "cancel" },
           { text: "Open settings", onPress: () => void Linking.openSettings() },

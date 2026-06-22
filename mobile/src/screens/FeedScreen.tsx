@@ -2,13 +2,16 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Video, ResizeMode } from "expo-av";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
   Alert,
   ActivityIndicator,
   Animated,
+  AppState,
   Easing,
   FlatList,
   Image,
+  Linking,
   Modal,
   PanResponder,
   Platform,
@@ -26,6 +29,7 @@ import * as Clipboard from "expo-clipboard";
 import { ActionChip } from "../components/ActionChip";
 import { ModalCard } from "../components/ModalCard";
 import { StoriesStrip } from "../components/StoriesStrip";
+import { StatusStoryViewer } from "../components/StatusStoryViewer";
 import { feedLight, socialTheme } from "../theme/socialTheme";
 import { usePersistentMap } from "../hooks/usePersistentMap";
 import { usePendingActionQueue } from "../hooks/usePendingActionQueue";
@@ -37,10 +41,16 @@ import {
   resellerAPI,
   toAbsoluteMediaUrl,
   tvAPI,
-  usersAPI
+  usersAPI,
+  walletAPI
 } from "../lib/api";
 import { currencyForCountry, detectCountryCode, formatMoney } from "../lib/geoCurrency";
 import { Advert, Product, TVComment, TVPost, User, UserProfileStats } from "../types";
+import { FeedProductMediaBlock } from "../components/FeedProductMediaBlock";
+import { useCachedProduct } from "../components/feedProductHooks";
+import { WEB_TV_LEGACY_PATH_PREFIX, BRAND_DISPLAY_NAME } from "../config";
+import { SITE_ORIGIN } from "../constants/site";
+import { tvPostFromStatusStripRow, type StatusStripItem } from "../lib/statusStripItem";
 
 type FeedListItem =
   | { kind: "post"; id: string; post: TVPost }
@@ -61,6 +71,8 @@ type FeedScreenProps = {
   onPressCreateStory?: () => void;
   /** Notify parent after cart changes (e.g. refresh cart badge). */
   onCartUpdated?: () => void;
+  /** Open QwertyHub product detail (parent switches tab / modal). */
+  onOpenProduct?: (productId: string) => void;
 };
 
 type InteractionToast = {
@@ -76,13 +88,34 @@ const FEED_LIMIT = 12;
 const ADVERT_INTERVAL = 6;
 const LOAD_MORE_THROTTLE_MS = 900;
 const REFRESH_THROTTLE_MS = 1200;
+const FEED_HEAD_POLL_MS = 25000;
 const LIKE_TAP_THROTTLE_MS = 280;
 const QUEUE_RETRY_THROTTLE_MS = 1500;
-const SAVED_POSTS_KEY = "morongwa.mobile.savedPosts";
-const MUTED_USERS_KEY = "morongwa.mobile.mutedUsers";
-const MUTED_USERS_META_KEY = "morongwa.mobile.mutedUsers.meta";
-const PENDING_ACTIONS_KEY = "morongwa.mobile.pendingActions";
-const BLOCKED_USERS_24H_KEY = "morongwa.mobile.blockedUsers24h";
+const SAVED_POSTS_KEY = "qwertymates.mobile.savedPosts";
+const MUTED_USERS_KEY = "qwertymates.mobile.mutedUsers";
+const MUTED_USERS_META_KEY = "qwertymates.mobile.mutedUsers.meta";
+const PENDING_ACTIONS_KEY = "qwertymates.mobile.pendingActions";
+const BLOCKED_USERS_24H_KEY = "qwertymates.mobile.blockedUsers24h";
+
+const DONATE_PRESET_AMOUNTS_ZAR = [50, 100, 200, 500] as const;
+const DONATE_COFFEE_AMOUNT_ZAR = 35;
+
+function formatFeedLoadError(err: unknown): string {
+  const e = err as {
+    message?: string;
+    code?: string;
+    response?: { status?: number; data?: { message?: string; error?: string } };
+  };
+  const server = e?.response?.data?.message || e?.response?.data?.error;
+  if (typeof server === "string" && server.trim()) return server.trim();
+  const st = e?.response?.status;
+  if (st === 401 || st === 403) return "Session expired or not allowed. Try signing in again.";
+  if (e?.code === "ERR_NETWORK" || e?.message === "Network Error" || !e?.response) {
+    return "Cannot reach Qwertymates. Check your internet connection and retry.";
+  }
+  if (e?.message) return e.message;
+  return "Something went wrong. Try again.";
+}
 
 function decodeIdListMap(raw: string): Record<string, boolean> {
   const ids = JSON.parse(raw) as unknown;
@@ -176,120 +209,6 @@ const HAPTIC_MAP: Record<
   queue_retry_pending: { kind: "impact", value: Haptics.ImpactFeedbackStyle.Medium }
 };
 
-const productFetchCache = new Map<string, Promise<Product | null>>();
-function getCachedProduct(productId: string): Promise<Product | null> {
-  if (!productFetchCache.has(productId)) {
-    productFetchCache.set(
-      productId,
-      productsAPI.getByIdOrSlug(productId).then((r) => r.data?.data ?? null)
-    );
-  }
-  return productFetchCache.get(productId)!;
-}
-
-function useCachedProduct(productId?: string) {
-  const [product, setProduct] = useState<Product | null>(null);
-  useEffect(() => {
-    if (!productId) {
-      setProduct(null);
-      return;
-    }
-    let cancelled = false;
-    void getCachedProduct(productId).then((p) => {
-      if (!cancelled) setProduct(p);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [productId]);
-  return product;
-}
-
-function FeedProductOverlayRow({
-  post,
-  onCartUpdated
-}: {
-  post: TVPost;
-  onCartUpdated?: () => void;
-}) {
-  const pid = post.productId;
-  const product = useCachedProduct(pid);
-  const [busy, setBusy] = useState(false);
-  if (!pid) return null;
-
-  const showResell = !!(product && product.allowResell && !post.fromResellerWall);
-  const outOfStock = !!(product && typeof product.stock === "number" && product.stock <= 0);
-  const cartReady = !!product && !outOfStock;
-
-  const addCart = async () => {
-    if (busy || !product || outOfStock) return;
-    setBusy(true);
-    try {
-      await cartAPI.add(product._id, 1);
-      onCartUpdated?.();
-    } catch (err: unknown) {
-      const msg =
-        (err as { response?: { data?: { message?: string } } })?.response?.data?.message ||
-        "Could not add to cart.";
-      Alert.alert("Cart", String(msg));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const doResell = async () => {
-    if (busy || !product) return;
-    setBusy(true);
-    try {
-      await resellerAPI.addProductToWall(product._id);
-      Alert.alert("Resell", "Product added to your reseller wall.");
-      onCartUpdated?.();
-    } catch (err: unknown) {
-      const msg =
-        (err as { response?: { data?: { message?: string } } })?.response?.data?.message ||
-        "Could not add to your wall.";
-      Alert.alert("Resell", String(msg));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <View style={feedProductStyles.overlayRow} pointerEvents="box-none">
-      {showResell ? (
-        <Pressable
-          onPress={() => void doResell()}
-          disabled={busy}
-          style={[feedProductStyles.pill, feedProductStyles.resellPill]}
-        >
-          <Text style={feedProductStyles.resellText}>RESELL</Text>
-        </Pressable>
-      ) : (
-        <View style={feedProductStyles.pillSpacer} />
-      )}
-      <Pressable
-        onPress={() => void addCart()}
-        disabled={busy || !cartReady}
-        style={[
-          feedProductStyles.pill,
-          feedProductStyles.cartPill,
-          (!cartReady || outOfStock) && feedProductStyles.cartPillDisabled
-        ]}
-      >
-        <Text
-          style={[
-            feedProductStyles.cartText,
-            (!cartReady || outOfStock) && feedProductStyles.cartTextDisabled
-          ]}
-        >
-          {!product ? "…" : busy ? "…" : "+cart-"}
-        </Text>
-      </Pressable>
-    </View>
-  );
-}
-
-/** Title + price bottom-right after description (product feed layout). */
 function FeedProductBelowMedia({ post, titleFallback }: { post: TVPost; titleFallback: string }) {
   const product = useCachedProduct(post.productId);
   const deviceCurrency = currencyForCountry(detectCountryCode());
@@ -326,47 +245,6 @@ function FeedProductBelowMedia({ post, titleFallback }: { post: TVPost; titleFal
 }
 
 const feedProductStyles = StyleSheet.create({
-  overlayRow: {
-    position: "absolute",
-    top: 8,
-    left: 8,
-    right: 8,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-start"
-  },
-  pill: {
-    borderWidth: StyleSheet.hairlineWidth * 2,
-    borderColor: "#2563eb",
-    backgroundColor: "rgba(255,255,255,0.95)",
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 7
-  },
-  pillSpacer: {
-    minWidth: 1
-  },
-  resellPill: {},
-  resellText: {
-    color: "#1d4ed8",
-    fontWeight: "800",
-    fontSize: 11,
-    letterSpacing: 0.6,
-    textTransform: "uppercase"
-  },
-  cartPill: {},
-  cartPillDisabled: {
-    opacity: 0.5
-  },
-  cartText: {
-    color: "#1d4ed8",
-    fontWeight: "800",
-    fontSize: 12,
-    letterSpacing: 0.2
-  },
-  cartTextDisabled: {
-    color: "#64748b"
-  },
   belowMediaRow: {
     flexDirection: "row",
     alignItems: "flex-end",
@@ -411,7 +289,8 @@ export function FeedScreen({
   viewportHeight = 0,
   hideStoriesHeader = false,
   onPressCreateStory,
-  onCartUpdated
+  onCartUpdated,
+  onOpenProduct
 }: FeedScreenProps) {
   const { width } = useWindowDimensions();
   const compactUI = width < 390;
@@ -462,6 +341,7 @@ export function FeedScreen({
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [feedError, setFeedError] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [commentPost, setCommentPost] = useState<TVPost | null>(null);
@@ -492,7 +372,16 @@ export function FeedScreen({
   const [mediaViewerUri, setMediaViewerUri] = useState<string | null>(null);
   const [mediaViewerIndex, setMediaViewerIndex] = useState<number>(0);
   const [moreActionsPost, setMoreActionsPost] = useState<TVPost | null>(null);
+  const [donateRecipient, setDonateRecipient] = useState<{ id: string; name: string } | null>(null);
+  const [donateAmount, setDonateAmount] = useState("");
+  const [donateSending, setDonateSending] = useState(false);
+  const [donateBalance, setDonateBalance] = useState<number | null>(null);
+  const [donateBalanceLoading, setDonateBalanceLoading] = useState(false);
   const [previewCreator, setPreviewCreator] = useState<{ id: string; name?: string; avatar?: string } | null>(null);
+  const [statusViewerOpen, setStatusViewerOpen] = useState(false);
+  const [statusViewerLoading, setStatusViewerLoading] = useState(false);
+  const [statusViewerPost, setStatusViewerPost] = useState<TVPost | null>(null);
+  const [statusViewerMeta, setStatusViewerMeta] = useState<{ name?: string; avatar?: string }>({});
   const [expandedPostIds, setExpandedPostIds] = useState<Set<string>>(() => new Set());
   const [toast, setToast] = useState<InteractionToast | null>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -530,6 +419,92 @@ export function FeedScreen({
     const expiresAt = blockedUsers24h[creatorId];
     return typeof expiresAt === "number" && expiresAt > Date.now();
   }, [blockedUsers24h, mutedMap]);
+
+  const closeDonateModal = useCallback(() => {
+    setDonateRecipient(null);
+    setDonateAmount("");
+  }, []);
+
+  useEffect(() => {
+    if (!donateRecipient) return;
+    setDonateBalanceLoading(true);
+    walletAPI
+      .getBalance()
+      .then((res) => setDonateBalance(Number(res.data?.balance ?? 0)))
+      .catch(() => setDonateBalance(null))
+      .finally(() => setDonateBalanceLoading(false));
+  }, [donateRecipient]);
+
+  const startTopupAndQueueDonation = useCallback(
+    async (amount: number) => {
+      if (!donateRecipient) return false;
+      const current = Math.max(0, Number(donateBalance ?? 0));
+      const shortfall = Math.max(0, amount - current);
+      if (shortfall <= 0) return false;
+      const topupAmount = Math.max(10, Math.ceil(shortfall));
+      try {
+        await AsyncStorage.setItem(
+          "pending_donation",
+          JSON.stringify({
+            recipientId: donateRecipient.id,
+            amount,
+            createdAt: Date.now()
+          })
+        );
+      } catch {
+        /* ignore */
+      }
+      try {
+        const res = await walletAPI.topUp(topupAmount, "/wallet?pendingDonate=1");
+        const paymentUrl = res.data?.paymentUrl;
+        if (paymentUrl) {
+          await Linking.openURL(paymentUrl);
+          closeDonateModal();
+          return true;
+        }
+      } catch {
+        /* submitDonate surfaces errors */
+      }
+      return false;
+    },
+    [donateRecipient, donateBalance, closeDonateModal]
+  );
+
+  const submitDonate = useCallback(
+    async (mode: "wallet" | "topup") => {
+      if (!donateRecipient || !currentUserId) return;
+      if (donateRecipient.id === String(currentUserId)) return;
+      const amount = parseFloat(donateAmount);
+      if (!Number.isFinite(amount) || amount < 1) return;
+      setDonateSending(true);
+      try {
+        if (mode === "topup") {
+          const redirected = await startTopupAndQueueDonation(amount);
+          if (redirected) return;
+          throw new Error("Could not start checkout.");
+        } else if ((donateBalance ?? 0) < amount) {
+          const redirected = await startTopupAndQueueDonation(amount);
+          if (redirected) return;
+          throw new Error("Insufficient wallet balance.");
+        }
+        await walletAPI.donate(amount, donateRecipient.id);
+        setDonateBalance((prev) => Math.max(0, Number(prev ?? 0) - amount));
+        setToast({ message: "Donation sent successfully", tone: "success" });
+        closeDonateModal();
+      } catch (err: unknown) {
+        const e = err as { response?: { data?: { message?: string; error?: string } }; message?: string };
+        const msg =
+          e?.response?.data?.error ||
+          e?.response?.data?.message ||
+          e?.message ||
+          "Failed to send donation";
+        setToast({ message: String(msg), tone: "error" });
+      } finally {
+        setDonateSending(false);
+      }
+    },
+    [donateRecipient, currentUserId, donateAmount, donateBalance, startTopupAndQueueDonation, closeDonateModal]
+  );
 
   const executePendingAction = useCallback(async (action: PendingAction) => {
     if (action.type === "like") {
@@ -615,6 +590,7 @@ export function FeedScreen({
 
   const loadFeed = useCallback(
     async (targetPage: number, append: boolean) => {
+      if (!append) setFeedError(null);
       if (append) setLoadingMore(true);
       else setLoading(true);
       try {
@@ -640,8 +616,11 @@ export function FeedScreen({
         setTotal(nextTotal);
         setPage(targetPage);
         setPosts((prev) => (append ? [...prev, ...visiblePosts] : visiblePosts));
-      } catch {
-        if (!append) setPosts([]);
+      } catch (err) {
+        if (!append) {
+          setPosts([]);
+          setFeedError(formatFeedLoadError(err));
+        }
       } finally {
         setLoading(false);
         setLoadingMore(false);
@@ -649,6 +628,50 @@ export function FeedScreen({
     },
     [isCreatorHidden, loadSavedPosts, savedOnly, sort, searchQuery, variant]
   );
+
+  /** Silent poll — prepend new wall posts without pull-to-refresh or scroll reset. */
+  const refreshFeedHead = useCallback(async () => {
+    if (savedOnly || variant !== "wall") return;
+    if (loading || loadingMore) return;
+    const now = Date.now();
+    if (now - lastRefreshAtRef.current < REFRESH_THROTTLE_MS) return;
+    lastRefreshAtRef.current = now;
+    try {
+      const res = await tvAPI.getFeed({
+        page: 1,
+        limit: FEED_LIMIT,
+        sort: "newest"
+      });
+      const data = res.data?.data ?? [];
+      const feedPosts = Array.isArray(data) ? data : [];
+      const visiblePosts = feedPosts.filter((post) => {
+        const creatorId = getCreatorUserId(post);
+        return !isCreatorHidden(creatorId);
+      });
+      setPosts((prev) => {
+        const seen = new Set(prev.map((p) => p._id));
+        const fresh = visiblePosts.filter((p) => !seen.has(p._id));
+        if (!fresh.length) return prev;
+        return [...fresh, ...prev];
+      });
+    } catch {
+      /* keep current feed */
+    }
+  }, [isCreatorHidden, loading, loadingMore, savedOnly, variant]);
+
+  useEffect(() => {
+    if (savedOnly || variant !== "wall") return;
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state === "active") void refreshFeedHead();
+    });
+    const id = setInterval(() => {
+      if (AppState.currentState === "active") void refreshFeedHead();
+    }, FEED_HEAD_POLL_MS);
+    return () => {
+      sub.remove();
+      clearInterval(id);
+    };
+  }, [refreshFeedHead, savedOnly, variant]);
 
   useEffect(() => {
     loadFeed(1, false);
@@ -1019,7 +1042,7 @@ export function FeedScreen({
   };
 
   const getShareLink = (postId: string) => {
-    return `https://qwertymates.com/morongwa-tv/post/${postId}`;
+    return `${SITE_ORIGIN}${WEB_TV_LEGACY_PATH_PREFIX}/post/${postId}`;
   };
 
   const handleMediaTap = (post: TVPost, mediaUrl: string) => {
@@ -1193,7 +1216,7 @@ export function FeedScreen({
   const handleSharePost = async (post: TVPost) => {
     try {
       await Share.share({
-        message: `Check this post on Morongwa: ${getShareLink(post._id)}`
+        message: `Check this post on ${BRAND_DISPLAY_NAME}: ${getShareLink(post._id)}`
       });
       void triggerHaptic("share_success");
     } catch {
@@ -1319,10 +1342,10 @@ export function FeedScreen({
     setProfileHistory([]);
   };
 
-  /** Unique creators from the loaded feed — used by the stories strip (IG-style). */
-  const storyCreators = useMemo(() => {
+  /** Unique creators from the loaded feed — Facebook-style status cards. */
+  const statusStripItems = useMemo(() => {
     const seen = new Set<string>();
-    const out: { id: string; name?: string; avatar?: string }[] = [];
+    const out: StatusStripItem[] = [];
     for (const p of posts) {
       const id = getCreatorUserId(p);
       if (!id || (currentUserId && id === currentUserId)) continue;
@@ -1332,12 +1355,79 @@ export function FeedScreen({
       out.push({
         id,
         name: creator?.name,
-        avatar: creator?.avatar
+        avatar: creator?.avatar,
+        latestPost: {
+          _id: p._id,
+          type: p.type,
+          mediaUrls: p.mediaUrls,
+          createdAt: p.createdAt
+        }
       });
       if (out.length >= 20) break;
     }
     return out;
   }, [posts, currentUserId]);
+
+  const openStatusViewer = useCallback(
+    async (item: StatusStripItem) => {
+      const postId = item.latestPost?._id;
+      if (!postId) return;
+
+      setStatusViewerMeta({ name: item.name, avatar: item.avatar });
+      setStatusViewerOpen(true);
+      setStatusViewerLoading(true);
+      setStatusViewerPost(null);
+
+      const finish = (post: TVPost | null) => {
+        setStatusViewerPost(post);
+        setStatusViewerLoading(false);
+      };
+
+      const fromFeed = posts.find((p) => p._id === postId);
+      if (fromFeed) {
+        finish(fromFeed);
+        return;
+      }
+
+      if (String(postId).startsWith("join-")) {
+        finish(tvPostFromStatusStripRow(item));
+        return;
+      }
+
+      try {
+        const res = await tvAPI.getPost(String(postId));
+        const post = res.data?.data;
+        if (post?._id) {
+          finish(post);
+          return;
+        }
+      } catch {
+        /* fall through */
+      }
+
+      if (item.latestPost?.type === "product") {
+        try {
+          const res = await productsAPI.getByIdOrSlug(String(postId));
+          const product = res.data?.data;
+          if (product?._id && product.images?.length) {
+            finish({
+              _id: product._id,
+              type: "image",
+              mediaUrls: product.images,
+              caption: product.title,
+              creatorId: { _id: item.id, name: item.name, avatar: item.avatar }
+            });
+            return;
+          }
+        } catch {
+          /* fall through */
+        }
+      }
+
+      finish(tvPostFromStatusStripRow(item));
+    },
+    [posts]
+  );
 
   const openConnections = async (type: "followers" | "following") => {
     if (!profileId) return;
@@ -1647,6 +1737,13 @@ export function FeedScreen({
     const heartOpacity = getHeartOpacityValue(post._id);
     const showHeart = !!derived?.showHeart;
     const heartPos = derived?.heartPos || { x: 0.5, y: 0.5 };
+    const isProductStylePost =
+      String(post.type) === "product_tile" || (post.type === "product" && !!post.productId);
+    const canDonate =
+      !!currentUserId &&
+      !!creatorId &&
+      String(creatorId) !== String(currentUserId) &&
+      !isProductStylePost;
 
     const card = (
       <View style={styles.card}>
@@ -1701,7 +1798,18 @@ export function FeedScreen({
           }
           return <Text style={styles.postTitle}>{title}</Text>;
         })()}
-        {mediaUrl ? (
+        {(postType === "product" && post.productId) ||
+        postType === "product_tile" ? (
+          <>
+            <FeedProductMediaBlock
+              post={post}
+              compactUI={compactUI}
+              onCartUpdated={onCartUpdated}
+              onOpenProduct={onOpenProduct}
+            />
+            <FeedProductBelowMedia post={post} titleFallback={title} />
+          </>
+        ) : mediaUrl ? (
           <Pressable
             onPress={() => handleMediaTap(post, mediaUrl)}
             onPressIn={(e) => {
@@ -1751,13 +1859,7 @@ export function FeedScreen({
                 <Text style={styles.heartIcon}>❤</Text>
               </Animated.View>
             ) : null}
-            {postType === "product" && post.productId ? (
-              <FeedProductOverlayRow post={post} onCartUpdated={onCartUpdated} />
-            ) : null}
           </Pressable>
-        ) : null}
-        {postType === "product" && post.productId ? (
-          <FeedProductBelowMedia post={post} titleFallback={title} />
         ) : null}
         {mediaUrl &&
         (post.heading || post.subject || post.caption) &&
@@ -1829,6 +1931,21 @@ export function FeedScreen({
           >
             <Ionicons name="share-outline" size={22} color="#404040" />
           </ActionChip>
+          {canDonate ? (
+            <ActionChip
+              onPress={() => {
+                if (!creatorId) return;
+                setDonateRecipient({ id: String(creatorId), name: creator?.name || "Creator" });
+                setDonateAmount("");
+              }}
+              style={[styles.actionBtnIcon, compactUI && styles.actionBtnIconCompact]}
+              pressedStyle={styles.pressDown}
+              accessibilityLabel="Donate to creator"
+              accessibilityHint="Opens wallet donation to this post creator"
+            >
+              <Ionicons name="cafe-outline" size={22} color="#404040" />
+            </ActionChip>
+          ) : null}
           <ActionChip
             onPress={() => setMoreActionsPost(post)}
             style={[styles.actionBtnIcon, compactUI && styles.actionBtnIconCompact]}
@@ -1854,17 +1971,20 @@ export function FeedScreen({
     openComments,
     openProfile,
     postDerivedById,
+    currentUserId,
     setMoreActionsPost,
     setPreviewCreator,
     toggleExpandPost,
     usePaging,
     viewportHeight,
-    onCartUpdated
+    onCartUpdated,
+    onOpenProduct,
+    compactUI
   ]);
 
   const feedItemKeyExtractor = useCallback((item: FeedListItem) => item.id, []);
 
-  if (loading && posts.length === 0) {
+  if (loading && posts.length === 0 && !feedError) {
     return (
       <View style={styles.skeletonWrap}>
         {[0, 1, 2].map((idx) => (
@@ -1875,6 +1995,24 @@ export function FeedScreen({
             <View style={styles.skeletonLineMid} />
           </View>
         ))}
+      </View>
+    );
+  }
+
+  if (!loading && posts.length === 0 && feedError && !savedOnly) {
+    return (
+      <View style={styles.feedErrorWrap}>
+        <Ionicons name="cloud-offline-outline" size={40} color="#94a3b8" />
+        <Text style={styles.feedErrorTitle}>Could not load feed</Text>
+        <Text style={styles.subtleText}>{feedError}</Text>
+        <Pressable
+          onPress={() => void loadFeed(1, false)}
+          style={styles.feedRetryBtn}
+          accessibilityRole="button"
+          accessibilityLabel="Retry loading feed"
+        >
+          <Text style={styles.feedRetryBtnText}>Retry</Text>
+        </Pressable>
       </View>
     );
   }
@@ -1913,7 +2051,7 @@ export function FeedScreen({
           <View>
             {!hideStoriesHeader && !savedOnly && variant !== "tvVideo" ? (
               <StoriesStrip
-                creators={storyCreators}
+                items={statusStripItems}
                 onPressSelf={
                   onPressCreateStory
                     ? () => onPressCreateStory()
@@ -1921,7 +2059,9 @@ export function FeedScreen({
                       ? () => openProfile(String(currentUserId), false, userName)
                       : undefined
                 }
-                onPressCreator={(id, name) => openProfile(id, false, name)}
+                onPressItem={(item) => {
+                  void openStatusViewer(item);
+                }}
               />
             ) : null}
             {variant === "default" || (variant === "tvVideo" && savedOnly) ? (
@@ -2567,6 +2707,27 @@ export function FeedScreen({
                     )}
                   </Pressable>
                 ) : null}
+                {profileId &&
+                currentUserId &&
+                profileId !== currentUserId &&
+                profileData.user?.isSchoolAccount ? (
+                  <Pressable
+                    onPress={() => {
+                      setDonateRecipient({
+                        id: profileId,
+                        name: profileData.user?.name || "School"
+                      });
+                      setDonateAmount("");
+                    }}
+                    style={styles.profileDonateBtn}
+                    accessibilityRole="button"
+                    accessibilityLabel="Donate to school"
+                    accessibilityHint="Opens wallet donation to this school account"
+                  >
+                    <Ionicons name="cafe-outline" size={18} color="#ffffff" />
+                    <Text style={styles.profileDonateBtnText}>Donate</Text>
+                  </Pressable>
+                ) : null}
                 <View style={styles.profileStatsRow}>
                   <View style={styles.profileStat}>
                     <Text style={styles.profileStatValue}>{profileData.postCount ?? 0}</Text>
@@ -2665,6 +2826,109 @@ export function FeedScreen({
           </ModalCard>
         </View>
       </Modal>
+      <Modal visible={!!donateRecipient} transparent animationType="fade" onRequestClose={closeDonateModal}>
+        <View style={styles.modalBackdrop}>
+          <ModalCard
+            title="Donate"
+            onClose={closeDonateModal}
+            style={[styles.modalCard, compactUI && styles.modalCardCompact]}
+          >
+            <Text style={styles.subtleText}>
+              Amount will be deducted from your wallet and sent to {donateRecipient?.name || "the creator"}.
+            </Text>
+            <Text style={styles.donateBalanceText}>
+              {donateBalanceLoading
+                ? "Checking wallet balance..."
+                : `Wallet balance: R${Number(donateBalance ?? 0).toFixed(0)}`}
+            </Text>
+            <TextInput
+              value={donateAmount}
+              onChangeText={setDonateAmount}
+              placeholder="Enter amount (ZAR)"
+              placeholderTextColor="#a3a3a3"
+              keyboardType={Platform.OS === "ios" ? "decimal-pad" : "numeric"}
+              style={styles.donateAmountInput}
+              editable={!donateSending}
+              accessibilityLabel="Donation amount in ZAR"
+            />
+            <View style={styles.donatePresetRow}>
+              {DONATE_PRESET_AMOUNTS_ZAR.map((amt) => {
+                const selected =
+                  Number.parseFloat(donateAmount) === amt && !Number.isNaN(Number.parseFloat(donateAmount));
+                return (
+                  <Pressable
+                    key={amt}
+                    onPress={() => setDonateAmount(String(amt))}
+                    style={[styles.donatePresetChip, selected && styles.donatePresetChipActive]}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Preset R${amt}`}
+                  >
+                    <Text style={[styles.donatePresetChipText, selected && styles.donatePresetChipTextActive]}>
+                      R{amt}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+            <Pressable
+              onPress={() => setDonateAmount(String(DONATE_COFFEE_AMOUNT_ZAR))}
+              style={[
+                styles.donateCoffeeBtn,
+                Number.parseFloat(donateAmount) === DONATE_COFFEE_AMOUNT_ZAR &&
+                  !Number.isNaN(Number.parseFloat(donateAmount)) &&
+                  styles.donateCoffeeBtnActive
+              ]}
+              accessibilityRole="button"
+              accessibilityLabel={`Buy me Coffee R${DONATE_COFFEE_AMOUNT_ZAR}`}
+            >
+              <Text style={styles.donateCoffeeBtnText}>Buy me Coffee R{DONATE_COFFEE_AMOUNT_ZAR}</Text>
+            </Pressable>
+            <View style={styles.reportActionsRow}>
+              <Pressable
+                onPress={closeDonateModal}
+                style={styles.reportCancelBtn}
+                disabled={donateSending}
+                accessibilityRole="button"
+                accessibilityLabel="Cancel donation"
+              >
+                <Text style={styles.reportCancelText}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => void submitDonate("wallet")}
+                style={[
+                  styles.donateSubmitBtn,
+                  (donateSending || !donateAmount.trim() || Number.parseFloat(donateAmount) < 1) &&
+                    styles.commentSendBtnDisabled
+                ]}
+                disabled={donateSending || !donateAmount.trim() || Number.parseFloat(donateAmount) < 1}
+                accessibilityRole="button"
+                accessibilityLabel="Send donation"
+              >
+                {donateSending ? (
+                  <ActivityIndicator size="small" color="#ffffff" />
+                ) : (
+                  <Text style={styles.donateSubmitText}>Donate</Text>
+                )}
+              </Pressable>
+            </View>
+            {!!donateAmount &&
+            Number.parseFloat(donateAmount) > 0 &&
+            (donateBalance ?? 0) < Number.parseFloat(donateAmount) ? (
+              <Pressable
+                onPress={() => void submitDonate("topup")}
+                style={[styles.donateTopupBtn, donateSending && styles.commentSendBtnDisabled]}
+                disabled={donateSending || donateBalanceLoading}
+                accessibilityRole="button"
+                accessibilityLabel="Top up wallet then donate"
+              >
+                <Text style={styles.donateTopupText}>
+                  {donateSending ? "Processing..." : "Top up & Donate"}
+                </Text>
+              </Pressable>
+            ) : null}
+          </ModalCard>
+        </View>
+      </Modal>
       {toast ? (
         <View
           style={[
@@ -2697,6 +2961,18 @@ export function FeedScreen({
           ) : null}
         </View>
       ) : null}
+      <StatusStoryViewer
+        visible={statusViewerOpen}
+        post={statusViewerPost}
+        loading={statusViewerLoading}
+        creatorName={statusViewerMeta.name}
+        creatorAvatar={statusViewerMeta.avatar}
+        onClose={() => {
+          setStatusViewerOpen(false);
+          setStatusViewerPost(null);
+          setStatusViewerLoading(false);
+        }}
+      />
     </>
   );
 }
@@ -2812,6 +3088,33 @@ const styles = StyleSheet.create({
   },
   emptyWrap: {
     gap: 10
+  },
+  feedErrorWrap: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    gap: 12,
+    paddingHorizontal: 24,
+    paddingVertical: 32,
+    backgroundColor: "#fafafa"
+  },
+  feedErrorTitle: {
+    color: "#0f172a",
+    fontSize: 17,
+    fontWeight: "700",
+    textAlign: "center"
+  },
+  feedRetryBtn: {
+    marginTop: 8,
+    backgroundColor: "#2563eb",
+    borderRadius: 12,
+    paddingHorizontal: 22,
+    paddingVertical: 12
+  },
+  feedRetryBtnText: {
+    color: "#ffffff",
+    fontWeight: "800",
+    fontSize: 15
   },
   mutedHintBtn: {
     borderWidth: 1,
@@ -3235,6 +3538,107 @@ const styles = StyleSheet.create({
   reportSubmitText: {
     color: "#b91c1c",
     fontWeight: "700"
+  },
+  donateBalanceText: {
+    fontSize: 12,
+    color: "#64748b",
+    marginBottom: 2
+  },
+  donateAmountInput: {
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
+    borderRadius: 10,
+    color: "#262626",
+    paddingHorizontal: 10,
+    paddingVertical: 9,
+    fontSize: 14,
+    marginBottom: 6
+  },
+  donatePresetRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginBottom: 8
+  },
+  donatePresetChip: {
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: "#ffffff"
+  },
+  donatePresetChipActive: {
+    borderColor: "#0ea5e9",
+    backgroundColor: "#f0f9ff"
+  },
+  donatePresetChipText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#404040"
+  },
+  donatePresetChipTextActive: {
+    color: "#0369a1"
+  },
+  donateCoffeeBtn: {
+    borderWidth: 1,
+    borderColor: "#fcd34d",
+    backgroundColor: "#fffbeb",
+    borderRadius: 10,
+    paddingVertical: 10,
+    alignItems: "center",
+    marginBottom: 6
+  },
+  donateCoffeeBtnActive: {
+    borderColor: "#d97706",
+    backgroundColor: "#fef3c7"
+  },
+  donateCoffeeBtnText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#92400e"
+  },
+  donateSubmitBtn: {
+    flex: 1,
+    backgroundColor: "#f43f5e",
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 10
+  },
+  donateSubmitText: {
+    color: "#ffffff",
+    fontWeight: "700"
+  },
+  donateTopupBtn: {
+    marginTop: 6,
+    borderWidth: 1,
+    borderColor: "#bae6fd",
+    backgroundColor: "#f0f9ff",
+    borderRadius: 10,
+    paddingVertical: 10,
+    alignItems: "center"
+  },
+  donateTopupText: {
+    color: "#0369a1",
+    fontWeight: "700"
+  },
+  profileDonateBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    backgroundColor: "#f43f5e",
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    marginTop: 10,
+    alignSelf: "stretch"
+  },
+  profileDonateBtnText: {
+    color: "#ffffff",
+    fontWeight: "700",
+    fontSize: 15
   },
   mediaViewerBackdrop: {
     flex: 1,

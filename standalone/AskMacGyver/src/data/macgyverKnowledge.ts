@@ -1,6 +1,8 @@
 /**
- * Qwertymates FAQ knowledge base – answered locally before calling OpenAI
- * MacGyver knows everything about the website. Add patterns and answers here.
+ * Qwertymates FAQ knowledge base – answered locally before DB / search / OpenAI.
+ * MacGyver also grows a **learned library** in Mongo (`MacGyverLearnedEntry`): successful
+ * answers (with optional open-web sources) are saved after web+LLM (or web-only) when unified platform search had no hits.
+ * Add patterns here for static FAQs; runtime expansion is automatic from user searches.
  */
 
 export interface QwertymatesFAQ {
@@ -281,6 +283,18 @@ export const QWERTYMATES_FAQS: QwertymatesFAQ[] = [
       "Go to Errands and create a task. Describe what you need, set the budget, and runners can accept. Payment goes to escrow and is released when the task is completed. Runners must be verified.",
   },
 
+  // ─── QwertyHub stores (marketplace memory) ───────────────────────────────
+  {
+    patterns: ["discount central", "discountcentral"],
+    answer:
+      "Discount Central is a verified supplier store on Qwertymates (QwertyHub). Search \"Discount Central\" on /search or open their storefront from the Stores section. You can browse their products and add items to cart like any other QwertyHub supplier.",
+  },
+  {
+    patterns: ["find store", "find a store", "supplier store", "verified store", "store on qwertyhub"],
+    answer:
+      "Search by store name on /search (Ask MacGyver). QwertyHub stores appear under Stores — open /store/{slug} to browse that supplier or reseller catalog. Verified suppliers are linked to the marketplace; resellers curate products on their n wall.",
+  },
+
   // ─── Search & keywords ───────────────────────────────────────────────────
   {
     patterns: [
@@ -295,7 +309,7 @@ export const QWERTYMATES_FAQS: QwertymatesFAQ[] = [
       "guide me",
     ],
     answer:
-      "Use the search bar (Ask MacGyver) or go to /search. Type keywords for products, users, TV posts, or music. Try: product names (e.g. 'running shoes'), usernames, hashtags, or artist names. Search finds matches across QwertyHub, QwertyTV, QwertyMusic, and users. Ask MacGyver for help with specific topics.",
+      "Use the search bar (Ask MacGyver) or go to /search. Type keywords for products, users, TV posts, music, or **store names** (e.g. Discount Central). Search finds matches across QwertyHub, QwertyTV, QwertyMusic, users, and storefronts. Ask MacGyver for help with specific topics.",
   },
 
   // ─── Profile & account ──────────────────────────────────────────────────

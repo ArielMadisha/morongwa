@@ -7,7 +7,7 @@ import { ArrowLeft, Tv, Image, Flag, Check, X, Loader2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 export default function AdminTVPage() {
-  const [activeTab, setActiveTab] = useState<'posts' | 'reports'>('posts');
+  const [activeTab, setActiveTab] = useState<'posts' | 'videos' | 'reports'>('posts');
   const [posts, setPosts] = useState<any[]>([]);
   const [reports, setReports] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -44,9 +44,11 @@ export default function AdminTVPage() {
   };
 
   useEffect(() => {
-    if (activeTab === 'posts') loadPosts();
-    else loadReports();
+    if (activeTab === 'reports') loadReports();
+    else loadPosts();
   }, [activeTab, page]);
+
+  const visiblePosts = activeTab === 'videos' ? posts.filter((p) => p?.type === 'video') : posts;
 
   const handleApprove = async (id: string) => {
     try {
@@ -112,6 +114,14 @@ export default function AdminTVPage() {
             Posts
           </button>
           <button
+            onClick={() => setActiveTab('videos')}
+            className={`px-4 py-2 rounded-xl font-medium ${
+              activeTab === 'videos' ? 'bg-sky-500 text-white' : 'bg-white border border-slate-200 text-slate-700'
+            }`}
+          >
+            Videos
+          </button>
+          <button
             onClick={() => setActiveTab('reports')}
             className={`px-4 py-2 rounded-xl font-medium ${
               activeTab === 'reports' ? 'bg-sky-500 text-white' : 'bg-white border border-slate-200 text-slate-700'
@@ -125,14 +135,14 @@ export default function AdminTVPage() {
           <div className="flex justify-center py-16">
             <Loader2 className="h-10 w-10 animate-spin text-sky-600" />
           </div>
-        ) : activeTab === 'posts' ? (
+        ) : activeTab !== 'reports' ? (
           <div className="space-y-4">
-            {posts.length === 0 ? (
+            {visiblePosts.length === 0 ? (
               <div className="rounded-2xl border border-slate-200 bg-white p-12 text-center text-slate-500">
-                No posts to moderate
+                {activeTab === 'videos' ? 'No video posts found' : 'No posts to moderate'}
               </div>
             ) : (
-              posts.map((p) => (
+              visiblePosts.map((p) => (
                 <div
                   key={p._id}
                   className="rounded-2xl border border-slate-200 bg-white p-4 flex gap-4"

@@ -171,15 +171,20 @@ Deploy command:
 
 Script behavior:
 
-- If `TWILIO_STUDIO_FLOW_SID` is set, updates that exact flow in-place and publishes.
-- If not set, creates a new flow (risk of orphan flow if sender still points to old one).
+- Auto-discovers WhatsApp sender webhook targets (`.../Flows/FW...`) on configured parent + subaccount and publishes to all discovered flow SIDs.
+- Also includes explicit SIDs from `TWILIO_STUDIO_FLOW_SID` and `TWILIO_STUDIO_FLOW_SID_BW` when set.
+- After publish, **re-wires every ONLINE WhatsApp sender** on each account so Botswana (+267) points at the subaccount flow and RSA (+27) at the parent flow (fixes drift when only one number was updated).
+- This prevents partial publish when one WhatsApp number points to a different flow SID.
 
 ### Required env for stable Twilio behavior
 
 - `TWILIO_ACCOUNT_SID`
 - `TWILIO_AUTH_TOKEN`
 - `TWILIO_WHATSAPP_FROM`
-- `TWILIO_STUDIO_FLOW_SID` (strongly recommended)
+- `TWILIO_SUBACCOUNT_SID` + `TWILIO_SUBACCOUNT_AUTH_TOKEN` (Botswana WhatsApp subaccount)
+- `TWILIO_WHATSAPP_FROM_BW` (e.g. +26775184537)
+- `TWILIO_STUDIO_FLOW_SID_BW` (optional explicit pin for Botswana; auto-discovery still runs)
+- `TWILIO_STUDIO_FLOW_SID` (optional explicit pin for RSA; auto-discovery still runs)
 
 ---
 
@@ -188,7 +193,8 @@ Script behavior:
 When bot misbehaves, check in this order:
 
 1. Twilio sender and Studio flow
-   - Confirm sender is attached to expected `TWILIO_STUDIO_FLOW_SID`.
+   - Confirm each sender callback URL points to the intended `/Flows/FW...` webhook.
+   - Run `node scripts/twilioWhatsappSubaccount.mjs list` and verify all active numbers are ONLINE and wired.
    - Confirm latest flow is published.
 2. Backend runtime env in API container
    - `FRONTEND_URL`, `BACKEND_URL`, `PAYGATE_*`, Twilio vars.

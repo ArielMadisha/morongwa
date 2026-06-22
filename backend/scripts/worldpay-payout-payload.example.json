@@ -1,0 +1,24 @@
+{
+  "_comment": "Copy to worldpay-payout-payload.json (gitignored) and edit. transactionTypeCode and expandableKeyValuePairs come from Worldpay onboarding. ZAR→ZAR domestic ZA example skeleton only.",
+  "countryCode": "ZA",
+  "sourceCurrency": "ZAR",
+  "targetCurrency": "ZAR",
+  "sourceAmount": 10.5,
+  "transactionReference": "morongwa-test-001",
+  "transactionTypeCode": "REPLACE_FROM_ONBOARDING",
+  "bankDetails": {
+    "bankName": "Example Bank",
+    "branchCode": "000000",
+    "beneficiaryAccountNumber": "0000000000"
+  },
+  "parties": [
+    {
+      "partyTypeCode": "PT03",
+      "personalDetails": {
+        "typeCode": "PD02",
+        "firstName": "Test",
+        "lastName": "Beneficiary"
+      }
+    }
+  ]
+}

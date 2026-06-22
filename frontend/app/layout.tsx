@@ -1,14 +1,14 @@
 import type { Metadata, Viewport } from "next";
-import { Inter } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "@/contexts/AuthContext";
+import { CallPresenceProvider } from "@/contexts/CallPresenceContext";
+import { WebRTCCallProvider } from "@/contexts/WebRTCCallContext";
+import { MessengerUnreadProvider } from "@/contexts/MessengerUnreadContext";
 import { TranslationProvider } from "@/contexts/TranslationContext";
 import { CurrencyProvider } from "@/contexts/CurrencyContext";
 import { Toaster } from "react-hot-toast";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import { MorongwaChatButton } from "@/components/MorongwaChatButton";
-
-const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
   title: "Qwertymates - Join the Qwerty Revolution",
@@ -16,11 +16,12 @@ export const metadata: Metadata = {
   metadataBase: new URL("https://www.qwertymates.com"),
   icons: {
     icon: [
-      { url: "/qwertymates-logo-icon-transparent.svg?v=3", type: "image/svg+xml" },
-      { url: "/qwertymates-logo-icon-transparent.svg?v=3", sizes: "any", type: "image/svg+xml" },
+      { url: "/qwertymates-logo-icon.png?v=favicon-q-2026-2", sizes: "512x512", type: "image/png" },
     ],
-    shortcut: "/qwertymates-logo-icon-transparent.svg?v=3",
-    apple: [{ url: "/qwertymates-logo-icon-transparent.svg?v=3", type: "image/svg+xml", sizes: "any" }],
+    shortcut: "/qwertymates-logo-icon.png?v=favicon-q-2026-2",
+    apple: [
+      { url: "/apple-touch-icon-180.png?v=favicon-q-2026-2", sizes: "180x180", type: "image/png" },
+    ],
   },
   openGraph: {
     title: "Qwertymates - Join the Qwerty Revolution",
@@ -54,9 +55,12 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className={inter.className}>
+      <body className="font-sans antialiased">
         <ErrorBoundary>
           <AuthProvider>
+            <MessengerUnreadProvider>
+            <WebRTCCallProvider>
+            <CallPresenceProvider>
             <CurrencyProvider>
             <TranslationProvider>
               <div className="min-h-screen flex flex-col">
@@ -89,6 +93,9 @@ export default function RootLayout({
               />
             </TranslationProvider>
             </CurrencyProvider>
+            </CallPresenceProvider>
+            </WebRTCCallProvider>
+            </MessengerUnreadProvider>
           </AuthProvider>
         </ErrorBoundary>
       </body>

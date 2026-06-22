@@ -11,6 +11,7 @@ const router = Router();
 router.get("/rates", async (_req: Request, res: Response) => {
   try {
     const { base, rates } = await getFxRates();
+    res.setHeader("Cache-Control", "public, max-age=3600, stale-while-revalidate=86400");
     res.json({ base, rates });
   } catch (err) {
     res.status(500).json({ error: "Failed to fetch FX rates" });

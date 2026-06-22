@@ -13,6 +13,7 @@ import {
   Trash2,
   CheckCircle,
   XCircle,
+  ExternalLink,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -21,6 +22,12 @@ interface Advert {
   title: string;
   imageUrl: string;
   linkUrl?: string;
+  advertiserName?: string;
+  advertiserAvatar?: string;
+  caption?: string;
+  description?: string;
+  ctaLabel?: string;
+  videoUrl?: string;
   slot: 'random' | 'promo';
   productId?: string;
   active: boolean;
@@ -37,6 +44,12 @@ function AdvertsManagement() {
     title: '',
     imageUrl: '',
     linkUrl: '',
+    advertiserName: '',
+    advertiserAvatar: '',
+    caption: '',
+    description: '',
+    ctaLabel: 'Learn more',
+    videoUrl: '',
     slot: 'promo' as 'random' | 'promo',
     active: true,
     order: 0,
@@ -61,7 +74,20 @@ function AdvertsManagement() {
 
   const openCreate = () => {
     setEditing(null);
-    setForm({ title: '', imageUrl: '', linkUrl: '', slot: 'promo', active: true, order: 0 });
+    setForm({
+      title: '',
+      imageUrl: '',
+      linkUrl: '',
+      advertiserName: '',
+      advertiserAvatar: '',
+      caption: '',
+      description: '',
+      ctaLabel: 'Learn more',
+      videoUrl: '',
+      slot: 'promo',
+      active: true,
+      order: 0,
+    });
     setModalOpen(true);
   };
 
@@ -71,6 +97,12 @@ function AdvertsManagement() {
       title: a.title,
       imageUrl: a.imageUrl,
       linkUrl: a.linkUrl || '',
+      advertiserName: a.advertiserName || '',
+      advertiserAvatar: a.advertiserAvatar || '',
+      caption: a.caption || '',
+      description: a.description || '',
+      ctaLabel: a.ctaLabel || 'Learn more',
+      videoUrl: a.videoUrl || '',
       slot: a.slot,
       active: a.active,
       order: a.order ?? 0,
@@ -113,13 +145,35 @@ function AdvertsManagement() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-sky-50 via-white to-sky-100 text-slate-800">
       <header className="border-b border-white/60 bg-white/70 backdrop-blur">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-6">
+        <div className="mx-auto flex max-w-6xl flex-col gap-4 px-6 py-6 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <p className="text-xs uppercase tracking-[0.35em] text-sky-600">Qwertymates</p>
             <h1 className="mt-1 text-3xl font-semibold text-slate-900">Adverts</h1>
-            <p className="mt-1 text-sm text-slate-600">Manage platform adverts. Random = top square. Promo = bottom slot.</p>
+            <p className="mt-1 text-sm text-slate-600">
+              Facebook-style feed adverts on the wall (header, caption, carousel, CTA). Also used in sidebar slots.
+            </p>
+            <p className="mt-2 text-sm text-slate-600">
+              <strong className="font-medium text-slate-800">WhatsApp-style video creatives</strong> are{' '}
+              <strong className="font-medium text-emerald-800">not</strong> managed here—they use{' '}
+              <Link href="/admin/sponsored-video" className="font-semibold text-emerald-700 underline-offset-2 hover:underline">
+                Sponsored video
+              </Link>{' '}
+              (<strong className="font-medium text-slate-800">SponsoredVideoAd</strong> +{' '}
+              <strong className="font-medium text-slate-800">Advertiser</strong>). Packages and onboarding live under{' '}
+              <Link href="/admin/advertising" className="font-semibold text-indigo-700 underline-offset-2 hover:underline">
+                Web advertising
+              </Link>
+              .
+            </p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2 sm:justify-end">
+            <Link
+              href="/admin/sponsored-video"
+              className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-800 shadow-sm transition hover:bg-emerald-100"
+            >
+              Sponsored video admin
+              <ExternalLink className="h-4 w-4" />
+            </Link>
             <button
               onClick={openCreate}
               className="inline-flex items-center gap-2 rounded-full bg-sky-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-sky-700"
@@ -139,6 +193,15 @@ function AdvertsManagement() {
       </header>
 
       <main className="mx-auto max-w-6xl px-6 py-8">
+        <div className="mb-6 rounded-xl border border-amber-100 bg-amber-50/80 px-4 py-3 text-sm text-amber-950">
+          <strong className="font-semibold">Reminder:</strong> Twilio Studio decides <em>when</em> a WhatsApp step runs; this
+          page does not configure that. After your flow calls the sponsored API with a placement key, the creative comes from{' '}
+          <Link href="/admin/sponsored-video" className="font-semibold text-amber-900 underline">
+            /admin/sponsored-video
+          </Link>
+          .
+        </div>
+
         {loading ? (
           <div className="flex justify-center py-16">
             <Loader2 className="h-8 w-8 animate-spin text-sky-600" />
@@ -147,8 +210,11 @@ function AdvertsManagement() {
           <div className="rounded-2xl border border-slate-100 bg-white/80 p-12 text-center">
             <Megaphone className="mx-auto h-12 w-12 text-slate-300" />
             <p className="mt-4 text-lg font-semibold text-slate-900">No adverts yet</p>
-            <p className="text-sm text-slate-600 mt-1">Create your first advert to display on the platform.</p>
-            <button onClick={openCreate} className="mt-6 inline-flex items-center gap-2 rounded-xl bg-sky-600 px-4 py-2 text-white font-medium hover:bg-sky-700">
+            <p className="text-sm text-slate-600 mt-1">Create your first slot advert to display on the platform.</p>
+            <button
+              onClick={openCreate}
+              className="mt-6 inline-flex items-center gap-2 rounded-xl bg-sky-600 px-4 py-2 text-white font-medium hover:bg-sky-700"
+            >
               <Plus className="h-4 w-4" />
               Create advert
             </button>
@@ -204,32 +270,91 @@ function AdvertsManagement() {
       </main>
 
       {modalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
-          <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white shadow-xl p-6">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 overflow-y-auto">
+          <div className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white shadow-xl p-6 my-8 max-h-[90vh] overflow-y-auto">
             <h2 className="text-lg font-semibold text-slate-900 mb-4">
               {editing ? 'Edit advert' : 'Create advert'}
             </h2>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Title</label>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Advertiser / page name</label>
+                <input
+                  type="text"
+                  value={form.advertiserName}
+                  onChange={(e) => setForm((f) => ({ ...f, advertiserName: e.target.value }))}
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2"
+                  placeholder="e.g. Flight Centre South Africa"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Card title</label>
                 <input
                   type="text"
                   value={form.title}
                   onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
                   className="w-full rounded-lg border border-slate-200 px-3 py-2"
-                  placeholder="Advert title"
+                  placeholder="Headline on CTA card"
                   required
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Caption (above media)</label>
+                <textarea
+                  value={form.caption}
+                  onChange={(e) => setForm((f) => ({ ...f, caption: e.target.value }))}
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2 min-h-[72px]"
+                  placeholder="Body copy like a Facebook post…"
                 />
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Image URL</label>
                 <input
-                  type="url"
+                  type="text"
                   value={form.imageUrl}
                   onChange={(e) => setForm((f) => ({ ...f, imageUrl: e.target.value }))}
                   className="w-full rounded-lg border border-slate-200 px-3 py-2"
-                  placeholder="https://..."
+                  placeholder="https://... or /uploads/..."
                   required
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Advertiser avatar URL (optional)</label>
+                <input
+                  type="text"
+                  value={form.advertiserAvatar}
+                  onChange={(e) => setForm((f) => ({ ...f, advertiserAvatar: e.target.value }))}
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2"
+                  placeholder="/qwertymates-q-mark-official.png"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Video URL (optional)</label>
+                <input
+                  type="text"
+                  value={form.videoUrl}
+                  onChange={(e) => setForm((f) => ({ ...f, videoUrl: e.target.value }))}
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2"
+                  placeholder="https://...mp4"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Card description (optional)</label>
+                <input
+                  type="text"
+                  value={form.description}
+                  onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2"
+                  placeholder="Subtitle under card title"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">CTA button label</label>
+                <input
+                  type="text"
+                  value={form.ctaLabel}
+                  onChange={(e) => setForm((f) => ({ ...f, ctaLabel: e.target.value }))}
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2"
+                  placeholder="Learn more"
                 />
               </div>
               <div>
@@ -261,7 +386,9 @@ function AdvertsManagement() {
                   onChange={(e) => setForm((f) => ({ ...f, active: e.target.checked }))}
                   className="rounded"
                 />
-                <label htmlFor="active" className="text-sm text-slate-700">Active</label>
+                <label htmlFor="active" className="text-sm text-slate-700">
+                  Active
+                </label>
               </div>
               <div className="flex gap-3 pt-2">
                 <button

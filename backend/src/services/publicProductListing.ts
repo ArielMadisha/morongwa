@@ -3,7 +3,7 @@ import Product from "../data/models/Product";
 import Supplier from "../data/models/Supplier";
 
 /** Dropship integrations that appear in the public catalog without a local approved supplier record. */
-export const DROPSHIP_SOURCES = ["cj", "spocket", "eprolo"] as const;
+export const DROPSHIP_SOURCES = ["cj", "spocket", "eprolo", "shein"] as const;
 
 export async function getApprovedSupplierIds(): Promise<mongoose.Types.ObjectId[]> {
   return Supplier.find({ status: "approved" })

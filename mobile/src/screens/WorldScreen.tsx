@@ -12,6 +12,7 @@ import {
 } from "react-native";
 import { Video, ResizeMode } from "expo-av";
 import { productsAPI, toAbsoluteMediaUrl, tvAPI } from "../lib/api";
+import { resolveProductStoreName } from "../lib/productStoreLabel";
 import { Product, TVPost } from "../types";
 import { appTypography, socialTheme } from "../theme/socialTheme";
 
@@ -126,7 +127,9 @@ export function WorldScreen({ onOpenProductId, onGoToQwertyTv }: WorldScreenProp
             const img = toAbsoluteMediaUrl(p.images?.[0]);
             return (
               <Pressable style={styles.card} onPress={() => onOpenProductId(p._id)}>
-                <Text style={styles.badge}>Product</Text>
+                <Text style={styles.badge} numberOfLines={1}>
+                  {resolveProductStoreName(p)}
+                </Text>
                 {img ? (
                   <Image source={{ uri: img }} style={styles.media} resizeMode="cover" />
                 ) : (
@@ -241,7 +244,8 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     paddingHorizontal: 8,
     paddingVertical: 4,
-    borderRadius: 8
+    borderRadius: 8,
+    maxWidth: "100%"
   },
   media: {
     width: "100%",

@@ -5,9 +5,20 @@ type ExtraConfig = {
   apiUrl?: string;
   socketUrl?: string;
   turnUrls?: string;
+  /** Shown on home screen / store; aligns with expo.name (“Morongwa” was internal codename only). */
+  brandDisplayName?: string;
+  /** Unchanged qwertymates.com routes; do not rename without a server + redirect plan. */
+  webTvLegacyPathPrefix?: string;
 };
 
 const extra = (Constants.expoConfig?.extra ?? {}) as ExtraConfig;
+
+export const BRAND_DISPLAY_NAME = (extra.brandDisplayName || "Qwertymates").trim();
+
+const tvPrefix = (extra.webTvLegacyPathPrefix || "/morongwa-tv").trim();
+export const WEB_TV_LEGACY_PATH_PREFIX = tvPrefix.startsWith("/")
+  ? tvPrefix
+  : `/${tvPrefix}`;
 
 /** Set at build time via EAS / .env (Expo inlines EXPO_PUBLIC_*). */
 function envApiUrl(): string | undefined {

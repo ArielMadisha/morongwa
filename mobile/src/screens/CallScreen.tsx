@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -11,7 +11,7 @@ import {
 } from "react-native";
 import { RTCView, RTCIceCandidate, MediaStream } from "react-native-webrtc";
 import { ensureCallMediaPermissions } from "../hooks/useCallMediaPermissions";
-import { CallSignalingClient } from "../lib/callSignaling";
+import { getSharedCallSignalingClient } from "../lib/callSignaling";
 import { createPeerConnection, getLocalUserMedia, stopStream } from "../lib/webrtc";
 
 type CallScreenProps = {
@@ -19,26 +19,43 @@ type CallScreenProps = {
   onClose: () => void;
   /** Prefill fields (e.g. from Messages → Video). */
   initialPeerUserId?: string;
+  initialPeerName?: string;
   initialRoomId?: string;
   /** Connect socket and emit join-call-room on mount. */
   autoJoinRoom?: boolean;
+  /** Auto-dial peer after joining (outgoing). */
+  autoStartCall?: boolean;
   /** Voice-only call (no camera). */
   initialAudioOnly?: boolean;
+  /** Incoming call from web — emit call-accept after media is ready. */
+  answerIncoming?: boolean;
+  incomingCallerId?: string;
+  /** Group call — ring additional participants. */
+  invitedUserIds?: string[];
 };
 
 type IceInit = Record<string, unknown>;
 type CallPhase = "idle" | "dialing" | "connecting" | "in_call" | "ended" | "error";
 
+const RING_TIMEOUT_MS = 60_000;
+const CONNECT_TIMEOUT_MS = 45_000;
+
 export function CallScreen({
   userId,
   onClose,
   initialPeerUserId = "",
-  initialRoomId = "morongwa-call-demo",
+  initialPeerName = "",
+  initialRoomId = "",
   autoJoinRoom = false,
+  autoStartCall = false,
   initialAudioOnly = false,
+  answerIncoming = false,
+  incomingCallerId = "",
+  invitedUserIds = [],
 }: CallScreenProps) {
-  const [roomId, setRoomId] = useState(initialRoomId || "morongwa-call-demo");
+  const [roomId, setRoomId] = useState(initialRoomId || "");
   const [peerUserId, setPeerUserId] = useState(initialPeerUserId);
+  const [peerName] = useState(initialPeerName || "Contact");
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const [status, setStatus] = useState<string>("Disconnected");
@@ -50,15 +67,33 @@ export function CallScreen({
   const [callDurationLabel, setCallDurationLabel] = useState("00:00");
   const [lastCallDurationLabel, setLastCallDurationLabel] = useState("00:00");
 
-  const signaling = useRef(new CallSignalingClient());
+  const signaling = useRef(getSharedCallSignalingClient());
   const pcRef = useRef<any>(null);
   const pendingIceRef = useRef<IceInit[]>([]);
+  const pendingAcceptRef = useRef(false);
+  const pendingOfferRef = useRef<{ type?: string; sdp?: string } | null>(null);
+  const ringTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const connectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** User id to send ICE / hangup to (other party). */
   const iceTargetRef = useRef("");
   const roomRef = useRef(roomId);
   const peerRef = useRef(peerUserId);
   roomRef.current = roomId;
   peerRef.current = peerUserId;
+
+  const clearRingTimer = useCallback(() => {
+    if (ringTimerRef.current) {
+      clearTimeout(ringTimerRef.current);
+      ringTimerRef.current = null;
+    }
+  }, []);
+
+  const clearConnectTimer = useCallback(() => {
+    if (connectTimerRef.current) {
+      clearTimeout(connectTimerRef.current);
+      connectTimerRef.current = null;
+    }
+  }, []);
 
   const cleanupPeer = useCallback(() => {
     if (pcRef.current) {
@@ -70,17 +105,23 @@ export function CallScreen({
       pcRef.current = null;
     }
     pendingIceRef.current = [];
+    pendingAcceptRef.current = false;
+    pendingOfferRef.current = null;
   }, []);
 
   const markCallConnected = useCallback(() => {
+    clearRingTimer();
+    clearConnectTimer();
     setPhase("in_call");
     setReconnecting(false);
     setLastError("");
     setCallStartedAt((prev) => prev ?? Date.now());
-  }, []);
+  }, [clearConnectTimer, clearRingTimer]);
 
   const endCall = useCallback(
     (notifyPeer: boolean) => {
+      clearRingTimer();
+      clearConnectTimer();
       const peer = (iceTargetRef.current || peerRef.current).trim();
       const room = roomRef.current.trim();
       if (notifyPeer && peer && room) {
@@ -106,29 +147,38 @@ export function CallScreen({
       setCallStartedAt(null);
       setCallDurationLabel("00:00");
     },
-    [callDurationLabel, callStartedAt, cleanupPeer, localStream]
+    [callDurationLabel, callStartedAt, cleanupPeer, clearConnectTimer, clearRingTimer, localStream]
   );
+
+  const armConnectTimer = useCallback(() => {
+    clearConnectTimer();
+    connectTimerRef.current = setTimeout(() => {
+      setLastError("Connection timed out — try again on Wi‑Fi");
+      setPhase("error");
+      endCall(true);
+    }, CONNECT_TIMEOUT_MS);
+  }, [clearConnectTimer, endCall]);
+
+  const armRingTimer = useCallback(() => {
+    clearRingTimer();
+    ringTimerRef.current = setTimeout(() => {
+      setStatus("No answer");
+      setPhase("ended");
+      const peer = iceTargetRef.current.trim() || peerRef.current.trim();
+      const room = roomRef.current.trim();
+      if (peer && room) {
+        signaling.current.emit("call-cancel", { roomId: room, callerId: userId, calleeId: peer });
+      }
+      endCall(false);
+    }, RING_TIMEOUT_MS);
+  }, [clearRingTimer, endCall, userId]);
 
   useEffect(() => {
     return () => {
       endCall(false);
-      signaling.current.disconnect();
+      signaling.current.disconnect(true);
     };
   }, [endCall]);
-
-  useEffect(() => {
-    if (!autoJoinRoom || !initialRoomId?.trim()) return;
-    const room = initialRoomId.trim();
-    const s = signaling.current.connect();
-    s.emit("join-call-room", { roomId: room, userId });
-    setRoomId(room);
-    if (initialPeerUserId) {
-      setPeerUserId(initialPeerUserId);
-      iceTargetRef.current = initialPeerUserId;
-    }
-    setStatus(`Joined room ${room}`);
-    setPhase("connecting");
-  }, [autoJoinRoom, initialRoomId, initialPeerUserId, userId]);
 
   useEffect(() => {
     if (!callStartedAt || phase !== "in_call") return;
@@ -177,15 +227,19 @@ export function CallScreen({
   const connectSocket = useCallback(() => {
     const s = signaling.current.connect();
     setStatus(s.connected ? "Socket connected" : "Connecting…");
-    s.once("connect", () => {
+    const onSocketConnect = () => {
       setStatus("Socket connected");
       setReconnecting(false);
       setLastError("");
+      s.emit("join-user-presence", { userId });
       if (phase === "connecting" || phase === "dialing") {
         const room = roomRef.current.trim();
         if (room) s.emit("join-call-room", { roomId: room, userId });
       }
-    });
+    };
+    s.off("connect");
+    s.on("connect", onSocketConnect);
+    if (s.connected) onSocketConnect();
     s.on("disconnect", () => {
       setStatus("Socket disconnected");
       if (phase === "dialing" || phase === "in_call" || phase === "connecting") {
@@ -228,32 +282,93 @@ export function CallScreen({
     }
   }, [localStream]);
 
+  const sendOfferToPeer = useCallback(async () => {
+    const peer = iceTargetRef.current.trim() || peerRef.current.trim();
+    const room = roomRef.current.trim();
+    const pc = pcRef.current;
+    if (!peer || !room) return;
+    if (!pc) {
+      pendingAcceptRef.current = true;
+      return;
+    }
+    if (pc.signalingState === "have-local-offer") {
+      pendingAcceptRef.current = false;
+      return;
+    }
+    pendingAcceptRef.current = false;
+    clearRingTimer();
+    armConnectTimer();
+    const offer = await pc.createOffer({});
+    await pc.setLocalDescription(offer);
+    signaling.current.emit("webrtc-offer", {
+      roomId: room,
+      toUserId: peer,
+      offer: { type: offer.type, sdp: offer.sdp },
+    });
+    setStatus("Connecting…");
+    setPhase("connecting");
+  }, [armConnectTimer, clearRingTimer]);
+
+  const applyRemoteOffer = useCallback(
+    async (
+      fromUserId: string,
+      room: string,
+      offer: { type?: string; sdp?: string },
+      pc: any
+    ) => {
+      await pc.setRemoteDescription(offer as any);
+      await flushPendingIce(pc);
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      signaling.current.emit("webrtc-answer", {
+        roomId: room,
+        toUserId: fromUserId,
+        answer: { type: answer.type, sdp: answer.sdp },
+      });
+      setStatus("In call");
+      markCallConnected();
+    },
+    [flushPendingIce, markCallConnected]
+  );
+
   const startOutgoingCall = useCallback(async () => {
     const peer = peerRef.current.trim();
     const room = roomRef.current.trim();
     if (!peer || !room) {
-      Alert.alert("Peer required", "Enter the other user’s Morongwa user id.");
+      Alert.alert("Contact required", "Pick someone to call from the call menu.");
       return;
     }
     setBusy(true);
     try {
       iceTargetRef.current = peer;
       connectSocket();
-      signaling.current.connect().emit("join-call-room", { roomId: room, userId });
+      const s = signaling.current.connect();
+      s.emit("join-user-presence", { userId });
+      s.emit("join-call-room", { roomId: room, userId });
       const stream = await ensureLocal();
       cleanupPeer();
       const pc = await createPeerConnection();
       pcRef.current = pc;
       attachPeerHandlers(pc);
       stream.getTracks().forEach((t) => pc.addTrack(t, stream));
-      const offer = await pc.createOffer({});
-      await pc.setLocalDescription(offer);
-      signaling.current.emit("webrtc-offer", {
-        roomId: room,
-        toUserId: peer,
-        offer: { type: offer.type, sdp: offer.sdp },
-      });
-      setStatus("Calling…");
+      const ring = (calleeId: string) => {
+        s.emit("call-request", {
+          roomId: room,
+          callerId: userId,
+          callerName: peerName,
+          calleeId,
+          audioOnly: initialAudioOnly,
+        });
+      };
+      ring(peer);
+      for (const id of invitedUserIds) {
+        const cid = String(id || "").trim();
+        if (cid && cid !== peer) ring(cid);
+      }
+      setStatus(`Calling ${peerName}…`);
+      setPhase("dialing");
+      armRingTimer();
+      if (pendingAcceptRef.current) await sendOfferToPeer();
     } catch (e) {
       if (String(e).includes("permission_denied")) return;
       setPhase("error");
@@ -262,9 +377,89 @@ export function CallScreen({
     } finally {
       setBusy(false);
     }
-  }, [userId, attachPeerHandlers, cleanupPeer, connectSocket, ensureLocal]);
+  }, [userId, attachPeerHandlers, cleanupPeer, connectSocket, ensureLocal, invitedUserIds, peerName, armRingTimer, sendOfferToPeer, initialAudioOnly]);
 
   useEffect(() => {
+    if (!autoJoinRoom || !initialRoomId?.trim()) return;
+    const room = initialRoomId.trim();
+    const callerId = String(incomingCallerId || initialPeerUserId || "").trim();
+
+    const run = async () => {
+      connectSocket();
+      const s = signaling.current.connect();
+      s.emit("join-user-presence", { userId });
+      s.emit("join-call-room", { roomId: room, userId });
+      setRoomId(room);
+      if (initialPeerUserId) {
+        setPeerUserId(initialPeerUserId);
+        iceTargetRef.current = initialPeerUserId;
+      }
+      setStatus(answerIncoming ? "Answering…" : `Joined room ${room}`);
+      setPhase("connecting");
+
+      if (!answerIncoming || !callerId) return;
+
+      try {
+        iceTargetRef.current = callerId;
+        setPeerUserId(callerId);
+        const stream = await ensureLocal();
+        cleanupPeer();
+        const pc = await createPeerConnection();
+        pcRef.current = pc;
+        attachPeerHandlers(pc);
+        stream.getTracks().forEach((t) => pc.addTrack(t, stream));
+        s.emit("call-accept", {
+          roomId: room,
+          calleeId: userId,
+          calleeName: peerName,
+          callerId,
+        });
+        setStatus("Connecting…");
+        armConnectTimer();
+        const queued = pendingOfferRef.current;
+        if (queued?.sdp && pcRef.current) {
+          pendingOfferRef.current = null;
+          await applyRemoteOffer(callerId, room, queued, pcRef.current);
+        }
+      } catch (e) {
+        if (String(e).includes("permission_denied")) return;
+        setPhase("error");
+        setLastError(String(e));
+      }
+    };
+
+    void run();
+  }, [
+    autoJoinRoom,
+    initialRoomId,
+    initialPeerUserId,
+    userId,
+    answerIncoming,
+    incomingCallerId,
+    connectSocket,
+    ensureLocal,
+    cleanupPeer,
+    attachPeerHandlers,
+    armConnectTimer,
+    applyRemoteOffer,
+    peerName,
+  ]);
+
+  const shouldAutoStart =
+    autoStartCall || (autoJoinRoom && Boolean(initialPeerUserId?.trim()) && !answerIncoming);
+
+  useEffect(() => {
+    if (!shouldAutoStart || !initialRoomId?.trim() || !initialPeerUserId?.trim()) return;
+    if (phase !== "idle" && phase !== "connecting") return;
+    const t = setTimeout(() => {
+      void startOutgoingCall();
+    }, 400);
+    return () => clearTimeout(t);
+  }, [shouldAutoStart, initialRoomId, initialPeerUserId, startOutgoingCall]);
+
+  const showDevControls = __DEV__ && !initialPeerUserId?.trim();
+
+  useLayoutEffect(() => {
     const s = signaling.current.connect();
 
     const onOffer = async (payload: Record<string, unknown>) => {
@@ -272,28 +467,38 @@ export function CallScreen({
       const offer = payload.offer as { type?: string; sdp?: string } | undefined;
       const room = String(payload.roomId ?? roomRef.current);
       if (!fromUserId || !offer?.sdp) return;
-      if (pcRef.current) return;
+
+      iceTargetRef.current = fromUserId;
+      setPeerUserId(fromUserId);
+
+      const existingPc = pcRef.current;
+      if (existingPc) {
+        setBusy(true);
+        try {
+          await applyRemoteOffer(fromUserId, room, offer, existingPc);
+        } catch (e) {
+          if (String(e).includes("permission_denied")) return;
+          setPhase("error");
+          setLastError(String(e));
+          Alert.alert("Answer failed", String(e));
+        } finally {
+          setBusy(false);
+        }
+        return;
+      }
+
+      pendingOfferRef.current = offer;
+      if (answerIncoming || autoJoinRoom) return;
+
       setBusy(true);
       try {
-        iceTargetRef.current = fromUserId;
-        setPeerUserId(fromUserId);
         cleanupPeer();
         const stream = await ensureLocal();
         const pc = await createPeerConnection();
         pcRef.current = pc;
         attachPeerHandlers(pc);
         stream.getTracks().forEach((t) => pc.addTrack(t, stream));
-        await pc.setRemoteDescription(offer as any);
-        await flushPendingIce(pc);
-        const answer = await pc.createAnswer();
-        await pc.setLocalDescription(answer);
-        signaling.current.emit("webrtc-answer", {
-          roomId: room,
-          toUserId: fromUserId,
-          answer: { type: answer.type, sdp: answer.sdp },
-        });
-        setStatus("In call (answered)");
-        markCallConnected();
+        await applyRemoteOffer(fromUserId, room, offer, pc);
       } catch (e) {
         if (String(e).includes("permission_denied")) return;
         setPhase("error");
@@ -340,18 +545,37 @@ export function CallScreen({
       setPhase("ended");
     };
 
+    const onCallAccept = async () => {
+      try {
+        await sendOfferToPeer();
+      } catch (e) {
+        setPhase("error");
+        setLastError(String(e));
+        Alert.alert("Call failed", String(e));
+      }
+    };
+
+    const onCallReject = () => {
+      setStatus("Call declined");
+      setPhase("ended");
+    };
+
     s.on("webrtc-offer", onOffer);
     s.on("webrtc-answer", onAnswer);
     s.on("webrtc-ice-candidate", onIce);
     s.on("webrtc-hangup", onHangup);
+    s.on("call-accept", onCallAccept);
+    s.on("call-reject", onCallReject);
 
     return () => {
       s.off("webrtc-offer", onOffer);
       s.off("webrtc-answer", onAnswer);
       s.off("webrtc-ice-candidate", onIce);
       s.off("webrtc-hangup", onHangup);
+      s.off("call-accept", onCallAccept);
+      s.off("call-reject", onCallReject);
     };
-  }, [attachPeerHandlers, cleanupPeer, endCall, ensureLocal, flushPendingIce]);
+  }, [attachPeerHandlers, applyRemoteOffer, autoJoinRoom, answerIncoming, cleanupPeer, endCall, ensureLocal, flushPendingIce, sendOfferToPeer]);
 
   return (
     <View style={styles.wrap}>
@@ -363,25 +587,38 @@ export function CallScreen({
       </View>
 
       <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
-        <Text style={styles.label}>Room id</Text>
-        <TextInput
-          value={roomId}
-          onChangeText={setRoomId}
-          style={styles.input}
-          placeholder="Shared room name"
-          placeholderTextColor="#64748b"
-          autoCapitalize="none"
-        />
-        <Text style={styles.label}>Peer user id (Mongo _id)</Text>
-        <TextInput
-          value={peerUserId}
-          onChangeText={setPeerUserId}
-          style={styles.input}
-          placeholder="Other user's id"
-          placeholderTextColor="#64748b"
-          autoCapitalize="none"
-        />
-        <Text style={styles.hint}>You: {userId}</Text>
+        {initialPeerUserId ? (
+          <View style={styles.peerCard}>
+            <Text style={styles.peerLabel}>{initialAudioOnly ? "Voice call with" : "Video call with"}</Text>
+            <Text style={styles.peerName}>{peerName}</Text>
+            {invitedUserIds.length > 1 ? (
+              <Text style={styles.hint}>{invitedUserIds.length} people invited to this room</Text>
+            ) : null}
+          </View>
+        ) : null}
+
+        {showDevControls ? (
+          <>
+            <Text style={styles.label}>Room id (dev only)</Text>
+            <TextInput
+              value={roomId}
+              onChangeText={setRoomId}
+              style={styles.input}
+              placeholder="Shared room name"
+              placeholderTextColor="#64748b"
+              autoCapitalize="none"
+            />
+            <Text style={styles.label}>Peer user id (dev only)</Text>
+            <TextInput
+              value={peerUserId}
+              onChangeText={setPeerUserId}
+              style={styles.input}
+              placeholder="Other user's id"
+              placeholderTextColor="#64748b"
+              autoCapitalize="none"
+            />
+          </>
+        ) : null}
         <Text style={styles.status}>{status}</Text>
         {phase === "in_call" ? <Text style={styles.duration}>Call duration: {callDurationLabel}</Text> : null}
         {reconnecting ? <Text style={styles.reconnecting}>Reconnecting to call signaling...</Text> : null}
@@ -441,15 +678,21 @@ export function CallScreen({
         </View>
 
         <View style={styles.actions}>
-          <Pressable onPress={connectSocket} style={styles.btn}>
-            <Text style={styles.btnText}>Connect socket</Text>
-          </Pressable>
-          <Pressable onPress={joinRoom} style={styles.btn}>
-            <Text style={styles.btnText}>Join room</Text>
-          </Pressable>
-          <Pressable onPress={startOutgoingCall} style={styles.btnPrimary} disabled={busy}>
-            {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.btnPrimaryText}>Start call (offer)</Text>}
-          </Pressable>
+          {showDevControls ? (
+            <>
+              <Pressable onPress={connectSocket} style={styles.btn}>
+                <Text style={styles.btnText}>Connect socket</Text>
+              </Pressable>
+              <Pressable onPress={joinRoom} style={styles.btn}>
+                <Text style={styles.btnText}>Join room</Text>
+              </Pressable>
+            </>
+          ) : null}
+          {phase === "idle" || phase === "ended" || phase === "error" ? (
+            <Pressable onPress={startOutgoingCall} style={styles.btnPrimary} disabled={busy || !peerUserId}>
+              {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.btnPrimaryText}>Call again</Text>}
+            </Pressable>
+          ) : null}
           <Pressable
             onPress={() => {
               endCall(true);
@@ -482,6 +725,16 @@ const styles = StyleSheet.create({
   backBtn: { paddingVertical: 4, paddingHorizontal: 4 },
   backText: { color: "#93c5fd", fontWeight: "600" },
   title: { color: "#f8fafc", fontSize: 18, fontWeight: "700" },
+  peerCard: {
+    borderWidth: 1,
+    borderColor: "#334155",
+    borderRadius: 12,
+    padding: 14,
+    backgroundColor: "#111827",
+    marginBottom: 8,
+  },
+  peerLabel: { color: "#94a3b8", fontSize: 12, fontWeight: "600" },
+  peerName: { color: "#f8fafc", fontSize: 20, fontWeight: "700", marginTop: 4 },
   scroll: { padding: 16, gap: 10, paddingBottom: 32 },
   label: { color: "#94a3b8", fontSize: 12, fontWeight: "600" },
   input: {

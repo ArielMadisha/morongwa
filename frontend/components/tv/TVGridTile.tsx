@@ -31,8 +31,20 @@ import {
   Music2,
   Maximize2,
   Trash2,
+  Pencil,
 } from 'lucide-react';
-import { tvAPI, followsAPI, walletAPI, getImageUrl, getEffectivePrice } from '@/lib/api';
+import { EditPostModal } from './EditPostModal';
+import {
+  tvAPI,
+  followsAPI,
+  walletAPI,
+  getImageUrl,
+  getImageUrlFull,
+  getEffectivePrice,
+  getProductPriceForQty,
+  productSupplierStoreName,
+} from '@/lib/api';
+import { looksLikeImageUrl, looksLikeVideoUrl } from '@/lib/tvMedia';
 import type { Product } from '@/lib/types';
 import toast from 'react-hot-toast';
 import { TVCommentModal } from './TVCommentModal';
@@ -40,11 +52,20 @@ import { FollowButton } from '@/components/FollowButton';
 import { SetPictureOptionsModal } from '@/components/SetPictureOptionsModal';
 import { VideoSidebar } from './VideoSidebar';
 import { TranslateText } from '@/components/TranslateText';
+import { LinkifiedText } from '@/components/LinkifiedText';
 import { useCurrency } from '@/contexts/CurrencyContext';
 import { formatCurrencyAmount } from '@/lib/formatCurrency';
+import { formatCatalogProductPrice } from '@/lib/productPriceZar';
+import { bulkTierSummary } from '@/lib/bulkTierLabel';
+import { creatorDisplayLabel } from '@/lib/userDisplayLabel';
+import { ProfileSummaryHoverCard } from '@/components/ProfileSummaryHoverCard';
+import { MarketplaceCartStepper } from '@/components/MarketplaceCartStepper';
 
 const WATERMARK_IMG = '/watermark-qwertymates.svg';
 const WATERMARK_DURATION = 3; // seconds at start and end
+
+const DONATE_PRESET_AMOUNTS_ZAR = [50, 100, 200, 500] as const;
+const DONATE_COFFEE_AMOUNT_ZAR = 35;
 
 function formatPrice(price: number, currency: string) {
   return formatCurrencyAmount(price, currency || 'ZAR');
@@ -186,6 +207,8 @@ export interface TVGridItem {
   creatorId?: { _id: string; name?: string; avatar?: string; storeSlug?: string };
   /** Supplier storefront slug (QwertyHub tiles) — links to /store/[slug] */
   storeSlug?: string;
+  /** Supplier display name from catalog enrich */
+  storeName?: string;
   createdAt?: string;
   /** When true, media is blurred until user clicks to reveal */
   sensitive?: boolean;
@@ -197,12 +220,15 @@ export interface TVGridItem {
   discountPrice?: number;
   currency?: string;
   slug?: string;
-  supplierId?: { userId?: string } | string;
+  bulkTiers?: Array<{ minQty: number; maxQty: number; price: number }>;
+  supplierId?: { userId?: string; storeName?: string; _id?: string } | string;
   allowResell?: boolean;
   /** Reseller commission % when post is from reseller wall (3–7) */
   resellerCommissionPct?: number;
   /** Set when TV post was created from Add to MyStore (reseller listing) */
   fromResellerWall?: boolean;
+  /** e.g. profile_avatar_update */
+  feedActivity?: string;
 }
 
 function formatPostPeriod(createdAt?: string) {
@@ -235,6 +261,7 @@ interface TVGridTileProps {
   onEnquire?: (productId: string) => void;
   onCommentAdded?: (id: string) => void;
   onDelete?: (id: string) => void;
+  onUpdated?: (post: TVGridItem) => void;
   isVisible?: boolean;
   currentUserId?: string;
   onSetProfilePicFromUrl?: (url: string) => Promise<void>;
@@ -243,15 +270,40 @@ interface TVGridTileProps {
   variant?: 'feed' | 'grid';
   /** Related videos to show in sidebar when video is expanded (grid view) */
   relatedVideos?: TVGridItem[];
+  /** Cart qty for marketplace product on this tile (wall / feed). */
+  cartQty?: number;
+  onCartUpdated?: () => void;
+  loginHref?: string;
+  /** Hide tile when primary media cannot load (e.g. missing school-gallery file). */
+  onMediaUnavailable?: (id: string) => void;
 }
 
 function formatPriceLocal(price: number, currency: string) {
   return formatCurrencyAmount(price, currency || 'ZAR');
 }
 
-export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, onCommentAdded, onDelete, isVisible = true, currentUserId, onSetProfilePicFromUrl, onSetStripBackgroundFromUrl, variant = 'feed', relatedVideos }: TVGridTileProps) {
+export function TVGridTile({
+  item,
+  liked = false,
+  onLike,
+  onRepost,
+  onEnquire,
+  onCommentAdded,
+  onDelete,
+  onUpdated,
+  isVisible = true,
+  currentUserId,
+  onSetProfilePicFromUrl,
+  onSetStripBackgroundFromUrl,
+  variant = 'feed',
+  relatedVideos,
+  cartQty = 0,
+  onCartUpdated,
+  loginHref = '/login?returnTo=/wall',
+  onMediaUnavailable,
+}: TVGridTileProps) {
   const router = useRouter();
-  const { currency: localCurrency, rates } = useCurrency();
+  const { rates } = useCurrency();
   const [watermarkPhase, setWatermarkPhase] = useState<'start' | 'middle' | 'end'>('start');
   const [reportOpen, setReportOpen] = useState(false);
   const [reportReason, setReportReason] = useState('');
@@ -266,6 +318,7 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
   const [textHeadingExpanded, setTextHeadingExpanded] = useState(false);
   const [textBodyExpanded, setTextBodyExpanded] = useState(false);
   const [postMenuOpen, setPostMenuOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
   const [donateModalOpen, setDonateModalOpen] = useState(false);
   const [donateAmount, setDonateAmount] = useState('');
   const [donateSending, setDonateSending] = useState(false);
@@ -276,6 +329,12 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
   const [followNonce, setFollowNonce] = useState(0);
   const videoRef = useRef<HTMLVideoElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
+  /** Set when <video> fires error or media URL is missing — usually missing file on API (404). */
+  const [videoLoadError, setVideoLoadError] = useState(false);
+  /** Retry media with absolute API URL if same-origin /uploads proxy fails. */
+  const [mediaDirectApiFallback, setMediaDirectApiFallback] = useState(false);
+  const [imageFullyUnavailable, setImageFullyUnavailable] = useState(false);
+  const imageSkipAttemptsRef = useRef(0);
 
   const postPeriod = formatPostPeriod(item.createdAt);
   // Resolve creatorId (populated object or raw string) for donate/own-post logic
@@ -287,8 +346,24 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
   const isOwnPost = creatorIdResolved && currentUserId && creatorIdResolved === String(currentUserId);
 
   const isProductTile = item.type === 'product_tile';
-  const storeSlugResolved = item.storeSlug || item.creatorId?.storeSlug;
-  const creatorName = item.creatorId?.name || (isProductTile ? 'Store' : 'Creator');
+  const storeSlugResolved =
+    item.storeSlug ||
+    item.creatorId?.storeSlug ||
+    (typeof item.supplierId === 'object' && item.supplierId && 'storeSlug' in item.supplierId
+      ? String((item.supplierId as { storeSlug?: string }).storeSlug || '')
+      : '') ||
+    undefined;
+  const isProfileAvatarUpdate =
+    item.feedActivity === 'profile_avatar_update' ||
+    Boolean(item.caption?.toLowerCase().includes('updated profile picture'));
+  const supplierStoreLabel =
+    productSupplierStoreName(item.supplierId) ||
+    (item.storeName ? String(item.storeName).trim() : null) ||
+    productSupplierStoreName((item.productId as { supplierId?: { storeName?: string } } | undefined)?.supplierId) ||
+    null;
+  const creatorName =
+    supplierStoreLabel || creatorDisplayLabel(item.creatorId, isProductTile ? 'Store' : 'User');
+  const headerTitle = isProfileAvatarUpdate && item.caption ? item.caption : creatorName;
   const creatorProfileHref = (() => {
     if (isOwnPost) {
       if (isProductTile && storeSlugResolved) return `/store/${storeSlugResolved}`;
@@ -299,16 +374,112 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
     return '/wall';
   })();
   const isProductPost = isProductTile || !!item.productId;
+  const catalogProductId = isProductTile
+    ? String(item._id)
+    : item.productId
+      ? String((item.productId as { _id?: string })._id ?? item.productId)
+      : '';
+  const productOutOfStock =
+    isProductTile &&
+    ((item.stock != null && item.stock < 1) || !!(item as TVGridItem & { outOfStock?: boolean }).outOfStock);
+  const productPageHref = catalogProductId
+    ? `/marketplace/product/${catalogProductId}${!isProductTile && creatorIdResolved ? `?resellerId=${creatorIdResolved}` : ''}`
+    : '#';
+  const showProductCartStepper = Boolean(isProductTile && catalogProductId && onCartUpdated);
+  const productCartStepperEl = showProductCartStepper ? (
+    <MarketplaceCartStepper
+      productId={catalogProductId}
+      resellerId={undefined}
+      qty={cartQty}
+      colorsRequired={
+        (Array.isArray((item as { colors?: unknown[] }).colors) && (item as { colors: unknown[] }).colors.length > 0) ||
+        (Array.isArray((item.productId as { colors?: unknown[] } | undefined)?.colors) &&
+          ((item.productId as { colors: unknown[] }).colors?.length ?? 0) > 0)
+      }
+      outOfStock={productOutOfStock}
+      isGuest={!currentUserId}
+      loginHref={loginHref}
+      onUpdated={onCartUpdated!}
+      compact
+    />
+  ) : null;
   const isTextPost = item.type === 'text';
   const isAudioPost = item.type === 'audio';
-  const isVideo = !isProductTile && !isTextPost && !isAudioPost && (item.type === 'video' || (item.mediaUrls?.[0]?.match(/\.(mp4|webm)$/i)));
-  const isCarousel = !isProductTile && !isTextPost && !isAudioPost && !isVideo && (item.mediaUrls?.length ?? 0) > 1;
+  /** Image/carousel must never use the `<video>` branch — uploads under `/uploads/tv/` without a file extension
+   * are ambiguous and `looksLikeVideoUrl` would misclassify them as video (broken playback + blank tile). */
+  const explicitImageOrCarousel = item.type === 'image' || item.type === 'carousel';
   const isProductCarousel = isProductTile && (item.images?.length ?? 0) > 1;
-  const mediaUrl = isProductTile
-    ? (item.images?.[0] || '')
+  const productCarouselUrls = (() => {
+    if (isProductTile) return item.images ?? [];
+    if (item.type === 'product' && item.productId) {
+      const fromMedia = item.mediaUrls ?? [];
+      const fromProduct = ((item.productId as { images?: string[] }).images ?? []).filter(Boolean);
+      const merged = [...fromMedia];
+      for (const url of fromProduct) {
+        if (!merged.includes(url)) merged.push(url);
+      }
+      return merged;
+    }
+    return item.mediaUrls ?? [];
+  })();
+  const isCatalogImageCarousel = productCarouselUrls.length > 1 && (isProductTile || !!item.productId);
+  const mediaUrl = isProductTile || (item.type === 'product' && item.productId)
+    ? (productCarouselUrls[carouselIndex] || productCarouselUrls[0] || '')
     : (item.mediaUrls?.[carouselIndex] || item.mediaUrls?.[0] || (item.productId as any)?.images?.[0] || '');
+  const primaryTvMedia = item.mediaUrls?.[0];
+  const isVideo =
+    !isProductTile &&
+    !isTextPost &&
+    !isAudioPost &&
+    !explicitImageOrCarousel &&
+    !looksLikeImageUrl(primaryTvMedia) &&
+    !looksLikeImageUrl(mediaUrl) &&
+    (item.type === 'video' || looksLikeVideoUrl(primaryTvMedia));
+  const isCarousel = !isProductTile && !isTextPost && !isAudioPost && !isVideo && (item.mediaUrls?.length ?? 0) > 1;
   /** Same-origin /uploads paths and legacy API URLs — prefer getImageUrl, never drop a valid relative URL. */
   const resolvedMediaSrc = mediaUrl ? getImageUrl(mediaUrl) || mediaUrl : '';
+  const displayMediaSrc =
+    mediaDirectApiFallback && mediaUrl ? getImageUrlFull(mediaUrl) : resolvedMediaSrc;
+
+  useEffect(() => {
+    setVideoLoadError(false);
+    setMediaDirectApiFallback(false);
+    setImageFullyUnavailable(false);
+    imageSkipAttemptsRef.current = 0;
+  }, [resolvedMediaSrc, mediaUrl, item._id, carouselIndex]);
+
+  const carouselUrlCount = isProductCarousel || isCatalogImageCarousel
+    ? productCarouselUrls.length
+    : (item.mediaUrls?.length ?? 0);
+
+  const tryNextCarouselImage = () => {
+    if (carouselUrlCount <= 1) return false;
+    imageSkipAttemptsRef.current += 1;
+    if (imageSkipAttemptsRef.current >= carouselUrlCount) return false;
+    setCarouselIndex((i) => (i + 1) % carouselUrlCount);
+    setMediaDirectApiFallback(false);
+    return true;
+  };
+
+  const markImageUnavailable = () => {
+    if ((isCarousel || isProductCarousel || isCatalogImageCarousel) && tryNextCarouselImage()) return;
+    setImageFullyUnavailable(true);
+    onMediaUnavailable?.(item._id);
+  };
+
+  const handleImageLoadError = () => {
+    if (!mediaDirectApiFallback) {
+      setMediaDirectApiFallback(true);
+      return;
+    }
+    markImageUnavailable();
+  };
+
+  const videoUnavailable = isVideo && (!displayMediaSrc || videoLoadError);
+
+  if (imageFullyUnavailable && !isTextPost && !isAudioPost && !isVideo) {
+    return null;
+  }
 
   // TikTok-style watermark: show at start (first 3s) and end (last 3s)
   useEffect(() => {
@@ -335,7 +506,10 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
     };
   }, [isVideo, isVisible]);
 
-  const showWatermark = item.hasWatermark !== false && (watermarkPhase === 'start' || watermarkPhase === 'end');
+  const showWatermark =
+    !isProfileAvatarUpdate &&
+    item.hasWatermark !== false &&
+    (watermarkPhase === 'start' || watermarkPhase === 'end');
 
   useEffect(() => {
     if (!lightboxOpen) return;
@@ -356,6 +530,18 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
     return () => window.removeEventListener('keydown', onEscape);
   }, [videoExpandOpen]);
 
+  /** Browsers block unmuted autoplay — expanded player starts muted; user can unmute via controls. */
+  useEffect(() => {
+    if (!videoExpandOpen || !isVideo) return;
+    const id = requestAnimationFrame(() => {
+      const v = expandedVideoRef.current;
+      if (!v) return;
+      v.muted = true;
+      void v.play().catch(() => {});
+    });
+    return () => cancelAnimationFrame(id);
+  }, [videoExpandOpen, isVideo, displayMediaSrc]);
+
   // Hide sidebar when video is fullscreen (YouTube-style)
   useEffect(() => {
     if (!videoExpandOpen || !expandedVideoRef.current) return;
@@ -367,15 +553,24 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
     return () => document.removeEventListener('fullscreenchange', onFullscreenChange);
   }, [videoExpandOpen]);
 
-  // Autoplay video when visible
+  // Autoplay when tile is visible (muted + playsInline satisfies browser autoplay rules)
   useEffect(() => {
-    if (!videoRef.current || !isVisible) return;
+    const v = videoRef.current;
+    if (!v || !isVideo) return;
     if (isVisible) {
-      videoRef.current.play().catch(() => {});
+      v.muted = true;
+      void v.play().catch(() => {});
     } else {
-      videoRef.current.pause();
+      v.pause();
     }
-  }, [isVisible, isVideo]);
+  }, [isVisible, isVideo, displayMediaSrc]);
+
+  const nudgeVideoPlay = () => {
+    const v = videoRef.current;
+    if (!v || !isVideo || !isVisible) return;
+    v.muted = true;
+    void v.play().catch(() => {});
+  };
 
   // Autoplay audio when visible (mobile scroll)
   useEffect(() => {
@@ -493,18 +688,9 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
     (item.resellerCommissionPct != null || item.fromResellerWall === true);
   const showResellButton = canResellProduct && !isSecondTierResellerListing;
   const openTextPost = () => router.push(`/morongwa-tv/post/${item._id}`);
-  const toViewerCurrency = (amount: number, sourceCurrency: string) => {
-    const from = String(sourceCurrency || 'USD').toUpperCase();
-    const to = String(localCurrency || from).toUpperCase();
-    if (!Number.isFinite(amount)) return formatCurrencyAmount(0, to || 'ZAR');
-    if (from === to) return formatCurrencyAmount(amount, to);
-    const fromRate = Number(rates?.[from] ?? 0);
-    const toRate = Number(rates?.[to] ?? 0);
-    if (!(fromRate > 0) || !(toRate > 0)) return formatCurrencyAmount(amount, from);
-    const usd = amount / fromRate;
-    const converted = Math.round(usd * toRate * 100) / 100;
-    return formatCurrencyAmount(converted, to);
-  };
+  /** Platform rule: wall / QwertyTV product amounts are always shown in ZAR (catalog may store USD, INR, etc.). */
+  const toViewerZar = (amount: number, sourceCurrency: string) =>
+    formatCatalogProductPrice(amount, sourceCurrency, rates);
 
   /** ⋯ menu: top placement on feed; bottom placement on QwertyTV grid (opens upward). */
   const postOverflowMenu = (placement: 'top' | 'bottom') => {
@@ -536,31 +722,48 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
                 openUp ? 'bottom-full mb-1' : 'top-full mt-1'
               }`}
             >
-              <button
-                onClick={() => {
-                  setPostMenuOpen(false);
-                  setReportOpen(true);
-                }}
-                className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-rose-600 hover:bg-rose-50"
-              >
-                <Flag className="h-4 w-4" /> Report
-              </button>
               {isOwnPost && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPostMenuOpen(false);
+                      setEditOpen(true);
+                    }}
+                    className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-slate-800 hover:bg-slate-50"
+                  >
+                    <Pencil className="h-4 w-4" /> Edit post
+                  </button>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setPostMenuOpen(false);
+                      if (!confirm('Delete this post? This cannot be undone.')) return;
+                      try {
+                        await tvAPI.deletePost(item._id);
+                        toast.success('Post deleted');
+                        onDelete?.(item._id);
+                      } catch (e: any) {
+                        toast.error(e.response?.data?.message || 'Failed to delete post');
+                      }
+                    }}
+                    className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-rose-600 hover:bg-rose-50"
+                  >
+                    <Trash2 className="h-4 w-4" /> Delete post
+                  </button>
+                  <div className="my-1 border-t border-slate-100" />
+                </>
+              )}
+              {!isOwnPost && (
                 <button
-                  onClick={async () => {
+                  type="button"
+                  onClick={() => {
                     setPostMenuOpen(false);
-                    if (!confirm('Delete this post? This cannot be undone.')) return;
-                    try {
-                      await tvAPI.deletePost(item._id);
-                      toast.success('Post deleted');
-                      onDelete?.(item._id);
-                    } catch (e: any) {
-                      toast.error(e.response?.data?.message || 'Failed to delete post');
-                    }
+                    setReportOpen(true);
                   }}
                   className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-rose-600 hover:bg-rose-50"
                 >
-                  <Trash2 className="h-4 w-4" /> Delete post
+                  <Flag className="h-4 w-4" /> Report
                 </button>
               )}
               {!isOwnPost && item.creatorId?._id && currentUserId && (
@@ -667,6 +870,7 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
   };
 
   return (
+    <>
     <div
       className={`rounded-lg overflow-hidden bg-white border border-slate-100 shadow-sm flex flex-col ${
         variant === 'grid' ? 'flex-1 min-h-0 h-full' : ''
@@ -719,7 +923,7 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
             )}
             <audio
               ref={audioRef}
-              src={resolvedMediaSrc}
+              src={displayMediaSrc}
               controls
               playsInline
               className="w-full max-w-full h-9 [&::-webkit-media-controls-panel]:bg-transparent"
@@ -801,9 +1005,12 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
                     )}
                     {hasBody && (
                       <div>
-                        <p className="text-slate-700 text-[15px] leading-[1.6] whitespace-pre-wrap">
-                          {displayBody}
-                        </p>
+                        <LinkifiedText
+                          text={displayBody}
+                          as="p"
+                          className="text-slate-700 text-[15px] leading-[1.6]"
+                          preserveWhitespace
+                        />
                         {shouldTruncateBody && (
                           <button
                             type="button"
@@ -833,20 +1040,28 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
         </div>
       ) : isProductTile ? (
         <div className="relative isolate w-full h-full z-0">
-          <Link href={`/marketplace/product/${item._id}`} className="block w-full h-full">
+          <button
+            type="button"
+            className="block w-full h-full cursor-pointer text-left"
+            onClick={(e) => {
+              e.stopPropagation();
+              router.push(`/marketplace/product/${item._id}`);
+            }}
+          >
             <div className="w-full h-full flex items-center justify-center bg-slate-800">
-              {resolvedMediaSrc ? (
+              {displayMediaSrc ? (
                 <img
-                  src={resolvedMediaSrc}
+                  src={displayMediaSrc}
                   alt={item.title || 'Product'}
                   className={`w-full h-full object-cover relative z-10 ${filterClass}`}
                   data-pin-nopin="true"
+                  onError={handleImageLoadError}
                 />
               ) : (
                 <Package className="h-16 w-16 text-slate-500" />
               )}
             </div>
-          </Link>
+          </button>
           {isProductCarousel && (
             <>
               <button
@@ -854,9 +1069,9 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
                 onClick={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
-                  setCarouselIndex((i) => (i - 1 + (item.images?.length ?? 1)) % (item.images?.length ?? 1));
+                  setCarouselIndex((i) => (i - 1 + productCarouselUrls.length) % productCarouselUrls.length);
                 }}
-                className="absolute left-2 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/50 hover:bg-black/70 text-white z-10"
+                className="absolute left-2 top-1/2 -translate-y-1/2 z-50 p-2.5 rounded-full bg-black/55 hover:bg-black/70 text-white touch-manipulation min-h-[44px] min-w-[44px] flex items-center justify-center"
                 aria-label="Previous image"
               >
                 <ChevronLeft className="h-5 w-5 sm:h-6 sm:w-6" />
@@ -866,15 +1081,15 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
                 onClick={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
-                  setCarouselIndex((i) => (i + 1) % (item.images?.length ?? 1));
+                  setCarouselIndex((i) => (i + 1) % productCarouselUrls.length);
                 }}
-                className="absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/50 hover:bg-black/70 text-white z-10"
+                className="absolute right-2 top-1/2 -translate-y-1/2 z-50 p-2.5 rounded-full bg-black/55 hover:bg-black/70 text-white touch-manipulation min-h-[44px] min-w-[44px] flex items-center justify-center"
                 aria-label="Next image"
               >
                 <ChevronRight className="h-5 w-5 sm:h-6 sm:w-6" />
               </button>
-              <div className="absolute bottom-1 left-0 right-0 flex justify-center gap-1 pointer-events-none">
-                {(item.images ?? []).map((_, i) => (
+              <div className="absolute bottom-1 left-0 right-0 flex justify-center gap-1 pointer-events-none z-50">
+                {productCarouselUrls.map((_, i) => (
                   <span
                     key={i}
                     className={`w-1.5 h-1.5 rounded-full ${i === carouselIndex ? 'bg-white' : 'bg-white/50'}`}
@@ -899,14 +1114,31 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
           }}
         >
           <video
+            key={displayMediaSrc || item._id}
             ref={videoRef}
-            src={resolvedMediaSrc}
+            src={displayMediaSrc || undefined}
             playsInline
             loop
             muted
-            className={`w-full h-full object-cover ${filterClass} ${item.sensitive && !sensitiveRevealed ? 'blur-2xl scale-110' : ''}`}
+            autoPlay
+            preload="auto"
+            onLoadedData={nudgeVideoPlay}
+            onCanPlay={nudgeVideoPlay}
+            onError={() => {
+              if (!mediaDirectApiFallback) setMediaDirectApiFallback(true);
+              else setVideoLoadError(true);
+            }}
+            className={`w-full h-full object-cover ${filterClass} ${item.sensitive && !sensitiveRevealed ? 'blur-2xl scale-110' : ''} ${videoUnavailable ? 'opacity-0' : ''}`}
             style={{ touchAction: 'pan-y' }}
           />
+          {videoUnavailable && (
+            <div className="absolute inset-0 z-[25] flex flex-col items-center justify-center gap-2 bg-slate-900 px-4 text-center">
+              <p className="text-sm font-semibold text-white">Video unavailable</p>
+              <p className="max-w-xs text-xs text-slate-400">
+                This clip&apos;s file is missing on the server. Ops: restore <code className="rounded bg-slate-800 px-1 py-0.5 text-[10px] text-slate-300">uploads/tv</code> on the API host or re-upload.
+              </p>
+            </div>
+          )}
           {item.sensitive && !sensitiveRevealed ? (
             <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 z-20">
               <p className="text-white/90 text-sm font-medium mb-3 px-4 text-center">This content may be sensitive</p>
@@ -927,16 +1159,21 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
       ) : (
         <div className="relative w-full h-full overflow-hidden">
           {productId ? (
-            <Link
-              href={`/marketplace/product/${productId}${creatorIdResolved ? `?resellerId=${creatorIdResolved}` : ''}`}
-              className="relative w-full h-full cursor-pointer block focus:outline-none"
+            <button
+              type="button"
+              className="relative w-full h-full cursor-pointer block focus:outline-none text-left"
+              onClick={(e) => {
+                e.stopPropagation();
+                router.push(productPageHref);
+              }}
             >
-              {resolvedMediaSrc ? (
+              {displayMediaSrc ? (
                 <img
-                  src={resolvedMediaSrc}
+                  src={displayMediaSrc}
                   alt={item.caption || (item.productId as any)?.title || 'Product'}
                   className={`w-full h-full ${variant === 'grid' ? 'object-cover' : 'object-contain'} ${filterClass} ${item.sensitive && !sensitiveRevealed ? 'blur-2xl scale-110' : ''}`}
                   data-pin-nopin="true"
+                  onError={handleImageLoadError}
                 />
               ) : (
                 <div className="w-full h-full flex items-center justify-center bg-slate-800">
@@ -946,16 +1183,24 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
               {item.sensitive && !sensitiveRevealed && (
                 <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/50 z-20">
                   <p className="text-white/90 text-sm font-medium mb-3 px-4 text-center">This content may be sensitive</p>
-                  <button
-                    type="button"
+                  <span
+                    role="button"
+                    tabIndex={0}
                     onClick={(e) => { e.preventDefault(); e.stopPropagation(); setSensitiveRevealed(true); }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setSensitiveRevealed(true);
+                      }
+                    }}
                     className="px-4 py-2 rounded-lg bg-white/20 hover:bg-white/30 text-white font-medium text-sm"
                   >
                     Click to reveal
-                  </button>
+                  </span>
                 </div>
               )}
-            </Link>
+            </button>
           ) : (
             <button
               type="button"
@@ -969,13 +1214,16 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
                 }
               }}
             >
-              {resolvedMediaSrc ? (
-                <img
-                  src={resolvedMediaSrc}
-                  alt={item.caption || item.heading || 'Post'}
-                  className={`w-full h-full ${variant === 'grid' ? 'object-cover' : 'object-contain'} ${filterClass} ${item.sensitive && !sensitiveRevealed ? 'blur-2xl scale-110' : ''}`}
-                  data-pin-nopin="true"
-                />
+              {displayMediaSrc ? (
+                <>
+                  <img
+                    src={displayMediaSrc}
+                    alt={item.caption || item.heading || 'Post'}
+                    className={`w-full h-full ${variant === 'grid' ? 'object-cover' : 'object-contain'} ${filterClass} ${item.sensitive && !sensitiveRevealed ? 'blur-2xl scale-110' : ''}`}
+                    data-pin-nopin="true"
+                    onError={handleImageLoadError}
+                  />
+                </>
               ) : (
                 <div className="w-full h-full flex items-center justify-center bg-slate-800">
                   <Package className="h-16 w-16 text-slate-500" />
@@ -995,15 +1243,15 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
               )}
             </button>
           )}
-          {isCarousel && (item.mediaUrls?.length ?? 0) > 1 && (
+          {(isCarousel || isCatalogImageCarousel) && carouselUrlCount > 1 && (
             <>
               <button
                 type="button"
                 onClick={(e) => {
                   e.stopPropagation();
-                  setCarouselIndex((i) => (i - 1 + (item.mediaUrls?.length ?? 1)) % (item.mediaUrls?.length ?? 1));
+                  setCarouselIndex((i) => (i - 1 + carouselUrlCount) % carouselUrlCount);
                 }}
-                className="absolute left-2 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/50 hover:bg-black/70 text-white z-10"
+                className="absolute left-2 top-1/2 -translate-y-1/2 z-50 p-2.5 rounded-full bg-black/55 hover:bg-black/70 text-white touch-manipulation min-h-[44px] min-w-[44px] flex items-center justify-center"
                 aria-label="Previous image"
               >
                 <ChevronLeft className="h-5 w-5 sm:h-6 sm:w-6" />
@@ -1012,15 +1260,15 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
                 type="button"
                 onClick={(e) => {
                   e.stopPropagation();
-                  setCarouselIndex((i) => (i + 1) % (item.mediaUrls?.length ?? 1));
+                  setCarouselIndex((i) => (i + 1) % carouselUrlCount);
                 }}
-                className="absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/50 hover:bg-black/70 text-white z-10"
+                className="absolute right-2 top-1/2 -translate-y-1/2 z-50 p-2.5 rounded-full bg-black/55 hover:bg-black/70 text-white touch-manipulation min-h-[44px] min-w-[44px] flex items-center justify-center"
                 aria-label="Next image"
               >
                 <ChevronRight className="h-5 w-5 sm:h-6 sm:w-6" />
               </button>
-              <div className="absolute bottom-1 left-0 right-0 flex justify-center gap-1 pointer-events-none">
-                {(item.mediaUrls ?? []).map((_, i) => (
+              <div className="absolute bottom-1 left-0 right-0 flex justify-center gap-1 pointer-events-none z-50">
+                {(isCatalogImageCarousel ? productCarouselUrls : item.mediaUrls ?? []).map((_, i) => (
                   <span
                     key={i}
                     className={`w-1.5 h-1.5 rounded-full ${i === carouselIndex ? 'bg-white' : 'bg-white/50'}`}
@@ -1029,6 +1277,26 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
               </div>
             </>
           )}
+          {!isProductTile && catalogProductId && onCartUpdated ? (
+            <div className="absolute right-2 top-2 z-20">
+              <MarketplaceCartStepper
+                productId={catalogProductId}
+                resellerId={creatorIdResolved || undefined}
+                qty={cartQty}
+                colorsRequired={
+                  (Array.isArray((item.productId as { colors?: unknown[] } | undefined)?.colors) &&
+                    ((item.productId as { colors: unknown[] }).colors?.length ?? 0) > 0) ||
+                  (Array.isArray((item as { colors?: unknown[] }).colors) &&
+                    (item as { colors: unknown[] }).colors.length > 0)
+                }
+                outOfStock={!!(item.productId as Product & { outOfStock?: boolean })?.outOfStock}
+                isGuest={!currentUserId}
+                loginHref={loginHref}
+                onUpdated={onCartUpdated}
+                compact
+              />
+            </div>
+          ) : null}
         </div>
       )}
 
@@ -1041,39 +1309,81 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
         }`}
       >
         <div className="flex min-w-0 flex-1 items-center gap-2">
-          <Link
-            href={creatorProfileHref}
-            className="flex min-w-0 items-center gap-2"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="h-8 w-8 flex-shrink-0 overflow-hidden rounded-full border-2 border-white/40 bg-slate-600 shadow-md ring-1 ring-black/20">
-              {item.creatorId?.avatar ? (
-                <img src={getImageUrl(item.creatorId.avatar)} alt="" className="h-full w-full object-cover" />
-              ) : (
+          {creatorIdResolved ? (
+            <ProfileSummaryHoverCard
+              userId={creatorIdResolved}
+              displayName={headerTitle}
+              avatar={item.creatorId?.avatar}
+              currentUserId={currentUserId}
+              profileHref={creatorProfileHref}
+              isStore={isProductTile || !!supplierStoreLabel}
+              className="min-w-0 flex-1"
+            >
+              <Link
+                href={creatorProfileHref}
+                className="flex min-w-0 items-center gap-2"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="h-8 w-8 flex-shrink-0 overflow-hidden rounded-full border-2 border-white/40 bg-slate-600 shadow-md ring-1 ring-black/20">
+                  {item.creatorId?.avatar ? (
+                    <img
+                      src={getImageUrlFull(item.creatorId.avatar) || getImageUrl(item.creatorId.avatar)}
+                      alt=""
+                      className="h-full w-full object-cover"
+                      referrerPolicy="no-referrer"
+                    />
+                  ) : (
+                    <span className="flex h-full w-full items-center justify-center text-white">
+                      <User className="h-4 w-4" />
+                    </span>
+                  )}
+                </div>
+                <div className="min-w-0">
+                  <p
+                    className={`truncate text-sm font-semibold text-white ${
+                      variant === 'grid' ? 'drop-shadow-[0_1px_3px_rgba(0,0,0,0.95)]' : ''
+                    }`}
+                  >
+                    {headerTitle}
+                  </p>
+                </div>
+              </Link>
+            </ProfileSummaryHoverCard>
+          ) : (
+            <Link
+              href={creatorProfileHref}
+              className="flex min-w-0 items-center gap-2"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="h-8 w-8 flex-shrink-0 overflow-hidden rounded-full border-2 border-white/40 bg-slate-600 shadow-md ring-1 ring-black/20">
                 <span className="flex h-full w-full items-center justify-center text-white">
                   <User className="h-4 w-4" />
                 </span>
-              )}
-            </div>
-            <div className="min-w-0">
-              <p
-                className={`truncate text-sm font-semibold text-white ${
-                  variant === 'grid' ? 'drop-shadow-[0_1px_3px_rgba(0,0,0,0.95)]' : ''
-                }`}
-              >
-                {creatorName}
-              </p>
-            </div>
-          </Link>
+              </div>
+              <div className="min-w-0">
+                <p
+                  className={`truncate text-sm font-semibold text-white ${
+                    variant === 'grid' ? 'drop-shadow-[0_1px_3px_rgba(0,0,0,0.95)]' : ''
+                  }`}
+                >
+                  {headerTitle}
+                </p>
+              </div>
+            </Link>
+          )}
         </div>
         <div
-          className={`shrink-0 ${variant === 'grid' ? 'flex flex-col items-end gap-2' : 'flex items-center gap-1'}`}
+          className={`shrink-0 ${
+            variant === 'grid' || showProductCartStepper
+              ? 'flex flex-col items-end gap-1.5'
+              : 'flex items-center gap-1'
+          }`}
           onClick={(e) => e.stopPropagation()}
         >
           {postPeriod && (
             <span
               className={
-                variant === 'grid'
+                variant === 'grid' || showProductCartStepper
                   ? 'max-w-[min(100%,7.5rem)] shrink-0 text-right text-[9px] font-semibold leading-tight tracking-tight text-white drop-shadow-[0_1px_3px_rgba(0,0,0,0.95)] sm:text-[10px] md:text-[11px]'
                   : 'mr-1 text-xs font-medium text-white/90'
               }
@@ -1081,7 +1391,8 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
               {postPeriod}
             </span>
           )}
-          {variant !== 'grid' && postOverflowMenu('top')}
+          {productCartStepperEl}
+          {variant !== 'grid' && !showProductCartStepper && postOverflowMenu('top')}
           {!isProductTile && item.creatorId?._id && !isOwnPost && (
             <FollowButton
               key={followNonce}
@@ -1097,24 +1408,42 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
         </div>
       </div>
 
-      {/* Product actions overlay (Resell, Buy, Enquire) — product_tile + product posts with productId */}
+      {/* Product actions overlay — cart stepper is on image; checkout / resell / enquire below */}
       {(isProductTile || productId) && !donateModalOpen && (
-        <div className="absolute inset-x-0 bottom-0 p-3 bg-gradient-to-t from-black/60 to-transparent flex flex-wrap gap-1.5 z-[60] pointer-events-auto">
+        <div className="absolute inset-x-0 bottom-0 p-3 bg-gradient-to-t from-black/60 to-transparent flex flex-wrap items-center gap-1.5 z-[60] pointer-events-auto touch-manipulation">
           {productId && showResellButton && (
-            <Link
-              href={`/marketplace/product/${productId || item._id}?view=resell`}
-              className="inline-flex items-center justify-center px-2 py-1 rounded-lg bg-white/20 text-white text-xs font-medium hover:bg-white/30"
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                router.push(`/marketplace/product/${productId || item._id}?view=resell`);
+              }}
+              className="inline-flex items-center justify-center px-3 py-2 min-h-[40px] rounded-lg bg-white/20 text-white text-xs font-medium hover:bg-white/30 touch-manipulation"
             >
               Resell
-            </Link>
+            </button>
           )}
-          <Link
-            href={`/marketplace/product/${productId || item._id}${!isProductTile && creatorIdResolved ? `?resellerId=${creatorIdResolved}` : ''}`}
-            className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-sky-500 text-white text-xs font-medium hover:bg-sky-600"
-          >
-            <ShoppingCart className="h-4 w-4" />
-            Buy
-          </Link>
+          {catalogProductId && cartQty > 0 ? (
+            <Link
+              href="/cart"
+              onClick={(e) => e.stopPropagation()}
+              className="inline-flex items-center gap-1 px-3 py-2 min-h-[40px] rounded-lg bg-sky-500 text-white text-xs font-medium hover:bg-sky-600 touch-manipulation"
+            >
+              <ShoppingCart className="h-4 w-4" />
+              Checkout
+            </Link>
+          ) : catalogProductId ? (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                router.push(productPageHref);
+              }}
+              className="inline-flex items-center gap-1 px-3 py-2 min-h-[40px] rounded-lg bg-white/20 text-white text-xs font-medium hover:bg-white/30 border border-white/30 touch-manipulation"
+            >
+              View product
+            </button>
+          ) : null}
           {hasSeller && onEnquire && productId && (
             <button
               onClick={(e) => { e.stopPropagation(); onEnquire(productId); }}
@@ -1201,6 +1530,21 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
                   #{tag}
                 </Link>
               ))}
+            </div>
+          )}
+          {isVideo && item.songId && ((item.songId as any)?.title || (item.songId as any)?.artist) && (
+            <div className="mb-2">
+              <Link
+                href="/qwerty-music"
+                onClick={(e) => e.stopPropagation()}
+                className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-violet-200 bg-violet-50 px-2.5 py-1 text-[11px] font-semibold text-violet-900 hover:bg-violet-100"
+              >
+                <Music2 className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                <span className="truncate">
+                  {(item.songId as any)?.title || 'Sound'}
+                  {(item.songId as any)?.artist ? ` — ${(item.songId as any).artist}` : ''}
+                </span>
+              </Link>
             </div>
           )}
           <div className="flex items-center justify-between gap-2">
@@ -1326,11 +1670,12 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
                 <h3 className="text-base font-bold text-slate-900 mb-1.5">{item.heading}</h3>
               )}
               {(item.caption || item.subject) && (
-                <p className="text-sm text-slate-800">
+                <p className="text-[15px] text-slate-800 leading-relaxed">
                   <TranslateText
                     text={captionExpanded ? (item.caption || item.subject || '') : (item.caption || item.subject || '').length > 80 ? `${(item.caption || item.subject || '').slice(0, 80)}...` : (item.caption || item.subject || '')}
                     as="span"
                     compact
+                    preserveWhitespace
                   />
                   {!captionExpanded && (item.caption || item.subject || '').length > 80 && (
                     <button
@@ -1376,15 +1721,34 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
           })()}
           <p className="text-sm font-semibold text-slate-900">
             {(() => {
-              const prod = isProductTile ? { price: item.price || 0, discountPrice: item.discountPrice, currency: item.currency || 'ZAR' } : { price: (item.productId as any)?.price ?? 0, discountPrice: (item.productId as any)?.discountPrice, currency: (item.productId as any)?.currency || 'ZAR' };
-              let displayPrice = getEffectivePrice({ price: prod.price, discountPrice: prod.discountPrice });
+              const prod = isProductTile
+                ? {
+                    price: item.price || 0,
+                    discountPrice: item.discountPrice,
+                    bulkTiers: item.bulkTiers,
+                    currency: item.currency || 'ZAR',
+                  }
+                : {
+                    price: (item.productId as any)?.price ?? 0,
+                    discountPrice: (item.productId as any)?.discountPrice,
+                    bulkTiers: (item.productId as any)?.bulkTiers,
+                    currency: (item.productId as any)?.currency || 'ZAR',
+                  };
+              let displayPrice = getProductPriceForQty(prod, 1);
               const resellerPct = item.resellerCommissionPct ?? (item as any).resellerCommissionPct;
               if (resellerPct != null && creatorIdResolved) {
                 displayPrice = Math.round(displayPrice * (1 + resellerPct / 100) * 100) / 100;
               }
-              return toViewerCurrency(displayPrice, prod.currency);
+              return toViewerZar(displayPrice, prod.currency);
             })()}
           </p>
+          {(() => {
+            const tiers =
+              item.bulkTiers ||
+              (item.productId as { bulkTiers?: typeof item.bulkTiers } | undefined)?.bulkTiers;
+            const hint = bulkTierSummary(tiers, (n) => formatPriceLocal(n, item.currency || 'ZAR'));
+            return hint ? <p className="text-[11px] text-sky-700 mt-0.5">Bulk: {hint}</p> : null;
+          })()}
         </Link>
       )}
 
@@ -1466,16 +1830,35 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
             className={`relative flex flex-col flex-1 min-h-0 ${relatedVideos?.length && !isFullscreen ? 'w-full lg:w-auto lg:min-w-0 lg:flex-1 items-start justify-center px-4 lg:px-6' : 'w-full max-w-[90vw] items-center justify-center'}`}
             onClick={(e) => e.stopPropagation()}
           >
-            <video
-              ref={expandedVideoRef}
-              src={resolvedMediaSrc}
-              controls
-              autoPlay
-              loop
-              playsInline
-              className={`w-full max-w-full object-contain ${relatedVideos?.length && !isFullscreen ? 'max-h-[60vh] lg:max-h-[85vh]' : 'max-h-[70vh]'}`}
-              onClick={(e) => e.stopPropagation()}
-            />
+            {!videoUnavailable ? (
+              <video
+                ref={expandedVideoRef}
+                src={displayMediaSrc || undefined}
+                controls
+                autoPlay
+                loop
+                playsInline
+                muted
+                preload="auto"
+                onError={() => {
+                  if (!mediaDirectApiFallback) setMediaDirectApiFallback(true);
+                  else setVideoLoadError(true);
+                }}
+                className={`w-full max-w-full object-contain ${relatedVideos?.length && !isFullscreen ? 'max-h-[60vh] lg:max-h-[85vh]' : 'max-h-[70vh]'}`}
+                onClick={(e) => e.stopPropagation()}
+              />
+            ) : (
+              <div
+                className={`flex flex-col items-center justify-center gap-2 rounded-xl bg-slate-900 px-6 py-10 text-center ${relatedVideos?.length && !isFullscreen ? 'min-h-[40vh] w-full max-w-xl' : 'min-h-[40vh] w-full max-w-2xl'}`}
+              >
+                <p className="text-base font-semibold text-white">Video couldn&apos;t load</p>
+                <p className="max-w-md text-sm text-slate-400">
+                  The MP4 isn&apos;t available at the URL stored for this post (server returned missing file). Restore
+                  backups under <code className="text-slate-300">uploads/tv</code> on the API host or replace the post
+                  media.
+                </p>
+              </div>
+            )}
             {/* Action icons - visible below video when not fullscreen. View count: videos only */}
             <div className={`flex-shrink-0 mt-4 px-4 py-3 flex items-center justify-center gap-4 sm:gap-6 flex-wrap rounded-xl ${relatedVideos?.length && !isFullscreen ? 'bg-slate-100' : 'bg-white/10 backdrop-blur-sm'}`}>
               {isVideo && (
@@ -1562,7 +1945,7 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
                 items={relatedVideos}
                 currentPostId={item._id}
                 creatorId={creatorIdResolved ?? undefined}
-                creatorName={creatorName !== 'Creator' ? creatorName : undefined}
+                creatorName={creatorName !== 'User' ? creatorName : undefined}
                 embedded
               />
             </div>
@@ -1589,10 +1972,11 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
             onClick={(e) => e.stopPropagation()}
           >
             <img
-              src={resolvedMediaSrc}
+              src={displayMediaSrc}
               alt={item.caption || 'Post'}
               className={`max-w-full max-h-[90vh] object-contain ${filterClass}`}
               data-pin-nopin="true"
+              onError={handleImageLoadError}
             />
             {isCarousel && (item.mediaUrls?.length ?? 0) > 1 && (
               <>
@@ -1652,7 +2036,7 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
       {donateModalOpen && (
         <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/60 p-4" onClick={() => { setDonateModalOpen(false); setDonateAmount(''); }}>
           <div className="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6" onClick={(e) => e.stopPropagation()}>
-            <h2 className="text-lg font-semibold text-slate-900 mb-2">Donate to {creatorName}</h2>
+            <h2 className="text-lg font-semibold text-slate-900 mb-2">Donate</h2>
             <p className="text-sm text-slate-600 mb-2">Amount will be deducted from your wallet and sent to the creator.</p>
             <p className="text-xs text-slate-500 mb-4">
               {donateBalanceLoading ? 'Checking wallet balance...' : `Wallet balance: R${Number(donateBalance ?? 0).toFixed(0)}`}
@@ -1665,8 +2049,38 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
               value={donateAmount}
               onChange={(e) => setDonateAmount(e.target.value)}
               placeholder="Enter amount (ZAR)"
-              className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm mb-4"
+              className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm mb-2"
             />
+            <div className="flex flex-wrap gap-2 mb-2">
+              {DONATE_PRESET_AMOUNTS_ZAR.map((amt) => {
+                const selected = parseFloat(donateAmount) === amt && !Number.isNaN(parseFloat(donateAmount));
+                return (
+                  <button
+                    key={amt}
+                    type="button"
+                    onClick={() => setDonateAmount(String(amt))}
+                    className={`min-w-[4.25rem] px-3 py-1.5 rounded-lg text-sm font-semibold border transition-colors ${
+                      selected
+                        ? 'border-sky-500 bg-sky-50 text-sky-800'
+                        : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50 hover:border-slate-300'
+                    }`}
+                  >
+                    R{amt}
+                  </button>
+                );
+              })}
+            </div>
+            <button
+              type="button"
+              onClick={() => setDonateAmount(String(DONATE_COFFEE_AMOUNT_ZAR))}
+              className={`w-full px-4 py-2.5 rounded-xl text-sm font-semibold border transition-colors mb-4 ${
+                parseFloat(donateAmount) === DONATE_COFFEE_AMOUNT_ZAR && !Number.isNaN(parseFloat(donateAmount))
+                  ? 'border-amber-500 bg-amber-50 text-amber-950'
+                  : 'border-amber-200 bg-amber-50/90 text-amber-950 hover:bg-amber-100 hover:border-amber-300'
+              }`}
+            >
+              Buy me Coffee R{DONATE_COFFEE_AMOUNT_ZAR}
+            </button>
             <div className="flex gap-3">
               <button
                 onClick={() => { setDonateModalOpen(false); setDonateAmount(''); }}
@@ -1695,5 +2109,14 @@ export function TVGridTile({ item, liked = false, onLike, onRepost, onEnquire, o
         </div>
       )}
     </div>
+    <EditPostModal
+      post={item}
+      open={editOpen}
+      onClose={() => setEditOpen(false)}
+      onUpdated={(updated) => {
+        onUpdated?.({ ...item, ...updated, _id: item._id });
+      }}
+    />
+    </>
   );
 }

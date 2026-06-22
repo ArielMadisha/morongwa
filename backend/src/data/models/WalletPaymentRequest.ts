@@ -1,4 +1,4 @@
-// Pending QR / in-store payment: store scans user QR, user gets SMS OTP, tells code to teller
+// Pending QR / in-store payment: store scans user QR, payer confirms in app (legacy OTP path optional)
 import mongoose, { Schema, Document } from "mongoose";
 
 export interface IWalletPaymentRequest extends Document {

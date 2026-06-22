@@ -30,7 +30,9 @@ interface ArtistVerification {
 function ArtistsManagement() {
   const [verifications, setVerifications] = useState<ArtistVerification[]>([]);
   const [loading, setLoading] = useState(true);
-  const [statusFilter, setStatusFilter] = useState<string>('pending');
+  /** Default "All" so approved/catalog-linked artists are visible (not only pending applications). */
+  const [statusFilter, setStatusFilter] = useState<string>('');
+  const [syncingCatalog, setSyncingCatalog] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [createUserId, setCreateUserId] = useState('');
   const [createType, setCreateType] = useState<'artist' | 'company' | 'producer'>('artist');
@@ -76,6 +78,23 @@ function ArtistsManagement() {
       fetchVerifications();
     } catch (err: any) {
       toast.error(err.response?.data?.message || 'Failed to reject');
+    }
+  };
+
+  const handleSyncFromMusic = async () => {
+    setSyncingCatalog(true);
+    try {
+      const res = await adminAPI.syncArtistsFromMusicCatalog();
+      const body = res.data as { distinctOwners?: number; processed?: number; message?: string };
+      toast.success(
+        body?.message ||
+          `Synced ${body?.processed ?? 0} owner(s) from ${body?.distinctOwners ?? 0} distinct catalog user(s).`
+      );
+      fetchVerifications();
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'Failed to sync from music catalog');
+    } finally {
+      setSyncingCatalog(false);
     }
   };
 
@@ -137,7 +156,7 @@ function ArtistsManagement() {
 
         <main className="mx-auto max-w-6xl px-6 py-8">
           <div className="rounded-2xl border border-white/60 bg-white/80 p-6 shadow-xl shadow-sky-50 backdrop-blur">
-            <div className="mb-6 flex items-center gap-4">
+            <div className="mb-6 flex flex-wrap items-center gap-4">
               <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
                 <Search className="h-4 w-4" />
                 Status:
@@ -152,6 +171,18 @@ function ArtistsManagement() {
                 <option value="approved">Approved</option>
                 <option value="rejected">Rejected</option>
               </select>
+              <button
+                type="button"
+                onClick={handleSyncFromMusic}
+                disabled={syncingCatalog}
+                className="inline-flex items-center gap-2 rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-sm font-medium text-sky-800 hover:bg-sky-100 disabled:opacity-50"
+              >
+                {syncingCatalog ? <Loader2 className="h-4 w-4 animate-spin" /> : <Music2 className="h-4 w-4" />}
+                Import from music catalog
+              </button>
+              <p className="text-xs text-slate-500 max-w-md">
+                Linking a user on Admin → Music upload creates an approved artist row here. Use Import to backfill rows for songs already in the catalog.
+              </p>
             </div>
 
             {loading ? (
@@ -162,7 +193,9 @@ function ArtistsManagement() {
               <div className="py-16 text-center">
                 <Music2 className="mx-auto h-16 w-16 text-slate-300" />
                 <p className="mt-4 text-slate-600">
-                  {statusFilter || statusFilter === 'all' ? 'No artist verifications found.' : 'No pending applications.'}
+                  {statusFilter === 'pending'
+                    ? 'No pending applications. Try All or Approved, or Import from music catalog if you linked owners via uploads.'
+                    : 'No artist verifications found. Use Import from music catalog or Create artist.'}
                 </p>
                 <button
                   onClick={() => setCreateOpen(true)}

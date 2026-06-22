@@ -1,6 +1,7 @@
 'use client';
 
 import { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import { lsGetItem, lsSetItem } from '@/lib/browserStorage';
 
 const STORAGE_KEY = 'preferred-translation-language';
 
@@ -33,7 +34,7 @@ export function TranslationProvider({ children }: { children: React.ReactNode })
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      const stored = localStorage.getItem(STORAGE_KEY);
+      const stored = lsGetItem(STORAGE_KEY);
       if (stored) setTargetLanguageState(stored);
     }
   }, []);
@@ -41,7 +42,7 @@ export function TranslationProvider({ children }: { children: React.ReactNode })
   const setTargetLanguage = useCallback((lang: string) => {
     setTargetLanguageState(lang);
     if (typeof window !== 'undefined') {
-      localStorage.setItem(STORAGE_KEY, lang);
+      lsSetItem(STORAGE_KEY, lang);
     }
   }, []);
 

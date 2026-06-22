@@ -3,12 +3,14 @@ import { useState } from "react";
 import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import { AuthProvider, useAuth } from "./src/contexts/AuthContext";
+import { usePhonePortraitOrientationLock } from "./src/hooks/usePhonePortraitOrientationLock";
 import { HomeScreen } from "./src/screens/HomeScreen";
 import { LoginScreen } from "./src/screens/LoginScreen";
 import { RegisterScreen } from "./src/screens/RegisterScreen";
 import { socialTheme } from "./src/theme/socialTheme";
 
 export default function App() {
+  usePhonePortraitOrientationLock();
   return (
     <SafeAreaProvider>
       <AuthProvider>

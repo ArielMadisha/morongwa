@@ -26,15 +26,21 @@ That overwrites files under `standalone/AskMacGyver/src/` and refreshes `standal
 | `src/services/macgyverSearch.ts` | `backend/src/services/macgyverSearch.ts` |
 | `src/services/macgyverService.ts` | `backend/src/services/macgyverService.ts` |
 | `src/services/macgyverLLM.ts` | `backend/src/services/macgyverLLM.ts` |
+| `src/services/macgyverWebSearch.ts` | `backend/src/services/macgyverWebSearch.ts` |
+| `src/services/macgyverLearned.ts` | `backend/src/services/macgyverLearned.ts` |
 | `src/data/macgyverKnowledge.ts` | `backend/src/data/macgyverKnowledge.ts` |
+| `src/data/models/MacGyverLearnedEntry.ts` | `backend/src/data/models/MacGyverLearnedEntry.ts` |
 
 The live HTTP route remains `POST /api/macgyver/ask` in `backend/src/routes/macgyver.ts` (auth middleware); wire your satellite server to the same handler pattern.
 
-## Env (OpenAI path)
+## Env (OpenAI + open web + learned cache)
 
 - `OPENAI_API_KEY`
 - `MACGYVER_OPENAI_MODEL` (optional, default `gpt-4o-mini`)
 - `MACGYVER_OPENAI_TIMEOUT_MS` (optional, default `22000` ms)
+- `TAVILY_API_KEY` (optional; richer web snippets than Wikipedia/DDG alone)
+- `MACGYVER_WEB_SEARCH_DISABLED=1` (optional; disables outbound web fetch)
+- `MACGYVER_LEARNED_MAX_AGE_MS` (optional; Mongo answer cache TTL, default 24h)
 
 ## Qwertymates push events
 

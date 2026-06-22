@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 720" width="720" height="720" role="img" aria-label="QwertyHub">
+  <defs>
+    <linearGradient id="qhBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0ea5e9">
+        <animate attributeName="stop-color" values="#0ea5e9;#2563eb;#0ea5e9" dur="3.5s" repeatCount="indefinite" />
+      </stop>
+      <stop offset="100%" stop-color="#0369a1">
+        <animate attributeName="stop-color" values="#0369a1;#0ea5e9;#0369a1" dur="3.5s" repeatCount="indefinite" />
+      </stop>
+    </linearGradient>
+  </defs>
+  <rect width="720" height="720" rx="32" fill="url(#qhBg)" />
+  <g transform="translate(360 300)" text-anchor="middle" fill="#ffffff" font-family="system-ui,Segoe UI,sans-serif">
+    <text font-size="56" font-weight="800" letter-spacing="-0.03em">
+      QwertyHub
+      <animate attributeName="opacity" values="0.85;1;0.85" dur="2.2s" repeatCount="indefinite" />
+    </text>
+    <text y="72" font-size="26" fill="#e0f2fe" font-weight="600">
+      Shop local. No stock. One tap.
+    </text>
+    <text y="128" font-size="22" fill="#bae6fd">
+      Open the menu to explore the marketplace.
+    </text>
+  </g>
+  <circle cx="360" cy="560" r="10" fill="#ffffff">
+    <animate attributeName="r" values="8;14;8" dur="1.4s" repeatCount="indefinite" />
+    <animate attributeName="opacity" values="0.5;1;0.5" dur="1.4s" repeatCount="indefinite" />
+  </circle>
+</svg>

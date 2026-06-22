@@ -1,0 +1,5 @@
+Contact: mailto:security@qwertymates.com
+Preferred-Languages: en
+Canonical: https://www.qwertymates.com/.well-known/security.txt
+Policy: https://www.qwertymates.com/policies
+Acknowledgments: We appreciate responsible disclosure. Please allow reasonable time to remediate before public disclosure.

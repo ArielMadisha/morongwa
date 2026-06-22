@@ -198,6 +198,127 @@ For order-specific issues, use in-app support. For escalations, see [Consumer Co
     content: `# Morongwa-TV (Qwerty TV) Content Policy\n\nMorongwa-TV (also known as Qwerty TV) is a content platform for resellers, content creators, and manufacturers to share videos and images, including product promotions.\n\n- **Content types:** Videos, images, and carousels. Content may link to marketplace products.\n- **Who can post:** Authenticated users; content creators, resellers, suppliers.\n- **Watermark:** Content may display a platform watermark ("The Digital Home for Doers, Sellers & Creators - Qwertymates.com") at the start and end of videos and on images.\n- **Moderation:** Posts are published automatically. Automated sensitive-content detection may block sexual, pornographic, violent, or sensitive material. Users may report posts; admins review reports.\n- **Prohibited content:** Sexual, pornographic, violent, or sensitive material (e.g. hacked victim imagery). Violations may result in removal and account suspension.\n- **Interactions:** Like, comment, share, repost, report. Product enquiry routes to Messages.\n- **Products:** Featured products may appear on Morongwa-TV; buyers can purchase or enquire.`,
   },
   {
+    slug: "qwerty-music-sound-library-artist-payouts",
+    title: "QwertyMusic Sounds & Artist payouts (QwertyTV)",
+    category: "platform",
+    visibility: "public",
+    countryScope: ["ZA", "BW", "LS", "NA", "ZW", "ZM"],
+    tags: ["music", "qwerty-music", "qwerty-tv", "royalty", "sounds", "artist"],
+    summary:
+      "How the QwertyMusic “Sounds” catalog works (similar to short-video apps): approval, attaching sounds to QwertyTV videos, download sales vs promotional use, royalty pools, statements, and eligibility.",
+    content: `# QwertyMusic Sounds & Artist payouts (QwertyTV)
+
+This policy explains how **QwertyMusic** interacts with **QwertyTV / Morongwa-TV** when creators use **Sounds** (licensed single tracks) under their videos, and how **artists and rights holders** are compensated. It is meant to mirror the **clear split** consumers understand from major short-video platforms: **some money comes from direct purchases**, and **some may come from pooled platform revenue tied to usage**, subject to eligibility and availability.
+
+---
+
+## 1. What are “Sounds”?
+
+- **Sounds** are **individual songs** (not full albums) that Qwertymates has **approved** for the **QwertyTV Sounds catalog**.
+- Only **approved** Sounds appear in the in-app picker when someone posts a **video** on QwertyTV.
+- When a viewer watches that video, the post shows **attribution** to the track (title / artist) so the rights holder gets credit.
+
+---
+
+## 2. Who can submit a track to Sounds?
+
+- You must be a **verified QwertyMusic artist, producer, or label account** (see artist verification on QwertyMusic).
+- You must **own or control** the rights needed to let **other users’ videos** use your recording on QwertyTV (master / neighbouring rights as applicable). Uploading infringing material may lead to removal and account action under the **Intellectual Property & Content Policy**.
+- **Album-only** releases are not selectable as Sounds; the catalog is **per single track**.
+
+---
+
+## 3. How does a song get approved?
+
+1. Upload your track on **QwertyMusic** (standard upload rules apply: format, artwork, metadata).
+2. Request **Sounds catalog** review from your catalogue tools (or your label/admin workflow).
+3. **Qwertymates admins** review for policy fit, metadata quality, and fraud risk.
+4. Status can be: **none** (not requested), **pending**, **approved**, or **rejected** (with a short reason you can see on your catalogue record).
+
+Approval is **not guaranteed**. We may limit catalogue size, genre balance, or territory during pilots.
+
+---
+
+## 4. How creators use Sounds (like short-video apps)
+
+- On **QwertyTV**, when creating a **video post**, you may **optionally attach one approved Sound**.
+- The **video file you upload is yours** (your visuals). The **Sound** supplies the **music layer** for attribution and royalty tracking.
+- You may **not** misuse Sounds to imply endorsement, and you must follow **Acceptable Use** and **QwertyTV Content Policy**.
+
+---
+
+## 5. Two ways artists earn (important distinction)
+
+### A. Paid downloads (existing QwertyMusic flow)
+
+If you enable **paid download** on a track and a user **buys** it from QwertyMusic, payouts follow the **wallet purchase split** configured at checkout time (platform fee vs artist share). See **Pricing, Fees & Commissions Policy** for high-level fee pillars.
+
+**Downloads are separate** from Sounds usage on videos: buying a download does **not** automatically grant someone else the right to use your track in **their** video unless that track is also an **approved Sound** for QwertyTV.
+
+### B. Sounds usage on QwertyTV (promotional + royalty pool model)
+
+When many platforms allow “use this song on your video”, money for the artist typically mixes:
+
+- **Indirect promotional value** (discovery, profile visits, follows, future purchases); and  
+- **Platform royalty pools** funded from **advertising, subscriptions, brand partnerships, or similar programme budgets** where Qwertymates allocates a share to music rights holders.
+
+**Qwertymates operates on the same principle:**
+
+- We **log usage** when a Sound is attached to a video (clips/reposts may each create their own usage row for analytics).
+- **Royalties from pooled programmes** are paid **when and if** a programme exists for your territory and your account **qualifies**.
+- Pool maths are typically based on **eligible usage** (e.g. qualified views or clips using your Sound during a period), **after fraud adjustment**, **minimum thresholds**, and **tax/withholding** requirements.
+
+---
+
+## 6. What we pay from (transparency checklist)
+
+When a payout programme is active, statements may describe:
+
+- **Reporting period** (calendar month unless stated otherwise).
+- **Your eligible clips / videos** using your Sounds (aggregated).
+- **Your share** of the music pool after platform costs and reserves.
+- **Adjustments** for invalid traffic, duplicate clips, takedowns, or rights disputes.
+
+If **no pool** is active for a period, Sounds remain available for **discovery and attribution**, but **no pool royalty** accrues for that period.
+
+---
+
+## 7. Minimums, statements, and how money reaches you
+
+- **Minimum payout threshold:** We may require earnings to exceed a **minimum amount** before withdrawal (to match processing costs). The app shows the current threshold.
+- **Wallet vs bank:** Depending on region, payouts may settle to your **Qwertymates wallet** first or go through **configured payout rails** (bank / partner). You are responsible for accurate payout details.
+- **Tax:** You are responsible for **your taxes**. We may withhold or report where **law requires**.
+- **Statements:** Available in-app or by export where offered; historic statements remain accessible subject to retention rules in our **Privacy Policy**.
+
+---
+
+## 8. Removal, takedowns, and disputes
+
+- We may **remove** a Sound from the catalogue or **mute / remove** videos if required by law, licence conflict, fraud, or platform safety.
+- **Repeat infringement** may lead to suspension under **Intellectual Property & Content Policy**.
+- If two parties dispute ownership, we may **pause payouts** on affected tracks until documentation is resolved.
+
+---
+
+## 9. Relationship to other policies
+
+- **Intellectual Property & Content Policy** — ownership, licences, takedowns.
+- **Morongwa-TV (Qwerty TV) Content Policy** — community standards for video posts.
+- **Acceptable Use & Community Guidelines** — fraud, harassment, manipulation (including artificial view inflation).
+- **Privacy Policy** — how usage telemetry is processed.
+- **Pricing, Fees & Commissions Policy** — fees for unrelated products (tasks, marketplace); music download fees are described there at a high level.
+
+---
+
+## 10. Contact
+
+For catalogue or payout questions, use **in-app support** and reference your **artist account** and **track title**. For formal IP notices, follow the takedown route described in the **Intellectual Property & Content Policy**.
+
+---
+
+**Effective:** Qwertymates may update Sounds eligibility and pool programmes; material changes will be announced in-app where practical.`,
+  },
+  {
     slug: "suppliers-manufacturers",
     title: "Suppliers & Manufacturers Policy",
     category: "platform",

@@ -4,9 +4,13 @@ import Link from 'next/link';
 import type { ReactNode } from 'react';
 import { AppSidebarMenuButton } from '@/components/AppSidebar';
 
-/** Shared classes for the circular Q mark in app headers (use with SiteHeader, Wall, etc.). */
+/** Official round Q mark — hidden from tablet+ when sidebar/wordmark shows. */
 export const APP_SHELL_MOBILE_LOGO_CLASS =
-  'h-16 w-16 sm:h-[4.25rem] sm:w-[4.25rem] object-contain lg:hidden shrink-0';
+  'h-11 w-11 sm:h-12 sm:w-12 object-contain md:hidden shrink-0 rounded-full';
+
+/** Same asset/size; `md:hidden` where desktop layout starts at `md` (e.g. SiteHeader). */
+export const APP_SHELL_MOBILE_LOGO_MD_HIDDEN_CLASS =
+  'h-11 w-11 sm:h-12 sm:w-12 object-contain md:hidden shrink-0 rounded-full';
 
 export type AppShellHeaderProps = {
   homeHref?: string;
@@ -43,16 +47,17 @@ export function AppShellHeader({
           <div className="flex items-center gap-1 sm:gap-2 shrink-0">
             <Link href={homeHref} className="shrink-0 flex items-center" aria-label="Home">
               <img
-                src="/qwertymates-logo-icon-transparent.svg"
-                alt="Qwertymates"
+                src="/qwertymates-q-mark-official.png"
+                alt=""
                 className={APP_SHELL_MOBILE_LOGO_CLASS}
-                width={68}
-                height={68}
+                width={48}
+                height={48}
+                aria-hidden
               />
               <img
                 src="/qwertymates-logo.png"
                 alt="Qwertymates"
-                className="h-8 sm:h-9 w-auto max-w-[min(100%,220px)] object-contain hidden lg:block"
+                className="h-8 sm:h-9 w-auto max-w-[min(100%,220px)] object-contain hidden md:block"
               />
             </Link>
             {showMenuButton && onMenuClick ? <AppSidebarMenuButton onClick={onMenuClick} /> : null}

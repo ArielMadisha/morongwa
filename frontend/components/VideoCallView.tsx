@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect } from 'react';
-import { Video, VideoOff, Mic, MicOff, PhoneOff, Loader2 } from 'lucide-react';
+import { Video, VideoOff, Mic, MicOff, PhoneOff, Loader2, Phone } from 'lucide-react';
 import type { CallStatus } from '@/hooks/useWebRTC';
 
 interface VideoCallViewProps {
@@ -21,6 +21,7 @@ interface VideoCallViewProps {
   onEndCall: () => void;
   onToggleMute: () => void;
   onToggleVideo: () => void;
+  audioOnly?: boolean;
 }
 
 export function VideoCallView({
@@ -40,27 +41,30 @@ export function VideoCallView({
   onEndCall,
   onToggleMute,
   onToggleVideo,
+  audioOnly = false,
 }: VideoCallViewProps) {
   useEffect(() => {
     if (localStream && localVideoRef.current) {
       localVideoRef.current.srcObject = localStream;
+      void localVideoRef.current.play().catch(() => {});
     }
   }, [localStream, callStatus]);
   useEffect(() => {
     if (remoteStream && remoteVideoRef.current) {
       remoteVideoRef.current.srcObject = remoteStream;
+      void remoteVideoRef.current.play().catch(() => {});
     }
   }, [remoteStream, callStatus]);
 
   if (callStatus === 'incoming') {
     return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
+      <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/80 p-4">
         <div className="rounded-2xl bg-white shadow-xl p-8 max-w-sm w-full text-center">
           <div className="w-20 h-20 rounded-full bg-sky-100 flex items-center justify-center mx-auto mb-4">
-            <Video className="h-10 w-10 text-sky-600" />
+            {audioOnly ? <Phone className="h-10 w-10 text-sky-600" /> : <Video className="h-10 w-10 text-sky-600" />}
           </div>
           <h3 className="text-lg font-semibold text-slate-900 mb-1">
-            Incoming video call
+            Incoming {audioOnly ? 'voice' : 'video'} call
           </h3>
           <p className="text-slate-600 mb-6">
             {incomingCaller?.callerName || 'Someone'} is calling you
@@ -88,13 +92,13 @@ export function VideoCallView({
 
   if (callStatus === 'calling' || callStatus === 'connecting') {
     return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
+      <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/80 p-4">
         <div className="rounded-2xl bg-white shadow-xl p-8 max-w-sm w-full text-center">
           <div className="w-20 h-20 rounded-full bg-sky-100 flex items-center justify-center mx-auto mb-4 animate-pulse">
-            <Video className="h-10 w-10 text-sky-600" />
+            {audioOnly ? <Phone className="h-10 w-10 text-sky-600" /> : <Video className="h-10 w-10 text-sky-600" />}
           </div>
           <h3 className="text-lg font-semibold text-slate-900 mb-1">
-            {callStatus === 'calling' ? 'Calling' : 'Connecting'}...
+            {callStatus === 'calling' ? 'Calling' : 'Connecting'}…
           </h3>
           <p className="text-slate-600 mb-6">{peerName || 'Peer'}</p>
           <div className="flex justify-center gap-2">
@@ -114,7 +118,7 @@ export function VideoCallView({
 
   if (callStatus === 'rejected') {
     return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
+      <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/80 p-4">
         <div className="rounded-2xl bg-white shadow-xl p-8 max-w-sm w-full text-center">
           <p className="text-slate-600 mb-4">Call was declined</p>
           <button
@@ -130,25 +134,37 @@ export function VideoCallView({
 
   if (callStatus === 'connected') {
     return (
-      <div className="fixed inset-0 z-50 flex flex-col bg-slate-900">
-        {/* Remote video - main view */}
+      <div className="fixed inset-0 z-[110] flex flex-col bg-slate-900">
         <div className="flex-1 relative min-h-0">
-          <video
-            ref={remoteVideoRef}
-            autoPlay
-            playsInline
-            className="absolute inset-0 w-full h-full object-cover"
-          />
-          {/* Local video - picture in picture */}
-          <div className="absolute bottom-4 right-4 w-40 h-32 rounded-xl overflow-hidden border-2 border-white/30 shadow-xl">
-            <video
-              ref={localVideoRef}
-              autoPlay
-              playsInline
-              muted
-              className="w-full h-full object-cover"
-            />
-          </div>
+          {audioOnly ? (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-4">
+              {/* Hidden media element — remote audio must attach here (no <video> in UI otherwise). */}
+              <video ref={remoteVideoRef} autoPlay playsInline className="sr-only w-0 h-0" aria-hidden />
+              <div className="w-28 h-28 rounded-full bg-sky-600/30 flex items-center justify-center">
+                <Phone className="h-14 w-14 text-sky-200" />
+              </div>
+              <p className="text-white text-lg font-semibold">{peerName || 'Connected'}</p>
+              <p className="text-sky-200 text-sm">Voice call in progress</p>
+            </div>
+          ) : (
+            <>
+              <video
+                ref={remoteVideoRef}
+                autoPlay
+                playsInline
+                className="absolute inset-0 w-full h-full object-cover"
+              />
+              <div className="absolute bottom-4 right-4 w-40 h-32 rounded-xl overflow-hidden border-2 border-white/30 shadow-xl">
+                <video
+                  ref={localVideoRef}
+                  autoPlay
+                  playsInline
+                  muted
+                  className="w-full h-full object-cover"
+                />
+              </div>
+            </>
+          )}
         </div>
 
         {/* Controls */}
@@ -162,15 +178,17 @@ export function VideoCallView({
           >
             {isMuted ? <MicOff className="h-6 w-6" /> : <Mic className="h-6 w-6" />}
           </button>
-          <button
-            onClick={onToggleVideo}
-            className={`p-4 rounded-full transition ${
-              isVideoOff ? 'bg-rose-500 text-white' : 'bg-white/20 text-white hover:bg-white/30'
-            }`}
-            title={isVideoOff ? 'Turn on camera' : 'Turn off camera'}
-          >
-            {isVideoOff ? <VideoOff className="h-6 w-6" /> : <Video className="h-6 w-6" />}
-          </button>
+          {!audioOnly ? (
+            <button
+              onClick={onToggleVideo}
+              className={`p-4 rounded-full transition ${
+                isVideoOff ? 'bg-rose-500 text-white' : 'bg-white/20 text-white hover:bg-white/30'
+              }`}
+              title={isVideoOff ? 'Turn on camera' : 'Turn off camera'}
+            >
+              {isVideoOff ? <VideoOff className="h-6 w-6" /> : <Video className="h-6 w-6" />}
+            </button>
+          ) : null}
           <button
             onClick={onEndCall}
             className="p-4 rounded-full bg-rose-500 text-white hover:bg-rose-600 transition"

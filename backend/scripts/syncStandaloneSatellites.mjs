@@ -28,7 +28,11 @@ async function main() {
   await copyFile("src/services/macgyverSearch.ts", `${askDest}/services/macgyverSearch.ts`);
   await copyFile("src/services/macgyverService.ts", `${askDest}/services/macgyverService.ts`);
   await copyFile("src/services/macgyverLLM.ts", `${askDest}/services/macgyverLLM.ts`);
+  await copyFile("src/services/macgyverWebSearch.ts", `${askDest}/services/macgyverWebSearch.ts`);
+  await copyFile("src/services/macgyverLearned.ts", `${askDest}/services/macgyverLearned.ts`);
+  await copyFile("src/services/storeSearch.ts", `${askDest}/services/storeSearch.ts`);
   await copyFile("src/data/macgyverKnowledge.ts", `${askDest}/data/macgyverKnowledge.ts`);
+  await copyFile("src/data/models/MacGyverLearnedEntry.ts", `${askDest}/data/models/MacGyverLearnedEntry.ts`);
 
   const walletDest = "standalone/ACBPayWallet/src";
   await copyFile("src/services/satelliteSync.ts", `${walletDest}/services/satelliteSync.ts`);

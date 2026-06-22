@@ -3,8 +3,8 @@
 import { useState, useEffect, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Search, Package, Loader2, ShoppingCart, User, Video, Wrench, Music } from 'lucide-react';
-import { productsAPI, usersAPI, tvAPI, musicAPI, followsAPI, macgyverAPI, getImageUrl } from '@/lib/api';
+import { Search, Package, Loader2, ShoppingCart, User, Video, Wrench, Music, Store } from 'lucide-react';
+import { productsAPI, usersAPI, tvAPI, musicAPI, followsAPI, macgyverAPI, storesAPI, getImageUrl } from '@/lib/api';
 import type { Product } from '@/lib/types';
 import { useAuth } from '@/contexts/AuthContext';
 import { useCartAndStores } from '@/lib/useCartAndStores';
@@ -13,6 +13,8 @@ import { AdvertSlot } from '@/components/AdvertSlot';
 import { MobileBottomNav } from '@/components/MobileBottomNav';
 import { ProfileHeaderButton } from '@/components/ProfileHeaderButton';
 import { formatCurrencyAmount } from '@/lib/formatCurrency';
+import { SchoolDonateButton } from '@/components/SchoolDonateButton';
+import { inferIsSchoolProfile } from '@/lib/schoolProfile';
 
 function formatPrice(price: number, currency: string) {
   return formatCurrencyAmount(price, currency || 'ZAR');
@@ -30,6 +32,7 @@ function SearchContent() {
   const [users, setUsers] = useState<any[]>([]);
   const [tvPosts, setTvPosts] = useState<any[]>([]);
   const [musicResults, setMusicResults] = useState<any[]>([]);
+  const [storeResults, setStoreResults] = useState<Array<{ _id: string; name: string; slug: string; type?: string; country?: string }>>([]);
   const [loading, setLoading] = useState(true);
   const [macgyverOpen, setMacgyverOpen] = useState(false);
   const [macgyverQuery, setMacgyverQuery] = useState('');
@@ -145,13 +148,21 @@ function SearchContent() {
               return ranked.slice(0, 40);
             })
             .catch(() => []),
+          storesAPI
+            .search({ q: search, limit: 20 })
+            .then((res) => {
+              const list = res.data?.data ?? res.data ?? [];
+              return Array.isArray(list) ? list : [];
+            })
+            .catch(() => []),
         ])
-          .then(([prods, usrs, posts, music]) => {
+          .then(([prods, usrs, posts, music, stores]) => {
             if (cancelled) return;
             setProducts(prods);
             setUsers(usrs);
             setTvPosts(posts);
             setMusicResults(music);
+            setStoreResults(stores);
           })
           .finally(() => {
             if (!cancelled) setLoading(false);
@@ -166,11 +177,12 @@ function SearchContent() {
       setUsers([]);
       setTvPosts([]);
       setMusicResults([]);
+      setStoreResults([]);
       setLoading(false);
     }
   }, [q, user]);
 
-  const hasResults = products.length > 0 || users.length > 0 || tvPosts.length > 0 || musicResults.length > 0;
+  const hasResults = products.length > 0 || users.length > 0 || tvPosts.length > 0 || musicResults.length > 0 || storeResults.length > 0;
   const homeLink = user ? '/wall' : '/';
 
   return (
@@ -217,7 +229,7 @@ function SearchContent() {
           />
         )}
         <div className="flex-1 flex flex-col lg:flex-row gap-0 min-h-0 overflow-y-auto overflow-x-hidden">
-          <main className="flex-1 min-w-0 px-4 sm:px-6 lg:px-8 py-6 pb-24 lg:pb-6 order-2 lg:order-none w-full">
+          <main className="flex-1 min-w-0 px-4 sm:px-6 lg:px-8 py-6 pb-24 md:pb-6 order-2 lg:order-none w-full">
             {q.trim().length < 1 ? (
               <div className="rounded-2xl border border-slate-200 bg-white/90 p-12 text-center">
                 <Search className="h-16 w-16 text-slate-300 mx-auto mb-4" />
@@ -247,6 +259,34 @@ function SearchContent() {
                   Results for &quot;{q}&quot;
                 </p>
 
+                {storeResults.length > 0 && (
+                  <section className="mb-8">
+                    <h3 className="text-lg font-semibold text-slate-800 mb-4 flex items-center gap-2">
+                      <Store className="h-5 w-5" /> Stores ({storeResults.length})
+                    </h3>
+                    <div className="flex flex-wrap gap-3">
+                      {storeResults.map((s) => (
+                        <Link
+                          key={s._id}
+                          href={`/store/${s.slug}`}
+                          className="flex items-center gap-3 rounded-xl bg-white border border-slate-100 hover:border-sky-200 hover:shadow-md transition-all p-3 pr-4"
+                        >
+                          <div className="h-12 w-12 rounded-full bg-sky-100 flex items-center justify-center flex-shrink-0">
+                            <Store className="h-6 w-6 text-sky-600" />
+                          </div>
+                          <div className="min-w-0">
+                            <p className="font-medium text-slate-900 truncate">{s.name}</p>
+                            <p className="text-sm text-slate-500 truncate">
+                              {s.type === 'reseller' ? 'Reseller store' : 'Supplier store'}
+                              {s.country ? ` · ${s.country}` : ''}
+                            </p>
+                          </div>
+                        </Link>
+                      ))}
+                    </div>
+                  </section>
+                )}
+
                 {users.length > 0 && (
                   <section className="mb-8">
                     <h3 className="text-lg font-semibold text-slate-800 mb-4 flex items-center gap-2">
@@ -254,25 +294,37 @@ function SearchContent() {
                     </h3>
                     <div className="flex flex-wrap gap-3">
                       {users.map((u) => (
-                        <Link
+                        <div
                           key={u._id}
-                          href={`/user/${u._id}`}
-                          className="flex items-center gap-3 p-3 rounded-xl bg-white border border-slate-100 hover:border-sky-200 hover:shadow-md transition-all"
+                          className="flex items-center gap-2 rounded-xl bg-white border border-slate-100 hover:border-sky-200 hover:shadow-md transition-all p-2 pr-3"
                         >
-                          <div className="h-12 w-12 rounded-full bg-slate-200 overflow-hidden flex-shrink-0">
-                            {u.avatar ? (
-                              <img src={getImageUrl(u.avatar)} alt="" className="w-full h-full object-cover" />
-                            ) : (
-                              <div className="w-full h-full flex items-center justify-center text-slate-600 font-bold">
-                                {(u.name || '?')[0]}
-                              </div>
-                            )}
-                          </div>
-                          <div>
-                            <p className="font-medium text-slate-900">{u.name || 'Unknown'}</p>
-                            {u.username && <p className="text-sm text-slate-500">@{u.username}</p>}
-                          </div>
-                        </Link>
+                          <Link
+                            href={`/user/${u._id}`}
+                            className="flex flex-1 min-w-0 items-center gap-3 p-1 rounded-lg"
+                          >
+                            <div className="h-12 w-12 rounded-full bg-slate-200 overflow-hidden flex-shrink-0">
+                              {u.avatar ? (
+                                <img src={getImageUrl(u.avatar)} alt="" className="w-full h-full object-cover" />
+                              ) : (
+                                <div className="w-full h-full flex items-center justify-center text-slate-600 font-bold">
+                                  {(u.name || '?')[0]}
+                                </div>
+                              )}
+                            </div>
+                            <div className="min-w-0">
+                              <p className="font-medium text-slate-900 truncate">{u.name || 'Unknown'}</p>
+                              {u.username && <p className="text-sm text-slate-500 truncate">@{u.username}</p>}
+                            </div>
+                          </Link>
+                          {inferIsSchoolProfile(u) && user && String(user._id || user.id) !== String(u._id) && (
+                            <SchoolDonateButton
+                              recipientId={String(u._id)}
+                              recipientName={u.name || 'School'}
+                              currentUserId={String(user._id || user.id)}
+                              compact
+                            />
+                          )}
+                        </div>
                       ))}
                     </div>
                   </section>
@@ -496,6 +548,23 @@ function SearchContent() {
                   {macgyverQuery.trim().length >= 1 && !loading && hasResults && (
                     <div className="mt-4 space-y-4 max-h-64 overflow-y-auto">
                       <p className="text-sm font-medium text-slate-600">Results for &quot;{macgyverQuery.trim()}&quot;</p>
+                      {storeResults.length > 0 && (
+                        <div>
+                          <p className="text-xs text-slate-500 mb-2">Stores</p>
+                          <div className="space-y-2">
+                            {storeResults.slice(0, 5).map((s) => (
+                              <Link
+                                key={s._id}
+                                href={`/store/${s.slug}`}
+                                onClick={() => setMacgyverOpen(false)}
+                                className="block p-2 rounded-lg hover:bg-slate-50 transition-colors text-sm font-medium text-slate-700 truncate"
+                              >
+                                {s.name}
+                              </Link>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                       {users.length > 0 && (
                         <div>
                           <p className="text-xs text-slate-500 mb-2">Users</p>

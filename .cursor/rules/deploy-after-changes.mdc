@@ -1,0 +1,41 @@
+---
+description: Fix, test, and deploy web + Android after every behavior change (execute yourself; do not hand off steps to the user)
+alwaysApply: true
+---
+
+# Fix → test → deploy (web + Android)
+
+For **every fix** that changes behavior users see, **complete the full pipeline yourself** — fix, test, deploy. Do **not** stop at “changes are in the repo” or tell the user to run deploy/build commands unless you are blocked.
+
+## Web (backend + frontend)
+
+When **`backend/src/**`**, **`frontend/**`**, deploy scripts, or production build config change:
+
+1. **Fix** the code or config.
+2. **Test**: `npm run build` in `backend/`; `npm run build` in `frontend/` when frontend touched; run smoke/targeted scripts when they exist for the area.
+3. **Deploy**: from **`backend/`** run **`npm run deploy:production`** (backend + Twilio flow + Botswana webhook verify + frontend + NPM edge unless `SKIP_NPM_EDGE_FIX=1`).
+4. **Verify**: follow **`website-502-guardrail`** — `https://www.qwertymates.com/` and `/wall` must not return 502.
+
+## Android (mobile / EAS / Play Store)
+
+When **`mobile/**`** changes app behavior (UI, API client, permissions, create-post, calls, etc.):
+
+1. **Test**: from **`mobile/`** run **`npm run typecheck`** (and local smoke checklist if relevant).
+2. **Version**: bump **`mobile/app.json`** `expo.version` for user-visible releases (EAS **`autoIncrement`** handles Android `versionCode`).
+3. **Build + ship**: from **`mobile/`** run the full Play release (credentials are local/gitignored):
+   - **`npm run verify:google-play`**
+   - **`npm run build:android:production`**
+   - **`npm run submit:android:production:by-build-id -- <BUILD_ID>`** (prefer by build id over `--latest` when multiple profiles exist)
+   - Or one shot: **`npm run release:android:play`**
+4. **Confirm**: EAS build finished and Play submit succeeded; report version, versionCode, build URL, and submission URL.
+
+Scripts already set **`EAS_NO_VCS=1`** via `cross-env` when Git is unavailable on the build machine.
+
+## Exceptions (skip deploy/build — say why)
+
+- Documentation-only, `.cursor/` rules, local-only files, or user explicitly defers release.
+- **No access** to required external systems: e.g. Facebook/Meta developer accounts, third-party dashboards, or credentials not present in the environment. Fix and test what you can; report the exact blocker and minimum access needed.
+
+## On failure
+
+Diagnose (SSH, EAS login, keystore, Play service account, build errors) and retry. Do not close the task while public site returns 502 or while a shippable mobile fix is left unbuilt when credentials are available.

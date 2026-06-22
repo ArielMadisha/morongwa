@@ -1,0 +1,26 @@
+# Keep EAS archives focused on the mobile app in this monorepo.
+
+# Exclude non-mobile projects and large artifacts
+backend/
+frontend/
+DOCS/
+Qwertymates-backups/
+_pack_frontend/
+scripts/
+*.tgz
+
+# Exclude VCS/editor/system noise
+.git/
+.cursor/
+.vscode/
+.expo/
+**/.DS_Store
+**/Thumbs.db
+**/*.log
+
+# Keep the mobile project included
+!mobile/
+!mobile/**
+
+# Never upload Play service account JSON with EAS archives
+mobile/credentials/google-play-service-account.json

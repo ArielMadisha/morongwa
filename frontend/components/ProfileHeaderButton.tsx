@@ -4,11 +4,16 @@ import { useState, useRef, useEffect, useId } from 'react';
 import { createPortal } from 'react-dom';
 import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
-import { getImageUrl, usersAPI } from '@/lib/api';
-import { User, LogOut, Camera } from 'lucide-react';
+import { usersAPI } from '@/lib/api';
+import { userHasWebsiteAdminAccess } from '@/lib/adminAccess';
+import { UserAvatarImage } from '@/components/UserAvatarImage';
+import { User, LogOut, Camera, Shield } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { userPublicDisplayName } from '@/lib/userDisplayLabel';
 
-/** Profile avatar button for headers - hover/click shows Profile & Logout dropdown. Click avatar or "Change photo" to upload new picture. */
+const DROPDOWN_MIN_WIDTH = 184;
+
+/** Profile avatar button for headers - hover/click shows Profile, (Go Admin if admin), Logout. Click avatar or "Change photo" to upload new picture. */
 export function ProfileHeaderButton({ className = '' }: { className?: string }) {
   const { user, isAuthenticated, logout, refreshUser } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -50,7 +55,7 @@ export function ProfileHeaderButton({ className = '' }: { className?: string }) 
   useEffect(() => {
     if (open && containerRef.current) {
       const rect = containerRef.current.getBoundingClientRect();
-      setDropdownRect({ top: rect.bottom + 6, left: rect.right - 160 });
+      setDropdownRect({ top: rect.bottom + 6, left: rect.right - DROPDOWN_MIN_WIDTH });
     } else {
       setDropdownRect(null);
     }
@@ -58,6 +63,7 @@ export function ProfileHeaderButton({ className = '' }: { className?: string }) 
 
   if (!isAuthenticated || !user) return null;
 
+  const displayName = userPublicDisplayName(user);
   const profileHref = user._id ? `/user/${user._id}` : '/profile';
   const userId = user._id || (user as { id?: string }).id;
 
@@ -66,19 +72,28 @@ export function ProfileHeaderButton({ className = '' }: { className?: string }) 
     e.target.value = '';
     if (!file || !file.type.startsWith('image/') || !userId) return;
     try {
-      await usersAPI.uploadAvatar(userId, file);
+      const res = await usersAPI.uploadAvatar(userId, file);
       toast.success('Profile picture updated');
       await refreshUser?.();
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(
+          new CustomEvent('qwertymates:avatar-updated', {
+            detail: { feedPostId: res.data?.feedPostId, avatar: res.data?.avatar },
+          })
+        );
+      }
     } catch (err: unknown) {
       toast.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message || 'Failed to update profile picture');
     }
   };
 
+  const showAdminEntry = userHasWebsiteAdminAccess(user);
+
   const dropdown = open && dropdownRect && typeof document !== 'undefined' ? createPortal(
     <div
       ref={(el) => { dropdownRef.current = el; }}
-      className="fixed py-1.5 min-w-[160px] rounded-xl bg-white border border-slate-200 shadow-xl z-[9999]"
-      style={{ top: dropdownRect.top, left: dropdownRect.left }}
+      className="fixed py-1.5 rounded-xl bg-white border border-slate-200 shadow-xl z-[9999]"
+      style={{ top: dropdownRect.top, left: dropdownRect.left, minWidth: DROPDOWN_MIN_WIDTH }}
       role="menu"
       onMouseEnter={() => { clearCloseTimeout(); setOpen(true) }}
       onMouseLeave={scheduleClose}
@@ -89,9 +104,20 @@ export function ProfileHeaderButton({ className = '' }: { className?: string }) 
         role="menuitem"
         onClick={() => setOpen(false)}
       >
-        <User className="h-4 w-4 text-slate-500" />
+        <User className="h-4 w-4 text-slate-500 shrink-0" />
         Profile
       </Link>
+      {showAdminEntry ? (
+        <Link
+          href="/admin"
+          className="flex items-center gap-3 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 hover:text-slate-900 transition-colors"
+          role="menuitem"
+          onClick={() => setOpen(false)}
+        >
+          <Shield className="h-4 w-4 text-sky-600 shrink-0" />
+          Go Admin
+        </Link>
+      ) : null}
       <button
         type="button"
         onClick={() => {
@@ -101,7 +127,7 @@ export function ProfileHeaderButton({ className = '' }: { className?: string }) 
         className="flex items-center gap-3 w-full px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 hover:text-slate-900 transition-colors text-left"
         role="menuitem"
       >
-        <LogOut className="h-4 w-4 text-slate-500" />
+        <LogOut className="h-4 w-4 text-slate-500 shrink-0" />
         Logout
       </button>
     </div>,
@@ -138,15 +164,12 @@ export function ProfileHeaderButton({ className = '' }: { className?: string }) 
             onClick={(e) => e.stopPropagation()}
             className="relative w-9 h-9 rounded-full bg-brand-50 text-brand-700 flex items-center justify-center text-xs font-bold ring-1 ring-slate-200 shadow-sm overflow-hidden cursor-pointer block"
           >
-            {(user as { avatar?: string }).avatar ? (
-              <img
-                src={getImageUrl((user as { avatar?: string }).avatar)}
-                alt={user.name || 'Profile'}
-                className="h-full w-full object-cover"
-              />
-            ) : (
-              user.name?.charAt(0)?.toUpperCase() || 'U'
-            )}
+            <UserAvatarImage
+              avatar={(user as { avatar?: string }).avatar}
+              alt={displayName}
+              className="h-full w-full object-cover"
+              fallbackLetter={displayName}
+            />
             <span className="absolute inset-0 rounded-full bg-black/45 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
               <Camera className="h-3.5 w-3.5 text-white shrink-0" />
             </span>

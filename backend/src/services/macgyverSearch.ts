@@ -14,6 +14,7 @@ import Product from "../data/models/Product";
 import User from "../data/models/User";
 import Song from "../data/models/Song";
 import Supplier from "../data/models/Supplier";
+import { searchPublicStores, type PublicStoreSearchHit } from "./storeSearch";
 
 const MAX_TV = 5;
 const MAX_PRODUCTS = 3;
@@ -68,16 +69,18 @@ function anyHits(
   tv: TvHit[],
   products: Array<{ title: string }>,
   users: Array<{ name: string; username?: string }>,
-  songs: Array<{ title: string; artist: string }>
+  songs: Array<{ title: string; artist: string }>,
+  stores: PublicStoreSearchHit[]
 ): boolean {
-  return tv.length > 0 || products.length > 0 || users.length > 0 || songs.length > 0;
+  return tv.length > 0 || products.length > 0 || users.length > 0 || songs.length > 0 || stores.length > 0;
 }
 
 function buildLlmContext(
   tvPosts: TvHit[],
   products: Array<{ title: string }>,
   users: Array<{ name: string; username?: string }>,
-  songs: Array<{ title: string; artist: string }>
+  songs: Array<{ title: string; artist: string }>,
+  stores: PublicStoreSearchHit[]
 ): string {
   const parts: string[] = [];
 
@@ -100,6 +103,12 @@ function buildLlmContext(
   }
   if (songs.length > 0) {
     parts.push("Music: " + songs.map((s) => `"${s.title}" by ${s.artist}`).join(", "));
+  }
+  if (stores.length > 0) {
+    parts.push(
+      "QwertyHub stores: " +
+        stores.map((s) => `"${s.name}" (/store/${s.slug}, ${s.type})`).join(", ")
+    );
   }
 
   if (parts.length === 0) return "";
@@ -124,9 +133,13 @@ export async function searchPlatformMacGyverBundle(query: string): Promise<MacGy
   const regex = new RegExp(escaped, "i");
 
   const quickLim = { tv: 1, prod: 1, usr: 1, sng: 1 };
-  const [tvQ, prodQ, usrQ, sngQ] = await runSearchParallel(regex, quickLim);
+  const [quickParallel, storesQ] = await Promise.all([
+    runSearchParallel(regex, quickLim),
+    searchPublicStores(q, 1),
+  ]);
+  const [tvQ, prodQ, usrQ, sngQ] = quickParallel;
 
-  if (anyHits(tvQ, prodQ, usrQ, sngQ)) {
+  if (anyHits(tvQ, prodQ, usrQ, sngQ, storesQ)) {
     return { hasResults: true, contextForLlm: "" };
   }
 
@@ -135,11 +148,15 @@ export async function searchPlatformMacGyverBundle(query: string): Promise<MacGy
   }
 
   const fullLim = { tv: MAX_TV, prod: MAX_PRODUCTS, usr: MAX_USERS, sng: MAX_SONGS };
-  const [tv, products, users, songs] = await runSearchParallel(regex, fullLim);
+  const [fullParallel, stores] = await Promise.all([
+    runSearchParallel(regex, fullLim),
+    searchPublicStores(q, 3),
+  ]);
+  const [tv, products, users, songs] = fullParallel;
 
   return {
     hasResults: false,
-    contextForLlm: buildLlmContext(tv, products, users, songs),
+    contextForLlm: buildLlmContext(tv, products, users, songs, stores),
   };
 }
 

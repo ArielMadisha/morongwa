@@ -2,10 +2,10 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { ArrowLeft, LayoutDashboard, Wallet, ClipboardList, HelpCircle, ShieldCheck, Lock, Radio, UserCheck, Camera, Pencil, Check, X, Download, Music2, LayoutGrid } from "lucide-react";
+import { ArrowLeft, LayoutDashboard, Wallet, ClipboardList, HelpCircle, ShieldCheck, Lock, Radio, UserCheck, Camera, Pencil, Check, X, Download, Music2, LayoutGrid, ShoppingBag } from "lucide-react";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import { useAuth } from "@/contexts/AuthContext";
-import { usersAPI, followsAPI, musicAPI, getImageUrl, API_BASE } from "@/lib/api";
+import { usersAPI, followsAPI, musicAPI, checkoutAPI, getImageUrl, API_BASE } from "@/lib/api";
 import { AppSidebar, AppSidebarMenuButton } from "@/components/AppSidebar";
 import { SearchButton } from "@/components/SearchButton";
 import { MobileBottomNav } from "@/components/MobileBottomNav";
@@ -13,6 +13,9 @@ import { SetPictureOptionsModal } from "@/components/SetPictureOptionsModal";
 import { ContentPreferencesModal } from "@/components/ContentPreferencesModal";
 import { useCartAndStores } from "@/lib/useCartAndStores";
 import toast from "react-hot-toast";
+import { userPublicDisplayName } from "@/lib/userDisplayLabel";
+import { ProfileLocationSettings } from "@/components/ProfileLocationSettings";
+import type { PublicProfileLocation } from "@/lib/publicProfileLocation";
 
 function initials(name: string) {
   if (!name) return "M";
@@ -23,6 +26,7 @@ function initials(name: string) {
 
 export default function ProfilePage() {
   const { user, logout, refreshUser } = useAuth();
+  const profileLabel = user ? userPublicDisplayName(user) : "";
   const [menuOpen, setMenuOpen] = useState(false);
   const [isPrivate, setIsPrivate] = useState(false);
   const [isLive, setIsLive] = useState(false);
@@ -36,8 +40,11 @@ export default function ProfilePage() {
   const [phoneValue, setPhoneValue] = useState("");
   const [phoneSaving, setPhoneSaving] = useState(false);
   const [downloads, setDownloads] = useState<Array<{ songId: string; song?: { _id: string; title?: string; artist?: string; artworkUrl?: string; type?: string; tracks?: { title: string; audioUrl: string }[] }; amount: number; createdAt: string }>>([]);
+  const [productPurchases, setProductPurchases] = useState<Array<any>>([]);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [contentPrefsOpen, setContentPrefsOpen] = useState(false);
+  const [showPhonePublicly, setShowPhonePublicly] = useState(false);
+  const [publicProfileKind, setPublicProfileKind] = useState<'individual' | 'school' | 'business'>('individual');
   const { cartCount, hasStore } = useCartAndStores(!!user);
 
   useEffect(() => {
@@ -52,6 +59,20 @@ export default function ProfilePage() {
         const data = res.data?.data ?? res.data ?? [];
         setDownloads(Array.isArray(data) ? data : []);
       }).catch(() => setDownloads([]));
+      checkoutAPI.getMyOrders({ page: 1, limit: 10 }).then((res) => {
+        const data = res.data?.data ?? [];
+        setProductPurchases(Array.isArray(data) ? data : []);
+      }).catch(() => setProductPurchases([]));
+      const uid = user._id || user.id;
+      if (uid) {
+        setShowPhonePublicly(!!(user as { showPhonePublicly?: boolean }).showPhonePublicly);
+        usersAPI.getProfileStats(uid).then((res) => {
+          const kind = res.data?.publicProfileKind || res.data?.user?.publicProfileKind;
+          if (kind === 'school' || kind === 'business' || kind === 'individual') {
+            setPublicProfileKind(kind);
+          }
+        }).catch(() => {});
+      }
     }
   }, [user]);
 
@@ -95,6 +116,20 @@ export default function ProfilePage() {
       refreshUser?.();
     } catch {
       // error handled by toast in API
+    }
+  };
+
+  const handleToggleShowPhone = async () => {
+    if (!user?._id && !user?.id) return;
+    const next = !showPhonePublicly;
+    try {
+      await usersAPI.updateProfile(user._id || user.id!, { showPhonePublicly: next });
+      setShowPhonePublicly(next);
+      toast.success(next ? 'Phone number will show on your public profile' : 'Phone number hidden from public profile');
+      refreshUser?.();
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { message?: string } } };
+      toast.error(err.response?.data?.message || 'Could not update phone visibility');
     }
   };
 
@@ -143,7 +178,10 @@ export default function ProfilePage() {
       await usersAPI.uploadAvatar(user._id || user.id!, selectedPictureFile);
       toast.success('Profile picture updated');
       setSelectedPictureFile(null);
-      refreshUser?.();
+      await refreshUser?.();
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('qwertymates:avatar-updated'));
+      }
     } catch (e: any) {
       toast.error(e.response?.data?.message || 'Failed to update profile picture');
     }
@@ -265,7 +303,7 @@ export default function ProfilePage() {
               <SearchButton />
             </div>
           </header>
-          <div className="flex-1 overflow-auto pb-24 lg:pb-0">
+          <div className="flex-1 overflow-auto pb-24 md:pb-0">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 pt-4 pb-8">
           <div className="mb-4">
             <h1 className="text-xl sm:text-2xl font-bold text-slate-900">My profile</h1>
@@ -281,14 +319,14 @@ export default function ProfilePage() {
                   {(user as any).avatar ? (
                     <img src={getImageUrl((user as any).avatar)} alt="" className="w-full h-full object-cover" />
                   ) : (
-                    initials(user.name)
+                    initials(profileLabel)
                   )}
                   <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                     <Camera className="h-8 w-8 text-white" />
                   </div>
                 </label>
                 <div className="flex-1 min-w-0">
-                  <h2 className="text-xl font-semibold text-slate-900">{user.name}</h2>
+                  <h2 className="text-xl font-semibold text-slate-900">{profileLabel}</h2>
                   <p className="text-slate-600">{user.email}</p>
                   <div className="mt-2 flex items-center gap-2">
                     {editingUsername ? (
@@ -421,6 +459,25 @@ export default function ProfilePage() {
                   />
                 </label>
                 <p className="text-xs text-slate-500">When private, others must request to follow. You approve each request.</p>
+                {publicProfileKind === 'individual' && (
+                  <label className="flex items-center justify-between gap-4 cursor-pointer">
+                    <span className="flex items-center gap-2 text-sm text-slate-700">
+                      <UserCheck className="h-4 w-4 text-slate-500" />
+                      Show phone on public profile
+                    </span>
+                    <input
+                      type="checkbox"
+                      checked={showPhonePublicly}
+                      onChange={handleToggleShowPhone}
+                      className="rounded text-sky-600"
+                    />
+                  </label>
+                )}
+                {publicProfileKind === 'individual' && (
+                  <p className="text-xs text-slate-500">
+                    Off by default. Your login email is never shown publicly. Schools and business stores keep their public contact details.
+                  </p>
+                )}
                 <button
                   type="button"
                   onClick={() => setContentPrefsOpen(true)}
@@ -445,6 +502,15 @@ export default function ProfilePage() {
                   />
                 </label>
                 <p className="text-xs text-slate-500">When live, you appear in statuses and on QwertyTV.</p>
+              </div>
+
+              <div className="mt-6 pt-6 border-t border-slate-100">
+                <h3 className="text-sm font-semibold text-slate-700 mb-3">Public profile location</h3>
+                <ProfileLocationSettings
+                  userId={user._id || user.id!}
+                  initial={(user as { publicProfileLocation?: PublicProfileLocation }).publicProfileLocation}
+                  onSaved={() => refreshUser?.()}
+                />
               </div>
 
               {/* Upload profile picture / strip background */}
@@ -524,6 +590,42 @@ export default function ProfilePage() {
                         <Download className="h-3.5 w-3.5" />
                         {downloadingId === d.songId ? 'Preparing...' : (d.song?.type === 'album' ? 'Download album' : 'Download')}
                       </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Product purchases */}
+          <div className="mt-6">
+            <h3 className="text-sm font-semibold text-slate-700 mb-4 flex items-center gap-2">
+              <ShoppingBag className="h-4 w-4" /> Product purchases
+            </h3>
+            {productPurchases.length === 0 ? (
+              <div className="rounded-xl border border-slate-100 bg-white p-6 text-center text-slate-500">
+                <ShoppingBag className="h-10 w-10 mx-auto mb-2 text-slate-300" />
+                <p className="text-sm">No product purchases yet</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {productPurchases.map((o) => (
+                  <div key={String(o._id)} className="rounded-xl border border-slate-100 bg-white p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-sm font-semibold text-slate-900">ORDER-{String(o._id).slice(-12)}</p>
+                      <p className="text-sm font-semibold text-slate-900">
+                        R{Number(o?.amounts?.total || 0).toFixed(2)}
+                      </p>
+                    </div>
+                    <p className="mt-1 text-xs text-slate-500">
+                      {o?.createdAt ? new Date(o.createdAt).toLocaleString() : "—"} · {String(o?.status || "pending").replace("_", " ")}
+                    </p>
+                    <div className="mt-2 text-xs text-slate-600">
+                      {(Array.isArray(o?.paymentBreakdown?.items) ? o.paymentBreakdown.items : [])
+                        .slice(0, 3)
+                        .map((it: any, i: number) => (
+                          <p key={`${o._id}-item-${i}`}>{it.qty} x {it.title}</p>
+                        ))}
                     </div>
                   </div>
                 ))}

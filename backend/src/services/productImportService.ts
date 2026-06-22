@@ -13,6 +13,13 @@ import {
   platformMarginPct,
   getPricingRule,
 } from "../config/twoTierPricing";
+import {
+  sheinCatalogPrice,
+  sheinPlatformMarkupPct,
+  sheinRecommendedResellerPrice,
+  sheinMinResalePrice,
+} from "../config/sheinPricing";
+import { assignProductColors } from "./assignProductColors";
 
 function slugify(s: string): string {
   return s
@@ -21,9 +28,22 @@ function slugify(s: string): string {
     .replace(/^-|-$/g, "");
 }
 
+async function detectColorsAfterImport(
+  productId: unknown,
+  images: string[],
+  externalData?: Record<string, unknown>
+): Promise<void> {
+  if (!productId) return;
+  try {
+    await assignProductColors(String(productId), { images, externalData, force: true });
+  } catch (err) {
+    console.warn("detectColorsAfterImport:", (err as Error)?.message || err);
+  }
+}
+
 export async function importProductFromCJ(
   cjProductId: string,
-  options?: { category?: string; forceUpdate?: boolean }
+  options?: { category?: string; forceUpdate?: boolean; productSku?: string }
 ): Promise<{ product: any; created: boolean; updated: boolean } | null> {
   const adapter = await getSupplierAdapter("cj");
   if (!adapter) return null;
@@ -88,17 +108,23 @@ export async function importProductFromCJ(
     categories: sp.categories || ["Imported"],
     tags: [],
     active: true,
+    sku:
+      (options?.productSku && String(options.productSku).trim()) ||
+      (sp.sku && String(sp.sku).trim()) ||
+      undefined,
   };
 
   if (existing) {
     if (!options?.forceUpdate) return { product: existing, created: false, updated: false };
     await Product.updateOne({ _id: existing._id }, { $set: doc });
     const updated = await Product.findById(existing._id).lean();
+    void detectColorsAfterImport(existing._id, doc.images, doc.externalData as Record<string, unknown>);
     return { product: updated, created: false, updated: true };
   }
 
   try {
     const product = await Product.create(doc);
+    void detectColorsAfterImport(product._id, doc.images, doc.externalData as Record<string, unknown>);
     return { product, created: true, updated: false };
   } catch {
     const duplicate = await Product.findOne({
@@ -232,11 +258,13 @@ export async function importProductFromEprolo(
     if (!options?.forceUpdate) return { product: existing, created: false, updated: false };
     await Product.updateOne({ _id: existing._id }, { $set: doc });
     const updated = await Product.findById(existing._id).lean();
+    void detectColorsAfterImport(existing._id, doc.images, doc.externalData as Record<string, unknown>);
     return { product: updated, created: false, updated: true };
   }
 
   try {
     const product = await Product.create(doc);
+    void detectColorsAfterImport(product._id, doc.images, doc.externalData as Record<string, unknown>);
     return { product, created: true, updated: false };
   } catch {
     const duplicate = await Product.findOne({
@@ -281,6 +309,132 @@ export async function searchAndImportFromEprolo(
 
   for (const sp of results) {
     const r = await importProductFromEprolo(sp.id, { forceUpdate: false });
+    imported.push(r);
+  }
+  return imported;
+}
+
+/** Import product from SHEIN by SPU/product ID — pass-through catalog price (no Qwertymates markup). */
+export async function importProductFromShein(
+  sheinProductId: string,
+  options?: { category?: string; forceUpdate?: boolean }
+): Promise<{ product: any; created: boolean; updated: boolean } | null> {
+  const adapter = await getSupplierAdapter("shein");
+  if (!adapter) return null;
+
+  const ext = await ExternalSupplier.findOne({ source: "shein", status: "active" }).lean();
+  if (!ext) return null;
+
+  const id = String(sheinProductId || "").trim().replace(/^["']|["']$/g, "");
+  const sp = await adapter.getProduct(id);
+  if (!sp) return null;
+
+  const catalogPrice = sheinCatalogPrice(sp.supplierCost);
+  const markupPct = sheinPlatformMarkupPct();
+  const recPrice = sheinRecommendedResellerPrice(catalogPrice);
+  const minPrice = sheinMinResalePrice(catalogPrice);
+
+  const baseSlug = slugify(sp.name || sp.sku || id).slice(0, 40);
+  const uniqueSuffix = `-shein-${id.replace(/-/g, "").slice(0, 8)}`;
+  let slug = `${baseSlug}${uniqueSuffix}`;
+  let n = 1;
+  while (await Product.findOne({ slug })) {
+    slug = `${baseSlug}-${n}${uniqueSuffix}`;
+    n++;
+  }
+  const existing = await Product.findOne({
+    supplierSource: "shein",
+    externalProductId: id,
+  });
+
+  let stock = 999;
+  let outOfStock = false;
+  if (adapter.getStockByVid && sp.defaultVariantId) {
+    const sheinStock = await adapter.getStockByVid(sp.defaultVariantId);
+    if (sheinStock !== null) {
+      stock = sheinStock;
+      outOfStock = sheinStock < 1;
+    }
+  }
+
+  const doc = {
+    supplierSource: "shein" as const,
+    externalSupplierId: ext._id,
+    externalProductId: id,
+    externalData: sp.raw,
+    supplierCost: sp.supplierCost,
+    qwertymatesMarkupPct: markupPct,
+    recommendedResellerPrice: Math.round(recPrice * 100) / 100,
+    minResalePrice: Math.round(minPrice * 100) / 100,
+    resellerMarginPct: 30,
+    title: sp.name,
+    slug,
+    description: sp.description || "",
+    images: sp.images || [],
+    price: Math.round(catalogPrice * 100) / 100,
+    currency: "USD",
+    stock,
+    outOfStock,
+    allowResell: true,
+    categories: sp.categories || ["Fashion"],
+    tags: ["shein"],
+    active: true,
+  };
+
+  if (existing) {
+    if (!options?.forceUpdate) return { product: existing, created: false, updated: false };
+    await Product.updateOne({ _id: existing._id }, { $set: doc });
+    const updated = await Product.findById(existing._id).lean();
+    void detectColorsAfterImport(existing._id, doc.images, doc.externalData as Record<string, unknown>);
+    return { product: updated, created: false, updated: true };
+  }
+
+  try {
+    const product = await Product.create(doc);
+    void detectColorsAfterImport(product._id, doc.images, doc.externalData as Record<string, unknown>);
+    return { product, created: true, updated: false };
+  } catch {
+    const duplicate = await Product.findOne({
+      supplierSource: "shein",
+      externalProductId: id,
+    }).lean();
+    if (duplicate) return { product: duplicate, created: false, updated: false };
+    throw new Error("Failed to import SHEIN product");
+  }
+}
+
+export async function searchSheinProducts(
+  query: string,
+  options?: { page?: number; size?: number }
+): Promise<Array<{ id: string; name: string; sku?: string; supplierCost: number; images: string[]; categories?: string[] }>> {
+  const adapter = await getSupplierAdapter("shein");
+  if (!adapter) return [];
+
+  const page = options?.page ?? 1;
+  const size = Math.min(options?.size ?? 20, 100);
+  const results = await adapter.searchProducts(query, { page, size });
+  return results.map((sp) => ({
+    id: sp.id,
+    name: sp.name,
+    sku: sp.sku,
+    supplierCost: sp.supplierCost,
+    images: sp.images || [],
+    categories: sp.categories,
+  }));
+}
+
+export async function searchAndImportFromShein(
+  query: string,
+  limit = 10
+): Promise<Array<{ product: any; created: boolean; updated: boolean } | null>> {
+  const adapter = await getSupplierAdapter("shein");
+  if (!adapter) return [];
+
+  const results = await adapter.searchProducts(query, { page: 1, size: limit });
+  const imported: Array<{ product: any; created: boolean; updated: boolean } | null> = [];
+
+  for (const sp of results) {
+    const r = await importProductFromShein(sp.id, { forceUpdate: false });
     imported.push(r);
   }
   return imported;

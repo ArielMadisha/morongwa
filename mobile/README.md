@@ -97,6 +97,8 @@ EAS config is in `eas.json`.
    npm run submit:ios:production
    ```
 
+   **If Play returns “signed with the wrong key”:** see **`GOOGLE_PLAY_RELEASE.md`** (paths A/B, SHA-1 checks, open testing vs production). Short version: attach the **same** keystore Play trusts in [Expo credentials](https://expo.dev), or use Play Console **upload key reset** and register EAS’s certificate. Run `npm run verify:google-play` before submit.
+
 ## HarmonyOS Path
 
 Recommended path:

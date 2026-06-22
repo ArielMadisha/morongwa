@@ -1,12 +1,13 @@
 'use client';
 
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useCallback } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import { Hash, Loader2, ArrowRight } from 'lucide-react';
+import { Hash, Loader2, ArrowRight, TrendingUp } from 'lucide-react';
 import SiteHeader from '@/components/SiteHeader';
 import { tvAPI, getImageUrl } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
+import { wallHashtagSearchUrl } from '@/lib/hashtagQuery';
 
 type AccountRow = { _id: string; name?: string; avatar?: string; username?: string };
 
@@ -16,11 +17,25 @@ export default function HashtagExplorePage() {
   const tag = useMemo(() => decodeURIComponent(rawTag || '').replace(/^#/, '').trim(), [rawTag]);
   const { user } = useAuth();
   const [accounts, setAccounts] = useState<AccountRow[]>([]);
+  const [relatedHashtags, setRelatedHashtags] = useState<{ tag: string; count: number }[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const joinPath = `/wall?create=1&hashtag=${encodeURIComponent(tag)}`;
-  const joinHref =
-    user ? joinPath : `/login?returnTo=${encodeURIComponent(joinPath)}`;
+  const joinPath = `/wall?create=1&hashtag=${encodeURIComponent(tag)}&q=%23${encodeURIComponent(tag)}`;
+  const joinHref = user ? joinPath : `/login?returnTo=${encodeURIComponent(joinPath)}`;
+
+  const loadRelated = useCallback(() => {
+    if (!tag || tag.length > 80) {
+      setRelatedHashtags([]);
+      return Promise.resolve();
+    }
+    return tvAPI
+      .getRelatedHashtags(tag, 8, 7)
+      .then((res) => {
+        const data = res.data?.data ?? res.data ?? [];
+        setRelatedHashtags(Array.isArray(data) ? data : []);
+      })
+      .catch(() => setRelatedHashtags([]));
+  }, [tag]);
 
   useEffect(() => {
     if (!tag || tag.length > 80) {
@@ -32,8 +47,11 @@ export default function HashtagExplorePage() {
     (async () => {
       setLoading(true);
       try {
-        const res = await tvAPI.getHashtagAccounts(tag);
-        const data = res.data?.data ?? res.data ?? [];
+        const [accountsRes] = await Promise.all([
+          tvAPI.getHashtagAccounts(tag),
+          loadRelated(),
+        ]);
+        const data = accountsRes.data?.data ?? accountsRes.data ?? [];
         if (!cancelled) setAccounts(Array.isArray(data) ? data : []);
       } catch {
         if (!cancelled) setAccounts([]);
@@ -44,7 +62,7 @@ export default function HashtagExplorePage() {
     return () => {
       cancelled = true;
     };
-  }, [tag]);
+  }, [tag, loadRelated]);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-brand-50/40 text-slate-900">
@@ -71,8 +89,33 @@ export default function HashtagExplorePage() {
         </div>
 
         <p className="text-xs text-slate-500 mb-4">
-          Join opens the create flow on your wall with this tag prefilled (sign in if needed).
+          Join opens the create flow on your wall with this tag prefilled (sign in if needed).{' '}
+          <Link href={wallHashtagSearchUrl(tag)} className="text-brand-600 font-semibold hover:underline">
+            View posts on the wall
+          </Link>
         </p>
+
+        {relatedHashtags.length > 0 && (
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 mb-6 shadow-sm">
+            <p className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-3">
+              Related trending topics
+            </p>
+            <ul className="flex flex-wrap gap-2">
+              {relatedHashtags.map((h) => (
+                <li key={h.tag}>
+                  <Link
+                    href={wallHashtagSearchUrl(h.tag)}
+                    className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-sm text-slate-800 hover:border-brand-200 hover:bg-brand-50 transition-colors"
+                  >
+                    <TrendingUp className="h-3.5 w-3.5 text-brand-500 shrink-0" />
+                    #{h.tag}
+                    <span className="text-xs text-slate-500">{h.count}</span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
 
         {loading ? (
           <div className="flex justify-center py-20">

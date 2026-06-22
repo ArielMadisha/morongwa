@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Package, ArrowRight, ShoppingBag, Store, Building2, HelpCircle } from 'lucide-react';
+import { Package, ArrowRight, ShoppingBag, HelpCircle } from 'lucide-react';
 import { productsAPI, tvAPI, cartAPI, getImageUrl, getEffectivePrice } from '@/lib/api';
 import type { Product } from '@/lib/types';
 import { useAuth } from '@/contexts/AuthContext';
@@ -15,7 +15,8 @@ import { ProfileHeaderButton } from '@/components/ProfileHeaderButton';
 import { AdvertSlot } from '@/components/AdvertSlot';
 import { MobileBottomNav } from '@/components/MobileBottomNav';
 import { MarketplaceCartStepper } from '@/components/MarketplaceCartStepper';
-import { formatCurrencyAmount } from '@/lib/formatCurrency';
+import { formatCatalogProductPrice } from '@/lib/productPriceZar';
+import { WebAdPlacement } from '@/components/WebAdPlacement';
 
 function productQtyMapFromCartResponse(res: { data?: { data?: { items?: unknown[] } } }): Record<string, number> {
   const items = Array.isArray(res.data?.data?.items) ? res.data!.data!.items! : [];
@@ -36,17 +37,9 @@ function productQtyMapFromCartResponse(res: { data?: { data?: { items?: unknown[
   return m;
 }
 
-function formatPriceLocal(price: number, currency: string) {
-  return formatCurrencyAmount(price, currency || 'ZAR');
-}
-
-function authHref(path: string) {
-  return `/register?returnTo=${encodeURIComponent(path)}`;
-}
-
 function MarketplacePageContent() {
   const { user, logout } = useAuth();
-  const { formatPrice: formatInLocal } = useCurrency();
+  const { rates } = useCurrency();
   const router = useRouter();
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Array<{ name: string; count: number }>>([]);
@@ -82,8 +75,33 @@ function MarketplacePageContent() {
   }, [refreshCartQty]);
 
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const categoryRowRef = useRef<HTMLDivElement | null>(null);
+  const categoryScrollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const activeCategoryRef = useRef<string>('All');
+  const stopCategoryAutoScroll = useCallback(() => {
+    if (categoryScrollTimerRef.current) {
+      clearInterval(categoryScrollTimerRef.current);
+      categoryScrollTimerRef.current = null;
+    }
+  }, []);
+
+  const startCategoryAutoScroll = useCallback((direction: 'left' | 'right') => {
+    stopCategoryAutoScroll();
+    categoryScrollTimerRef.current = setInterval(() => {
+      const node = categoryRowRef.current;
+      if (!node) return;
+      const delta = direction === 'right' ? 24 : -24;
+      node.scrollBy({ left: delta, behavior: 'auto' });
+    }, 32);
+  }, [stopCategoryAutoScroll]);
+
+  useEffect(() => {
+    return () => stopCategoryAutoScroll();
+  }, [stopCategoryAutoScroll]);
+
   const lastLoadAtRef = useRef<number>(0);
+  const pageRef = useRef<number>(1);
 
   const loadMarketplaceProducts = useCallback(
     async (opts?: { page?: number; append?: boolean; random?: boolean }) => {
@@ -106,14 +124,25 @@ function MarketplacePageContent() {
         });
         let list = res.data?.data ?? res.data ?? [];
         if (!Array.isArray(list)) list = [];
+        let hasMore = Boolean(res.data?.hasMore ?? (list.length >= 30));
+
+        // Never show empty catalog for category views: fallback to general catalog.
+        if (list.length === 0 && selectedCategory !== 'All' && !append && !random) {
+          const fallback = await productsAPI.list({ limit: 30, page: 1, random: false });
+          const fallbackList = fallback.data?.data ?? fallback.data ?? [];
+          list = Array.isArray(fallbackList) ? fallbackList : [];
+          hasMore = Boolean(fallback.data?.hasMore ?? (list.length >= 30));
+        }
+
         if (list.length === 0 && selectedCategory === 'All' && !append && !random) {
           const feat = await tvAPI.getFeaturedProducts();
           const raw = feat.data?.data ?? feat.data ?? [];
           list = Array.isArray(raw) ? raw : [];
+          hasMore = false;
         }
-        const hasMore = Boolean(res.data?.hasMore ?? (list.length >= 30));
         setHasMoreProducts(hasMore);
         setPage(pageToLoad);
+        pageRef.current = pageToLoad;
         if (append) {
           setProducts((prev) => [...prev, ...list]);
         } else {
@@ -138,6 +167,7 @@ function MarketplacePageContent() {
     activeCategoryRef.current = selectedCategory;
     setProducts([]);
     setPage(1);
+    pageRef.current = 1;
     setHasMoreProducts(true);
     void loadMarketplaceProducts({ page: 1, append: false, random: false });
   }, [selectedCategory, loadMarketplaceProducts]);
@@ -146,18 +176,20 @@ function MarketplacePageContent() {
     if (loading || loadingMore) return;
     if (Date.now() < randomBackoffUntil) return;
     if (hasMoreProducts) {
-      await loadMarketplaceProducts({ page: page + 1, append: true, random: false });
+      const nextPage = pageRef.current + 1;
+      await loadMarketplaceProducts({ page: nextPage, append: true, random: false });
       return;
     }
     // Endless browsing: when exhausted in "All", keep appending random catalog items.
     if (activeCategoryRef.current === 'All') {
       await loadMarketplaceProducts({ append: true, random: true });
     }
-  }, [hasMoreProducts, loadMarketplaceProducts, loading, loadingMore, page, randomBackoffUntil]);
+  }, [hasMoreProducts, loadMarketplaceProducts, loading, loadingMore, randomBackoffUntil]);
 
   useEffect(() => {
     const node = loadMoreRef.current;
     if (!node) return;
+    const rootNode = scrollContainerRef.current;
     const observer = new IntersectionObserver(
       (entries) => {
         const first = entries[0];
@@ -165,10 +197,25 @@ function MarketplacePageContent() {
           void loadNextProducts();
         }
       },
-      { root: null, rootMargin: '500px 0px', threshold: 0.01 }
+      { root: rootNode, rootMargin: '500px 0px', threshold: 0.01 }
     );
     observer.observe(node);
     return () => observer.disconnect();
+  }, [loadNextProducts]);
+
+  useEffect(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    const onScroll = () => {
+      // Fallback for cases where intersection events are missed in nested scroll containers.
+      const remaining = el.scrollHeight - el.scrollTop - el.clientHeight;
+      if (remaining < 900) {
+        void loadNextProducts();
+      }
+    };
+    el.addEventListener('scroll', onScroll, { passive: true });
+    onScroll();
+    return () => el.removeEventListener('scroll', onScroll);
   }, [loadNextProducts]);
 
   useEffect(() => {
@@ -201,9 +248,6 @@ function MarketplacePageContent() {
 
   const isGuest = !user;
   const marketplaceLoginHref = `/login?returnTo=${encodeURIComponent('/marketplace')}`;
-  const supplierLink = isGuest ? authHref('/supplier/apply') : '/supplier/apply';
-  const storeLink = isGuest ? authHref('/store') : '/store';
-  const supplierProductsLink = isGuest ? authHref('/supplier/products') : '/supplier/products';
   const homeLink = isGuest ? '/' : '/wall';
 
   return (
@@ -264,18 +308,42 @@ function MarketplacePageContent() {
             belowHeader
           />
         )}
-        <div className="flex min-h-0 min-w-0 w-full flex-1 flex-col gap-0 overflow-y-auto overflow-x-hidden overscroll-contain lg:flex-row">
-        <main className="order-2 box-border min-h-0 w-full min-w-0 max-w-full flex-1 px-3 sm:px-6 lg:px-8 py-5 sm:py-6 pb-24 lg:pb-6 lg:order-none">
+        <div
+          ref={scrollContainerRef}
+          className="flex min-h-0 min-w-0 w-full flex-1 flex-col gap-0 overflow-y-auto overflow-x-hidden overscroll-contain lg:flex-row"
+        >
+        <main className="order-2 box-border min-h-0 w-full min-w-0 max-w-full flex-1 px-3 sm:px-6 lg:px-8 py-5 sm:py-6 pb-24 md:pb-6 lg:order-none">
         {isGuest && (
           <div className="mb-6 rounded-xl border border-blue-100 bg-blue-50/80 px-4 py-3 text-sm text-slate-700">
             Browse our gallery. <Link href="/register" className="font-medium text-brand-600 hover:text-brand-700">Sign up</Link> or <Link href="/login" className="font-medium text-brand-600 hover:text-brand-700">sign in</Link> to add to cart, checkout, or sell.
           </div>
         )}
-        <p className="mb-8 w-full max-w-full text-left text-pretty text-base leading-relaxed text-slate-600 break-words">
+        <p className="mb-6 w-full max-w-full text-left text-pretty text-base leading-relaxed text-slate-600 break-words">
           Products from verified suppliers. Buy or resell with delivery by runners.
         </p>
-        <div className="mb-5 flex flex-wrap gap-2">
-          {['All', ...categories.map((c) => c.name)].slice(0, 18).map((cat) => {
+        <WebAdPlacement placement="marketplace_top_row" audience="shopper" variant="banner" className="mb-4" />
+        <div className="relative mb-5">
+          <div
+            onMouseEnter={() => startCategoryAutoScroll('left')}
+            onMouseLeave={stopCategoryAutoScroll}
+            className="absolute left-0 top-1/2 z-10 -translate-y-1/2 rounded-full border border-slate-200 bg-white/90 px-2 py-1 text-xs text-slate-600 shadow-sm cursor-ew-resize select-none"
+            title="Hover to scroll left"
+          >
+            ◀
+          </div>
+          <div
+            onMouseEnter={() => startCategoryAutoScroll('right')}
+            onMouseLeave={stopCategoryAutoScroll}
+            className="absolute right-0 top-1/2 z-10 -translate-y-1/2 rounded-full border border-slate-200 bg-white/90 px-2 py-1 text-xs text-slate-600 shadow-sm cursor-ew-resize select-none"
+            title="Hover to scroll right"
+          >
+            ▶
+          </div>
+          <div
+            ref={categoryRowRef}
+            className="mx-9 flex flex-nowrap gap-2 overflow-x-auto whitespace-nowrap scroll-smooth [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          >
+          {['All', ...categories.map((c) => c.name).filter((name) => String(name || '').trim().toLowerCase() !== 'local')].map((cat) => {
             const active = selectedCategory === cat;
             return (
               <button
@@ -292,6 +360,7 @@ function MarketplacePageContent() {
               </button>
             );
           })}
+          </div>
         </div>
 
         {loading ? (
@@ -361,6 +430,7 @@ function MarketplacePageContent() {
                       <MarketplaceCartStepper
                         productId={p._id}
                         qty={cartQtyByProduct[String(p._id)] ?? 0}
+                        colorsRequired={Array.isArray((p as { colors?: unknown[] }).colors) && (p as { colors: unknown[] }).colors.length > 0}
                         outOfStock={outOfStock}
                         isGuest={isGuest}
                         loginHref={marketplaceLoginHref}
@@ -381,41 +451,22 @@ function MarketplacePageContent() {
                   </Link>
                   <div className="mt-auto px-3 pb-3 pt-1.5 sm:px-4 sm:pb-3">
                     <div className="min-w-0 overflow-hidden">
-                      {p.currency === 'USD' ? (
-                        p.discountPrice != null && p.discountPrice < p.price ? (
-                          <p
-                            className="truncate whitespace-nowrap text-xs font-bold tabular-nums text-sky-600 sm:text-sm"
-                            title={`${formatInLocal(p.discountPrice)} · was ${formatInLocal(p.price)}`}
-                          >
-                            <span>{formatInLocal(p.discountPrice)}</span>
-                            <span className="ml-1 text-[9px] font-normal text-slate-400 line-through sm:text-[10px]">
-                              {formatInLocal(p.price)}
-                            </span>
-                          </p>
-                        ) : (
-                          <span
-                            className="block truncate whitespace-nowrap text-xs font-bold leading-none text-sky-600 tabular-nums sm:text-sm"
-                            title={formatInLocal(p.price)}
-                          >
-                            {formatInLocal(p.price)}
-                          </span>
-                        )
-                      ) : p.discountPrice != null && p.discountPrice < p.price ? (
+                      {p.discountPrice != null && p.discountPrice < p.price ? (
                         <p
                           className="truncate whitespace-nowrap text-xs font-bold tabular-nums text-sky-600 sm:text-sm"
-                          title={`${formatPriceLocal(p.discountPrice, p.currency)} · was ${formatPriceLocal(p.price, p.currency)}`}
+                          title={`${formatCatalogProductPrice(p.discountPrice, p.currency, rates)} · was ${formatCatalogProductPrice(p.price, p.currency, rates)}`}
                         >
-                          <span>{formatPriceLocal(p.discountPrice, p.currency)}</span>
+                          <span>{formatCatalogProductPrice(p.discountPrice, p.currency, rates)}</span>
                           <span className="ml-1 text-[9px] font-normal text-slate-400 line-through sm:text-[10px]">
-                            {formatPriceLocal(p.price, p.currency)}
+                            {formatCatalogProductPrice(p.price, p.currency, rates)}
                           </span>
                         </p>
                       ) : (
                         <span
                           className="block truncate whitespace-nowrap text-xs font-bold leading-none text-sky-600 tabular-nums sm:text-sm"
-                          title={formatPriceLocal(p.price, p.currency)}
+                          title={formatCatalogProductPrice(getEffectivePrice(p), p.currency, rates)}
                         >
-                          {formatPriceLocal(p.price, p.currency)}
+                          {formatCatalogProductPrice(getEffectivePrice(p), p.currency, rates)}
                         </span>
                       )}
                     </div>
@@ -437,7 +488,7 @@ function MarketplacePageContent() {
               if (resellerPct != null) {
                 displayPrice = Math.round(displayPrice * (1 + resellerPct / 100) * 100) / 100;
               }
-              const cartHref = `/marketplace/product/${p?._id}${resellerId ? `?resellerId=${resellerId}` : ''}`;
+              const cartHref = `/marketplace/product/${p?._id}${resellerId ? `?resellerId=${resellerId}${resellerPct != null ? `&resellerCommissionPct=${resellerPct}` : ''}` : ''}`;
               return (
                 <div
                   key={`resold-${post._id}-${p?._id}`}
@@ -466,6 +517,7 @@ function MarketplacePageContent() {
                           productId={String(p._id)}
                           resellerId={resellerId ? String(resellerId) : undefined}
                           qty={cartQtyByProduct[String(p._id)] ?? 0}
+                          colorsRequired={Array.isArray((p as { colors?: unknown[] }).colors) && (p as { colors: unknown[] }).colors.length > 0}
                           outOfStock={!!(p as any)?.outOfStock || (p?.stock != null && p.stock < 1)}
                           isGuest={isGuest}
                           loginHref={marketplaceLoginHref}
@@ -484,15 +536,9 @@ function MarketplacePageContent() {
                     <div className="min-w-0 overflow-hidden">
                       <span
                         className="block truncate whitespace-nowrap text-xs font-bold leading-none text-sky-600 tabular-nums sm:text-sm"
-                        title={
-                          p?.currency === 'USD'
-                            ? formatInLocal(displayPrice)
-                            : formatPriceLocal(displayPrice, p?.currency || 'ZAR')
-                        }
+                        title={formatCatalogProductPrice(displayPrice, p?.currency, rates)}
                       >
-                        {p?.currency === 'USD'
-                          ? formatInLocal(displayPrice)
-                          : formatPriceLocal(displayPrice, p?.currency || 'ZAR')}
+                        {formatCatalogProductPrice(displayPrice, p?.currency, rates)}
                       </span>
                     </div>
                   </div>
@@ -502,9 +548,9 @@ function MarketplacePageContent() {
           </div>
         )}
         <div ref={loadMoreRef} className="h-8 w-full" />
-        {(loadingMore || (selectedCategory === 'All' && !hasMoreProducts)) && (
+        {loadingMore && (
           <p className="mt-3 text-center text-xs text-slate-500">
-            {loadingMore ? 'Loading more products...' : 'Showing more products...'}
+            Loading more products...
           </p>
         )}
         {!loadingMore && randomBackoffUntil > Date.now() && selectedCategory === 'All' && (
@@ -512,41 +558,10 @@ function MarketplacePageContent() {
             Too many requests detected. Auto-loading will resume shortly.
           </p>
         )}
-
-        <div className="mt-12 rounded-2xl border border-slate-200 bg-white/90 p-6">
-          <h2 className="text-lg font-semibold text-slate-900 mb-4">Sell on Qwertymates</h2>
-          <div className="grid sm:grid-cols-2 gap-6">
-            <div className="rounded-xl border border-sky-100 bg-sky-50/50 p-4">
-              <div className="flex items-center gap-2 mb-2">
-                <Store className="h-5 w-5 text-sky-600" />
-                <span className="font-semibold text-slate-800">Reseller (no verification)</span>
-              </div>
-              <p className="text-sm text-slate-600 mb-3">Add products to MyStore and get a store automatically. Rename your store anytime.</p>
-              <ol className="text-sm text-slate-700 space-y-1 list-decimal list-inside mb-4">
-                <li>Click <strong>Add to MyStore</strong> on a product</li>
-                <li>Your store is created; go to <Link href={storeLink} className="text-sky-600 hover:underline">My store</Link> to rename it</li>
-                <li>Share your wall link so others can buy from you</li>
-              </ol>
-              <Link href={storeLink} className="text-sm font-medium text-sky-600 hover:underline">My store →</Link>
-            </div>
-            <div className="rounded-xl border border-sky-100 bg-sky-50/50 p-4">
-              <div className="flex items-center gap-2 mb-2">
-                <Building2 className="h-5 w-5 text-sky-600" />
-                <span className="font-semibold text-slate-800">Supplier (verified)</span>
-              </div>
-              <p className="text-sm text-slate-600 mb-3">List your own products. Apply once, get verified, then add as many products as you like.</p>
-              <ol className="text-sm text-slate-700 space-y-1 list-decimal list-inside mb-4">
-                <li><Link href={supplierLink} className="text-sky-600 hover:underline">Become a supplier</Link> and submit your details</li>
-                <li>Admin approves; you get a supplier store</li>
-                <li>Use <Link href={supplierProductsLink} className="text-sky-600 hover:underline">Add product</Link> to list items</li>
-              </ol>
-              <Link href={supplierLink} className="text-sm font-medium text-sky-600 hover:underline">Become a supplier →</Link>
-            </div>
-          </div>
-          <p className="mt-6 text-center text-sm text-slate-500">
-            Need help? <Link href="/support?category=products:marketplace" className="text-sky-600 hover:underline">Contact support</Link>
-          </p>
+        <div className="mt-4">
+          <WebAdPlacement placement="marketplace_inline" audience="shopper" variant="offer" />
         </div>
+
       </main>
         <AdvertSlot belowHeader />
         </div>

@@ -1,6 +1,8 @@
 // Database connection configuration
 import mongoose from "mongoose";
 import dns from "node:dns";
+import { ensureStoreIndexes, syncMultiStoreOwnerFlags } from "../utils/multiStoreAccess";
+import { ensureSupplierIndexes } from "../utils/ensureSupplierIndexes";
 
 const DEFAULT_MONGO_DNS_SERVERS = ["8.8.8.8", "1.1.1.1"];
 
@@ -28,6 +30,9 @@ export const connectDB = async (): Promise<void> => {
     autoIndex: true,
     maxPoolSize: 10,
   });
+  await ensureStoreIndexes();
+  await ensureSupplierIndexes();
+  await syncMultiStoreOwnerFlags();
   console.log("✅ MongoDB connected successfully");
 };
 

@@ -38,6 +38,7 @@ export const loginSchema = Joi.object({
 }).or("email", "username", "phone");
 
 export const taskSchema = Joi.object({
+  taskType: Joi.string().valid("collect_send", "shop_send", "transport", "general").optional(),
   title: Joi.string().min(3).max(200).required(),
   description: Joi.string().min(3).max(2000).required(),
   budget: Joi.number().min(0).optional(),
@@ -65,7 +66,19 @@ export const taskSchema = Joi.object({
       address: Joi.string().optional(),
     })
   ).optional(),
+  parcelDetails: Joi.alternatives().try(
+    Joi.string(),
+    Joi.object({
+      lengthCm: Joi.number().min(0).max(500).optional(),
+      widthCm: Joi.number().min(0).max(500).optional(),
+      heightCm: Joi.number().min(0).max(500).optional(),
+      weightKg: Joi.number().min(0).max(1000).optional(),
+      volumetricWeightKg: Joi.number().min(0).max(1000).optional(),
+      chargeableWeightKg: Joi.number().min(0).max(1000).optional(),
+    })
+  ).optional(),
   category: Joi.string().optional(),
+  workflowMeta: Joi.alternatives().try(Joi.string(), Joi.object()).optional(),
 });
 
 export const reviewSchema = Joi.object({
@@ -110,6 +123,13 @@ export const requestMoneySchema = Joi.object({
   notifyChannel: Joi.string().valid("sms", "whatsapp", "both").default("whatsapp"),
 }).or("toUserId", "toUsername");
 
+/** Face-to-face: requester scanned payee QR (payeeUserId = person who will pay). */
+export const requestMoneyFromScanSchema = Joi.object({
+  payeeUserId: Joi.string().required(),
+  amount: Joi.number().min(0.01).max(50000).required(),
+  message: Joi.string().max(200).optional(),
+});
+
 export const payMoneyRequestSchema = Joi.object({
   requestId: Joi.string().required(),
 });
@@ -120,19 +140,23 @@ export const payWithCardSchema = Joi.object({
 });
 
 export const checkoutPaySchema = Joi.object({
-  merchantId: Joi.string().required(),
-  amount: Joi.number().min(0.01).max(50000).required(),
-  reference: Joi.string().max(120).required(),
-  returnUrl: Joi.string().max(500).required(),
-  cancelUrl: Joi.string().max(500).optional(),
+  sessionId: Joi.string().required(),
   method: Joi.string().valid("wallet", "card").required(),
   cardId: Joi.string().when("method", { is: "card", then: Joi.required(), otherwise: Joi.optional() }),
 });
 
+import { SUPPORT_CATEGORY_MAIN } from "../config/supportCategories";
+
+const SUPPORT_TICKET_CATEGORY_RE = new RegExp(
+  `^(${SUPPORT_CATEGORY_MAIN.join("|")}):[a-z0-9_]+$`
+);
+
 export const supportTicketSchema = Joi.object({
   title: Joi.string().min(5).max(200).required(),
   description: Joi.string().min(10).max(2000).required(),
-  category: Joi.string().required(),
+  category: Joi.string().pattern(SUPPORT_TICKET_CATEGORY_RE).required().messages({
+    "string.pattern.base": "Invalid support category",
+  }),
   priority: Joi.string().valid("low", "medium", "high", "urgent").default("medium"),
 });
 

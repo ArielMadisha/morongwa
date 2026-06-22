@@ -1,0 +1,99 @@
+---
+description: Non-negotiable recurring content schedules — one school gallery per day; World News sports Tue/Thu; do not weaken after Cursor updates
+alwaysApply: true
+---
+
+# Recurring owner schedules (persist across Cursor updates)
+
+**Owner policy — treat like production guardrails.** These schedules must survive Cursor rule refreshes, refactors, and agent sessions. **Do not remove, batch, or “optimize away” these limits** without explicit owner approval.
+
+After **any** Cursor update or rules reset, verify these files still exist with **`alwaysApply: true`**:
+
+| Rule | Path |
+|------|------|
+| This index | `.cursor/rules/recurring-owner-schedules.mdc` |
+| School gallery detail | `.cursor/rules/school-gallery-daily-import.mdc` |
+| EAS Android July release | `.cursor/rules/eas-android-july-build.mdc` |
+
+---
+
+## 1. School gallery — **one school per calendar day**
+
+| What | Detail |
+|------|--------|
+| **Cadence** | **Exactly one** school photo folder per **calendar day** (local PC / SAST morning). |
+| **Never** | Import two schools the same day; re-import a folder already in `processedFolderKeys`. |
+| **Where** | OneDrive `Documents\Coding\Schools` → Qwertymates school accounts (append or create). |
+| **Orchestrator** | `backend/scripts/importSchoolGalleriesDaily.ts` — enforces `lastRunDate` (blocks second live run same day unless `--force`). |
+| **State** | `backend/exports/school-gallery-daily-state.json` |
+| **Windows task** | `Qwertymates-SchoolGallery-Daily` @ **06:30** — register with `backend/scripts/windows/Register-SchoolGalleryDailyTask.ps1` |
+| **Manual** | From `backend/`: `npm run school:import-gallery-daily` |
+| **Runbook** | `DOCS/SCHOOL_GALLERY_DAILY_IMPORT.md` |
+
+**Agent checks after Cursor updates:**
+
+1. Confirm `.cursor/rules/school-gallery-daily-import.mdc` exists (`alwaysApply: true`).
+2. On owner PC: `Get-ScheduledTask -TaskName Qwertymates-SchoolGallery-Daily` — re-register if missing.
+3. Do **not** change daily script to `--limit=2`, `--count=2`, batch multiple folders, or drop `lastRunDate` / one-success-per-day guards.
+4. `SCHOOLS_PER_RUN` is hard-coded to **1** in `importSchoolGalleriesDaily.ts` — `--count=` is ignored.
+
+---
+
+## 2. World News sports — **Tuesday and Friday** (like school: fixed cadence)
+
+**@worldnews** (`AI_NEWS_CREATOR_USERNAME`, default `worldnews`) sports content runs on a **fixed weekday schedule**, not daily.
+
+| Layer | Schedule | Source of truth |
+|-------|----------|-----------------|
+| **Facebook TV ingest (sports bot)** | **Tuesday + Friday** — SAST slots (`0 8|12|18 * * 2` and `0 8|12|18 * * 5`) | `backend/src/config/facebookTvIngest.ts` — `botId: "sports"`, hashtags include `WorldNews` |
+| **Facebook news bots (sports-news)** | **Tuesday + Friday** — `weekdays: ["tue", "fri"]` | `backend/scripts/runFacebookNewsBots.ts` → `sports-news` bot (`fbnewssports`) |
+
+**Do not:**
+
+- Post World News sports ingest **every day** (school is daily; World News sports is **Tue/Fri only**).
+- Remove weekday guards (`parseWeekday`, cron `dow`, or `bot.weekdays.includes(today)`).
+- Merge school daily import into World News cron or vice versa.
+
+**Related:** `backend/scripts/setWorldNewsAvatarFromGallery.ts`, `runApiFootballToTv.ts` (live football — separate env-driven loop).
+
+---
+
+## 3. FIFA World Cup — **@worldofsport** (not @worldnews)
+
+| What | Detail |
+|------|--------|
+| **Account** | `worldofsport` (`WORLD_CUP_TV_CREATOR_USERNAME`) |
+| **Cadence** | Daily 07:00 & 19:00 SAST + live ticks during matches |
+| **@worldnews** | General AI/news only — not World Cup |
+
+See `backend/src/services/worldCupTvService.ts`.
+
+---
+
+## 4. EAS Android Play — **resume 1 July 2026**
+
+| What | Detail |
+|------|--------|
+| **Why** | Expo free-tier Android builds exhausted **June 2026**; upload reached EAS but build rejected (quota). |
+| **Resume** | **2026-07-01** (quota reset) — production build + Play submit for **v1.3.1** backlog. |
+| **Windows task** | `Qwertymates-EAS-Android-July-Release` @ **08:00** daily **1–7 July** — `mobile/scripts/windows/Register-EasAndroidJulyBuildTask.ps1` |
+| **Manual** | From `mobile/`: `npm run release:android:play:quota-resume` or `npm run release:android:play` |
+| **State / log** | `mobile/exports/eas-android-release-state.json`, `eas-android-release-task.log` |
+| **Runbook** | `DOCS/EAS_ANDROID_JULY_BUILD.md` |
+| **Rule** | `.cursor/rules/eas-android-july-build.mdc` (`alwaysApply: true`) |
+
+**Agent checks after Cursor updates:** confirm rule file exists; `Get-ScheduledTask -TaskName Qwertymates-EAS-Android-July-Release`; on/after 1 July run `npm run verify:android-release-readiness` then full Play release if quota open.
+
+---
+
+## 5. When editing related code
+
+| If you touch… | Preserve… |
+|---------------|-----------|
+| `importSchoolGalleriesDaily.ts` | `SCHOOLS_PER_RUN = 1`; block second success same day in `history`; `processedFolderKeys` |
+| `Register-SchoolGalleryDailyTask.ps1` | Daily 06:30 trigger; task name `Qwertymates-SchoolGallery-Daily` |
+| `facebookTvIngest.ts` | Sports / WorldNews **Tuesday + Friday** cron slots unless owner changes schedule |
+| `runFacebookNewsBots.ts` | Sports bot **tue + fri** weekdays unless owner changes schedule |
+| `Register-EasAndroidJulyBuildTask.ps1` | Task name `Qwertymates-EAS-Android-July-Release`; 08:00 from 2026-07-01 |
+
+If the owner asks to “speed up school imports”, the answer is still **one school per day** unless they explicitly override this rule.

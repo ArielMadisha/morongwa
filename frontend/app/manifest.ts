@@ -21,9 +21,21 @@ export default function manifest(): MetadataRoute.Manifest {
     categories: ["social", "shopping", "entertainment"],
     icons: [
       {
-        src: "/qwertymates-logo-icon-transparent.svg",
-        type: "image/svg+xml",
-        sizes: "any",
+        src: "/qwertymates-logo-icon.png",
+        type: "image/png",
+        sizes: "512x512",
+        purpose: "any",
+      },
+      {
+        src: "/pwa-192.png",
+        type: "image/png",
+        sizes: "192x192",
+        purpose: "any",
+      },
+      {
+        src: "/pwa-512.png",
+        type: "image/png",
+        sizes: "512x512",
         purpose: "any",
       },
     ],

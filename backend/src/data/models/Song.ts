@@ -1,5 +1,7 @@
 import mongoose, { Schema, Document } from "mongoose";
 
+export type SoundLibraryStatus = "none" | "pending" | "approved" | "rejected";
+
 export interface ISong extends Document {
   /** song | album */
   type: "song" | "album";
@@ -22,6 +24,12 @@ export interface ISong extends Document {
   downloadEnabled?: boolean;
   /** Download price in ZAR when enabled (R10-R25). */
   downloadPrice?: number;
+  /** QwertyTV “Sounds” catalog (TikTok-style licensed use on videos). */
+  soundLibraryStatus?: SoundLibraryStatus;
+  soundLibraryNote?: string;
+  soundLibraryRejectedReason?: string;
+  soundLibraryRequestedAt?: Date;
+  soundLibraryReviewedAt?: Date;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -47,6 +55,16 @@ const SongSchema = new Schema<ISong>(
     ],
     downloadEnabled: { type: Boolean, default: false },
     downloadPrice: { type: Number, min: 10, max: 25 },
+    soundLibraryStatus: {
+      type: String,
+      enum: ["none", "pending", "approved", "rejected"],
+      default: "none",
+      index: true,
+    },
+    soundLibraryNote: { type: String, maxlength: 500, trim: true },
+    soundLibraryRejectedReason: { type: String, maxlength: 500, trim: true },
+    soundLibraryRequestedAt: { type: Date },
+    soundLibraryReviewedAt: { type: Date },
   },
   { timestamps: true }
 );
@@ -54,5 +72,6 @@ const SongSchema = new Schema<ISong>(
 SongSchema.index({ userId: 1, createdAt: -1 });
 SongSchema.index({ genre: 1 });
 SongSchema.index({ type: 1 });
+SongSchema.index({ soundLibraryStatus: 1, type: 1 });
 
 export default mongoose.model<ISong>("Song", SongSchema);

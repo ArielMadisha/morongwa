@@ -8,7 +8,7 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
+  --font-sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   --font-mono: var(--font-geist-mono);
 
   /* Brand palette (sky/blue) */
@@ -41,6 +41,11 @@
   }
 }
 
+/* Google Places dropdown attaches to body; must sit above app modals (z-50–z-[60]) */
+.pac-container {
+  z-index: 10050 !important;
+}
+
 body {
   background:
     radial-gradient(1200px 600px at 0% 0%, rgba(46, 138, 255, 0.12), transparent 60%),
@@ -51,4 +56,14 @@ body {
   -webkit-text-size-adjust: 100%;
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
+  overflow-x: hidden;
+}
+
+/* Tablet: use full width between sidebar and edge; avoid phone-only bottom nav overlap */
+@media (min-width: 768px) and (max-width: 1023px) {
+  html,
+  body {
+    max-width: 100vw;
+    overflow-x: clip;
+  }
 }

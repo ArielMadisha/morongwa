@@ -15,11 +15,39 @@ import {
   Loader2,
   Ban,
   CheckCircle,
-  Trash2
+  Trash2,
+  Pencil,
+  X,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { userAtUsername, userPublicDisplayName } from '@/lib/userDisplayLabel';
+import { formatUserAreaTown } from '@/lib/userAreaLabel';
+import { STORE_LOCATION_COUNTRIES } from '@/lib/storeCountries';
+import { getCitiesForCountry, RUNNER_SERVICE_COUNTRIES } from '@/lib/runnerServiceAreas';
 
 const hasRole = (r: unknown, v: string) => (Array.isArray(r) ? r.includes(v) : r === v);
+
+type EditFormState = {
+  name: string;
+  username: string;
+  email: string;
+  phone: string;
+  countryCode: string;
+  runnerServiceCountry: string;
+  runnerServiceCity: string;
+};
+
+function emptyEditForm(): EditFormState {
+  return {
+    name: '',
+    username: '',
+    email: '',
+    phone: '',
+    countryCode: '',
+    runnerServiceCountry: '',
+    runnerServiceCity: '',
+  };
+}
 
 function UsersManagement() {
   const PAGE_SIZE = 100;
@@ -38,6 +66,9 @@ function UsersManagement() {
     whatsappRegistered?: { total: number; active: number; suspended: number; newLast30d: number };
     whatsappActivity?: { walletActiveUsers: number; loginsLast7d: number };
   } | null>(null);
+  const [editingUser, setEditingUser] = useState<User | null>(null);
+  const [editForm, setEditForm] = useState<EditFormState>(emptyEditForm);
+  const [savingEdit, setSavingEdit] = useState(false);
 
   useEffect(() => {
     fetchUsers(1);
@@ -90,6 +121,48 @@ function UsersManagement() {
     }
   };
 
+  const openEdit = (user: User) => {
+    setEditingUser(user);
+    setEditForm({
+      name: user.name || '',
+      username: user.username || '',
+      email: user.email || '',
+      phone: user.phone || '',
+      countryCode: user.countryCode || '',
+      runnerServiceCountry: user.runnerServiceCountry || '',
+      runnerServiceCity: user.runnerServiceCity || '',
+    });
+  };
+
+  const closeEdit = () => {
+    setEditingUser(null);
+    setEditForm(emptyEditForm());
+  };
+
+  const handleSaveEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingUser) return;
+    setSavingEdit(true);
+    try {
+      await adminAPI.updateUser(editingUser._id, {
+        name: editForm.name.trim(),
+        username: editForm.username.trim() || undefined,
+        email: editForm.email.trim(),
+        phone: editForm.phone.trim() || undefined,
+        countryCode: editForm.countryCode || undefined,
+        runnerServiceCountry: editForm.runnerServiceCountry || undefined,
+        runnerServiceCity: editForm.runnerServiceCity || undefined,
+      });
+      toast.success('User updated');
+      closeEdit();
+      fetchUsers(page);
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || 'Failed to update user');
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
   const handleDelete = async (userId: string, displayName: string) => {
     if (
       !confirm(
@@ -110,6 +183,9 @@ function UsersManagement() {
   };
 
   const userList = Array.isArray(users) ? users : [];
+  const editRunnerCities = editForm.runnerServiceCountry
+    ? getCitiesForCountry(editForm.runnerServiceCountry)
+    : [];
   const filteredUsers = userList.filter(user => {
     const matchesSearch = (user.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
                          (user.email || '').toLowerCase().includes(searchTerm.toLowerCase());
@@ -199,7 +275,13 @@ function UsersManagement() {
                       Rating
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-700">
+                      Area / Town
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-700">
                       Joined
+                    </th>
+                    <th className="px-6 py-3 text-center text-xs font-semibold uppercase tracking-wider text-slate-700">
+                      Edit
                     </th>
                     <th className="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-700">
                       Actions
@@ -209,12 +291,14 @@ function UsersManagement() {
                 <tbody className="divide-y divide-slate-100 bg-white/80">
                   {filteredUsers.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="px-6 py-12 text-center text-slate-500">
+                      <td colSpan={8} className="px-6 py-12 text-center text-slate-500">
                         No users found
                       </td>
                     </tr>
                   ) : (
-                    filteredUsers.map((user) => (
+                    filteredUsers.map((user) => {
+                      const area = formatUserAreaTown(user);
+                      return (
                       <tr key={user._id} className="transition hover:bg-white/95">
                         <td className="whitespace-nowrap px-6 py-4">
                           <div className="flex items-center gap-3">
@@ -222,7 +306,12 @@ function UsersManagement() {
                               {user.name.charAt(0).toUpperCase()}
                             </div>
                             <div>
-                              <p className="font-medium text-slate-900">{user.name}</p>
+                              <p className="font-medium text-slate-900">
+                                {userAtUsername(user) || userPublicDisplayName(user)}
+                              </p>
+                              {user.username ? (
+                                <p className="text-xs font-mono text-slate-600">{user.username}</p>
+                              ) : null}
                               <p className="text-xs text-slate-500">{user.email}</p>
                             </div>
                           </div>
@@ -254,8 +343,31 @@ function UsersManagement() {
                         <td className="whitespace-nowrap px-6 py-4 text-sm text-slate-900">
                           {(user.rating ?? 0) > 0 ? `${(user.rating ?? 0).toFixed(1)} ⭐` : '—'}
                         </td>
+                        <td className="px-6 py-4 text-sm text-slate-700">
+                          {area.line === '—' ? (
+                            <span className="text-slate-400">—</span>
+                          ) : (
+                            <div>
+                              <p className="font-medium text-slate-800">{area.country}</p>
+                              {area.town !== '—' ? (
+                                <p className="text-xs text-slate-500">{area.town}</p>
+                              ) : null}
+                            </div>
+                          )}
+                        </td>
                         <td className="whitespace-nowrap px-6 py-4 text-sm text-slate-600">
                           {user.createdAt ? new Date(user.createdAt).toLocaleDateString() : '—'}
+                        </td>
+                        <td className="whitespace-nowrap px-6 py-4 text-center text-sm">
+                          <button
+                            type="button"
+                            onClick={() => openEdit(user)}
+                            className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2.5 py-1.5 font-semibold text-sky-700 transition hover:border-sky-200 hover:bg-sky-50"
+                            title="Edit user"
+                          >
+                            <Pencil className="h-4 w-4" />
+                            Edit
+                          </button>
                         </td>
                         <td className="whitespace-nowrap px-6 py-4 text-right text-sm font-semibold">
                           <div className="flex flex-wrap items-center justify-end gap-2">
@@ -294,7 +406,8 @@ function UsersManagement() {
                           </div>
                         </td>
                       </tr>
-                    ))
+                    );
+                    })
                   )}
                 </tbody>
               </table>
@@ -379,6 +492,148 @@ function UsersManagement() {
           })}
         </div>
       </main>
+
+      {editingUser ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-sm">
+          <div
+            role="dialog"
+            aria-labelledby="edit-user-title"
+            className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-sky-100 bg-white shadow-2xl"
+          >
+            <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
+              <div>
+                <h2 id="edit-user-title" className="text-lg font-semibold text-slate-900">
+                  Edit user
+                </h2>
+                <p className="text-sm text-slate-500">
+                  {userAtUsername(editingUser) || userPublicDisplayName(editingUser)}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={closeEdit}
+                className="rounded-full p-2 text-slate-500 hover:bg-slate-100"
+                aria-label="Close"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveEdit} className="space-y-4 px-6 py-5">
+              <div>
+                <label className="block text-xs font-medium text-slate-600">Name</label>
+                <input
+                  required
+                  value={editForm.name}
+                  onChange={(e) => setEditForm((f) => ({ ...f, name: e.target.value }))}
+                  className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-600">Username</label>
+                <input
+                  value={editForm.username}
+                  onChange={(e) => setEditForm((f) => ({ ...f, username: e.target.value }))}
+                  placeholder="optional"
+                  className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-600">Email</label>
+                <input
+                  required
+                  type="email"
+                  value={editForm.email}
+                  onChange={(e) => setEditForm((f) => ({ ...f, email: e.target.value }))}
+                  className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-600">Phone</label>
+                <input
+                  value={editForm.phone}
+                  onChange={(e) => setEditForm((f) => ({ ...f, phone: e.target.value }))}
+                  className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-600">Registered country</label>
+                <select
+                  value={editForm.countryCode}
+                  onChange={(e) => setEditForm((f) => ({ ...f, countryCode: e.target.value }))}
+                  className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                >
+                  <option value="">—</option>
+                  {STORE_LOCATION_COUNTRIES.map((c) => (
+                    <option key={c.code} value={c.code}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {hasRole(editingUser.role, 'runner') ? (
+                <>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600">Runner service country</label>
+                    <select
+                      value={editForm.runnerServiceCountry}
+                      onChange={(e) =>
+                        setEditForm((f) => ({
+                          ...f,
+                          runnerServiceCountry: e.target.value,
+                          runnerServiceCity: '',
+                        }))
+                      }
+                      className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                    >
+                      <option value="">—</option>
+                      {RUNNER_SERVICE_COUNTRIES.map((c) => (
+                        <option key={c.code} value={c.code}>
+                          {c.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600">Runner service town</label>
+                    <select
+                      value={editForm.runnerServiceCity}
+                      onChange={(e) => setEditForm((f) => ({ ...f, runnerServiceCity: e.target.value }))}
+                      disabled={!editForm.runnerServiceCountry}
+                      className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm disabled:opacity-50"
+                    >
+                      <option value="">—</option>
+                      {editRunnerCities.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </>
+              ) : null}
+
+              <div className="flex justify-end gap-2 border-t border-slate-100 pt-4">
+                <button
+                  type="button"
+                  onClick={closeEdit}
+                  className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingEdit}
+                  className="inline-flex items-center gap-2 rounded-lg bg-sky-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-700 disabled:opacity-50"
+                >
+                  {savingEdit ? <Loader2 className="h-4 w-4 animate-spin" /> : <Pencil className="h-4 w-4" />}
+                  Save changes
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

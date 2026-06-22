@@ -17,11 +17,16 @@ import {
   MessageSquare,
   AlertCircle,
   Trophy,
+  Ruler,
+  FileText,
+  Bell,
+  Camera,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import ProtectedRoute from '@/components/ProtectedRoute';
 import LiveTrackingMap from '@/components/LiveTrackingMap';
-import { tasksAPI } from '@/lib/api';
+import { tasksAPI, getImageUrlFull } from '@/lib/api';
+import { getSocketAuth } from '@/lib/socketAuth';
 
 // Helper function to safely format dates
 const formatDate = (dateValue: any): string => {
@@ -43,6 +48,10 @@ function TaskDetailPage() {
   const [escrow, setEscrow] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [pickupUploading, setPickupUploading] = useState(false);
+  const [bellSending, setBellSending] = useState(false);
+  const [clientConfirming, setClientConfirming] = useState(false);
+  const [starting, setStarting] = useState(false);
   const [completion, setCompletion] = useState('');
   const [runnerLocation, setRunnerLocation] = useState<{ lat: string; lon: string } | null>(null);
   const [commissionRate, setCommissionRate] = useState<number>(0.15); // Default fallback
@@ -74,7 +83,7 @@ function TaskDetailPage() {
     if (!task?.runner?._id || !task?._id) return;
     const base = process.env.NEXT_PUBLIC_SOCKET_URL || '';
     const ns = (base.endsWith('/') ? base.slice(0, -1) : base) + '/locations';
-    const socket = io(ns, { autoConnect: true });
+    const socket = io(ns, { auth: getSocketAuth(), autoConnect: true });
     socket.on('connect', () => {
       socket.emit('join', task._id);
     });
@@ -107,8 +116,14 @@ function TaskDetailPage() {
     }
   };
 
+  const wm = (task?.workflowMeta || {}) as Record<string, unknown>;
+  const handoverV2 = wm.errandHandoverV2 === true;
+  const pickupProof = wm.pickupProof as { path?: string } | undefined;
+  const arrivalBells = Array.isArray(wm.arrivalBells) ? wm.arrivalBells : [];
+  const clientCollectedAt = wm.clientCollectedAt as string | undefined;
+
   const handleCompleteTask = async () => {
-    if (!completion.trim()) {
+    if (!handoverV2 && !completion.trim()) {
       toast.error('Please provide completion details');
       return;
     }
@@ -116,13 +131,85 @@ function TaskDetailPage() {
     setSubmitting(true);
     try {
       await tasksAPI.complete(id as string);
-      toast.success('Task submitted for review');
+      toast.success(handoverV2 ? 'Task closed — payout released' : 'Task submitted for review');
       setCompletion('');
       fetchTask();
     } catch (error: any) {
       toast.error(error.response?.data?.message || 'Failed to submit task');
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleStartErrand = async () => {
+    setStarting(true);
+    try {
+      await tasksAPI.startTask(id as string);
+      toast.success('Errand started');
+      fetchTask();
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || 'Failed to start');
+    } finally {
+      setStarting(false);
+    }
+  };
+
+  const handlePickupUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setPickupUploading(true);
+    try {
+      await tasksAPI.uploadPickupProof(id as string, file);
+      toast.success('Pickup photo uploaded');
+      fetchTask();
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || 'Upload failed');
+    } finally {
+      setPickupUploading(false);
+      e.target.value = '';
+    }
+  };
+
+  const handleArrivalBell = () => {
+    if (!navigator.geolocation) {
+      toast.error('Geolocation not supported in this browser');
+      return;
+    }
+    setBellSending(true);
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        try {
+          await tasksAPI.arrivalBell(id as string, {
+            lat: pos.coords.latitude,
+            lng: pos.coords.longitude,
+            accuracyM: pos.coords.accuracy != null ? pos.coords.accuracy : undefined,
+          });
+          toast.success('Arrival bell sent — admins notified with your location');
+          fetchTask();
+        } catch (error: any) {
+          toast.error(error.response?.data?.message || 'Failed to send bell');
+        } finally {
+          setBellSending(false);
+        }
+      },
+      () => {
+        setBellSending(false);
+        toast.error('Location permission is required to ring the arrival bell');
+      },
+      { enableHighAccuracy: true, timeout: 15_000 }
+    );
+  };
+
+  const handleClientConfirmCollection = async () => {
+    setClientConfirming(true);
+    try {
+      await tasksAPI.confirmCollection(id as string);
+      toast.success('Thanks — the runner can close the task');
+      fetchTask();
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || 'Could not confirm');
+    } finally {
+      setClientConfirming(false);
     }
   };
 
@@ -154,8 +241,19 @@ function TaskDetailPage() {
   const isRunner = hasRole(user?.role, 'runner');
   const isClient = hasRole(user?.role, 'client');
   const isAccepted = task.status === 'accepted';
+  const isInProgress = task.status === 'in_progress';
   const isCompleted = task.status === 'completed';
   const isPending = task.status === 'pending';
+  const taskClientId = String((task.client as { _id?: string })?._id ?? task.client ?? '');
+  const currentUserId = String(user?._id ?? user?.id ?? '');
+  const isTaskClient = Boolean(currentUserId && taskClientId === currentUserId);
+  const canCloseHandover =
+    handoverV2 &&
+    isRunner &&
+    isInProgress &&
+    Boolean(pickupProof?.path) &&
+    arrivalBells.length > 0 &&
+    Boolean(clientCollectedAt);
 
   return (
     <ProtectedRoute>
@@ -188,6 +286,8 @@ function TaskDetailPage() {
                       className={`rounded-full px-3 py-1 text-xs font-semibold ${
                         isCompleted
                           ? 'bg-emerald-100 text-emerald-700'
+                          : isInProgress
+                          ? 'bg-purple-100 text-purple-800'
                           : isAccepted
                           ? 'bg-sky-100 text-sky-700'
                           : 'bg-slate-100 text-slate-700'
@@ -227,9 +327,151 @@ function TaskDetailPage() {
                     <p className="mt-1 text-xl font-bold text-slate-900">{task.applicants?.length || 0}</p>
                   </div>
                 </div>
+
+                {(task.parcelDetails || task.supplierInvoice) && (
+                  <div className="mt-4 rounded-xl border border-slate-100 bg-slate-50 p-4">
+                    <p className="text-xs uppercase tracking-[0.2em] text-sky-600 mb-2">Parcel & invoice</p>
+                    {task.parcelDetails && (
+                      <div className="text-sm text-slate-700 flex items-center gap-2">
+                        <Ruler className="h-4 w-4 text-sky-600" />
+                        <span>
+                          {task.parcelDetails.lengthCm || 0} × {task.parcelDetails.widthCm || 0} × {task.parcelDetails.heightCm || 0} cm
+                          {" · "}
+                          {task.parcelDetails.weightKg != null ? `${task.parcelDetails.weightKg}kg actual` : "actual weight not set"}
+                          {" · "}
+                          {task.parcelDetails.chargeableWeightKg != null ? `${task.parcelDetails.chargeableWeightKg}kg chargeable` : "chargeable weight not set"}
+                        </span>
+                      </div>
+                    )}
+                    {task.supplierInvoice?.path && (
+                      <a
+                        href={task.supplierInvoice.path}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="mt-2 inline-flex items-center gap-2 text-sm font-medium text-sky-700 hover:text-sky-900"
+                      >
+                        <FileText className="h-4 w-4" />
+                        View supplier invoice
+                      </a>
+                    )}
+                  </div>
+                )}
               </div>
 
-              {isRunner && isAccepted && (
+              {isRunner && handoverV2 && (isAccepted || isInProgress) && !isCompleted && (
+                <div className="rounded-2xl border border-violet-200 bg-gradient-to-br from-violet-50/90 to-white p-6 shadow-xl shadow-violet-100">
+                  <div className="mb-4">
+                    <p className="text-xs uppercase tracking-[0.2em] text-violet-700">Errand portal</p>
+                    <h3 className="mt-1 text-xl font-semibold text-slate-900">Pickup → delivery checklist</h3>
+                    <p className="mt-1 text-sm text-slate-600">
+                      Upload a parcel photo after pickup, ring the bell at drop-off (admins see your GPS), then wait for the client before closing.
+                    </p>
+                  </div>
+                  <ol className="space-y-4 text-sm text-slate-700">
+                    <li className="flex gap-3">
+                      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-violet-600 text-xs font-bold text-white">1</span>
+                      <div className="flex-1">
+                        <p className="font-semibold text-slate-900">Start the errand</p>
+                        {isAccepted ? (
+                          <button
+                            type="button"
+                            disabled={starting}
+                            onClick={handleStartErrand}
+                            className="mt-2 rounded-full bg-violet-600 px-4 py-2 text-xs font-semibold text-white hover:bg-violet-700 disabled:opacity-50"
+                          >
+                            {starting ? <Loader2 className="inline h-3 w-3 animate-spin mr-1" /> : null}
+                            Start errand
+                          </button>
+                        ) : (
+                          <p className="mt-1 text-emerald-700 font-medium">Started</p>
+                        )}
+                      </div>
+                    </li>
+                    <li className="flex gap-3">
+                      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-violet-600 text-xs font-bold text-white">2</span>
+                      <div className="flex-1">
+                        <p className="font-semibold text-slate-900 flex items-center gap-2">
+                          <Camera className="h-4 w-4 text-violet-600" />
+                          Parcel photo at pickup
+                        </p>
+                        {pickupProof?.path ? (
+                          <a
+                            href={getImageUrlFull(pickupProof.path)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="mt-2 inline-block text-sm font-medium text-violet-700 underline"
+                          >
+                            View uploaded photo
+                          </a>
+                        ) : (
+                          <label className="mt-2 inline-flex cursor-pointer items-center gap-2 rounded-full border border-violet-200 bg-white px-4 py-2 text-xs font-semibold text-violet-800 hover:bg-violet-50">
+                            <input type="file" accept="image/*" className="hidden" disabled={pickupUploading} onChange={handlePickupUpload} />
+                            {pickupUploading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                            Upload photo
+                          </label>
+                        )}
+                      </div>
+                    </li>
+                    <li className="flex gap-3">
+                      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-violet-600 text-xs font-bold text-white">3</span>
+                      <div className="flex-1">
+                        <p className="font-semibold text-slate-900 flex items-center gap-2">
+                          <Bell className="h-4 w-4 text-violet-600" />
+                          Arrival bell (drop-off GPS)
+                        </p>
+                        <p className="text-xs text-slate-500 mt-0.5">Notifies admins with a map link and tells the client you&apos;re there.</p>
+                        <button
+                          type="button"
+                          disabled={!isInProgress || bellSending}
+                          onClick={handleArrivalBell}
+                          className="mt-2 rounded-full bg-amber-500 px-4 py-2 text-xs font-semibold text-white shadow hover:bg-amber-600 disabled:opacity-40"
+                        >
+                          {bellSending ? <Loader2 className="inline h-3 w-3 animate-spin mr-1" /> : null}
+                          Ring arrival bell
+                        </button>
+                        {arrivalBells.length > 0 ? (
+                          <p className="mt-2 text-xs text-emerald-700">{arrivalBells.length} bell ring(s) logged</p>
+                        ) : null}
+                      </div>
+                    </li>
+                    <li className="flex gap-3">
+                      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-violet-600 text-xs font-bold text-white">4</span>
+                      <div className="flex-1">
+                        <p className="font-semibold text-slate-900">Client confirms collection</p>
+                        {clientCollectedAt ? (
+                          <p className="mt-1 text-emerald-700 font-medium">Confirmed — you can close the task.</p>
+                        ) : (
+                          <p className="mt-1 text-amber-800">Waiting for the client to tap &quot;I&apos;ve collected my parcel&quot;.</p>
+                        )}
+                      </div>
+                    </li>
+                    <li className="flex gap-3">
+                      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-violet-600 text-xs font-bold text-white">5</span>
+                      <div className="flex-1">
+                        <p className="font-semibold text-slate-900">Close task</p>
+                        <textarea
+                          placeholder="Optional notes for your records..."
+                          value={completion}
+                          onChange={(e) => setCompletion(e.target.value)}
+                          className="mt-2 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:border-violet-300 focus:outline-none focus:ring-2 focus:ring-violet-100"
+                          rows={3}
+                        />
+                        <button
+                          type="button"
+                          onClick={handleCompleteTask}
+                          disabled={submitting || !canCloseHandover}
+                          className="mt-2 w-full rounded-full bg-gradient-to-r from-violet-600 to-sky-600 px-6 py-3 text-sm font-semibold text-white shadow-lg disabled:opacity-40"
+                        >
+                          {submitting ? <Loader2 className="inline h-4 w-4 animate-spin mr-2" /> : null}
+                          Close task &amp; release payout
+                        </button>
+                      </div>
+                    </li>
+                  </ol>
+                </div>
+              )}
+
+              {isRunner && isAccepted && !handoverV2 && (
                 <div className="rounded-2xl border border-white/60 bg-white/80 p-6 shadow-xl shadow-sky-50 backdrop-blur">
                   <div className="mb-4">
                     <p className="text-xs uppercase tracking-[0.2em] text-sky-600">Submit work</p>
@@ -252,6 +494,30 @@ function TaskDetailPage() {
                       Submit for review
                     </button>
                   </div>
+                </div>
+              )}
+
+              {isTaskClient && handoverV2 && isInProgress && !clientCollectedAt && (
+                <div className="rounded-2xl border border-emerald-200 bg-emerald-50/90 p-6 shadow-lg">
+                  <h3 className="font-semibold text-emerald-900">Parcel at hand?</h3>
+                  <p className="mt-1 text-sm text-emerald-800">
+                    When you have physically received your parcel, confirm below so your runner can close the task and get paid.
+                  </p>
+                  <button
+                    type="button"
+                    disabled={clientConfirming}
+                    onClick={handleClientConfirmCollection}
+                    className="mt-4 rounded-full bg-emerald-600 px-6 py-3 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+                  >
+                    {clientConfirming ? <Loader2 className="inline h-4 w-4 animate-spin mr-2" /> : null}
+                    I&apos;ve collected my parcel
+                  </button>
+                </div>
+              )}
+
+              {isTaskClient && handoverV2 && Boolean(clientCollectedAt) && !isCompleted && (
+                <div className="rounded-xl border border-slate-200 bg-white/80 p-4 text-sm text-slate-700">
+                  You confirmed collection. The runner will close the task shortly.
                 </div>
               )}
 

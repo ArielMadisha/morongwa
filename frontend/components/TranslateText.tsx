@@ -5,6 +5,7 @@ import { Languages, Loader2 } from 'lucide-react';
 import { translateAPI } from '@/lib/api';
 import { useTranslation } from '@/contexts/TranslationContext';
 import toast from 'react-hot-toast';
+import { LinkifiedText } from '@/components/LinkifiedText';
 
 interface TranslateTextProps {
   text: string;
@@ -13,9 +14,17 @@ interface TranslateTextProps {
   as?: 'p' | 'span' | 'div';
   /** Compact variant for comments */
   compact?: boolean;
+  /** Preserve line breaks and spaces (long-form captions, stories) */
+  preserveWhitespace?: boolean;
 }
 
-export function TranslateText({ text, className = '', as: Component = 'span', compact }: TranslateTextProps) {
+export function TranslateText({
+  text,
+  className = '',
+  as: Component = 'span',
+  compact,
+  preserveWhitespace,
+}: TranslateTextProps) {
   const [translated, setTranslated] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [showOriginal, setShowOriginal] = useState(false);
@@ -49,14 +58,26 @@ export function TranslateText({ text, className = '', as: Component = 'span', co
 
   if (!text?.trim()) return null;
 
+  const rootClass = preserveWhitespace
+    ? `inline-flex w-full min-w-0 items-start gap-2 ${className}`.trim()
+    : `${Component === 'span' ? 'inline ' : ''}${className}`.trim();
+
+  const textSpanClass = preserveWhitespace ? 'whitespace-pre-wrap break-words flex-1 min-w-0' : '';
+
+  const translateBtnClass = preserveWhitespace
+    ? `shrink-0 self-start mt-0.5 inline-flex items-center text-sky-600 hover:text-sky-700 ${compact ? 'text-sky-500' : ''}`
+    : `ml-1.5 align-middle inline-flex items-center text-sky-600 hover:text-sky-700 ${compact ? 'text-sky-500' : ''}`;
+
   return (
-    <Component className={`inline ${className}`}>
-      <span>{displayText}</span>
+    <Component className={rootClass}>
+      <span className={textSpanClass}>
+        <LinkifiedText text={displayText} preserveWhitespace={preserveWhitespace} />
+      </span>
       <button
         type="button"
         onClick={handleTranslate}
         disabled={loading}
-        className={`ml-1.5 align-middle inline-flex items-center text-sky-600 hover:text-sky-700 ${compact ? 'text-sky-500' : ''}`}
+        className={translateBtnClass}
         title={hasTranslated ? (showOriginal ? 'Show translation' : 'Show original') : 'Translate'}
       >
         {loading ? (

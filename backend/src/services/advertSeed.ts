@@ -29,8 +29,13 @@ export async function ensureSampleAdvert(): Promise<void> {
   // Sample random advert (top square - rotates with others)
   await Advert.create({
     title: "Shop Local on QwertyHub",
-    imageUrl: "https://placehold.co/280x280/0ea5e9/white?text=QwertyHub",
+    imageUrl: "https://placehold.co/600x750/0ea5e9/ffffff?text=Buy+Local",
     linkUrl: "/marketplace",
+    advertiserName: "QwertyHub",
+    advertiserAvatar: "/qwertymates-q-mark-official.png",
+    caption: "Support local sellers across Botswana and SADC. Discover handmade goods, fashion, and more on QwertyHub.",
+    description: "Marketplace · Shop African brands",
+    ctaLabel: "Shop now",
     slot: "random",
     active: true,
     order: 0,

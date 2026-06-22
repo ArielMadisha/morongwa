@@ -5,7 +5,8 @@ import { useParams } from 'next/navigation';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { adminAPI } from '@/lib/api';
 import Link from 'next/link';
-import { ArrowLeft, Building2, User, Loader2, CheckCircle, XCircle, Mail, Phone, FileText } from 'lucide-react';
+import { useAuth } from '@/contexts/AuthContext';
+import { ArrowLeft, Building2, User, Loader2, CheckCircle, XCircle, Mail, Phone, FileText, Trash2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 interface SupplierDetail {
@@ -27,10 +28,18 @@ interface SupplierDetail {
   appliedAt?: string;
   reviewedAt?: string;
   rejectionReason?: string;
+  capturedByAdminId?: { name?: string; email?: string };
+  pendingSupplierDeletionRequest?: {
+    _id: string;
+    requestedBy?: { name?: string; email?: string };
+    createdAt?: string;
+  } | null;
+  canRequestSupplierDeletion?: boolean;
 }
 
 export default function AdminSupplierDetailPage() {
   const params = useParams();
+  const { user } = useAuth();
   const id = params.id as string;
   const [supplier, setSupplier] = useState<SupplierDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -55,7 +64,8 @@ export default function AdminSupplierDetailPage() {
     try {
       await adminAPI.approveSupplier(id);
       toast.success('Supplier approved');
-      setSupplier((s) => (s ? { ...s, status: 'approved' } : null));
+      const res = await adminAPI.getSupplier(id);
+      setSupplier(res.data?.data ?? res.data ?? null);
     } catch (e: any) {
       toast.error(e.response?.data?.message ?? 'Failed');
     } finally {
@@ -83,7 +93,26 @@ export default function AdminSupplierDetailPage() {
     try {
       await adminAPI.rejectSupplier(id, rejectReason);
       toast.success('Supplier rejected');
-      setSupplier((s) => (s ? { ...s, status: 'rejected', rejectionReason: rejectReason } : null));
+      const res = await adminAPI.getSupplier(id);
+      setSupplier(res.data?.data ?? res.data ?? null);
+    } catch (e: any) {
+      toast.error(e.response?.data?.message ?? 'Failed');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const roles = Array.isArray(user?.role) ? user.role : user?.role ? [user.role] : [];
+  const isSuperAdminUser = roles.some((r) => r === 'superadmin');
+
+  const handleRequestDeletion = async () => {
+    if (!confirm('Submit a request to permanently remove this supplier? A super-admin must approve before anything is deleted.')) return;
+    setSubmitting(true);
+    try {
+      await adminAPI.requestSupplierDeletion(id);
+      toast.success('Removal request submitted');
+      const res = await adminAPI.getSupplier(id);
+      setSupplier(res.data?.data ?? res.data ?? null);
     } catch (e: any) {
       toast.error(e.response?.data?.message ?? 'Failed');
     } finally {
@@ -209,6 +238,63 @@ export default function AdminSupplierDetailPage() {
                 <p className="text-slate-700">{supplier.rejectionReason}</p>
               </section>
             )}
+
+            <section className="pt-2 border-t border-slate-100">
+              <h2 className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-2">Catalog removal</h2>
+              {supplier.capturedByAdminId?.name && (
+                <p className="text-xs text-slate-500 mb-2">
+                  Captured by admin: {supplier.capturedByAdminId.name}
+                  {supplier.capturedByAdminId.email ? ` (${supplier.capturedByAdminId.email})` : ''}
+                </p>
+              )}
+              {supplier.pendingSupplierDeletionRequest ? (
+                <div className="rounded-lg border border-amber-200 bg-amber-50/80 px-3 py-2 text-sm text-amber-900">
+                  <p className="font-medium">Removal pending super-admin approval</p>
+                  <p className="text-xs mt-1 text-amber-800">
+                    Requested by {supplier.pendingSupplierDeletionRequest.requestedBy?.name ?? '—'}
+                    {supplier.pendingSupplierDeletionRequest.createdAt
+                      ? ` · ${new Date(supplier.pendingSupplierDeletionRequest.createdAt).toLocaleString()}`
+                      : ''}
+                  </p>
+                  {isSuperAdminUser ? (
+                    <Link
+                      href="/admin/supplier-deletion-requests"
+                      className="inline-block mt-2 text-sm font-medium text-sky-700 hover:underline"
+                    >
+                      Open removal queue
+                    </Link>
+                  ) : null}
+                </div>
+              ) : supplier.canRequestSupplierDeletion ? (
+                <div className="space-y-2">
+                  <p className="text-sm text-slate-600">
+                    Submitted requests remove the supplier profile, supplier store, and internal marketplace products after a super-admin approves.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={handleRequestDeletion}
+                    disabled={submitting}
+                    className="inline-flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm font-medium text-red-800 hover:bg-red-100 disabled:opacity-50"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    Request permanent removal
+                  </button>
+                  {isSuperAdminUser ? (
+                    <p className="text-xs text-slate-500">
+                      Super-admins still use the queue to confirm deletion (
+                      <Link href="/admin/supplier-deletion-requests" className="text-sky-600 hover:underline">
+                        open queue
+                      </Link>
+                      ).
+                    </p>
+                  ) : null}
+                </div>
+              ) : (
+                <p className="text-sm text-slate-600">
+                  Your delegated admin account can only request removal for suppliers you onboarded or approved (captured). Ask a super-admin if this record should be reassigned or removed.
+                </p>
+              )}
+            </section>
 
             {isPending && (
               <section className="pt-6 border-t border-slate-100">

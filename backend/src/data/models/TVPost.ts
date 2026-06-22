@@ -26,13 +26,15 @@ export interface ITVPost extends Document {
   songId?: mongoose.Types.ObjectId;
   /** Filter/enhancement applied (e.g. "warm", "cool", "vintage") */
   filter?: string;
-  /** Genre (e.g. "qwertz", "comedy", "action", "drama", "scifi", "thriller", "reality", "family") */
+  /** Genre (e.g. "qwertz", "comedy", "sport", "nature", "history", "news") */
   genre?: string;
   /** Has watermark applied */
   hasWatermark: boolean;
   /** If repost, original post ID */
   originalPostId?: mongoose.Types.ObjectId;
   repostedBy?: mongoose.Types.ObjectId;
+  /** e.g. profile_avatar_update — special feed/status presentation */
+  feedActivity?: string;
   status: "pending" | "approved" | "rejected";
   aiModerated?: boolean;
   /** When true, media is blurred until user clicks to reveal */
@@ -63,6 +65,7 @@ const TVPostSchema = new Schema<ITVPost>(
     hasWatermark: { type: Boolean, default: true },
     originalPostId: { type: Schema.Types.ObjectId, ref: "TVPost" },
     repostedBy: { type: Schema.Types.ObjectId, ref: "User" },
+    feedActivity: { type: String, trim: true, maxlength: 64 },
     status: { type: String, enum: ["pending", "approved", "rejected"], default: "approved" },
     aiModerated: { type: Boolean },
     sensitive: { type: Boolean },
@@ -76,6 +79,8 @@ const TVPostSchema = new Schema<ITVPost>(
 
 TVPostSchema.index({ creatorId: 1 });
 TVPostSchema.index({ status: 1, createdAt: -1 });
+TVPostSchema.index({ status: 1, type: 1, createdAt: -1 });
+TVPostSchema.index({ status: 1, creatorId: 1, createdAt: -1 });
 TVPostSchema.index({ productId: 1 });
 
 export default mongoose.model<ITVPost>("TVPost", TVPostSchema);

@@ -15,6 +15,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useCartAndStores } from '@/lib/useCartAndStores';
 import { tvAPI, musicAPI, productsAPI, type SongRecord } from '@/lib/api';
 import type { Product } from '@/lib/types';
+import { mapProductToTvTile } from '@/lib/mapProductToTvTile';
 
 function shuffleArray<T>(arr: T[]): T[] {
   const copy = [...arr];
@@ -66,22 +67,9 @@ export default function QwertyWorldPage() {
       const texts = (textsRes.data?.data ?? textsRes.data ?? []) as TVGridItem[];
       const songs = (songsRes.data?.data ?? songsRes.data ?? []) as SongRecord[];
 
-      const productTiles: TVGridItem[] = (Array.isArray(featuredProducts) ? featuredProducts : []).slice(0, limitPerKind.product).map((p: any) => ({
-        _id: String(p._id),
-        type: 'product_tile',
-        title: p.title,
-        description: p.description,
-        images: p.images,
-        price: p.price,
-        discountPrice: p.discountPrice,
-        currency: p.currency,
-        supplierId: p.supplierId,
-        allowResell: p.allowResell ?? false,
-        likeCount: 0,
-        commentCount: 0,
-        shareCount: 0,
-        createdAt: p.createdAt ? String(p.createdAt) : undefined,
-      }));
+      const productTiles: TVGridItem[] = (Array.isArray(featuredProducts) ? featuredProducts : [])
+        .slice(0, limitPerKind.product)
+        .map((p: any) => mapProductToTvTile({ ...p, _id: String(p._id) }));
 
       const tvItems: TVGridItem[] = [
         ...((Array.isArray(videos) ? videos : []) || []).slice(0, limitPerKind.video),
@@ -250,7 +238,7 @@ export default function QwertyWorldPage() {
         )}
 
         <div ref={containerRef} className="flex-1 flex flex-col lg:flex-row min-w-0 min-h-0 overflow-y-auto overflow-x-hidden">
-          <main className="min-w-0 flex-1 px-4 sm:px-6 lg:px-8 py-6 pb-24 lg:pb-6 order-2 lg:order-none w-full">
+          <main className="min-w-0 flex-1 px-4 sm:px-6 lg:px-8 py-6 pb-24 md:pb-6 order-2 lg:order-none w-full">
             {loading ? (
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 auto-rows-fr">
                 {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (

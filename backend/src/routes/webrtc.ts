@@ -7,7 +7,7 @@ const router = Router();
 function parseTurnUrls(): string[] {
   const raw =
     process.env.TURN_URLS ||
-    "turn:165.227.237.142:3478?transport=udp,turns:165.227.237.142:5349?transport=tcp";
+    "turn:165.227.237.142:3478?transport=udp,turn:165.227.237.142:3478?transport=tcp,turns:165.227.237.142:5349?transport=tcp";
   return raw
     .split(",")
     .map((s) => s.trim())

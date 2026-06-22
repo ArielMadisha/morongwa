@@ -15,9 +15,11 @@ import { ProfileHeaderButton } from '@/components/ProfileHeaderButton';
 import { TVGridTileWithObserver } from '@/components/tv/TVGridTileWithObserver';
 import type { TVGridItem } from '@/components/tv/TVGridTile';
 import { CreatePostModal } from '@/components/tv/CreatePostModal';
+import { TvLinearChannelStrip } from '@/components/tv/TvLinearChannelStrip';
 import { AdvertSlot } from '@/components/AdvertSlot';
 import { MobileBottomNav } from '@/components/MobileBottomNav';
-import { tvAPI, productEnquiryAPI } from '@/lib/api';
+import { tvAPI, productEnquiryAPI, cartAPI } from '@/lib/api';
+import { productQtyMapFromCartResponse } from '@/lib/cartProductQty';
 import type { Product } from '@/lib/types';
 import toast from 'react-hot-toast';
 
@@ -41,11 +43,34 @@ function MorongwaTVPageContent() {
   const [likedMap, setLikedMap] = useState<Record<string, boolean>>({});
   const [liveUsers, setLiveUsers] = useState<Array<{ userId: string; name?: string; avatar?: string }>>([]);
   const [genre, setGenre] = useState<string>('qwertz');
-  const { cartCount, hasStore } = useCartAndStores(!!user);
-  const containerRef = useRef<HTMLDivElement>(null);
+  const { cartCount, hasStore, invalidate: invalidateCart } = useCartAndStores(!!user);
+  const [cartQtyByProduct, setCartQtyByProduct] = useState<Record<string, number>>({});
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  /** Scrollport for IntersectionObserver — state triggers re-subscribe when the DOM node mounts. */
+  const [feedScrollRoot, setFeedScrollRoot] = useState<HTMLDivElement | null>(null);
   const loadMoreSentinelRef = useRef<HTMLDivElement>(null);
   const composeHandledRef = useRef(false);
   const limit = 8;
+
+  const refreshCartQty = useCallback(() => {
+    if (!user) {
+      setCartQtyByProduct({});
+      return;
+    }
+    cartAPI
+      .get()
+      .then((res) => setCartQtyByProduct(productQtyMapFromCartResponse(res)))
+      .catch(() => setCartQtyByProduct({}));
+  }, [user]);
+
+  const handleCartUpdated = useCallback(() => {
+    invalidateCart();
+    refreshCartQty();
+  }, [invalidateCart, refreshCartQty]);
+
+  useEffect(() => {
+    refreshCartQty();
+  }, [refreshCartQty]);
 
   const loadLiveUsers = useCallback(() => {
     tvAPI.getStatuses().then((res) => {
@@ -140,7 +165,7 @@ function MorongwaTVPageContent() {
 
   useEffect(() => {
     const sentinel = loadMoreSentinelRef.current;
-    const container = containerRef.current;
+    const container = feedScrollRoot ?? containerRef.current;
     if (!sentinel || !container) return;
     const observer = new IntersectionObserver(
       (entries) => {
@@ -153,7 +178,7 @@ function MorongwaTVPageContent() {
     );
     observer.observe(sentinel);
     return () => observer.disconnect();
-  }, [loadMore, hasMore, loading, loadingMore, gridItems.length, total]);
+  }, [loadMore, hasMore, loading, loadingMore, gridItems.length, total, feedScrollRoot]);
 
   const handleLike = (id: string, liked: boolean) => {
     setLikedMap((m) => ({ ...m, [id]: liked }));
@@ -226,8 +251,19 @@ function MorongwaTVPageContent() {
 
   const allItems: TVGridItem[] = [...gridItems];
 
+  const handleMainWheelCapture: React.WheelEventHandler<HTMLElement> = (e) => {
+    const target = e.target as HTMLElement | null;
+    if (!target) return;
+    if (target.closest('input, textarea, select, [contenteditable="true"]')) return;
+    const scroller = containerRef.current;
+    if (!scroller) return;
+    if (scroller.scrollHeight <= scroller.clientHeight) return;
+    scroller.scrollTop += e.deltaY;
+    e.preventDefault();
+  };
+
   return (
-    <div className="min-h-screen flex flex-col bg-gradient-to-br from-sky-50 via-blue-50 to-white text-slate-900">
+    <div className="h-[100dvh] min-h-screen flex flex-col overflow-hidden bg-gradient-to-br from-sky-50 via-blue-50 to-white text-slate-900">
       <AppShellHeader
         className="[&>div]:py-2"
         onMenuClick={() => setMenuOpen((v) => !v)}
@@ -296,8 +332,15 @@ function MorongwaTVPageContent() {
           hideLogo
           belowHeader
         />
-        <div ref={containerRef} className="flex min-h-0 min-w-0 w-full flex-1 flex-col gap-0 overflow-y-auto overflow-x-hidden overscroll-contain lg:flex-row">
-        <main className="order-2 box-border w-full min-w-0 flex-1 px-3 sm:px-6 lg:px-8 pt-0 pb-24 lg:pb-6 lg:order-none">
+        <div
+          ref={(el) => {
+            containerRef.current = el;
+            setFeedScrollRoot(el);
+          }}
+          className="flex min-h-0 min-w-0 w-full flex-1 flex-col gap-0 overflow-y-auto overflow-x-hidden overscroll-contain touch-pan-y lg:flex-row"
+        >
+        <main onWheelCapture={handleMainWheelCapture} className="order-2 box-border w-full min-w-0 flex-1 px-3 sm:px-6 lg:px-8 pt-0 pb-24 md:pb-6 lg:order-none">
+          <TvLinearChannelStrip />
           {loading && allItems.length === 0 ? (
             <div className="flex justify-center py-24">
               <Loader2 className="h-12 w-12 text-sky-500 animate-spin" />
@@ -328,6 +371,8 @@ function MorongwaTVPageContent() {
                   className="w-full min-h-[300px] flex flex-col h-full rounded-xl bg-white border border-slate-100 shadow-sm overflow-hidden"
                 >
                   <TVGridTileWithObserver
+                    scrollRootRef={containerRef}
+                    scrollRoot={feedScrollRoot}
                     item={item}
                     liked={likedMap[item._id]}
                     onLike={handleLike}
@@ -336,8 +381,23 @@ function MorongwaTVPageContent() {
                     onEnquire={handleEnquire}
                     onCommentAdded={item.type !== 'product_tile' ? handleCommentAdded : undefined}
                     onDelete={(id) => setGridItems((prev) => prev.filter((i) => i._id !== id))}
+                    onMediaUnavailable={(id) => setGridItems((prev) => prev.filter((i) => i._id !== id))}
+                    onUpdated={(updated) =>
+                      setGridItems((prev) => prev.map((i) => (i._id === updated._id ? { ...i, ...updated } : i)))
+                    }
                     variant="grid"
                     relatedVideos={allItems}
+                    cartQty={(() => {
+                      const pid =
+                        item.type === 'product_tile'
+                          ? String(item._id)
+                          : item.productId
+                            ? String((item.productId as { _id?: string })._id ?? item.productId)
+                            : '';
+                      return pid ? (cartQtyByProduct[pid] ?? 0) : 0;
+                    })()}
+                    onCartUpdated={handleCartUpdated}
+                    loginHref={`/login?returnTo=${encodeURIComponent('/morongwa-tv')}`}
                   />
                 </div>
                 ))}

@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5" />
+  <meta name="theme-color" content="#0ea5e9" />
+  <title>Qwertymates — Tablet</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: linear-gradient(160deg, #e0f2fe 0%, #f0f9ff 40%, #ffffff 100%);
+      color: #0f172a;
+      min-height: 100vh;
+      line-height: 1.5;
+    }
+    .wrap { max-width: 520px; margin: 0 auto; padding: 24px 16px 40px; }
+    .logo {
+      display: flex; align-items: center; gap: 12px; margin-bottom: 20px;
+    }
+    .logo img { width: 48px; height: 48px; border-radius: 12px; }
+    .logo h1 { font-size: 1.35rem; font-weight: 700; color: #0369a1; }
+    .card {
+      background: #fff; border-radius: 16px; padding: 20px;
+      box-shadow: 0 4px 24px rgba(14, 165, 233, 0.12);
+      border: 1px solid #e0f2fe; margin-bottom: 16px;
+    }
+    .card h2 { font-size: 1.05rem; margin-bottom: 8px; color: #0c4a6e; }
+    .card p { font-size: 0.95rem; color: #475569; margin-bottom: 12px; }
+    .btn {
+      display: block; width: 100%; text-align: center; text-decoration: none;
+      padding: 14px 16px; border-radius: 12px; font-weight: 600; font-size: 1rem;
+      margin-bottom: 10px;
+    }
+    .btn-primary {
+      background: linear-gradient(90deg, #0ea5e9, #06b6d4, #14b8a6);
+      color: #fff;
+    }
+    .btn-secondary { background: #f1f5f9; color: #0369a1; border: 1px solid #bae6fd; }
+    .btn-store { background: #1e293b; color: #fff; }
+    .links { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .links a {
+      display: block; text-align: center; padding: 12px 8px; border-radius: 10px;
+      background: #f8fafc; color: #0369a1; text-decoration: none; font-weight: 600;
+      font-size: 0.9rem; border: 1px solid #e2e8f0;
+    }
+    .tip { font-size: 0.85rem; color: #64748b; margin-top: 8px; }
+    .warn { background: #fff7ed; border: 1px solid #fed7aa; color: #9a3412; padding: 12px; border-radius: 10px; font-size: 0.88rem; margin-bottom: 16px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="logo">
+      <img src="/qwertymates-logo-icon.png" alt="Qwertymates" />
+      <h1>Qwertymates</h1>
+    </div>
+
+    <div class="warn">
+      This tablet browser is older and cannot run the full website. Use the links below or install the Android app for the best experience.
+    </div>
+
+    <div class="card">
+      <h2>Recommended — Android app</h2>
+      <p>Install Qwertymates from our server (Android + Huawei) or Google Play.</p>
+      <a class="btn btn-store" href="https://www.qwertymates.com/apps">Download from Qwertymates</a>
+      <a class="btn btn-secondary" href="https://play.google.com/store/apps/details?id=com.qwertymates">Google Play</a>
+      <p class="tip">Huawei devices without GMS: use the Qwertymates Apps page for the APK. v1.3.1+ after July 2026 EAS build.</p>
+    </div>
+
+    <div class="card">
+      <h2>Quick links (lightweight)</h2>
+      <p>These pages work on older browsers without heavy scripts.</p>
+      <div class="links">
+        <a href="/login">Log in</a>
+        <a href="/register">Register</a>
+        <a href="/wall">Wall</a>
+        <a href="/search">Search</a>
+        <a href="/messages">Messages</a>
+        <a href="/calls">Calls</a>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Fix security certificate warning</h2>
+      <p>If Chrome shows a certificate warning:</p>
+      <ol style="margin-left: 18px; color: #475569; font-size: 0.92rem;">
+        <li>Open <strong>Play Store</strong> → update <strong>Android System WebView</strong> and <strong>Chrome</strong>.</li>
+        <li>Set tablet date &amp; time to automatic.</li>
+        <li>Try again at <a href="https://www.qwertymates.com/wall" style="color:#0369a1">www.qwertymates.com/wall</a></li>
+      </ol>
+    </div>
+
+    <a class="btn btn-primary" href="https://www.qwertymates.com/wall?full=1">Try full site anyway</a>
+    <a class="btn btn-secondary" href="https://www.qwertymates.com/">Home</a>
+  </div>
+</body>
+</html>

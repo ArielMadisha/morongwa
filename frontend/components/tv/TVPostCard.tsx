@@ -11,11 +11,13 @@ import {
   MoreHorizontal,
   Package,
   Send,
+  Music2,
 } from 'lucide-react';
 import { tvAPI, getImageUrl, getEffectivePrice } from '@/lib/api';
 import type { Product } from '@/lib/types';
 import { useCurrency } from '@/contexts/CurrencyContext';
-import { formatCurrencyAmount } from '@/lib/formatCurrency';
+import { formatCatalogProductPrice } from '@/lib/productPriceZar';
+import { creatorDisplayLabel } from '@/lib/userDisplayLabel';
 
 const WATERMARK_IMG = '/watermark-qwertymates.svg';
 
@@ -24,6 +26,8 @@ interface TVPost {
   type: 'video' | 'image' | 'carousel' | 'product';
   mediaUrls: string[];
   caption?: string;
+  /** Approved Sound attached to a video (QwertyMusic catalog). */
+  songId?: { _id: string; title?: string; artist?: string; artworkUrl?: string } | null;
   productId?: Product & { _id: string };
   filter?: string;
   hasWatermark?: boolean;
@@ -42,10 +46,6 @@ interface TVComment {
   text: string;
   userId: { _id: string; name?: string; avatar?: string };
   createdAt: string;
-}
-
-function formatPriceLocal(price: number, currency: string) {
-  return formatCurrencyAmount(price, currency || 'ZAR');
 }
 
 function formatTimeAgo(date: string) {
@@ -79,7 +79,7 @@ interface TVPostCardProps {
 }
 
 export function TVPostCard({ post, liked = false, onLike, onRepost, onComment }: TVPostCardProps) {
-  const { currency: localCurrency, rates } = useCurrency();
+  const { rates } = useCurrency();
   const [showComments, setShowComments] = useState(false);
   const [comments, setComments] = useState<TVComment[]>([]);
   const [commentText, setCommentText] = useState('');
@@ -147,26 +147,14 @@ export function TVPostCard({ post, liked = false, onLike, onRepost, onComment }:
         grayscale: 'grayscale',
       }[post.filter] || ''
     : '';
-  const toViewerCurrency = (amount: number, sourceCurrency: string) => {
-    const from = String(sourceCurrency || 'USD').toUpperCase();
-    const to = String(localCurrency || from).toUpperCase();
-    if (!Number.isFinite(amount)) return formatCurrencyAmount(0, to || 'ZAR');
-    if (from === to) return formatCurrencyAmount(amount, to);
-    const fromRate = Number(rates?.[from] ?? 0);
-    const toRate = Number(rates?.[to] ?? 0);
-    if (!(fromRate > 0) || !(toRate > 0)) return formatCurrencyAmount(amount, from);
-    const usd = amount / fromRate;
-    const converted = Math.round(usd * toRate * 100) / 100;
-    return formatCurrencyAmount(converted, to);
-  };
-
+  const creatorLabel = creatorDisplayLabel(post.creatorId, 'User');
   return (
     <article className="bg-white rounded-2xl border border-slate-100 overflow-hidden shadow-sm">
       {/* Repost label */}
       {post.originalPostId && (
         <div className="px-4 py-2 bg-slate-50 border-b border-slate-100 text-sm text-slate-500 flex items-center gap-2">
           <Repeat2 className="h-4 w-4" />
-          Reposted by {post.creatorId?.name || 'User'}
+          Reposted by {creatorLabel}
         </div>
       )}
 
@@ -183,12 +171,12 @@ export function TVPostCard({ post, liked = false, onLike, onRepost, onComment }:
                 <img src={getImageUrl(post.creatorId.avatar)} alt="" className="h-full w-full object-cover" />
               ) : (
                 <div className="h-full w-full flex items-center justify-center text-slate-500 font-semibold">
-                  {(post.creatorId?.name || '?')[0]}
+                  {creatorLabel[0] || '?'}
                 </div>
               )}
             </div>
             <div>
-              <p className="font-semibold text-slate-900 hover:underline">{post.creatorId?.name || 'Creator'}</p>
+              <p className="font-semibold text-slate-900 hover:underline">{creatorLabel}</p>
               <p className="text-xs text-slate-500">{formatTimeAgo(post.createdAt)}</p>
             </div>
           </Link>
@@ -290,6 +278,22 @@ export function TVPostCard({ post, liked = false, onLike, onRepost, onComment }:
         </div>
       )}
 
+      {post.type === 'video' && post.songId && (post.songId.title || post.songId.artist) && (
+        <div className="px-4 pb-2">
+          <Link
+            href="/qwerty-music"
+            onClick={(e) => e.stopPropagation()}
+            className="inline-flex max-w-full items-center gap-2 rounded-full border border-violet-200 bg-violet-50 px-3 py-1.5 text-xs font-semibold text-violet-900 hover:bg-violet-100"
+          >
+            <Music2 className="h-3.5 w-3.5 shrink-0" aria-hidden />
+            <span className="truncate">
+              {post.songId.title || 'Sound'}
+              {post.songId.artist ? ` — ${post.songId.artist}` : ''}
+            </span>
+          </Link>
+        </div>
+      )}
+
       {/* Product card (if linked) */}
       {post.productId && (
         <div className="mx-4 mb-4">
@@ -319,7 +323,7 @@ export function TVPostCard({ post, liked = false, onLike, onRepost, onComment }:
                     displayPrice = Math.round(displayPrice * (1 + post.resellerCommissionPct / 100) * 100) / 100;
                   }
                   const currency = post.productId.currency || 'ZAR';
-                  return toViewerCurrency(displayPrice, currency);
+                  return formatCatalogProductPrice(displayPrice, currency, rates);
                 })()}
               </p>
             </div>
@@ -377,13 +381,13 @@ export function TVPostCard({ post, liked = false, onLike, onRepost, onComment }:
                       <img src={getImageUrl(c.userId.avatar)} alt="" className="h-full w-full object-cover" />
                     ) : (
                       <div className="h-full w-full flex items-center justify-center text-slate-500 text-xs font-semibold">
-                        {(c.userId?.name || '?')[0]}
+                        {(creatorDisplayLabel(c.userId, 'U')[0] || '?')}
                       </div>
                     )}
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm">
-                      <span className="font-semibold text-slate-800">{c.userId?.name || 'User'}</span>{' '}
+                      <span className="font-semibold text-slate-800">{creatorDisplayLabel(c.userId)}</span>{' '}
                       <span className="text-slate-600">{c.text}</span>
                     </p>
                     <p className="text-xs text-slate-400">{formatTimeAgo(c.createdAt)}</p>

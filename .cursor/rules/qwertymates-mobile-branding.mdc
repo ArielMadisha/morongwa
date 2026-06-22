@@ -1,0 +1,33 @@
+---
+description: Product is Qwertymates; Morongwa was a dev codename—see app.json extra + mobile/src/config.ts
+alwaysApply: true
+---
+
+# Qwertymates mobile naming (formerly “Morongwa” codename)
+
+**Project owner has significant investment in Qwertymates.** Treat releases, store IDs, secrets, and branding as high-stakes; do not undo documented decisions or ship breaking changes without explicit intent.
+
+**Morongwa was a developer codename.** The shipped product branding is **Qwertymates**.
+
+**Source of truth in the repo (read these before changing copy or IDs):**
+
+- `mobile/app.json` — `expo.name`, `slug`, `scheme`, bundle/package ids, and `extra.brandDisplayName` + `extra.webTvLegacyPathPrefix`.
+- `mobile/src/config.ts` — exports `BRAND_DISPLAY_NAME` and `WEB_TV_LEGACY_PATH_PREFIX` from `expo.extra` (used for share text and QwertyTV URLs).
+- **Official round “Q logo”** (mobile shell + web compact header): see **`.cursor/rules/qwertymates-official-q-logo.mdc`** and `qwertymates-q-mark-official.png` in `mobile/assets/images/` and `frontend/public/`.
+
+**Identifiers**
+
+- **Android application id:** `com.qwertymates` (matches the existing Google Play listing; not `com.morongwa.app`).
+- **iOS bundle id:** `com.qwertymates.app`. **No iOS App Store upload has been done yet** under the old bundle id — safe to ship with Qwertymates ids.
+- **Expo:** `name` **Qwertymates**; **`scheme`** `qwertymates`; **`slug`** `qwertymates-mobile`.
+- **EAS:** `extra.eas.projectId` unchanged; Expo dashboard display name may still say “morongwa-mobile” until renamed manually on expo.dev.
+
+**Legacy web**
+
+- Keep **`/morongwa-tv/`** paths until the website is migrated; they are configured via `webTvLegacyPathPrefix` in `app.json` `extra`. Native deep links use **`qwertymates://`**.
+
+**Storage**
+
+- AsyncStorage keys: **`qwertymates.mobile.*`** (old Morongwa-keyed installs lose local session keys on upgrade).
+
+Do **not** ask the user to re-explain this rename; follow this rule and the files above.

@@ -15,7 +15,11 @@ const storage = multer.diskStorage({
   },
   filename: (_req, file, cb) => {
     const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
-    cb(null, `${uniqueSuffix}-${file.originalname}`);
+    const safeOriginal = String(file.originalname || "image")
+      .replace(/[^\w.\-()+]/g, "_")
+      .replace(/_+/g, "_")
+      .slice(0, 120);
+    cb(null, `${uniqueSuffix}-${safeOriginal}`);
   },
 });
 

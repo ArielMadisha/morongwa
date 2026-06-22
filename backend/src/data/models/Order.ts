@@ -5,6 +5,8 @@ export interface IOrderItem {
   qty: number;
   price: number;
   resellerId?: mongoose.Types.ObjectId;
+  selectedColor?: string;
+  selectedSize?: string;
   commissionPct?: number;
   commissionValue?: number;
 }
@@ -23,7 +25,18 @@ export interface IOrderAmounts {
   total: number;
   currency: string;
   /** Per-supplier shipping for invoice (when multiple suppliers) */
-  shippingBreakdown?: Array<{ storeName: string; shippingCost: number }>;
+  shippingBreakdown?: Array<{
+    storeName: string;
+    shippingCost: number;
+    providerName?: string;
+    serviceLabel?: string;
+    courierTariffId?: string;
+    originCountryCode?: string;
+  }>;
+  /** True when delivery/shipping was charged in the same checkout payment as products */
+  deliveryPrepaid?: boolean;
+  /** How delivery was collected — checkout is the only supported path for buyers */
+  deliveryCollectionPolicy?: "checkout_single_payment";
 }
 
 /** Buyer-facing payment breakdown for wallet/invoice */
@@ -42,6 +55,17 @@ export interface IOrderDelivery {
   trackingUrl?: string;
   /** Carrier name (e.g. "DHL", "Aramex") */
   carrier?: string;
+  courierTariffId?: string;
+  /** Cross-border leg tariff when cart mixes SA + foreign storefronts */
+  crossborderCourierTariffId?: string;
+  courierProviderId?: string;
+  serviceLabel?: string;
+  /** ZAR amount for selected courier tariff at checkout (local leg) */
+  courierPriceZar?: number;
+  estimatedDeliveryDaysMin?: number;
+  estimatedDeliveryDaysMax?: number;
+  /** Set when payment completes — courier choice is locked */
+  courierFinalizedAt?: Date;
 }
 
 export type OrderStatus =
@@ -68,7 +92,7 @@ export interface IOrder extends Document {
   /** Stored breakdown for wallet transaction list and invoice */
   paymentBreakdown?: IOrderPaymentBreakdown;
   delivery: IOrderDelivery;
-  paymentMethod: "wallet" | "card";
+  paymentMethod: "wallet" | "card" | "eft" | "orange_money";
   paymentReference?: string;
   paidAt?: Date;
   createdAt: Date;
@@ -86,6 +110,8 @@ const OrderItemSchema = new Schema<IOrderItem>(
     qty: { type: Number, required: true, min: 1 },
     price: { type: Number, required: true },
     resellerId: { type: Schema.Types.ObjectId, ref: "User" },
+    selectedColor: { type: String, trim: true },
+    selectedSize: { type: String, trim: true },
     commissionPct: { type: Number },
     commissionValue: { type: Number },
   },
@@ -112,11 +138,27 @@ const OrderSchema = new Schema<IOrder>(
       platformFee: { type: Number, default: 0 },
       total: { type: Number, required: true },
       currency: { type: String, default: "ZAR" },
-      shippingBreakdown: [{ storeName: String, shippingCost: Number }],
+      shippingBreakdown: [{
+        storeName: String,
+        shippingCost: Number,
+        providerName: String,
+        serviceLabel: String,
+        courierTariffId: String,
+        originCountryCode: String,
+      }],
+      deliveryPrepaid: { type: Boolean },
+      deliveryCollectionPolicy: { type: String },
     },
     paymentBreakdown: {
       items: [{ title: String, price: Number, qty: Number }],
-      shippingBreakdown: [{ storeName: String, shippingCost: Number }],
+      shippingBreakdown: [{
+        storeName: String,
+        shippingCost: Number,
+        providerName: String,
+        serviceLabel: String,
+        courierTariffId: String,
+        originCountryCode: String,
+      }],
     },
     delivery: {
       method: { type: String, enum: ["runner", "courier", "collection"] },
@@ -125,8 +167,16 @@ const OrderSchema = new Schema<IOrder>(
       trackingNo: { type: String },
       trackingUrl: { type: String },
       carrier: { type: String },
+      courierTariffId: { type: String },
+      crossborderCourierTariffId: { type: String },
+      courierProviderId: { type: String },
+      serviceLabel: { type: String },
+      courierPriceZar: { type: Number },
+      estimatedDeliveryDaysMin: { type: Number },
+      estimatedDeliveryDaysMax: { type: Number },
+      courierFinalizedAt: { type: Date },
     },
-    paymentMethod: { type: String, enum: ["wallet", "card"], required: true },
+    paymentMethod: { type: String, enum: ["wallet", "card", "eft", "orange_money"], required: true },
     paymentReference: { type: String },
     paidAt: { type: Date },
   },

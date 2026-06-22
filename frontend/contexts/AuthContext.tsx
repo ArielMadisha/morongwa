@@ -1,8 +1,10 @@
 'use client';
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { lsGetItem, lsRemoveItem, lsSetItem } from '@/lib/browserStorage';
 import { authAPI, policiesAPI } from '@/lib/api';
 import { User } from '@/lib/types';
+import { normalizeClientUser } from '@/lib/userDisplayLabel';
 import toast from 'react-hot-toast';
 
 interface AuthContextType {
@@ -18,47 +20,76 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+type AuthEnvelope = {
+  token?: string;
+  user?: User;
+};
+
+/** Backend may return auth payload at top-level or under { data: { token, user } }. */
+function readAuthEnvelope(payload: unknown): AuthEnvelope {
+  const root = (payload && typeof payload === 'object' ? payload : null) as Record<string, unknown> | null;
+  if (!root) return {};
+  const nested = (root.data && typeof root.data === 'object'
+    ? (root.data as Record<string, unknown>)
+    : null);
+  const token =
+    typeof root.token === 'string'
+      ? root.token
+      : nested && typeof nested.token === 'string'
+        ? (nested.token as string)
+        : undefined;
+  const user =
+    (root.user as User | undefined) ??
+    (nested ? (nested.user as User | undefined) : undefined);
+  return { token, user };
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Check if user is logged in on mount and validate token with backend
-    const token = localStorage.getItem('token');
-    const savedUser = localStorage.getItem('user');
-    
-    if (!token || !savedUser) {
-      setLoading(false);
-      return;
-    }
-    
     try {
-      const parsed = JSON.parse(savedUser);
-      setUser(parsed);
-      // Validate token with backend - prevents showing "logged in" with expired/invalid token
-      authAPI.getCurrentUser()
-        .then((res) => {
-          const serverUser = res.data?.user;
-          if (serverUser) {
-            const normalized = {
-              ...serverUser,
-              _id: serverUser._id || serverUser.id,
-              id: serverUser.id || serverUser._id,
-              role: Array.isArray(serverUser.role) ? serverUser.role : [serverUser.role],
-            };
-            setUser(normalized);
-            localStorage.setItem('user', JSON.stringify(normalized));
-          }
-        })
-        .catch(() => {
-          localStorage.removeItem('token');
-          localStorage.removeItem('user');
-          setUser(null);
-        })
-        .finally(() => setLoading(false));
+      const token = lsGetItem('token');
+      const savedUser = lsGetItem('user');
+
+      if (!token || !savedUser) {
+        setLoading(false);
+        return;
+      }
+
+      try {
+        const parsed = normalizeClientUser(JSON.parse(savedUser) as User) as User;
+        setUser(parsed);
+        // Validate token with backend - prevents showing "logged in" with expired/invalid token
+        authAPI
+          .getCurrentUser()
+          .then((res) => {
+            const serverUser = res.data?.user;
+            if (serverUser) {
+              const normalized = normalizeClientUser({
+                ...serverUser,
+                _id: serverUser._id || serverUser.id,
+                id: serverUser.id || serverUser._id,
+                role: Array.isArray(serverUser.role) ? serverUser.role : [serverUser.role],
+              } as User) as User;
+              setUser(normalized);
+              lsSetItem('user', JSON.stringify(normalized));
+            }
+          })
+          .catch(() => {
+            lsRemoveItem('token');
+            lsRemoveItem('user');
+            setUser(null);
+          })
+          .finally(() => setLoading(false));
+      } catch {
+        lsRemoveItem('token');
+        lsRemoveItem('user');
+        setUser(null);
+        setLoading(false);
+      }
     } catch {
-      localStorage.removeItem('token');
-      localStorage.removeItem('user');
       setUser(null);
       setLoading(false);
     }
@@ -72,11 +103,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         ? { username: emailOrPhoneOrUsername.trim().toLowerCase(), password }
         : { email: emailOrPhoneOrUsername.trim().toLowerCase(), password };
       const response = await authAPI.login(payload);
-      const { token, user: userData } = response.data;
+      const { token, user: userData } = readAuthEnvelope(response.data);
+      if (!token || !userData) {
+        throw new Error('Invalid login response from server');
+      }
 
-      localStorage.setItem('token', token);
-      localStorage.setItem('user', JSON.stringify(userData));
-      setUser(userData);
+      const normalized = normalizeClientUser(userData as User) as User;
+      lsSetItem('token', token);
+      lsSetItem('user', JSON.stringify(normalized));
+      setUser(normalized);
       
       toast.success('Login successful!');
     } catch (error: any) {
@@ -92,11 +127,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const register = async (name: string, email: string, password: string, role: string[], acceptSlugs: string[] = [], dateOfBirth?: string) => {
     try {
       const response = await authAPI.register({ name, email, password, role, dateOfBirth });
-      const { token, user: userData } = response.data;
+      const { token, user: userData } = readAuthEnvelope(response.data);
+      if (!token || !userData) {
+        throw new Error('Invalid registration response from server');
+      }
 
-      localStorage.setItem('token', token);
-      localStorage.setItem('user', JSON.stringify(userData));
-      setUser(userData);
+      const normalized = normalizeClientUser(userData as User) as User;
+      lsSetItem('token', token);
+      lsSetItem('user', JSON.stringify(normalized));
+      setUser(normalized);
 
       // Record policy acceptances for ToS/Privacy when provided
       if (acceptSlugs.length > 0) {
@@ -128,11 +167,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         otpToken: data.otpToken,
         role: ['client'],
       });
-      const { token, user: userData } = response.data;
+      const { token, user: userData } = readAuthEnvelope(response.data);
+      if (!token || !userData) {
+        throw new Error('Invalid registration response from server');
+      }
 
-      localStorage.setItem('token', token);
-      localStorage.setItem('user', JSON.stringify(userData));
-      setUser(userData);
+      const normalized = normalizeClientUser(userData as User) as User;
+      lsSetItem('token', token);
+      lsSetItem('user', JSON.stringify(normalized));
+      setUser(normalized);
 
       if (data.policyAcceptances?.length) {
         try {
@@ -154,8 +197,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const logout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
+    lsRemoveItem('token');
+    lsRemoveItem('user');
     setUser(null);
     toast.success('Logged out successfully');
   };
@@ -165,14 +208,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const res = await authAPI.getCurrentUser();
       const serverUser = res.data?.user;
       if (serverUser) {
-        const normalized = {
+        const normalized = normalizeClientUser({
           ...serverUser,
           _id: serverUser._id || serverUser.id,
           id: serverUser.id || serverUser._id,
           role: Array.isArray(serverUser.role) ? serverUser.role : [serverUser.role],
-        };
+        } as User) as User;
         setUser(normalized);
-        localStorage.setItem('user', JSON.stringify(normalized));
+        lsSetItem('user', JSON.stringify(normalized));
       }
     } catch {
       // Ignore - user may have logged out

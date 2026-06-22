@@ -16,6 +16,7 @@ import {
 import SiteHeader from '@/components/SiteHeader';
 import LandingMarketplaceCard from '@/components/LandingMarketplaceCard';
 import { AuthRedirectToWall } from '@/components/AuthRedirectToWall';
+import { Keycap } from '@/components/Keycap';
 
 export default function Home() {
   return (
@@ -80,7 +81,7 @@ export default function Home() {
               <Link href="/search" className="font-semibold text-brand-600 hover:text-brand-700 underline-offset-2 hover:underline">
                 Ask MacGyver
               </Link>{' '}
-              in the search bar - plain-language help across tasks, QwertyHub, music, TV, and wallet topics.
+              for plain-language help across tasks, QwertyHub, music, TV, and wallet topics.
             </p>
           </div>
 
@@ -100,10 +101,26 @@ export default function Home() {
               <div className="bg-brand-50 w-16 h-16 rounded-full flex items-center justify-center mb-6">
                 <UserCircle className="h-8 w-8 text-brand-600" />
               </div>
-              <h3 className="text-xl font-bold text-slate-900 mb-3">Trusted Runners</h3>
-              <p className="text-slate-600 text-sm sm:text-base">
-                Verified, rated runners in your area. Post errands and deliveries with confidence.
+              <h3 className="text-xl font-bold text-slate-900 mb-3">Qwertymates Errands</h3>
+              <p className="text-slate-600 text-sm sm:text-base mb-3">
+                Local deliveries and collections in South Africa, plus cross-border collect-and-send to Botswana, Lesotho,
+                Zimbabwe, Mozambique, and more — taxi, bus, courier, or border drop-off. Large items like fridges and
+                furniture, matched to trusted runners.
               </p>
+              <div className="flex flex-wrap gap-3">
+                <Link
+                  href="/errands"
+                  className="text-brand-700 hover:text-brand-800 font-semibold text-sm inline-flex items-center gap-1"
+                >
+                  How errands work <ArrowRight className="h-4 w-4" />
+                </Link>
+                <Link
+                  href="/dashboard/client"
+                  className="text-slate-700 hover:text-slate-900 font-semibold text-sm inline-flex items-center gap-1"
+                >
+                  Post a task <ArrowRight className="h-4 w-4" />
+                </Link>
+              </div>
             </div>
 
             <div className="bg-white/85 backdrop-blur-md p-6 sm:p-8 rounded-xl shadow-sm hover:shadow-md transition-shadow border border-slate-100">
@@ -147,10 +164,23 @@ export default function Home() {
                 <Store className="h-8 w-8 text-amber-700" />
               </div>
               <h3 className="text-xl font-bold text-slate-900 mb-3">QwertyHub (not &quot;Just another dropshipping website&quot;)</h3>
-              <p className="text-slate-600 text-sm sm:text-base mb-4">
-                <span className="font-semibold text-slate-800">Traditional retail:</span> tie up cash in inventory, warehouse, and packaging.
-                <span className="font-semibold text-slate-800"> Ordinary faceless dropship:</span> anonymous storefronts and weak buyer trust.
-                <span className="font-semibold text-slate-800"> QwertyHub:</span> curated suppliers, integrated fulfilment, escrow-backed checkout, resell flows, and ties to your <Link href="/morongwa-tv" className="text-amber-700 hover:underline">Qwerty TV</Link> presence - a real ecosystem, not a lone plugin store.
+              <p className="text-slate-600 text-sm sm:text-base mb-4 leading-relaxed">
+                <Keycap className="mr-1.5 align-middle text-xs normal-case tracking-normal font-semibold">
+                  Traditional retail
+                </Keycap>
+                tie up cash in inventory, warehouse, and packaging.{' '}
+                <Keycap className="mr-1.5 align-middle text-xs normal-case tracking-normal font-semibold">
+                  Ordinary faceless dropship
+                </Keycap>
+                anonymous storefronts and weak buyer trust.{' '}
+                <Keycap className="mr-1.5 align-middle text-xs normal-case tracking-normal font-semibold text-amber-900 border-amber-400/80 from-amber-50 to-amber-100/90">
+                  QwertyHub
+                </Keycap>
+                curated suppliers, integrated fulfilment, escrow-backed checkout, resell flows, and ties to your{' '}
+                <Link href="/morongwa-tv" className="text-amber-700 hover:underline">
+                  Qwerty TV
+                </Link>{' '}
+                presence — a real ecosystem, not a lone plugin store.
               </p>
               <Link href="/marketplace" className="text-amber-700 hover:text-amber-800 font-semibold text-sm inline-flex items-center gap-1">
                 Explore QwertyHub <ArrowRight className="h-4 w-4" />
@@ -234,22 +264,28 @@ export default function Home() {
           </p>
           <div className="grid md:grid-cols-3 gap-8">
             <div className="text-center">
-              <div className="bg-brand-500 text-white w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-4 text-xl font-bold shadow-sm">
-                1
+              <div className="mx-auto mb-4 flex justify-center">
+                <Keycap className="min-w-[2.75rem] px-3 py-2 text-sm font-bold text-brand-800 border-brand-400/70 from-brand-50 to-brand-100/90 tabular-nums">
+                  1
+                </Keycap>
               </div>
               <h3 className="text-lg font-semibold text-slate-900 mb-2">Post Your Task</h3>
               <p className="text-slate-600">Describe what you need done and set your budget</p>
             </div>
             <div className="text-center">
-              <div className="bg-brand-500 text-white w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-4 text-xl font-bold shadow-sm">
-                2
+              <div className="mx-auto mb-4 flex justify-center">
+                <Keycap className="min-w-[2.75rem] px-3 py-2 text-sm font-bold text-brand-800 border-brand-400/70 from-brand-50 to-brand-100/90 tabular-nums">
+                  2
+                </Keycap>
               </div>
               <h3 className="text-lg font-semibold text-slate-900 mb-2">Get Matched</h3>
               <p className="text-slate-600">Nearby runners accept your task and get to work</p>
             </div>
             <div className="text-center">
-              <div className="bg-brand-500 text-white w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-4 text-xl font-bold shadow-sm">
-                3
+              <div className="mx-auto mb-4 flex justify-center">
+                <Keycap className="min-w-[2.75rem] px-3 py-2 text-sm font-bold text-brand-800 border-brand-400/70 from-brand-50 to-brand-100/90 tabular-nums">
+                  3
+                </Keycap>
               </div>
               <h3 className="text-lg font-semibold text-slate-900 mb-2">Task Complete</h3>
               <p className="text-slate-600">Review your runner and payment is released</p>

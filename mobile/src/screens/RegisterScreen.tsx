@@ -13,6 +13,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Haptics from "expo-haptics";
 import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "../contexts/AuthContext";
+import { formatApiError } from "../lib/api";
 import { AuthLandingLayout } from "../components/AuthLandingLayout";
 import { authScreenStyles as S } from "../theme/authScreenStyles";
 
@@ -53,7 +54,7 @@ export function RegisterScreen({ onGoLogin }: Props) {
         dateOfBirth,
       });
     } catch (err: any) {
-      setError(err?.response?.data?.error || err?.message || "Registration failed");
+      setError(formatApiError(err, "Registration failed"));
     } finally {
       setBusy(false);
     }

@@ -1,14 +1,18 @@
 /**
- * MacGyver service - website search first, then AI
- * 1. Knowledge base (Qwertymates FAQs) — no DB, fast path for common questions
- * 2. Platform search (users, products, TV, music) — single DB round-trip
- * 3. If website has results → return search (user sees results)
- * 4. If still no answer → OpenAI (seamlessly, user just sees the answer)
+ * MacGyver service - layered answers
+ * 1. Static FAQ (Qwertymates) — fast path
+ * 2. Platform search (users, products, TV, music, stores) — if hits, return unified search UI
+ * 3. Expandable learned library (Mongo) — past answers when the site still has no browse hits
+ * 4. Open web (Tavily / Wikipedia / DuckDuckGo) — snippets from outside Qwertymates
+ * 5. OpenAI — synthesizes from platform + web context; successful replies are saved to the library
  */
 
 import { findQwertymatesAnswer } from "../data/macgyverKnowledge";
 import { askMacGyver, isMacGyverConfigured } from "./macgyverLLM";
 import { searchPlatformMacGyverBundle } from "./macgyverSearch";
+import { formatMarketplaceStoreAnswer, searchPublicStores } from "./storeSearch";
+import { findFreshLearnedAnswer, upsertMacGyverLearned } from "./macgyverLearned";
+import { fetchWebContextForMacGyver, formatWebOnlyAnswer } from "./macgyverWebSearch";
 
 export type MacGyverResult =
   | { text: string; error?: string }
@@ -30,34 +34,58 @@ export async function handleAskMacGyver(query: string): Promise<MacGyverResult> 
     return { type: "search", query: trimmed };
   }
 
+  const storeHits = await searchPublicStores(trimmed, 5);
+  const storeAnswer = formatMarketplaceStoreAnswer(trimmed, storeHits);
+  if (storeAnswer) {
+    return { text: storeAnswer };
+  }
+
+  const learned = await findFreshLearnedAnswer(trimmed);
+  if (learned) {
+    return { text: learned };
+  }
+
+  const webBundle = trimmed.length >= 2 ? await fetchWebContextForMacGyver(trimmed) : { contextBlock: "", sources: [] };
+
   if (!isMacGyverConfigured()) {
+    const webOnly = formatWebOnlyAnswer(trimmed, webBundle);
+    if (webOnly) {
+      await upsertMacGyverLearned({ query: trimmed, answer: webOnly, webSources: webBundle.sources });
+      return { text: webOnly };
+    }
     return {
-      text: "I can help with Qwertymates questions. Try: how to pay, how to register a store, how to post.",
+      text: "I can help with Qwertymates questions. Try: how to pay, how to register a store, how to post. For broader topics, set OPENAI_API_KEY on the server (MacGyver uses it with open-web snippets when the marketplace has no matches).",
       error: "NOT_CONFIGURED",
     };
   }
 
   try {
-    const response = await askMacGyver(trimmed, contextForLlm);
+    const response = await askMacGyver(trimmed, contextForLlm, webBundle.contextBlock);
+    await upsertMacGyverLearned({
+      query: trimmed,
+      answer: response,
+      webSources: webBundle.sources,
+    });
     return { text: response };
   } catch (err: any) {
     const rawMessage = err.response?.data?.error?.message || err.message || "";
     const errorCode = err.response?.data?.error?.code || "";
+
+    const webFallback = formatWebOnlyAnswer(trimmed, webBundle);
+    if (webFallback) {
+      await upsertMacGyverLearned({ query: trimmed, answer: webFallback, webSources: webBundle.sources });
+    }
 
     if (
       errorCode === "insufficient_quota" ||
       rawMessage.toLowerCase().includes("quota") ||
       rawMessage.toLowerCase().includes("billing")
     ) {
-      return {
-        text: "Try again in a moment.",
-        error: "QUOTA_EXCEEDED",
-      };
+      if (webFallback) return { text: webFallback, error: "QUOTA_EXCEEDED" };
+      return { text: "Try again in a moment.", error: "QUOTA_EXCEEDED" };
     }
 
-    return {
-      text: "Try again in a moment.",
-      error: "LLM_ERROR",
-    };
+    if (webFallback) return { text: webFallback, error: "LLM_ERROR" };
+    return { text: "Try again in a moment.", error: "LLM_ERROR" };
   }
 }

@@ -14,7 +14,7 @@ function PayPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user, loading: authLoading } = useAuth();
-  const [details, setDetails] = useState<{ merchantId: string; amount: number; reference: string; merchantName: string } | null>(null);
+  const [details, setDetails] = useState<{ sessionId: string; merchantId: string; amount: number; reference: string; merchantName: string } | null>(null);
   const [loading, setLoading] = useState(true);
   const [paying, setPaying] = useState<'wallet' | string | null>(null);
   const [cards, setCards] = useState<Array<{ _id: string; last4: string; brand: string; isDefault: boolean }>>([]);
@@ -34,11 +34,18 @@ function PayPageContent() {
       return;
     }
     walletAPI
-      .getCheckoutDetails({ merchantId, amount: parseFloat(amountParam), reference, name: name || undefined })
+      .getCheckoutDetails({
+        merchantId,
+        amount: parseFloat(amountParam),
+        reference,
+        name: name || undefined,
+        return_url: decodeURIComponent(returnUrl),
+        cancel_url: cancelUrl ? decodeURIComponent(cancelUrl) : undefined,
+      })
       .then((res) => setDetails(res.data))
       .catch(() => setDetails(null))
       .finally(() => setLoading(false));
-  }, [merchantId, amountParam, reference, name]);
+  }, [merchantId, amountParam, reference, name, returnUrl, cancelUrl]);
 
   useEffect(() => {
     if (user) {
@@ -50,15 +57,11 @@ function PayPageContent() {
   }, [user]);
 
   const handlePay = async (method: 'wallet' | 'card', cardId?: string) => {
-    if (!details || !returnUrl) return;
+    if (!details?.sessionId) return;
     setPaying(method === 'wallet' ? 'wallet' : cardId || 'card');
     try {
       const res = await walletAPI.checkoutPay({
-        merchantId: details.merchantId,
-        amount: details.amount,
-        reference: details.reference,
-        returnUrl: decodeURIComponent(returnUrl),
-        cancelUrl: cancelUrl ? decodeURIComponent(cancelUrl) : undefined,
+        sessionId: details.sessionId,
         method,
         cardId,
       });

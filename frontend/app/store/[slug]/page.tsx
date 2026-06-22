@@ -1,10 +1,10 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { Package, ArrowLeft, Store, Loader2 } from 'lucide-react';
-import { storesAPI, resellerAPI, getImageUrl, getEffectivePrice } from '@/lib/api';
+import { Package, ArrowLeft, Loader2 } from 'lucide-react';
+import { storesAPI, cartAPI, getImageUrl, getEffectivePrice } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
 import { AppSidebar, AppSidebarMenuButton } from '@/components/AppSidebar';
 import { SearchButton } from '@/components/SearchButton';
@@ -12,47 +12,96 @@ import { ProfileHeaderButton } from '@/components/ProfileHeaderButton';
 import { useCartAndStores } from '@/lib/useCartAndStores';
 import { MobileBottomNav } from '@/components/MobileBottomNav';
 import StoreHeader from '@/components/StoreHeader';
-import { formatCurrencyAmount } from '@/lib/formatCurrency';
+import { StorefrontProductCard } from '@/components/StorefrontProductCard';
+import { formatCatalogProductPrice } from '@/lib/productPriceZar';
 import { useCurrency } from '@/contexts/CurrencyContext';
+
+interface StoreProduct {
+  _id: string;
+  title: string;
+  slug: string;
+  images: string[];
+  price: number;
+  currency: string;
+  discountPrice?: number;
+  allowResell?: boolean;
+  stock?: number;
+  outOfStock?: boolean;
+}
 
 interface WallProduct {
   productId: string;
-  product: { _id: string; title: string; slug: string; images: string[]; price: number; currency: string; discountPrice?: number };
+  product: StoreProduct;
   resellerCommissionPct?: number;
+}
+
+function productQtyMapFromCartResponse(res: { data?: { data?: { items?: unknown[] } } }): Record<string, number> {
+  const items = Array.isArray(res.data?.data?.items) ? res.data!.data!.items! : [];
+  const m: Record<string, number> = {};
+  for (const it of items) {
+    const row = it as {
+      type?: string;
+      songId?: unknown;
+      productId?: { _id?: string } | string;
+      product?: { _id?: string };
+      qty?: number;
+    };
+    if (row.type === 'music' || row.songId) continue;
+    const pid = String(row.product?._id ?? (row.productId as { _id?: string } | undefined)?._id ?? row.productId ?? '');
+    if (!pid) continue;
+    m[pid] = Number(row.qty ?? 0);
+  }
+  return m;
 }
 
 export default function PublicStorePage() {
   const params = useParams();
   const slug = params.slug as string;
   const { user, logout } = useAuth();
-  const { cartCount, hasStore } = useCartAndStores(!!user);
+  const { cartCount, hasStore, invalidate } = useCartAndStores(!!user);
   const [menuOpen, setMenuOpen] = useState(false);
   const [store, setStore] = useState<any>(null);
   const [wallProducts, setWallProducts] = useState<WallProduct[]>([]);
+  const [storeType, setStoreType] = useState<'supplier' | 'reseller'>('reseller');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const { currency: localCurrency, rates } = useCurrency();
+  const [cartQtyByProduct, setCartQtyByProduct] = useState<Record<string, number>>({});
+  const { rates } = useCurrency();
+
+  const storeLoginHref = `/login?returnTo=${encodeURIComponent(typeof window !== 'undefined' ? window.location.pathname : `/store/${slug}`)}`;
+
+  const refreshCartQty = useCallback(() => {
+    if (!user) {
+      setCartQtyByProduct({});
+      return;
+    }
+    cartAPI
+      .get()
+      .then((res) => setCartQtyByProduct(productQtyMapFromCartResponse(res)))
+      .catch(() => setCartQtyByProduct({}));
+  }, [user]);
+
+  const handleCartUpdated = useCallback(() => {
+    invalidate();
+    refreshCartQty();
+  }, [invalidate, refreshCartQty]);
+
+  useEffect(() => {
+    refreshCartQty();
+  }, [refreshCartQty]);
 
   useEffect(() => {
     if (!slug) return;
     setLoading(true);
     setError(null);
-    storesAPI
-      .getBySlug(slug)
-      .then((res) => {
-        const s = res.data?.data ?? res.data;
+    Promise.all([storesAPI.getBySlug(slug), storesAPI.getProductsBySlug(slug)])
+      .then(([storeRes, productsRes]) => {
+        const s = storeRes.data?.data ?? storeRes.data;
         setStore(s);
-        const ownerId =
-          s?.userId && typeof s.userId === 'object'
-            ? (s.userId as { _id?: string })._id
-            : s?.userId;
-        if (ownerId) {
-          return resellerAPI.getWall(String(ownerId)).then((w) => {
-            const products = (w.data?.data ?? w.data)?.products ?? [];
-            setWallProducts(Array.isArray(products) ? products : []);
-          });
-        }
-        setWallProducts([]);
+        const payload = productsRes.data?.data ?? productsRes.data;
+        const products = payload?.products ?? [];
+        setStoreType(payload?.storeType === 'supplier' ? 'supplier' : 'reseller');
+        setWallProducts(Array.isArray(products) ? products : []);
       })
       .catch(() => {
         setError('Store not found');
@@ -69,18 +118,10 @@ export default function PublicStorePage() {
 
   const storeOwnerName = store?.userId?.name ?? 'Store owner';
   const validWallProducts = wallProducts.filter((wp) => wp.product);
-  const toViewerCurrency = (amount: number, sourceCurrency: string) => {
-    const from = String(sourceCurrency || 'USD').toUpperCase();
-    const to = String(localCurrency || from).toUpperCase();
-    if (!Number.isFinite(amount)) return formatCurrencyAmount(0, to || 'ZAR');
-    if (from === to) return formatCurrencyAmount(amount, to);
-    const fromRate = Number(rates?.[from] ?? 0);
-    const toRate = Number(rates?.[to] ?? 0);
-    if (!(fromRate > 0) || !(toRate > 0)) return formatCurrencyAmount(amount, from);
-    const usd = amount / fromRate;
-    const converted = Math.round(usd * toRate * 100) / 100;
-    return formatCurrencyAmount(converted, to);
-  };
+  const isGuest = !user;
+
+  const formatStorePrice = (amount: number, sourceCurrency: string) =>
+    formatCatalogProductPrice(amount, sourceCurrency || 'ZAR', rates);
 
   if (loading) {
     return (
@@ -103,6 +144,8 @@ export default function PublicStorePage() {
       </div>
     );
   }
+
+  const resellerId = store.userId?._id ?? store.userId;
 
   return (
     <div className="min-h-screen flex flex-col bg-gradient-to-br from-sky-50 via-blue-50 to-white text-slate-900">
@@ -149,32 +192,42 @@ export default function PublicStorePage() {
           />
           <main className="flex-1 overflow-y-auto px-4 sm:px-6 lg:px-8 py-8 pb-24 lg:pb-8">
             <div className="max-w-6xl mx-auto">
-              <p className="text-sm text-slate-600 mb-6">Products from {storeOwnerName}</p>
+              <p className="text-sm text-slate-600 mb-6">
+                {storeType === 'supplier' ? `Products from ${store.name}` : `Products from ${storeOwnerName}`}
+              </p>
               {validWallProducts.length > 0 ? (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                   {validWallProducts.map((wp) => {
-                    const p = wp.product!;
-                    const markup = wp.resellerCommissionPct ?? 5;
+                    const p = wp.product;
+                    const markup = storeType === 'supplier' ? 0 : (wp.resellerCommissionPct ?? 5);
                     const basePrice = getEffectivePrice(p);
-                    const resellerPrice = Math.round(basePrice * (1 + markup / 100) * 100) / 100;
-                    const resellerId = store.userId?._id ?? store.userId;
-                    const productHref = resellerId ? `/marketplace/product/${p._id}?resellerId=${resellerId}&resellerCommissionPct=${markup}` : `/marketplace/product/${p._id}`;
+                    const displayPrice =
+                      storeType === 'supplier'
+                        ? basePrice
+                        : Math.round(basePrice * (1 + markup / 100) * 100) / 100;
+                    const productHref =
+                      storeType === 'reseller' && resellerId
+                        ? `/marketplace/product/${p._id}?resellerId=${resellerId}&resellerCommissionPct=${markup}`
+                        : `/marketplace/product/${p._id}`;
+                    const outOfStock = !!p.outOfStock || (p.stock != null && p.stock < 1);
                     return (
-                      <Link key={wp.productId} href={productHref} className="group flex flex-col rounded-xl border border-slate-100 overflow-hidden bg-white shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200">
-                        <div className="aspect-square bg-slate-100 overflow-hidden">
-                          {p.images?.[0] ? (
-                            <img src={getImageUrl(p.images[0])} alt="" className="h-full w-full object-cover group-hover:scale-105 transition-transform duration-200" />
-                          ) : (
-                            <div className="h-full w-full flex items-center justify-center text-slate-400 text-sm">No image</div>
-                          )}
-                        </div>
-                        <div className="p-4 flex-1 flex flex-col">
-                          <p className="font-medium text-slate-800 line-clamp-2">{p.title}</p>
-                          <p className="text-base text-brand-600 font-semibold mt-2">
-                            {toViewerCurrency(resellerPrice, p.currency || 'ZAR')}
-                          </p>
-                        </div>
-                      </Link>
+                      <StorefrontProductCard
+                        key={wp.productId}
+                        productId={String(p._id)}
+                        title={p.title}
+                        image={p.images?.[0]}
+                        priceLabel={formatStorePrice(displayPrice, p.currency || 'ZAR')}
+                        productHref={productHref}
+                        resellHref={p.allowResell ? `/marketplace/product/${p._id}?view=resell` : undefined}
+                        allowResell={!!p.allowResell && storeType === 'supplier'}
+                        outOfStock={outOfStock}
+                        resellerId={storeType === 'reseller' && resellerId ? String(resellerId) : undefined}
+                        cartQty={cartQtyByProduct[String(p._id)] ?? 0}
+                        isGuest={isGuest}
+                        loginHref={storeLoginHref}
+                        onCartUpdated={handleCartUpdated}
+                        colorsRequired={Array.isArray((p as { colors?: unknown[] }).colors) && (p as { colors: unknown[] }).colors.length > 0}
+                      />
                     );
                   })}
                 </div>

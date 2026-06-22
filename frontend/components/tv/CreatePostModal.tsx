@@ -1,6 +1,6 @@
 'use client';
 import { useState, useRef, useEffect } from 'react';
-import { X, Upload, ImagePlus, Video, Radio, Plus, Mic, Music2, ChevronLeft, Loader2 } from 'lucide-react';
+import { X, Upload, ImagePlus, Video, Radio, Plus, Mic, Music2, ChevronLeft, Loader2, Copy, ExternalLink } from 'lucide-react';
 
 /** Store created post so Home/Wall can show it when user navigates there */
 function storeLatestPostForHome(created: any) {
@@ -11,7 +11,14 @@ function storeLatestPostForHome(created: any) {
   }
 }
 import Link from 'next/link';
-import { tvAPI, musicAPI, getImageUrl, usersAPI } from '@/lib/api';
+import { tvAPI, musicAPI, getImageUrl, usersAPI, liveAPI, type SongRecord, formatUploadAxiosError } from '@/lib/api';
+import {
+  ACCEPT_TV_IMAGES,
+  isVideoFile,
+  isImageFile,
+  isGifFile,
+  validateQwertzVideoDuration,
+} from '@/lib/mediaUpload';
 import { QSpinner } from '@/components/QSpinner';
 import { GENRES } from './GenresDropdown';
 import type { Product } from '@/lib/types';
@@ -19,6 +26,20 @@ import toast from 'react-hot-toast';
 
 const MAX_CAROUSEL_IMAGES = 20;
 const QWERTZ_MAX_DURATION_SECONDS = 180; // 3 minutes
+
+function parseHashtagsInput(raw: string): string[] {
+  return raw
+    .split(/[\s,]+/)
+    .map((t) => t.trim().replace(/^#/, '').toLowerCase())
+    .filter(Boolean);
+}
+
+function buildMediaCaption(subjectLine: string, tags: string[]): string | undefined {
+  const s = subjectLine.trim();
+  const tagStr = tags.map((t) => `#${t}`).join(' ');
+  const out = [s, tagStr].filter(Boolean).join(' ').trim();
+  return out || undefined;
+}
 
 const FILTERS = [
   { id: 'none', label: 'None' },
@@ -54,6 +75,8 @@ export function CreatePostModal({
   const [genre, setGenre] = useState<string>('comedy');
   const [productId, setProductId] = useState<string>('');
   const [uploading, setUploading] = useState(false);
+  /** When set, only that tile shows a spinner (avoids blocking every tile on one slow upload). */
+  const [uploadingTile, setUploadingTile] = useState<'video' | 'qwertz' | 'images' | 'audio' | null>(null);
   const [posting, setPosting] = useState(false);
   const [heading, setHeading] = useState('');
   const [subject, setSubject] = useState('');
@@ -67,6 +90,45 @@ export function CreatePostModal({
   const [selectedSongId, setSelectedSongId] = useState<string | null>(null);
   const [mySongs, setMySongs] = useState<any[]>([]);
   const [mediaSensitive, setMediaSensitive] = useState(false);
+  /** After POST /live/start — show OBS copy helpers */
+  const [liveObsInfo, setLiveObsInfo] = useState<{
+    obsServerUrl: string;
+    streamKey: string;
+    hlsUrl: string;
+    watchUrl: string;
+  } | null>(null);
+  const [liveActionBusy, setLiveActionBusy] = useState(false);
+  /** QwertyTV video + approved Sounds (catalog). */
+  const [videoSoundSongId, setVideoSoundSongId] = useState<string | null>(null);
+  const [soundQuery, setSoundQuery] = useState('');
+  const [soundDebounced, setSoundDebounced] = useState('');
+  const [soundChoices, setSoundChoices] = useState<SongRecord[]>([]);
+  const [soundsLoading, setSoundsLoading] = useState(false);
+  useEffect(() => {
+    const t = setTimeout(() => setSoundDebounced(soundQuery.trim()), 350);
+    return () => clearTimeout(t);
+  }, [soundQuery]);
+
+  useEffect(() => {
+    if (!open || step !== 'details' || type !== 'video') return;
+    let cancelled = false;
+    setSoundsLoading(true);
+    musicAPI
+      .listSounds({ q: soundDebounced || undefined, limit: 40 })
+      .then((res) => {
+        if (!cancelled) setSoundChoices(Array.isArray(res.data?.data) ? res.data.data : []);
+      })
+      .catch(() => {
+        if (!cancelled) setSoundChoices([]);
+      })
+      .finally(() => {
+        if (!cancelled) setSoundsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, step, type, soundDebounced]);
+
   useEffect(() => {
     if (!open || !prefillHashtag) return;
     const t = prefillHashtag.replace(/^#/, '').trim();
@@ -87,30 +149,48 @@ export function CreatePostModal({
   const audioInputRef = useRef<HTMLInputElement>(null);
   const musicInputRef = useRef<HTMLInputElement>(null);
 
-  const validateQwertzVideoDuration = (file: File) =>
-    new Promise<void>((resolve, reject) => {
-      const url = URL.createObjectURL(file);
-      const media = document.createElement('video');
-      media.preload = 'metadata';
-      media.src = url;
-      media.onloadedmetadata = () => {
-        const duration = Number(media.duration || 0);
-        URL.revokeObjectURL(url);
-        if (!duration || Number.isNaN(duration)) {
-          reject(new Error('Could not read video duration.'));
-          return;
-        }
-        if (duration > QWERTZ_MAX_DURATION_SECONDS) {
-          reject(new Error('Qwertz videos must be 3 minutes or less.'));
-          return;
-        }
-        resolve();
-      };
-      media.onerror = () => {
-        URL.revokeObjectURL(url);
-        reject(new Error('Invalid video file.'));
-      };
-    });
+  const uploadTvVideo = async (
+    file: File,
+    tile: 'video' | 'qwertz',
+    opts?: { validateQwertz?: boolean }
+  ) => {
+    const toastId = `tv-upload-${tile}`;
+    setUploading(true);
+    setUploadingTile(tile);
+    toast.loading(tile === 'qwertz' ? 'Preparing Qwertz…' : 'Uploading video…', { id: toastId });
+    try {
+      if (opts?.validateQwertz) {
+        await validateQwertzVideoDuration(file, QWERTZ_MAX_DURATION_SECONDS);
+      }
+      toast.loading('Uploading… 0%', { id: toastId });
+      const res = await tvAPI.uploadMedia(file, {
+        onUploadProgress: (pct) => {
+          toast.loading(`Uploading… ${pct}%`, { id: toastId });
+        },
+      });
+      const url = res.data?.url ?? (res.data as any)?.url;
+      const sensitive = res.data?.sensitive ?? (res.data as any)?.sensitive ?? false;
+      if (!url) {
+        toast.error('Upload finished but no media URL was returned. Try again or use a smaller file.');
+        return;
+      }
+      setMediaUrls([url]);
+      setType('video');
+      setMediaSensitive(sensitive);
+      if (tile === 'qwertz') setGenre('qwertz');
+      setStep('details');
+      toast.success(tile === 'qwertz' ? 'Qwertz video ready — add caption and post' : 'Video ready — add caption and post', {
+        id: toastId,
+      });
+    } catch (err: any) {
+      toast.error(formatUploadAxiosError(err, err.response?.data?.message || err?.message || 'Upload failed'), {
+        id: toastId,
+      });
+    } finally {
+      setUploading(false);
+      setUploadingTile(null);
+    }
+  };
 
   useEffect(() => {
     if (audioStep === 'choose' && currentUserId) {
@@ -142,6 +222,7 @@ export function CreatePostModal({
     setGenre('comedy');
     setProductId('');
     setUploading(false);
+    setUploadingTile(null);
     setPosting(false);
     setHeading('');
     setSubject('');
@@ -154,6 +235,12 @@ export function CreatePostModal({
     setArtworkUrl('');
     setSelectedSongId(null);
     setMediaSensitive(false);
+    setLiveObsInfo(null);
+    setLiveActionBusy(false);
+    setVideoSoundSongId(null);
+    setSoundQuery('');
+    setSoundDebounced('');
+    setSoundChoices([]);
   };
 
   const handleClose = () => {
@@ -161,47 +248,22 @@ export function CreatePostModal({
     onClose();
   };
 
-  /** Video button — videos only (picker must not offer photos). */
-  const handleVideoOnlySelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    if (!file.type.startsWith('video/')) {
-      toast.error('Please choose a video file');
-      if (fileInputRef.current) fileInputRef.current.value = '';
-      return;
-    }
+  const uploadTvImageFiles = async (files: File[]) => {
+    if (!files.length) return;
     setUploading(true);
-    try {
-      const res = await tvAPI.uploadMedia(file);
-      const url = res.data?.url ?? (res.data as any)?.url;
-      const sensitive = res.data?.sensitive ?? (res.data as any)?.sensitive ?? false;
-      if (url) {
-        setMediaUrls([url]);
-        setType('video');
-        setMediaSensitive(sensitive);
-        setStep('details');
-      }
-    } catch (err: any) {
-      toast.error(err.response?.data?.message || 'Upload failed');
-    } finally {
-      setUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = '';
-    }
-  };
-
-  /** Images / carousel — images only (single file uses same upload path as before). */
-  const handleImageCarouselSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files?.length) return;
-    setUploading(true);
+    setUploadingTile('images');
+    const toastId = 'tv-upload-images';
+    toast.loading(files.length === 1 && isGifFile(files[0]) ? 'Uploading GIF…' : 'Uploading…', { id: toastId });
     try {
       if (files.length === 1) {
         const file = files[0];
-        if (!file.type.startsWith('image/')) {
-          toast.error('Please select an image file');
+        if (!isImageFile(file)) {
+          toast.error('Please select a JPEG, PNG, GIF, or WebP file', { id: toastId });
           return;
         }
-        const res = await tvAPI.uploadMedia(file);
+        const res = await tvAPI.uploadMedia(file, {
+          onUploadProgress: (pct) => toast.loading(`Uploading… ${pct}%`, { id: toastId }),
+        });
         const url = res.data?.url ?? (res.data as any)?.url;
         const sensitive = res.data?.sensitive ?? (res.data as any)?.sensitive ?? false;
         if (url) {
@@ -209,14 +271,21 @@ export function CreatePostModal({
           setType('image');
           setMediaSensitive(sensitive);
           setStep('details');
+          toast.success(isGifFile(file) ? 'GIF ready — add caption and post' : 'Image ready — add caption and post', {
+            id: toastId,
+          });
+        } else {
+          toast.error('Upload finished but no media URL was returned.', { id: toastId });
         }
       } else {
-        const imageFiles = Array.from(files).filter((f) => f.type.startsWith('image/'));
+        const imageFiles = files.filter((f) => isImageFile(f));
         if (imageFiles.length === 0) {
-          toast.error('Please select images only for carousel');
+          toast.error('Please select JPEG, PNG, GIF, or WebP files only', { id: toastId });
           return;
         }
-        const res = await tvAPI.uploadImages(imageFiles.slice(0, MAX_CAROUSEL_IMAGES));
+        const res = await tvAPI.uploadImages(imageFiles.slice(0, MAX_CAROUSEL_IMAGES), {
+          onUploadProgress: (pct) => toast.loading(`Uploading… ${pct}%`, { id: toastId }),
+        });
         const urls = res.data?.urls ?? (res.data as any)?.urls ?? (res.data as any)?.data?.urls ?? [];
         const sensitive = res.data?.sensitive ?? (res.data as any)?.sensitive ?? false;
         if (urls.length) {
@@ -224,44 +293,54 @@ export function CreatePostModal({
           setType('carousel');
           setMediaSensitive(sensitive);
           setStep('details');
+          toast.success('Images ready — add caption and post', { id: toastId });
         } else {
-          toast.error('No images could be uploaded. Try again or use smaller images.');
+          toast.error('No images could be uploaded. Try again or use smaller files.', { id: toastId });
         }
       }
     } catch (err: any) {
-      toast.error(err.response?.data?.message || 'Upload failed');
+      toast.error(formatUploadAxiosError(err, err.response?.data?.message || 'Upload failed'), { id: toastId });
     } finally {
       setUploading(false);
+      setUploadingTile(null);
       if (imagesInputRef.current) imagesInputRef.current.value = '';
     }
+  };
+
+  /** Video button — videos only (GIFs/images use Images & GIFs). */
+  const handleVideoOnlySelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (isGifFile(file) || (isImageFile(file) && !isVideoFile(file))) {
+      await uploadTvImageFiles([file]);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+    if (!isVideoFile(file)) {
+      toast.error('Please choose a video file (MP4, WebM, MOV, MKV, etc.)');
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+    await uploadTvVideo(file, 'video');
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  /** Images / carousel — JPEG, PNG, GIF (animated), WebP. */
+  const handleImageCarouselSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files?.length) return;
+    await uploadTvImageFiles(Array.from(files));
   };
 
   const handleQwertzSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (!file.type.startsWith('video/')) {
+    if (!isVideoFile(file)) {
       toast.error('Please select a video file for Qwertz');
       return;
     }
-    setUploading(true);
-    try {
-      await validateQwertzVideoDuration(file);
-      const res = await tvAPI.uploadMedia(file);
-      const url = res.data?.url ?? (res.data as any)?.url;
-      const sensitive = res.data?.sensitive ?? (res.data as any)?.sensitive ?? false;
-      if (url) {
-        setMediaUrls([url]);
-        setType('video');
-        setGenre('comedy');
-        setMediaSensitive(sensitive);
-        setStep('details');
-      }
-    } catch (err: any) {
-      toast.error(err?.message || 'Failed to upload Qwertz video');
-    } finally {
-      setUploading(false);
-      if (qwertzInputRef.current) qwertzInputRef.current.value = '';
-    }
+    await uploadTvVideo(file, 'qwertz', { validateQwertz: true });
+    if (qwertzInputRef.current) qwertzInputRef.current.value = '';
   };
 
   const handleSubmitTextPost = async () => {
@@ -307,7 +386,7 @@ export function CreatePostModal({
         setAudioStep('record-details');
       }
     } catch (err: any) {
-      toast.error(err.response?.data?.message || 'Upload failed');
+      toast.error(formatUploadAxiosError(err, err.response?.data?.message || 'Upload failed'));
     } finally {
       setUploading(false);
       if (audioInputRef.current) audioInputRef.current.value = '';
@@ -328,7 +407,7 @@ export function CreatePostModal({
         setAudioStep('upload-details');
       }
     } catch (err: any) {
-      toast.error(err.response?.data?.message || 'Upload failed');
+      toast.error(formatUploadAxiosError(err, err.response?.data?.message || 'Upload failed'));
     } finally {
       setUploading(false);
       if (musicInputRef.current) musicInputRef.current.value = '';
@@ -344,7 +423,7 @@ export function CreatePostModal({
       const url = res.data?.url ?? (res.data as any)?.url;
       if (url) setArtworkUrl(url);
     } catch (err: any) {
-      toast.error(err.response?.data?.message || 'Artwork upload failed');
+      toast.error(formatUploadAxiosError(err, err.response?.data?.message || 'Artwork upload failed'));
     } finally {
       setUploading(false);
       if (artworkInputRef.current) artworkInputRef.current.value = '';
@@ -353,17 +432,20 @@ export function CreatePostModal({
 
   const handleSubmit = async () => {
     if (!mediaUrls.length) return;
+    const tags = parseHashtagsInput(hashtagsInput);
     setPosting(true);
     try {
       const res = await tvAPI.createPost({
         type,
         mediaUrls,
         heading: heading.trim() || undefined,
-        caption: subject.trim() || undefined,
+        caption: buildMediaCaption(subject, tags),
+        hashtags: tags.length ? tags : undefined,
         filter: filter || undefined,
         genre: genre || undefined,
         productId: productId || undefined,
         sensitive: mediaSensitive,
+        songId: type === 'video' ? videoSoundSongId || undefined : undefined,
       });
       toast.success('Post created!');
       handleClose();
@@ -379,7 +461,17 @@ export function CreatePostModal({
 
   if (!open) return null;
 
+  const copyLiveField = async (label: string, text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      toast.success(`${label} copied`);
+    } catch {
+      toast.error('Could not copy to clipboard');
+    }
+  };
+
   return (
+    <>
     <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/50">
       <div className="bg-white rounded-2xl shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between p-4 border-b border-slate-100">
@@ -416,9 +508,10 @@ export function CreatePostModal({
                 value={subject}
                 onChange={(e) => setSubject(e.target.value)}
                 placeholder="What's on your mind?"
-                className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500/30 focus:border-sky-400 resize-none"
-                rows={2}
+                className="w-full min-h-[128px] px-3 py-2 rounded-xl border border-slate-200 text-sm placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500/30 focus:border-sky-400 resize-y"
+                rows={6}
               />
+              <p className="text-xs text-slate-500">Use blank lines for paragraph breaks — they show on the wall and under photos/videos.</p>
               <input
                 type="text"
                 value={hashtagsInput}
@@ -650,11 +743,13 @@ export function CreatePostModal({
                         }
                         setPosting(true);
                         try {
+                        const tags = parseHashtagsInput(hashtagsInput);
                         const res = await tvAPI.createPost({
                           type: 'audio',
                           mediaUrls,
                           heading: heading.trim() || musicTitle.trim() || undefined,
-                          caption: subject.trim() || undefined,
+                          caption: buildMediaCaption(subject, tags),
+                          hashtags: tags.length ? tags : undefined,
                           genre: musicGenre || genre || undefined,
                           artworkUrl: artworkUrl || undefined,
                           songId: selectedSongId || undefined,
@@ -691,12 +786,11 @@ export function CreatePostModal({
                   ref={fileInputRef}
                   type="file"
                   accept="video/*"
-                  capture="environment"
                   onChange={handleVideoOnlySelect}
                   disabled={uploading}
                   className="hidden"
                 />
-                {uploading ? (
+                {uploadingTile === 'video' ? (
                   <div className="h-9 w-9 flex items-center justify-center">
                     <QSpinner size={28} running="loop" speedMs={800} />
                   </div>
@@ -713,48 +807,100 @@ export function CreatePostModal({
                   ref={qwertzInputRef}
                   type="file"
                   accept="video/*"
-                  capture="environment"
                   onChange={handleQwertzSelect}
                   disabled={uploading}
                   className="hidden"
                 />
-                <Plus className="h-9 w-9 text-fuchsia-500" />
+                {uploadingTile === 'qwertz' ? (
+                  <div className="h-9 w-9 flex items-center justify-center">
+                    <QSpinner size={28} running="loop" speedMs={800} />
+                  </div>
+                ) : (
+                  <Plus className="h-9 w-9 text-fuchsia-500" />
+                )}
                 <span className="text-sm font-medium text-slate-700 text-center">Create Qwertz</span>
               </label>
-              <label className="min-w-[120px] flex-1 flex flex-col items-center justify-center gap-2 p-4 rounded-xl border-2 border-dashed border-slate-200 hover:border-sky-300 hover:bg-sky-50/50 cursor-pointer transition-colors">
+              <label
+                title="JPEG, PNG, GIF (animated), WebP — up to 20 for a carousel"
+                className="min-w-[120px] flex-1 flex flex-col items-center justify-center gap-2 p-4 rounded-xl border-2 border-dashed border-slate-200 hover:border-sky-300 hover:bg-sky-50/50 cursor-pointer transition-colors"
+              >
                 <input
                   ref={imagesInputRef}
                   type="file"
-                  accept="image/*"
-                  capture
+                  accept={ACCEPT_TV_IMAGES}
                   multiple
                   onChange={handleImageCarouselSelect}
                   disabled={uploading}
                   className="hidden"
                 />
                 <ImagePlus className="h-9 w-9 text-sky-500" />
-                <span className="text-sm font-medium text-slate-700 text-center">Images</span>
+                <span className="text-sm font-medium text-slate-700 text-center">Images &amp; GIFs</span>
               </label>
               <button
                 type="button"
+                disabled={liveActionBusy}
                 onClick={async () => {
                   if (!currentUserId) {
                     toast.error('Sign in to go live');
                     return;
                   }
+                  setLiveActionBusy(true);
                   try {
-                    const res = await usersAPI.toggleLive(currentUserId);
-                    const isLive = res.data?.isLive ?? false;
-                    toast.success(isLive ? 'You are now live!' : 'Live ended');
+                    const sessionRes = await liveAPI.getSession();
+                    const sess = sessionRes.data?.data;
+                    if (sess?.isLive) {
+                      await liveAPI.stop();
+                      toast.success('Live ended');
+                      setLiveObsInfo(null);
+                      handleClose();
+                      onCreated?.();
+                      return;
+                    }
+
+                    const cfgRes = await liveAPI.getConfig();
+                    const publishConfigured = cfgRes.data?.data?.publishConfigured === true;
+
+                    if (publishConfigured) {
+                      const startRes = await liveAPI.start();
+                      const d = startRes.data?.data;
+                      const urls = d?.urls;
+                      if (!urls?.obsServerUrl || !urls?.streamKey) {
+                        toast.error('Could not build stream URLs');
+                        return;
+                      }
+                      const origin = typeof window !== 'undefined' ? window.location.origin : '';
+                      setLiveObsInfo({
+                        obsServerUrl: urls.obsServerUrl,
+                        streamKey: urls.streamKey,
+                        hlsUrl: urls.hlsUrl,
+                        watchUrl: `${origin}/morongwa-tv/live/watch/${currentUserId}`,
+                      });
+                      toast.success('You are live — open OBS with the details below, then share the watch link.');
+                      onCreated?.();
+                      return;
+                    }
+
+                    await usersAPI.toggleLive(currentUserId);
+                    toast.success(
+                      'Live badge is on. HLS is not configured on the server yet — viewers will not see RTMP video until an admin sets LIVESTREAM_* env (see Admin → Live streaming).',
+                      { duration: 6000 }
+                    );
                     handleClose();
-                    onCreated();
+                    onCreated?.();
                   } catch (e: any) {
-                    toast.error(e.response?.data?.message || 'Failed to toggle live');
+                    const msg = e.response?.data?.message || e.response?.data?.error || e.message || 'Failed to go live';
+                    toast.error(msg);
+                  } finally {
+                    setLiveActionBusy(false);
                   }
                 }}
-                className="min-w-[120px] flex-1 flex flex-col items-center justify-center gap-2 p-4 rounded-xl border-2 border-dashed border-slate-200 hover:border-red-300 hover:bg-red-50/50 cursor-pointer transition-colors"
+                className="min-w-[120px] flex-1 flex flex-col items-center justify-center gap-2 p-4 rounded-xl border-2 border-dashed border-slate-200 hover:border-red-300 hover:bg-red-50/50 cursor-pointer transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
               >
-                <Radio className="h-9 w-9 text-red-500" />
+                {liveActionBusy ? (
+                  <Loader2 className="h-9 w-9 text-red-500 animate-spin" />
+                ) : (
+                  <Radio className="h-9 w-9 text-red-500" />
+                )}
                 <span className="text-sm font-medium text-slate-700 text-center">Go live</span>
               </button>
               <button
@@ -841,6 +987,62 @@ export function CreatePostModal({
               </div>
             </div>
 
+            {type === 'video' && (
+              <div className="rounded-xl border border-violet-100 bg-violet-50/40 p-4">
+                <label className="block text-sm font-medium text-slate-800 mb-1 flex items-center gap-2">
+                  <Music2 className="h-4 w-4 text-violet-600" />
+                  Sound (optional)
+                </label>
+                <p className="text-xs text-slate-600 mb-2">
+                  Use an approved QwertyMusic track like short-video apps — attribution appears on your post. Artists are paid per the{' '}
+                  <Link href="/policies/qwerty-music-sound-library-artist-payouts" className="text-violet-700 font-medium hover:underline">
+                    Sounds & payouts policy
+                  </Link>
+                  .
+                </p>
+                <input
+                  type="search"
+                  value={soundQuery}
+                  onChange={(e) => setSoundQuery(e.target.value)}
+                  placeholder="Search sounds by title or artist…"
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm mb-2 bg-white"
+                />
+                <div className="flex items-center gap-2 mb-2">
+                  <button
+                    type="button"
+                    onClick={() => setVideoSoundSongId(null)}
+                    className={`text-xs font-semibold px-3 py-1.5 rounded-lg border ${!videoSoundSongId ? 'border-violet-500 bg-violet-100 text-violet-900' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'}`}
+                  >
+                    Original audio only
+                  </button>
+                  {soundsLoading && <Loader2 className="h-4 w-4 animate-spin text-violet-500" />}
+                </div>
+                <div className="max-h-36 overflow-y-auto rounded-lg border border-slate-200 bg-white divide-y divide-slate-100">
+                  {soundChoices.length === 0 && !soundsLoading ? (
+                    <p className="text-xs text-slate-500 p-3">No sounds match. Try another search.</p>
+                  ) : (
+                    soundChoices.map((s) => (
+                      <button
+                        key={s._id}
+                        type="button"
+                        onClick={() => setVideoSoundSongId(s._id)}
+                        className={`w-full flex items-center gap-2 p-2 text-left text-sm hover:bg-violet-50/80 ${videoSoundSongId === s._id ? 'bg-violet-50' : ''}`}
+                      >
+                        {s.artworkUrl ? (
+                          <img src={getImageUrl(s.artworkUrl)} alt="" className="h-9 w-9 rounded object-cover shrink-0" />
+                        ) : (
+                          <Music2 className="h-9 w-9 text-violet-300 shrink-0" />
+                        )}
+                        <span className="truncate font-medium text-slate-800">
+                          {s.title} <span className="font-normal text-slate-500">— {s.artist}</span>
+                        </span>
+                      </button>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
+
             {featuredProducts.length > 0 && (
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">
@@ -881,5 +1083,93 @@ export function CreatePostModal({
         )}
       </div>
     </div>
+
+    {liveObsInfo ? (
+      <div className="fixed inset-0 z-[210] flex items-center justify-center p-4 bg-black/60">
+        <div className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl">
+          <h3 className="text-lg font-semibold text-slate-900">You are live — connect OBS</h3>
+          <p className="mt-2 text-sm text-slate-600">
+            In OBS: Settings → Stream → Service: <strong className="text-slate-800">Custom</strong>. Paste the server and stream key below,
+            then click <strong className="text-slate-800">Start Streaming</strong>. Viewers use the watch link (HLS may take a few seconds after you start).
+          </p>
+          <div className="mt-4 space-y-3">
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Server</p>
+              <div className="mt-1 flex gap-2">
+                <code className="flex-1 break-all rounded-lg bg-slate-100 px-3 py-2 text-xs text-slate-800">{liveObsInfo.obsServerUrl}</code>
+                <button
+                  type="button"
+                  onClick={() => void copyLiveField('Server', liveObsInfo.obsServerUrl)}
+                  className="shrink-0 rounded-lg border border-slate-200 p-2 hover:bg-slate-50"
+                  title="Copy server"
+                >
+                  <Copy className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Stream key</p>
+              <div className="mt-1 flex gap-2">
+                <code className="flex-1 break-all rounded-lg bg-slate-100 px-3 py-2 text-xs text-slate-800">{liveObsInfo.streamKey}</code>
+                <button
+                  type="button"
+                  onClick={() => void copyLiveField('Stream key', liveObsInfo.streamKey)}
+                  className="shrink-0 rounded-lg border border-slate-200 p-2 hover:bg-slate-50"
+                  title="Copy stream key"
+                >
+                  <Copy className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Preview playlist (HLS)</p>
+              <code className="mt-1 block break-all rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">{liveObsInfo.hlsUrl}</code>
+            </div>
+          </div>
+          <div className="mt-6 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+            <Link
+              href={liveObsInfo.watchUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-sky-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-sky-700"
+            >
+              Open watch page <ExternalLink className="h-4 w-4" />
+            </Link>
+            <button
+              type="button"
+              disabled={liveActionBusy}
+              onClick={async () => {
+                setLiveActionBusy(true);
+                try {
+                  await liveAPI.stop();
+                  toast.success('Live ended');
+                  setLiveObsInfo(null);
+                  handleClose();
+                  onCreated?.();
+                } catch (e: any) {
+                  toast.error(e.response?.data?.message || 'Could not end live');
+                } finally {
+                  setLiveActionBusy(false);
+                }
+              }}
+              className="inline-flex flex-1 items-center justify-center rounded-xl border border-rose-200 bg-rose-50 px-4 py-2.5 text-sm font-semibold text-rose-800 hover:bg-rose-100 disabled:opacity-50"
+            >
+              End broadcast
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setLiveObsInfo(null);
+                handleClose();
+              }}
+              className="inline-flex flex-1 items-center justify-center rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      </div>
+    ) : null}
+    </>
   );
 }

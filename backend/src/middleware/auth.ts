@@ -2,6 +2,7 @@
 import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
 import User, { IUser } from "../data/models/User";
+import { getJwtSecret } from "../utils/secrets";
 
 export interface AuthRequest extends Request {
   user?: IUser;
@@ -20,7 +21,7 @@ export const authenticate = async (
       return;
     }
 
-    const jwtSecret = process.env.JWT_SECRET || "default-secret-change-me";
+    const jwtSecret = getJwtSecret();
     const decoded = jwt.verify(token, jwtSecret) as { userId: string };
 
     const user = await User.findById(decoded.userId);
@@ -49,7 +50,7 @@ export const authenticateOptional = async (
       next();
       return;
     }
-    const jwtSecret = process.env.JWT_SECRET || "default-secret-change-me";
+    const jwtSecret = getJwtSecret();
     const decoded = jwt.verify(token, jwtSecret) as { userId: string };
     const user = await User.findById(decoded.userId);
     if (user && user.active && !user.suspended && !user.locked) {

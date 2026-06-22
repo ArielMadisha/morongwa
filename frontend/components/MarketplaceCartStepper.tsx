@@ -10,6 +10,14 @@ type Props = {
   productId: string;
   /** When buying from a reseller post */
   resellerId?: string;
+  /** Required when product has color options */
+  selectedColor?: string;
+  /** Required when product has size options */
+  selectedSize?: string;
+  /** Block add-to-cart until shopper picks a color on the product page */
+  colorsRequired?: boolean;
+  /** Block add-to-cart until shopper picks a size on the product page */
+  sizesRequired?: boolean;
   qty: number;
   outOfStock?: boolean;
   isGuest: boolean;
@@ -22,6 +30,10 @@ type Props = {
 export function MarketplaceCartStepper({
   productId,
   resellerId,
+  selectedColor,
+  selectedSize,
+  colorsRequired,
+  sizesRequired,
   qty,
   outOfStock,
   isGuest,
@@ -53,16 +65,25 @@ export function MarketplaceCartStepper({
     }
   };
 
-  const addOne = () =>
-    run(() => cartAPI.add(productId, 1, resellerId));
+  const addOne = () => {
+    if (colorsRequired && !String(selectedColor || '').trim()) {
+      toast.error('Select a color before adding to cart');
+      return;
+    }
+    if (sizesRequired && !String(selectedSize || '').trim()) {
+      toast.error('Select a size before adding to cart');
+      return;
+    }
+    run(() => cartAPI.add(productId, 1, resellerId, selectedColor, selectedSize));
+  };
 
   const removeOne = () =>
     run(async () => {
       if (qty <= 0) return;
       if (qty <= 1) {
-        await cartAPI.removeItem(productId);
+        await cartAPI.removeItem(productId, selectedColor, selectedSize);
       } else {
-        await cartAPI.updateItem(productId, qty - 1);
+        await cartAPI.updateItem(productId, qty - 1, selectedColor, selectedSize);
       }
     });
 

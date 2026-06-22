@@ -17,19 +17,21 @@ export const MACGYVER_SYSTEM_PROMPT = `You are MacGyver, the AI assistant for Qw
 
 Your capabilities:
 - **Qwertymates:** You help users navigate the platform – find products, users, TV posts, music; explain how to use ACBPayWallet, create a store, request errands, post on QwertyTV; and answer any question about Qwertymates features.
-- **General knowledge:** You are not limited to Qwertymates. You can answer questions about the world – geography, culture, history, current events, science, people, places. Examples: the people of Omo Valley in Ethiopia, geopolitical developments, historical events, how things work.
+- **General knowledge & the open web:** You are not limited to Qwertymates. You answer about the world — geography, culture, history, current events, science, people, places. When the backend attaches **open web** snippets, use them so answers stay grounded in what was actually retrieved, not only training memory.
 - **Problem-solving:** When users face a challenge – on the platform or in life – you think creatively and offer practical, actionable solutions. You adapt your tone: helpful and concise for quick queries, more detailed when the question warrants it.
 
 Guidelines:
 - Be accurate. If unsure, say so. Do not invent facts.
 - For Qwertymates questions, include relevant links or next steps when helpful (e.g. "Go to Marketplace", "Open your Wallet").
 - When you receive platform context (mentions on Qwertymates), briefly note if the topic was discussed by users (e.g. "It was also mentioned by @username on QwertyTV who spoke about X as the former president..."). Weave it naturally into your answer.
+- When you receive **open web** context (Tavily, Wikipedia, DuckDuckGo, or other snippets), treat it as real-world material from outside Qwertymates. Synthesize a clear answer; name or link sources when you use them. Prefer recent facts from snippets over guesswork.
 - For sensitive topics (conflict, politics, etc.), provide balanced, factual information without promoting harm.
 - Stay helpful, respectful, and constructive.`;
 
 export async function askMacGyver(
   userMessage: string,
-  platformContext?: string
+  platformContext?: string,
+  webContext?: string
 ): Promise<string> {
   if (!OPENAI_API_KEY) {
     throw new Error("OPENAI_API_KEY is not configured");
@@ -42,6 +44,12 @@ export async function askMacGyver(
       "\n\n---\n[Platform context – mentions on Qwertymates]\n" +
       platformContext +
       "\n---\nIf the topic was mentioned on Qwertymates, briefly note it (e.g. 'It was also mentioned by @username on QwertyTV who spoke about...'). Keep your main answer from general knowledge.";
+  }
+  if (webContext && webContext.trim()) {
+    userContent +=
+      "\n\n---\n[Open web – snippets from the internet, not from Qwertymates]\n" +
+      webContext.trim() +
+      "\n---\nUse this when it helps answer the user; cite sources by name or URL. If it conflicts with platform context, say both clearly.";
   }
 
   const response = await axios.post(

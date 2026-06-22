@@ -3,13 +3,14 @@ import mongoose, { Schema, Document } from "mongoose";
 
 export interface ICheckoutSession extends Document {
   merchantId: mongoose.Types.ObjectId;
-  payerId: mongoose.Types.ObjectId;
+  payerId?: mongoose.Types.ObjectId;
   amount: number;
   reference: string;
   returnUrl: string;
   cancelUrl?: string;
   status: "pending" | "completed" | "failed" | "cancelled";
   completedAt?: Date;
+  expiresAt?: Date;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -17,11 +18,12 @@ export interface ICheckoutSession extends Document {
 const CheckoutSessionSchema = new Schema<ICheckoutSession>(
   {
     merchantId: { type: Schema.Types.ObjectId, ref: "User", required: true },
-    payerId: { type: Schema.Types.ObjectId, ref: "User", required: true },
+    payerId: { type: Schema.Types.ObjectId, ref: "User" },
     amount: { type: Number, required: true, min: 0.01 },
     reference: { type: String, required: true },
     returnUrl: { type: String, required: true },
     cancelUrl: { type: String },
+    expiresAt: { type: Date },
     status: {
       type: String,
       enum: ["pending", "completed", "failed", "cancelled"],
