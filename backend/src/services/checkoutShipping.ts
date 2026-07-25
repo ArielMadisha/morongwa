@@ -308,14 +308,17 @@ export async function computeInternalCourierShipping(
         storeBySupplier,
         delivery: deliveryLocality,
       });
-      if (freeLocal.qualifies && freeLocal.zone) {
+      if (freeLocal.qualifies) {
         warehouseFreeLocalApplied = true;
         breakdown.push({
           groupKey: group.groupKey,
           storeName: group.storeName,
           shippingCostZar: 0,
           providerName: "Qwertymates",
-          serviceLabel: freeLocal.zone.freeDeliveryLabel,
+          serviceLabel:
+            freeLocal.freeDeliveryLabel ||
+            freeLocal.zone?.freeDeliveryLabel ||
+            "Free delivery",
           originCountryCode: group.originCountryCode,
           parcelBagTier,
         });
@@ -401,14 +404,17 @@ export async function computeInternalCourierShipping(
       storeBySupplier,
       delivery: deliveryLocality,
     });
-    if (freeLocal.qualifies && freeLocal.zone) {
+    if (freeLocal.qualifies) {
       warehouseFreeLocalApplied = true;
       breakdown.push({
         groupKey: group.groupKey,
         storeName: group.storeName,
         shippingCostZar: 0,
         providerName: "Qwertymates",
-        serviceLabel: freeLocal.zone.freeDeliveryLabel,
+        serviceLabel:
+          freeLocal.freeDeliveryLabel ||
+          freeLocal.zone?.freeDeliveryLabel ||
+          "Free delivery",
         parcelBagTier,
       });
       internalShippingZar += 0;

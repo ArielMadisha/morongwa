@@ -40,6 +40,8 @@ import { inferIsSchoolProfile } from '@/lib/schoolProfile';
 import { publicContactPhoneFromUser, type PublicProfileKind } from '@/lib/publicContactPrivacy';
 import { StatusStoryViewer } from '@/components/tv/StatusStoryViewer';
 import type { StatusItem } from '@/components/tv/StatusesStrip';
+import { ProfileConnectionsModal } from '@/components/ProfileConnectionsModal';
+import { MessageActionsMenu } from '@/components/profile/MessageActionsMenu';
 
 type TabType = 'posts' | 'images' | 'videos' | 'music' | 'orders';
 
@@ -146,6 +148,7 @@ function UserProfileContent() {
   const [ordersLoading, setOrdersLoading] = useState(false);
   const [avatarBroken, setAvatarBroken] = useState(false);
   const [deletingPhotoKey, setDeletingPhotoKey] = useState<string | null>(null);
+  const [connectionsModal, setConnectionsModal] = useState<'followers' | 'following' | null>(null);
   const [schoolPage, setSchoolPage] = useState<{
     canEditProfile: boolean;
     canManageManagers: boolean;
@@ -154,6 +157,7 @@ function UserProfileContent() {
   } | null>(null);
   const { cartCount, hasStore } = useCartAndStores(!!user);
   const containerRef = useRef<HTMLDivElement>(null);
+  const tabsSectionRef = useRef<HTMLDivElement>(null);
   const loadMoreSentinelRef = useRef<HTMLDivElement>(null);
   const limit = 12;
 
@@ -307,6 +311,13 @@ function UserProfileContent() {
   const handleFollowChange = (following: boolean) => {
     setStats((s) => ({ ...s, followerCount: Math.max(0, s.followerCount + (following ? 1 : -1)) }));
   };
+
+  const openPostsTab = useCallback(() => {
+    setActiveTab('posts');
+    requestAnimationFrame(() => {
+      tabsSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  }, []);
 
   const getTabCount = (tab: TabType) => {
     switch (tab) {
@@ -491,12 +502,20 @@ function UserProfileContent() {
             {/* Profile header - compact at top */}
             <div className="flex flex-col sm:flex-row sm:items-start gap-3 sm:gap-4 mb-4">
               <div className="flex items-start gap-3">
-                <div className="h-16 w-16 sm:h-20 sm:w-20 rounded-full bg-slate-200 overflow-hidden flex-shrink-0">
+                <button
+                  type="button"
+                  className="h-16 w-16 sm:h-20 sm:w-20 rounded-full bg-slate-200 overflow-hidden flex-shrink-0 focus:outline-none focus:ring-2 focus:ring-sky-500 disabled:cursor-default"
+                  onClick={() => {
+                    if (profileUser.avatar && !avatarBroken) setViewingGallerySrc(profileUser.avatar);
+                  }}
+                  aria-label={profileUser.avatar && !avatarBroken ? 'View profile picture' : 'Profile picture'}
+                  disabled={!profileUser.avatar || avatarBroken}
+                >
                   {profileUser.avatar && !avatarBroken ? (
                     <img
                       src={getImageUrl(profileUser.avatar)}
                       alt=""
-                      className="w-full h-full object-cover"
+                      className="w-full h-full object-cover hover:opacity-90 transition-opacity"
                       onError={(e) => {
                         const el = e.currentTarget;
                         const full = getImageUrlFull(profileUser.avatar);
@@ -512,7 +531,7 @@ function UserProfileContent() {
                       {(displayName || '?')[0]}
                     </div>
                   )}
-                </div>
+                </button>
                 <div className="flex-1 min-w-0">
                   <h1 className="text-lg sm:text-xl font-bold text-slate-900 truncate">
                     {displayName}
@@ -521,17 +540,35 @@ function UserProfileContent() {
                     <p className="text-slate-500 text-sm truncate">{atHandle}</p>
                   )}
                   <div className="flex items-center gap-3 mt-1.5 text-sm text-slate-600">
-                    <span>
+                    <button
+                      type="button"
+                      onClick={openPostsTab}
+                      className="rounded-md px-0.5 -mx-0.5 hover:text-sky-700 hover:bg-sky-50/80 transition-colors"
+                      aria-label={`${stats.postCount} posts`}
+                    >
                       <strong className="text-slate-900">{stats.postCount}</strong> Posts
-                    </span>
-                    <span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConnectionsModal('followers')}
+                      className="rounded-md px-0.5 -mx-0.5 hover:text-sky-700 hover:bg-sky-50/80 transition-colors"
+                      aria-label={`${stats.followerCount} followers`}
+                    >
                       <strong className="text-slate-900">{stats.followerCount}</strong> Followers
-                    </span>
-                    <span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConnectionsModal('following')}
+                      className="rounded-md px-0.5 -mx-0.5 hover:text-sky-700 hover:bg-sky-50/80 transition-colors"
+                      aria-label={`${stats.followingCount} following`}
+                    >
                       <strong className="text-slate-900">{stats.followingCount}</strong> Following
-                    </span>
+                    </button>
                   </div>
                   <div className="mt-2 flex flex-wrap items-center gap-2">
+                    {user && (user._id || user.id) !== userId ? (
+                      <MessageActionsMenu userId={userId} displayName={displayName} />
+                    ) : null}
                     <FollowButton
                       targetUserId={userId}
                       currentUserId={user?._id || user?.id}
@@ -569,7 +606,7 @@ function UserProfileContent() {
             </div>
 
             {/* Tabs + Donate — above profile Photos gallery */}
-            <div className="mb-3 border-b border-slate-200">
+            <div className="mb-3 border-b border-slate-200" ref={tabsSectionRef}>
               <div className="flex min-w-0 items-center gap-1 overflow-x-auto scroll-smooth [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
                 {TABS.map((tab) => (
                   <button
@@ -770,6 +807,11 @@ function UserProfileContent() {
                               src={getImageUrl(thumb)}
                               alt=""
                               className="w-full h-full object-cover pointer-events-none"
+                              onError={(e) => {
+                                const el = e.currentTarget;
+                                const full = getImageUrlFull(thumb);
+                                if (full && el.src !== full) el.src = full;
+                              }}
                             />
                           )
                         ) : (
@@ -849,6 +891,14 @@ function UserProfileContent() {
           />
         </div>
       )}
+
+      <ProfileConnectionsModal
+        open={connectionsModal !== null}
+        onClose={() => setConnectionsModal(null)}
+        userId={userId}
+        mode={connectionsModal ?? 'followers'}
+        title={connectionsModal === 'following' ? 'Following' : 'Followers'}
+      />
 
       <MobileBottomNav cartCount={cartCount} hasStore={hasStore} />
     </div>

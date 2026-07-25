@@ -45,7 +45,8 @@ export interface IAdvert extends Document {
 const AdvertSchema = new Schema<IAdvert>(
   {
     title: { type: String, required: true },
-    imageUrl: { type: String, required: true },
+    /** Image URL for the advert (optional when carouselCards or videoUrl provide creative) */
+    imageUrl: { type: String, default: "" },
     linkUrl: { type: String },
     advertiserName: { type: String, trim: true, maxlength: 120 },
     advertiserAvatar: { type: String, trim: true },

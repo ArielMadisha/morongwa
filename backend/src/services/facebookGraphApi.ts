@@ -233,3 +233,149 @@ export function formatFacebookGraphError(err: unknown): string {
   }
   return String((err as Error)?.message || err);
 }
+
+/** Permissions needed to publish marketplace products to a Page you manage. */
+export const FACEBOOK_PUBLISH_REQUIRED_SCOPES = [
+  "pages_manage_posts",
+  "pages_read_engagement",
+  "pages_show_list",
+] as const;
+
+export function missingFacebookPublishScopes(scopes: string[]): string[] {
+  return FACEBOOK_PUBLISH_REQUIRED_SCOPES.filter((s) => !scopes.includes(s));
+}
+
+async function resolvePageAccessTokenForId(pageId: string): Promise<string> {
+  const pages = await listManagedFacebookPages();
+  const hit = pages.find((p) => p.id === pageId);
+  if (hit?.accessToken) return hit.accessToken;
+  const dedicated = (
+    process.env.FACEBOOK_QWERTYMATES_PAGE_ACCESS_TOKEN ||
+    process.env.FACEBOOK_PAGE_ACCESS_TOKEN ||
+    ""
+  ).trim();
+  if (dedicated) return dedicated;
+  const token = graphToken();
+  if (!token) throw new Error("FACEBOOK_PAGE_ACCESS_TOKEN not configured");
+  return token;
+}
+
+/** Map profile URL id or name to Graph API Page id + page access token when possible. */
+export async function resolveFacebookPublishPage(
+  configuredPageId: string,
+  nameHint = "Qwertymates"
+): Promise<{ pageId: string; accessToken: string }> {
+  const pages = await listManagedFacebookPages();
+  const byId = pages.find((p) => p.id === configuredPageId);
+  if (byId) return { pageId: byId.id, accessToken: byId.accessToken };
+  const byName = pages.find((p) => (p.name || "").toLowerCase() === nameHint.toLowerCase());
+  if (byName) return { pageId: byName.id, accessToken: byName.accessToken };
+  return { pageId: configuredPageId, accessToken: await resolvePageAccessTokenForId(configuredPageId) };
+}
+
+export type FacebookPagePublishResult = {
+  postId: string;
+  permalinkUrl?: string;
+};
+
+/** Publish a photo + caption to a Facebook Page (marketplace product posts). */
+export async function publishFacebookPagePhotoPost(params: {
+  pageId: string;
+  imageUrl: string;
+  caption: string;
+  link?: string;
+}): Promise<FacebookPagePublishResult> {
+  const { pageId, accessToken } = await resolveFacebookPublishPage(params.pageId);
+  const body: Record<string, string | boolean> = {
+    url: params.imageUrl,
+    caption: params.caption,
+    published: true,
+    access_token: accessToken,
+  };
+  if (params.link) body.link = params.link;
+  const res = await axios.post(`${GRAPH}/${encodeURIComponent(pageId)}/photos`, null, {
+    params: body,
+    timeout: 60000,
+  });
+  const postId = String(res.data?.post_id || res.data?.id || "").trim();
+  if (!postId) throw new Error("Facebook photo publish returned no post id");
+  return { postId };
+}
+
+/** Text + link post when no image is available. */
+export async function publishFacebookPageFeedPost(params: {
+  pageId: string;
+  message: string;
+  link?: string;
+}): Promise<FacebookPagePublishResult> {
+  const { pageId, accessToken } = await resolveFacebookPublishPage(params.pageId);
+  const body: Record<string, string> = {
+    message: params.message,
+    access_token: accessToken,
+  };
+  if (params.link) body.link = params.link;
+  const res = await axios.post(`${GRAPH}/${encodeURIComponent(pageId)}/feed`, null, {
+    params: body,
+    timeout: 45000,
+  });
+  const postId = String(res.data?.id || "").trim();
+  if (!postId) throw new Error("Facebook feed publish returned no post id");
+  return { postId };
+}
+
+/** Delete a Page post/photo by Graph object id (requires pages_manage_posts). */
+export async function deleteFacebookPageObject(objectId: string): Promise<boolean> {
+  const id = String(objectId || "").trim();
+  if (!id) throw new Error("objectId required");
+  const { accessToken } = await resolveFacebookPublishPage(
+    (process.env.FACEBOOK_QWERTYMATES_PAGE_ID || "").trim() || id.split("_")[0] || id
+  );
+  const res = await axios.delete(`${GRAPH}/${encodeURIComponent(id)}`, {
+    params: { access_token: accessToken },
+    timeout: 45000,
+  });
+  return Boolean(res.data?.success ?? res.status === 200);
+}
+
+/** List recent published posts on a Page (message + created_time). */
+export async function listFacebookPageFeedPosts(params: {
+  pageId: string;
+  limit?: number;
+}): Promise<Array<{ id: string; message?: string; createdTime?: string; permalinkUrl?: string }>> {
+  const { pageId, accessToken } = await resolveFacebookPublishPage(params.pageId);
+  const limit = Math.min(Math.max(params.limit || 50, 1), 100);
+  const out: Array<{ id: string; message?: string; createdTime?: string; permalinkUrl?: string }> = [];
+  let url: string | null = `${GRAPH}/${encodeURIComponent(pageId)}/feed`;
+  let nextParams: Record<string, string | number> | null = {
+    fields: "id,message,created_time,permalink_url",
+    limit,
+    access_token: accessToken,
+  };
+
+  while (url && out.length < (params.limit || 100)) {
+    const res: { data?: { data?: unknown[]; paging?: { next?: string } } } = await axios.get(url, {
+      params: nextParams || undefined,
+      timeout: 45000,
+    });
+    const rows = Array.isArray(res.data?.data) ? res.data!.data! : [];
+    for (const row of rows as Array<{
+      id?: string;
+      message?: string;
+      created_time?: string;
+      permalink_url?: string;
+    }>) {
+      out.push({
+        id: String(row.id || ""),
+        message: row.message ? String(row.message) : undefined,
+        createdTime: row.created_time ? String(row.created_time) : undefined,
+        permalinkUrl: row.permalink_url ? String(row.permalink_url) : undefined,
+      });
+      if (out.length >= (params.limit || 100)) break;
+    }
+    const nextUrl: string | undefined = res.data?.paging?.next;
+    if (!nextUrl || rows.length === 0) break;
+    url = String(nextUrl);
+    nextParams = null;
+  }
+  return out.filter((p) => p.id);
+}

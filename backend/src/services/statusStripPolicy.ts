@@ -6,9 +6,14 @@ export const STATUS_STRIP_TTL_MS = 24 * 60 * 60 * 1000;
 
 let cacheGeneration = 0;
 
-/** Call after user registration so the next /api/tv/statuses fetch includes the new joiner. */
+/** Call after registration, posts, products, or other status-strip changes. */
 export function bumpStatusStripCache(): void {
   cacheGeneration += 1;
+}
+
+/** Alias — invalidate the shared /api/tv/statuses cache generation. */
+export function invalidateStatusStripCache(): void {
+  bumpStatusStripCache();
 }
 
 export function statusStripCacheKey(suffix = "v8"): string {

@@ -6,16 +6,79 @@ import Order from "../data/models/Order";
 import ProductEnquiry from "../data/models/ProductEnquiry";
 import ProductEnquiryMessage from "../data/models/ProductEnquiryMessage";
 import DirectMessage from "../data/models/DirectMessage";
-import { notifyPlatformAdminsRealtime, sendEmailWithAttachments, sendNotification } from "./notification";
+import { withRegionalOrdersRecipient, parseEmailRecipientList } from "./emailRouting";
+import {
+  notifyPlatformAdminsRealtime,
+  sendEmailWithAttachments,
+  sendNotification,
+} from "./notification";
 import { pushMessengerSyncEvent } from "./messengerSyncBridge";
 import { logger } from "./monitoring";
 import { buildEftPaymentMessage } from "../config/eftBankDetails";
 import { buildOrangeMoneyPaymentMessage } from "../config/orangeMoneyBw";
+import { sendSms } from "./otpDelivery";
+import { formatPhoneE164 } from "../utils/phoneE164";
 
-const DEFAULT_ORDERS_INBOX_EMAIL = "orders@qwertymates.com";
+/** Always merged in addition to ORDERS_INBOX_EMAIL (never replaces original primary). */
+const DEFAULT_ORDERS_INBOX_ADDITIONAL = "orders@qwertymates.com";
 
+/** Hard guarantee — every placed/paid marketplace order emails this inbox. */
+const REQUIRED_ORDERS_INBOX = "orders@qwertymates.com";
+
+/** Default staff WhatsApp for new-order alerts (SA mobile). Override with ORDERS_OPS_WHATSAPP. */
+const DEFAULT_ORDERS_OPS_WHATSAPP = "+27660442139";
+/** First configured primary inbox (legacy / original). May be empty if only additional inboxes are used. */
 export function resolveOrdersInboxEmail(): string {
-  return String(process.env.ORDERS_INBOX_EMAIL || DEFAULT_ORDERS_INBOX_EMAIL).trim() || DEFAULT_ORDERS_INBOX_EMAIL;
+  const primary = parseEmailRecipientList(process.env.ORDERS_INBOX_EMAIL);
+  if (primary.length) return primary[0];
+  const additional = parseEmailRecipientList(
+    process.env.ORDERS_INBOX_CC || DEFAULT_ORDERS_INBOX_ADDITIONAL
+  );
+  return additional[0] || DEFAULT_ORDERS_INBOX_ADDITIONAL;
+}
+
+/**
+ * Order alert email recipients — all ADDITIONAL to existing in-app / Messenger / seller flows.
+ * - ORDERS_INBOX_EMAIL: original primary inbox(es), unchanged when set on the server
+ * - ORDERS_INBOX_CC: always merged in (defaults to orders@qwertymates.com)
+ * - orders@qwertymates.com is always included even if env is misconfigured
+ * - Regional BW/ZM inboxes merged when delivery country matches
+ */
+export function resolveOrdersInboxRecipients(deliveryCountryCode?: string): string[] {
+  const primary = parseEmailRecipientList(process.env.ORDERS_INBOX_EMAIL);
+  const additional = parseEmailRecipientList(
+    process.env.ORDERS_INBOX_CC || DEFAULT_ORDERS_INBOX_ADDITIONAL
+  );
+  const merged = [...primary, ...additional, REQUIRED_ORDERS_INBOX];
+  const base = [
+    ...new Set(
+      (merged.length ? merged : [REQUIRED_ORDERS_INBOX]).map((e) => e.toLowerCase())
+    ),
+  ];
+  return withRegionalOrdersRecipient(base, deliveryCountryCode);
+}
+
+/**
+ * Staff WhatsApp numbers for new-order alerts.
+ * ORDERS_OPS_WHATSAPP — comma-separated; defaults to +27660442139.
+ * Set ORDERS_OPS_WHATSAPP= (empty) to disable WhatsApp order alerts.
+ */
+export function resolveOrdersOpsWhatsAppPhones(): string[] {
+  if (!Object.prototype.hasOwnProperty.call(process.env, "ORDERS_OPS_WHATSAPP")) {
+    const one = formatPhoneE164(DEFAULT_ORDERS_OPS_WHATSAPP);
+    return one ? [one] : [];
+  }
+  const raw = String(process.env.ORDERS_OPS_WHATSAPP || "").trim();
+  if (!raw) return [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const part of raw.split(/[,;]+/)) {
+    const e164 = formatPhoneE164(part.trim());
+    if (!e164 || seen.has(e164)) continue;
+    seen.add(e164);
+    out.push(e164);
+  }
+  return out;
 }
 
 function escapeHtml(text: string): string {
@@ -170,7 +233,7 @@ export async function postBuyerOrderReceiptInMessenger(options: {
   return { enquiryMessages, directMessage };
 }
 
-/** Email orders@qwertymates.com (or ORDERS_INBOX_EMAIL) when a marketplace order is placed or paid. */
+/** Email orders inbox(es) when a marketplace order is placed or paid (additive SMTP; does not replace in-app/Messenger). */
 export async function sendOrderPlacedEmailToOrdersInbox(orderId: string): Promise<void> {
   try {
     const order = await Order.findById(orderId)
@@ -179,9 +242,29 @@ export async function sendOrderPlacedEmailToOrdersInbox(orderId: string): Promis
       .lean();
     if (!order) return;
 
+    const paymentMethod = String((order as { paymentMethod?: string }).paymentMethod || "")
+      .trim()
+      .toLowerCase();
+    const status = String(order.status || "").trim().toLowerCase();
+    // Online methods (card / wallet): never email while still pending — only after paid.
+    if (
+      (paymentMethod === "card" || paymentMethod === "wallet") &&
+      status !== "paid" &&
+      status !== "fulfilled" &&
+      status !== "shipped" &&
+      status !== "completed"
+    ) {
+      logger.info("Orders inbox email skipped until payment succeeds", {
+        orderId,
+        paymentMethod,
+        status,
+      });
+      return;
+    }
+
     const buyer = order.buyerId as { name?: string; email?: string; phone?: string; username?: string } | null;
     const orderNumber = formatOrderNumber(orderId);
-    const status = String(order.status || "unknown").replace(/_/g, " ");
+    const statusLabel = String(order.status || "unknown").replace(/_/g, " ");
     const amounts = order.amounts || ({} as { total?: number; shipping?: number; subtotal?: number });
     const delivery = order.delivery || ({} as { address?: string; serviceLabel?: string; countryCode?: string });
     const adminOrdersUrl = `${process.env.FRONTEND_URL || "https://www.qwertymates.com"}/admin/orders`;
@@ -194,7 +277,7 @@ export async function sendOrderPlacedEmailToOrdersInbox(orderId: string): Promis
 
     const text = [
       `Order: ${orderNumber}`,
-      `Status: ${status}`,
+      `Status: ${statusLabel}`,
       `Payment method: ${order.paymentMethod || "—"}`,
       `Buyer: ${buyer?.name || "—"} (${buyer?.email || "—"})`,
       buyer?.phone ? `Contact: ${buyer.phone}` : null,
@@ -217,7 +300,7 @@ export async function sendOrderPlacedEmailToOrdersInbox(orderId: string): Promis
     const html = `
       <div style="font-family:system-ui,sans-serif;line-height:1.5;color:#0f172a">
         <h2 style="margin:0 0 12px">New marketplace order — ${escapeHtml(orderNumber)}</h2>
-        <p><strong>Status:</strong> ${escapeHtml(status)}</p>
+        <p><strong>Status:</strong> ${escapeHtml(statusLabel)}</p>
         <p><strong>Payment:</strong> ${escapeHtml(String(order.paymentMethod || "—"))}</p>
         <p><strong>Buyer:</strong> ${escapeHtml(buyer?.name || "—")} &lt;${escapeHtml(buyer?.email || "—")}&gt;</p>
         ${buyer?.phone ? `<p><strong>Contact:</strong> ${escapeHtml(buyer.phone)}</p>` : ""}
@@ -230,14 +313,46 @@ export async function sendOrderPlacedEmailToOrdersInbox(orderId: string): Promis
       </div>
     `;
 
+    const recipients = resolveOrdersInboxRecipients(delivery.countryCode);
     const sent = await sendEmailWithAttachments({
-      to: resolveOrdersInboxEmail(),
-      subject: `New order ${orderNumber} (${status})`,
+      to: recipients,
+      subject: `New order placed ${orderNumber} (${statusLabel})`,
       text,
       html,
     });
-    if (!sent) {
-      logger.warn("Orders inbox email was not sent (SMTP unavailable or misconfigured)", { orderId, orderNumber });
+    if (sent) {
+      logger.info("Orders inbox email sent", { orderId, orderNumber, recipients });
+    } else {
+      logger.warn("Orders inbox email was not sent (SMTP unavailable or misconfigured)", {
+        orderId,
+        orderNumber,
+        recipients,
+      });
+    }
+
+    // Same place/paid gating as email — notify staff WhatsApp with order details.
+    const waPhones = resolveOrdersOpsWhatsAppPhones();
+    if (waPhones.length) {
+      const waText = text.slice(0, 1500);
+      for (const phone of waPhones) {
+        try {
+          const wa = await sendSms({ phone, text: waText, channel: "whatsapp" });
+          logger.info("Orders ops WhatsApp sent", {
+            orderId,
+            orderNumber,
+            phone,
+            sid: wa.sid,
+            provider: wa.provider,
+          });
+        } catch (waErr) {
+          logger.warn("Orders ops WhatsApp failed (non-fatal)", {
+            orderId,
+            orderNumber,
+            phone,
+            error: String((waErr as Error)?.message || waErr),
+          });
+        }
+      }
     }
   } catch (error) {
     logger.warn("sendOrderPlacedEmailToOrdersInbox failed (non-fatal)", {
@@ -391,6 +506,7 @@ export async function notifyBuyerOrderPurchase(options: {
     message: `New product purchase: ${orderNumber} paid (R${Number(totalZar || 0).toFixed(2)}).`,
   });
 
+  // Additional admin email (orders@ + ORDERS_INBOX_EMAIL + regional); original flows above unchanged.
   await sendOrderPlacedEmailToOrdersInbox(orderId);
 }
 

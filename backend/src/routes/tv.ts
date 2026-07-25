@@ -46,13 +46,16 @@ import {
   resolveSchoolGalleryMediaUrl,
   resolveSchoolStatusThumbUrl,
 } from "../utils/schoolProfileMedia";
+import { resolveProfileBackfillMediaUrl } from "../utils/profileBackfillMedia";
 import {
   STATUS_STRIP_TTL_MS,
   statusStripCacheKey,
   bumpStatusStripCache,
   sortStatusStripRowsNewestFirst,
 } from "../services/statusStripPolicy";
+import { clearTvFeedCache, tvFeedCacheGet, tvFeedCacheSet } from "../services/tvFeedCache";
 import { isIncompleteAiNewsPost } from "../services/aiNewsQuality";
+import { PROFILE_AVATAR_FEED_ACTIVITY } from "../services/profileAvatarFeed";
 
 const UPLOADS_ROOT = path.resolve(__dirname, "../../uploads");
 
@@ -65,6 +68,16 @@ router.use((req, _res, next) => {
 /** Always include username so wall/TV never falls back to generic labels like "Creator". */
 const CREATOR_POPULATE_SELECT =
   "name username email avatar storeSlug isSchoolAccount profileGalleryUrls";
+
+/** Cart stepper on wall/TV needs colors/sizes to avoid 400 when adding to cart. */
+const TV_PRODUCT_POPULATE_SELECT =
+  "title description price discountPrice images currency allowResell supplierId colors sizes outOfStock stock freeShippingEnabled freeShippingAreas bulkTiers";
+
+const TV_PRODUCT_POPULATE = {
+  path: "productId",
+  select: TV_PRODUCT_POPULATE_SELECT,
+  populate: { path: "supplierId", select: "userId storeName" },
+};
 
 function withCreatorDisplayName<T extends { name?: string; username?: string; email?: string }>(
   row: T
@@ -80,6 +93,14 @@ function mapPopulatedCreatorDisplay(post: any): any {
     { ...c, _id: c._id } as Record<string, unknown>,
     UPLOADS_ROOT
   ) as Record<string, unknown>;
+  const mediaFirst = Array.isArray(post.mediaUrls) ? String(post.mediaUrls[0] || "").trim() : "";
+  if (
+    post.feedActivity === PROFILE_AVATAR_FEED_ACTIVITY &&
+    mediaFirst &&
+    (!schoolAware.avatar || String(schoolAware.avatar) !== mediaFirst)
+  ) {
+    schoolAware.avatar = mediaFirst;
+  }
   return {
     ...post,
     creatorId: withCreatorDisplayName({
@@ -113,13 +134,13 @@ function enrichSchoolGalleryMediaOnFeedPosts(posts: any[]): any[] {
       .map((url: unknown) => {
         const raw = String(url || "").trim();
         if (!raw) return raw;
-        return (
-          resolveSchoolGalleryMediaUrl(
-            userRow as { _id?: unknown; avatar?: string; profileGalleryUrls?: string[] },
-            raw,
-            UPLOADS_ROOT
-          ) || raw
+        const schoolResolved = resolveSchoolGalleryMediaUrl(
+          userRow as { _id?: unknown; avatar?: string; profileGalleryUrls?: string[] },
+          raw,
+          UPLOADS_ROOT
         );
+        if (schoolResolved && schoolResolved !== raw) return schoolResolved;
+        return resolveProfileBackfillMediaUrl(raw, UPLOADS_ROOT) || raw;
       })
       .filter(Boolean);
     return { ...post, creatorId: userRow, mediaUrls: resolved };
@@ -221,7 +242,7 @@ function buildStatusStripLatestPost(
     }
   }
 
-  const thumb =
+  const thumbRaw =
     resolveSchoolStatusThumbUrl(
       userRow as { _id?: unknown; avatar?: string; profileGalleryUrls?: string[] },
       gallery.find((u) => !String(u).endsWith(".webp")) || gallery[0],
@@ -232,6 +253,7 @@ function buildStatusStripLatestPost(
       String(userRow.avatar || ""),
       UPLOADS_ROOT
     );
+  const thumb = thumbRaw ? resolveProfileBackfillMediaUrl(thumbRaw, UPLOADS_ROOT) || thumbRaw : undefined;
   if (!thumb) return null;
 
   const postId = latest?._id ? String(latest._id) : `gallery-${uid}-0`;
@@ -276,6 +298,8 @@ type StatusStripRow = {
   isLive: boolean;
   /** Marketplace store/supplier row — products for one store only (uploader row unchanged). */
   isStoreStatus?: boolean;
+  /** True when store products are Food & Restaurant (Order Food). */
+  isFoodStore?: boolean;
   supplierId?: string;
   storeSlug?: string;
   latestPost: StatusLatestPost | null;
@@ -321,14 +345,6 @@ function statusStripRowFromUser(
 }
 const execFileAsync = promisify(execFile);
 const QWERTZ_MAX_DURATION_SECONDS = 180;
-const FEED_CACHE_TTL_MS = Math.max(5_000, Number(process.env.TV_FEED_CACHE_TTL_MS || "20000"));
-const FEED_CACHE_MAX_ENTRIES = Math.max(20, Number(process.env.TV_FEED_CACHE_MAX_ENTRIES || "300"));
-
-type FeedCacheEntry = {
-  expiresAt: number;
-  payload: unknown;
-};
-const tvFeedCache = new Map<string, FeedCacheEntry>();
 
 function tvFeedCacheKey(req: AuthRequest): string {
   const userId = req.user?._id ? String(req.user._id) : "anon";
@@ -346,26 +362,8 @@ function tvFeedCacheKey(req: AuthRequest): string {
   });
 }
 
-function tvFeedCacheGet(key: string): unknown | null {
-  const hit = tvFeedCache.get(key);
-  if (!hit) return null;
-  if (Date.now() > hit.expiresAt) {
-    tvFeedCache.delete(key);
-    return null;
-  }
-  return hit.payload;
-}
-
-function tvFeedCacheSet(key: string, payload: unknown): void {
-  if (tvFeedCache.size >= FEED_CACHE_MAX_ENTRIES) {
-    const oldest = tvFeedCache.keys().next().value;
-    if (oldest) tvFeedCache.delete(oldest);
-  }
-  tvFeedCache.set(key, { expiresAt: Date.now() + FEED_CACHE_TTL_MS, payload });
-}
-
 function tvFeedCacheClear(): void {
-  tvFeedCache.clear();
+  clearTvFeedCache();
 }
 
 async function enrichAudioPostsWithSongArtwork(posts: any[]): Promise<any[]> {
@@ -424,7 +422,7 @@ function buildSortedFeedQuery(match: Record<string, unknown>, sort: string) {
       "creatorId type mediaUrls caption heading subject hashtags productId artworkUrl songId filter genre hasWatermark originalPostId repostedBy feedActivity status sensitive likeCount commentCount shareCount viewCount createdAt updatedAt isAiNews newsCategory"
     )
     .populate("creatorId", CREATOR_POPULATE_SELECT)
-    .populate({ path: "productId", populate: { path: "supplierId", select: "userId" } })
+    .populate(TV_PRODUCT_POPULATE)
     .populate("songId", "title artist artworkUrl downloadEnabled downloadPrice");
 
   if (sort === "trending") {
@@ -647,7 +645,7 @@ router.get("/statuses", authenticateOptional, async (req: AuthRequest, res: Resp
         },
       },
       { $sort: { latestPostAt: -1 } },
-      { $limit: 50 },
+      { $limit: 100 },
     ]);
     const statusByKey = new Map<string, StatusStripRow>();
     for (const s of agg) {
@@ -664,7 +662,7 @@ router.get("/statuses", authenticateOptional, async (req: AuthRequest, res: Resp
       active: true,
       createdAt: { $gte: cutoff },
     })
-      .select("_id supplierId title images createdAt")
+      .select("_id supplierId title images createdAt categories tags")
       .sort({ createdAt: -1, _id: -1 })
       .limit(200)
       .lean();
@@ -695,6 +693,7 @@ router.get("/statuses", authenticateOptional, async (req: AuthRequest, res: Resp
     const supplierById = new Map(suppliers.map((s: any) => [String(s._id), s]));
     const userById = new Map(users.map((u: any) => [String(u._id), u]));
     const productsBySupplier = new Map<string, StatusLatestPost[]>();
+    const foodSupplierIds = new Set<string>();
     for (const p of recentProducts as any[]) {
       const supplier = supplierById.get(String(p?.supplierId || ""));
       const uid = supplier?.userId ? String(supplier.userId) : "";
@@ -714,6 +713,15 @@ router.get("/statuses", authenticateOptional, async (req: AuthRequest, res: Resp
       });
       if (!productPost) continue;
       const sid = String(p.supplierId);
+      const cats = (Array.isArray(p.categories) ? p.categories : []).map((c: unknown) =>
+        String(c || "").trim().toLowerCase()
+      );
+      const tags = (Array.isArray(p.tags) ? p.tags : []).map((t: unknown) =>
+        String(t || "").trim().toLowerCase()
+      );
+      if (cats.includes("food & restaurant") || tags.includes("food-menu") || tags.includes("kota")) {
+        foodSupplierIds.add(sid);
+      }
       // Uploader/creator status — unchanged: all products for this supplier owner.
       upsertStatusStripRow(statusByKey, uid, statusStripRowFromUser(uid, u), [productPost]);
       const storePosts = productsBySupplier.get(sid) ?? [];
@@ -749,6 +757,7 @@ router.get("/statuses", authenticateOptional, async (req: AuthRequest, res: Resp
         userId: uid,
         supplierId,
         isStoreStatus: true,
+        isFoodStore: foodSupplierIds.has(supplierId),
         storeSlug: store?.slug ? String(store.slug) : undefined,
         name: storeLabel,
         username: u.username,
@@ -768,7 +777,7 @@ router.get("/statuses", authenticateOptional, async (req: AuthRequest, res: Resp
         "name username email avatar isLive liveStartedAt lastLiveEndedAt isSchoolAccount profileGalleryUrls createdAt"
       )
       .sort({ createdAt: -1 })
-      .limit(40)
+      .limit(80)
       .lean();
     for (const rawU of newJoiners) {
       const uid = String(rawU._id);
@@ -777,23 +786,20 @@ router.get("/statuses", authenticateOptional, async (req: AuthRequest, res: Resp
         { ...rawU, _id: uid } as Record<string, unknown>,
         UPLOADS_ROOT
       ) as Record<string, unknown>;
+      const avatar = String(u.avatar || "").trim();
       const joinRow = {
         _id: `join-${uid}`,
-        type: "text",
-        mediaUrls: [] as string[],
+        type: avatar ? "image" : "text",
+        mediaUrls: avatar ? [avatar] : ([] as string[]),
         createdAt: rawU.createdAt,
       };
-      const joinPosts =
-        buildStatusStripPostsList(u, [joinRow]) ??
-        [];
-      const fallbackPost =
-        buildStatusStripLatestPost(u, joinRow) ??
-        ({
-          _id: joinRow._id,
-          type: joinRow.type,
-          mediaUrls: joinRow.mediaUrls,
-          createdAt: joinRow.createdAt,
-        } as StatusLatestPost);
+      const joinPosts = buildStatusStripPostsList(u, [joinRow]);
+      const fallbackPost: StatusLatestPost = {
+        _id: joinRow._id,
+        type: String(joinRow.type),
+        mediaUrls: [...joinRow.mediaUrls],
+        createdAt: joinRow.createdAt as Date,
+      };
       upsertStatusStripRow(
         statusByKey,
         uid,
@@ -1040,7 +1046,25 @@ router.get("/", authenticateOptional, async (req: AuthRequest, res: Response, ne
             foreignField: "_id",
             as: "productId",
             pipeline: [
-              { $project: { title: 1, description: 1, price: 1, discountPrice: 1, images: 1, currency: 1, supplierId: 1 } },
+              {
+                $project: {
+                  title: 1,
+                  description: 1,
+                  price: 1,
+                  discountPrice: 1,
+                  images: 1,
+                  currency: 1,
+                  supplierId: 1,
+                  colors: 1,
+                  sizes: 1,
+                  outOfStock: 1,
+                  stock: 1,
+                  allowResell: 1,
+                  bulkTiers: 1,
+                  freeShippingEnabled: 1,
+                  freeShippingAreas: 1,
+                },
+              },
               {
                 $lookup: {
                   from: "suppliers",
@@ -1095,7 +1119,7 @@ router.get("/", authenticateOptional, async (req: AuthRequest, res: Response, ne
         const supplements = schoolGalleryFeedPosts(creatorIdParam, userRow);
         if (supplements.length) {
           visiblePosts = supplements.slice(0, limit);
-          effectiveTotal = Math.max(total, supplements.length);
+          effectiveTotal = supplements.length;
         }
       }
     }
@@ -1226,11 +1250,15 @@ router.get("/watermark", (_req, res) => {
 router.get("/products/featured", authenticateOptional, async (req: AuthRequest, res: Response, next) => {
   const startedAt = Date.now();
   try {
+    const requestedLimit = parseInt(String(req.query.limit || "0"), 10);
+    const limit = Number.isFinite(requestedLimit) && requestedLimit > 0
+      ? Math.min(120, requestedLimit)
+      : 12;
     const hideProducts =
       (req.user && (req.user as any).contentPreferences?.showProducts === false) ||
       req.query.hideProducts === "1" ||
       req.query.hideProducts === "true";
-    const featuredCacheKey = `featured:v1:hide=${hideProducts ? "1" : "0"}`;
+    const featuredCacheKey = `featured:v3:hide=${hideProducts ? "1" : "0"}:lim=${limit}`;
     if (hideProducts) {
       return res.json({ data: [] });
     }
@@ -1246,11 +1274,11 @@ router.get("/products/featured", authenticateOptional, async (req: AuthRequest, 
     }
     const products = await Product.find(match)
       .select(
-        "title description price discountPrice bulkTiers images currency slug allowResell stock outOfStock createdAt supplierId"
+        "title description price discountPrice bulkTiers images currency slug allowResell stock outOfStock colors sizes freeShippingEnabled freeShippingAreas createdAt supplierId"
       )
       .populate("supplierId", "storeName userId")
       .sort({ createdAt: -1 })
-      .limit(12)
+      .limit(limit)
       .lean();
     const enriched = await enrichProductsWithStoreFields(products as Record<string, unknown>[]);
     const payload = { data: mapProductsStripInrForApi(enriched as Record<string, unknown>[]) };
@@ -1361,9 +1389,10 @@ router.post("/", authenticate, async (req: AuthRequest, res: Response, next) => 
     }
     const populated = await TVPost.findById(post._id)
       .populate("creatorId", CREATOR_POPULATE_SELECT)
-      .populate("productId", "title description price discountPrice images currency allowResell")
+      .populate("productId", TV_PRODUCT_POPULATE_SELECT)
       .populate("songId", "title artist artworkUrl downloadEnabled downloadPrice")
       .lean();
+    bumpStatusStripCache();
     res.status(201).json({ data: populated ? mapPopulatedCreatorDisplay(populated) : populated });
   } catch (err) {
     next(err);
@@ -1416,7 +1445,7 @@ router.post("/:id/repost", authenticate, async (req: AuthRequest, res: Response,
 
     const populated = await TVPost.findById(repost._id)
       .populate("creatorId", CREATOR_POPULATE_SELECT)
-      .populate("productId", "title description price discountPrice images currency allowResell")
+      .populate("productId", TV_PRODUCT_POPULATE_SELECT)
       .populate("originalPostId", "creatorId")
       .populate("songId", "title artist artworkUrl downloadEnabled downloadPrice")
       .lean();
@@ -1503,7 +1532,7 @@ router.patch("/:id", authenticate, async (req: AuthRequest, res: Response, next:
     await post.save();
     const populated = await TVPost.findById(post._id)
       .populate("creatorId", CREATOR_POPULATE_SELECT)
-      .populate("productId", "title description price discountPrice images currency allowResell supplierId")
+      .populate("productId", TV_PRODUCT_POPULATE_SELECT)
       .populate("songId", "title artist artworkUrl downloadEnabled downloadPrice")
       .lean();
     res.json({ data: populated });
@@ -1610,13 +1639,13 @@ router.get("/:id", async (req: express.Request, res: Response, next) => {
 
     let post = await TVPost.findOne({ _id: req.params.id, status: "approved" })
       .populate("creatorId", CREATOR_POPULATE_SELECT)
-      .populate({ path: "productId", populate: { path: "supplierId", select: "userId" } })
+      .populate(TV_PRODUCT_POPULATE)
       .populate("songId", "title artist artworkUrl downloadEnabled downloadPrice")
       .lean();
     if (!post && mongoose.Types.ObjectId.isValid(req.params.id)) {
       post = await TVPost.findById(req.params.id)
         .populate("creatorId", CREATOR_POPULATE_SELECT)
-        .populate({ path: "productId", populate: { path: "supplierId", select: "userId" } })
+        .populate(TV_PRODUCT_POPULATE)
         .populate("songId", "title artist artworkUrl downloadEnabled downloadPrice")
         .lean();
     }

@@ -121,7 +121,8 @@ function buildLlmContext(
 }
 
 /**
- * Quick DB scan (limit 1 per collection), then full scan only if no hits and query is long enough for LLM context.
+ * Scan platform collections for mentions. Always returns LLM context when hits exist
+ * (Ask MacGyver uses text answers; the search page shows matches separately).
  */
 export async function searchPlatformMacGyverBundle(query: string): Promise<MacGyverPlatformBundle> {
   const q = (query || "").trim();
@@ -132,19 +133,14 @@ export async function searchPlatformMacGyverBundle(query: string): Promise<MacGy
   const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const regex = new RegExp(escaped, "i");
 
-  const quickLim = { tv: 1, prod: 1, usr: 1, sng: 1 };
-  const [quickParallel, storesQ] = await Promise.all([
-    runSearchParallel(regex, quickLim),
-    searchPublicStores(q, 1),
-  ]);
-  const [tvQ, prodQ, usrQ, sngQ] = quickParallel;
-
-  if (anyHits(tvQ, prodQ, usrQ, sngQ, storesQ)) {
-    return { hasResults: true, contextForLlm: "" };
-  }
-
   if (q.length < 2) {
-    return { hasResults: false, contextForLlm: "" };
+    const quickLim = { tv: 1, prod: 1, usr: 1, sng: 1 };
+    const [quickParallel, storesQ] = await Promise.all([
+      runSearchParallel(regex, quickLim),
+      searchPublicStores(q, 1),
+    ]);
+    const [tvQ, prodQ, usrQ, sngQ] = quickParallel;
+    return { hasResults: anyHits(tvQ, prodQ, usrQ, sngQ, storesQ), contextForLlm: "" };
   }
 
   const fullLim = { tv: MAX_TV, prod: MAX_PRODUCTS, usr: MAX_USERS, sng: MAX_SONGS };
@@ -153,9 +149,10 @@ export async function searchPlatformMacGyverBundle(query: string): Promise<MacGy
     searchPublicStores(q, 3),
   ]);
   const [tv, products, users, songs] = fullParallel;
+  const hasResults = anyHits(tv, products, users, songs, stores);
 
   return {
-    hasResults: false,
+    hasResults,
     contextForLlm: buildLlmContext(tv, products, users, songs, stores),
   };
 }

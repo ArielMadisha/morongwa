@@ -411,7 +411,7 @@ export type WalletCard = {
 };
 
 export const walletAPI = {
-  getBalance: () => api.get<{ balance?: number }>("/wallet/balance"),
+  getBalance: () => api.get<{ balance?: number; availableBalance?: number }>("/wallet/balance"),
   getTransactions: (params?: { limit?: number; page?: number }) =>
     api.get<WalletTransaction[]>("/wallet/transactions", { params }),
   topUp: (amount: number, returnPath?: string) =>
@@ -525,4 +525,17 @@ export const webrtcAPI = {
         expiresAt?: number;
       };
     }>("/webrtc/turn-credentials"),
+};
+
+export const voiceAPI = {
+  getQuote: (to: string) =>
+    api.get<{ quote: { estimate1MinZar: number; perMinuteZar: number; connectFeeZar: number } }>(
+      "/voice/rates",
+      { params: { to } }
+    ),
+  outbound: (body: { to: string }) =>
+    api.post<{ message: string; callId: string; token: string; quote: { estimate1MinZar: number } }>(
+      "/voice/outbound",
+      body
+    ),
 };

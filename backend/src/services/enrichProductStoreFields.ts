@@ -25,7 +25,7 @@ export async function enrichProductsWithStoreFields<T extends Record<string, unk
   const stores =
     supplierIds.length > 0
       ? await Store.find({ supplierId: { $in: supplierIds }, type: "supplier" })
-          .select("supplierId slug name countryCode country")
+          .select("supplierId slug name countryCode country address mapsUrl latitude longitude")
           .lean()
       : [];
   const storeBySupplier = new Map(stores.map((s) => [String(s.supplierId), s]));
@@ -39,10 +39,34 @@ export async function enrichProductsWithStoreFields<T extends Record<string, unk
       raw && typeof raw === "object" && raw.storeName ? String(raw.storeName).trim() : "";
     const label = supplierStoreName || (store?.name ? String(store.name).trim() : "") || undefined;
 
-    const out = { ...p } as T & { storeSlug?: string; storeName?: string; storeCountryCode?: string };
+    const out = { ...p } as T & {
+      storeSlug?: string;
+      storeName?: string;
+      storeCountryCode?: string;
+      store?: {
+        _id?: string;
+        name?: string;
+        slug?: string;
+        address?: string;
+        mapsUrl?: string;
+        latitude?: number;
+        longitude?: number;
+      };
+    };
     if (store?.slug) out.storeSlug = store.slug;
     if (label) out.storeName = label;
     if (store?.countryCode) out.storeCountryCode = String(store.countryCode).toUpperCase();
+    if (store) {
+      out.store = {
+        _id: String((store as { _id?: unknown })._id || ""),
+        name: store.name ? String(store.name) : label,
+        slug: store.slug ? String(store.slug) : undefined,
+        address: store.address ? String(store.address) : undefined,
+        mapsUrl: store.mapsUrl ? String(store.mapsUrl) : undefined,
+        latitude: typeof store.latitude === "number" ? store.latitude : undefined,
+        longitude: typeof store.longitude === "number" ? store.longitude : undefined,
+      };
+    }
     const cur = String((p as { currency?: string }).currency || "").toUpperCase();
     if (store?.countryCode && (!cur || cur === "ZAR") && String(store.countryCode).toUpperCase() !== "ZA") {
       (out as { currency?: string }).currency = currencyFromCountryIso(String(store.countryCode));

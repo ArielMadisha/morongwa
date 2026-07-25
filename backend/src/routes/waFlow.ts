@@ -53,6 +53,7 @@ import {
   moduleCategoryForWaSponsoredAction,
   recordSponsoredVideoImpression,
   resolveWaFallbackSponsoredVideoPick,
+  resolveWaBronzePremenuText,
   isTrackedSponsoredPick,
 } from "../services/sponsoredVideoAdService";
 import {
@@ -66,6 +67,7 @@ import {
   scheduleTuckshopFraudScan,
 } from "../services/registrationFraudScan";
 import { bumpStatusStripCache } from "../services/statusStripPolicy";
+import { publishProfileAvatarFeedUpdate } from "../services/profileAvatarFeed";
 import {
   buildTshwaneRegionPickerMessage,
   buildTshwaneTownshipPickerMessage,
@@ -690,6 +692,12 @@ function scheduleWaPremenuVideoThenRun(
             });
           }
           await delay(WA_PREMENU_VIDEO_TO_MENU_GAP_MS);
+        } else {
+          const bronzeText = await resolveWaBronzePremenuText(placementAction);
+          if (bronzeText?.trim()) {
+            await sendWhatsAppText(phone, bronzeText, session);
+            await delay(WA_PREMENU_VIDEO_TO_MENU_GAP_MS);
+          }
         }
         await runAfter();
       } catch (e) {
@@ -907,17 +915,13 @@ function waChatCommandFallback(kind: "cart" | "resell", shortCode: string, n: nu
   return `Reply in this chat: RESELL ${shortCode} ${n}`;
 }
 
-function buildUnregisteredGuidedMessage(commandToContinue: string, session?: WaOutboundSession, userPhoneInput?: string): string {
-  const continueCmd = String(commandToContinue || "").replace(/\s+/g, " ").trim();
+function buildUnregisteredGuidedMessage(_commandToContinue: string, session?: WaOutboundSession, userPhoneInput?: string): string {
   const waFromDigits = getTwilioWhatsAppFromDigits(session, userPhoneInput);
   const registerLink = ensurePublicWaLink(waMeBotLink(waFromDigits, "REGISTER"));
-  const continueLink = continueCmd ? ensurePublicWaLink(waMeBotLink(waFromDigits, continueCmd)) : "";
   return [
-    "User not registered.",
-    "Please register first, then continue from the same WhatsApp flow:",
-    "",
-    registerLink ? `1) Tap to register: ${registerLink}` : "1) Reply in this chat: REGISTER",
-    continueLink ? `2) After registration, tap continue: ${continueLink}` : `2) After registration, reply: ${continueCmd}`,
+    "You are not registered,",
+    "Please enter 1 or tap to register",
+    registerLink ? `1) Register : ${registerLink}` : "1) Reply in this chat: REGISTER",
   ].join("\n");
 }
 
@@ -930,12 +934,19 @@ function isWaCommerceResumeCommand(raw: string): boolean {
     || /^payreq\s+[a-f0-9]{16,64}\s*$/i.test(cmd);
 }
 
+function isWaRegisterIntent(rawInput: string): boolean {
+  const normalized = String(rawInput || "").replace(/\s+/g, " ").trim().toLowerCase();
+  if (!normalized) return false;
+  if (normalized === "register" || normalized === "1") return true;
+  return /^register\b|^sign\s*up\b/i.test(normalized);
+}
+
 /** Do not overwrite a saved RESELL/CART/PAYREQ pending action with REGISTER/continue keywords. */
 function shouldStoreWaPendingContinue(raw: string): boolean {
   const cmd = String(raw || "").replace(/\s+/g, " ").trim();
   if (!cmd) return false;
   if (shouldAttemptPendingContinue(cmd)) return false;
-  if (/^register$/i.test(cmd)) return false;
+  if (isWaRegisterIntent(cmd)) return false;
   return isWaCommerceResumeCommand(cmd) || cmd.length > 0;
 }
 
@@ -959,12 +970,15 @@ function unregisteredWaFlowResponse(commandToContinue: string, session?: WaOutbo
   message: string;
 } {
   const cmd = String(commandToContinue || "").replace(/\s+/g, " ").trim();
-  if (isWaCommerceResumeCommand(cmd)) {
-    return { code: "USER_NOT_FOUND", message: buildRegisterFirstMessage(cmd) };
+  if (isWaRegisterIntent(cmd)) {
+    return {
+      code: "REGISTER_START",
+      message: "Enter your date of birth in this format: YYYY-MM-DD",
+    };
   }
   return {
     code: "USER_NOT_FOUND",
-    message: cmd ? buildUnregisteredGuidedMessage(cmd, session, userPhoneInput) : "User not registered.",
+    message: buildUnregisteredGuidedMessage(cmd, session, userPhoneInput),
   };
 }
 
@@ -1965,6 +1979,32 @@ async function generateUniqueUsername(name: string): Promise<string> {
     candidate = `${base}${n}`.slice(0, 30);
   }
   return candidate;
+}
+
+/** WhatsApp registration — TitleCase name + digits, e.g. Ariel -> ariel1234 (@Ariel1234). */
+async function generateUniqueWaUsername(displayName: string): Promise<string> {
+  const cleaned = String(displayName || "")
+    .trim()
+    .replace(/[^a-zA-Z0-9\s]/g, "");
+  const parts = cleaned.split(/\s+/).filter(Boolean);
+  const titleBase =
+    parts.map((p) => p.charAt(0).toUpperCase() + p.slice(1).toLowerCase()).join("") || "User";
+  const base = titleBase.replace(/[^a-zA-Z0-9]/g, "").slice(0, 20) || "User";
+  let suffix = Math.floor(1000 + Math.random() * 9000);
+  let candidate = `${base}${suffix}`.toLowerCase();
+  let guard = 0;
+  while ((await User.findOne({ username: candidate })) && guard < 200) {
+    suffix += 1;
+    candidate = `${base}${suffix}`.toLowerCase();
+    guard += 1;
+  }
+  return candidate;
+}
+
+function formatWaUsernameForDisplay(username: string): string {
+  const u = String(username || "").trim();
+  if (!u) return "";
+  return u.charAt(0).toUpperCase() + u.slice(1);
 }
 
 async function getApprovedSupplierIdsForWa(): Promise<any[]> {
@@ -5373,6 +5413,7 @@ router.post("/register", async (req: Request, res: Response, next) => {
     const password = String(req.body?.password || "");
     const dateOfBirthRaw = String(req.body?.dateOfBirth || "").trim();
     const avatarUrl = String(req.body?.avatarUrl || req.body?.avatarMediaUrl || "").trim();
+    const townArea = String(req.body?.townArea || req.body?.town || req.body?.area || "").trim();
     const usernameInput = String(req.body?.username || "").trim().toLowerCase();
 
     if (!phoneInput || !name || !password || !dateOfBirthRaw) {
@@ -5380,6 +5421,15 @@ router.post("/register", async (req: Request, res: Response, next) => {
     }
     if (!avatarUrl) {
       return res.status(400).json({ code: "PROFILE_PICTURE_REQUIRED", message: "Profile picture is required for WhatsApp registration." });
+    }
+    if (name.length < 2 || isWaRegisterIntent(name)) {
+      return res.status(400).json({ code: "INVALID_NAME", message: "Please enter your name." });
+    }
+    if (password.length < 6) {
+      return res.status(400).json({ code: "INVALID_PASSWORD", message: "Please enter your password (at least 6 characters)." });
+    }
+    if (!townArea || townArea.length < 2) {
+      return res.status(400).json({ code: "INVALID_TOWN", message: "Please enter town/area where you stay." });
     }
 
     const phoneDigits = waPhoneToDigits(phoneInput);
@@ -5424,7 +5474,7 @@ router.post("/register", async (req: Request, res: Response, next) => {
         return res.status(400).json({ code: "USERNAME_TAKEN", message: "Username already taken." });
       }
     } else {
-      username = await generateUniqueUsername(name);
+      username = await generateUniqueWaUsername(name);
     }
 
     const passwordHash = await bcrypt.hash(password, 10);
@@ -5438,15 +5488,25 @@ router.post("/register", async (req: Request, res: Response, next) => {
       avatar: avatarUrl,
       role: ["client"],
       isVerified: true,
+      publicProfileLocation: { enabled: false, label: townArea.slice(0, 120) },
     });
     bumpStatusStripCache();
     await Wallet.create({ user: user._id });
+    if (avatarUrl) {
+      await publishProfileAvatarFeedUpdate({
+        userId: user._id,
+        avatarPath: avatarUrl,
+        previousAvatar: null,
+      });
+    }
 
     const is18Plus = (age ?? 0) >= 18;
+    const usernameDisplay = formatWaUsernameForDisplay(username);
     // 200 (not 201): Twilio Studio HTTP Request treats non-2xx as failure; some configs only accept 200.
     res.status(200).json({
       code: "REGISTER_SUCCESS",
       is18Plus,
+      message: `You are successfully registered, your username is @${usernameDisplay}`,
       menu: buildMainMenu(username || name, false),
       user: {
         id: user._id,
@@ -5469,8 +5529,14 @@ router.post("/profile-picture/update", async (req: Request, res: Response, next)
     const user = await findWaUserByPhone(phone);
     if (!user) return res.status(404).json({ code: "USER_NOT_FOUND" });
     const includeAdjustMarkup = await userHasResellerProfile((user as any)._id);
+    const previousAvatar = String((user as any).avatar || "").trim() || null;
     (user as any).avatar = avatarUrl;
     await user.save();
+    await publishProfileAvatarFeedUpdate({
+      userId: (user as any)._id,
+      avatarPath: avatarUrl,
+      previousAvatar,
+    });
     const age = calculateAge((user as any).dateOfBirth);
     return res.json({
       code: "PROFILE_PICTURE_UPDATED",

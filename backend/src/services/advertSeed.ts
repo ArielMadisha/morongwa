@@ -26,20 +26,21 @@ export async function ensureSampleAdvert(): Promise<void> {
     order: 0,
   });
 
-  // Sample random advert (top square - rotates with others)
+  // Hammanskraal warehouse carousel — AdvertTile refreshes cards from live products
   await Advert.create({
-    title: "Shop Local on QwertyHub",
-    imageUrl: "https://placehold.co/600x750/0ea5e9/ffffff?text=Buy+Local",
-    linkUrl: "/marketplace",
-    advertiserName: "QwertyHub",
+    title: "Qwertymates - Hammanskraal warehouse",
+    imageUrl: "/qwertymates-q-mark-official.png",
+    linkUrl: "/marketplace?q=Hammanskraal",
+    advertiserName: "Qwertymates - Hammanskraal warehouse",
     advertiserAvatar: "/qwertymates-q-mark-official.png",
-    caption: "Support local sellers across Botswana and SADC. Discover handmade goods, fashion, and more on QwertyHub.",
-    description: "Marketplace · Shop African brands",
+    caption:
+      "Shop Qwertymates Hammanskraal warehouse and enjoy free delivery within Hammanskraal on eligible items. Fresh stock from our local warehouse.",
+    description: "Free delivery in Hammanskraal",
     ctaLabel: "Shop now",
     slot: "random",
     active: true,
     order: 0,
   });
 
-  logger.info("Created sample adverts (random + promo slots).");
+  logger.info("Created sample adverts (promo + Hammanskraal warehouse carousel).");
 }

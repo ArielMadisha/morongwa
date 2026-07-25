@@ -214,7 +214,7 @@ export function AppSidebar({
                 key={href || `nav-desktop-${idx}`}
                 href={href || '#'}
                 onClick={() => setMenuOpen?.(false)}
-                className={`flex items-center gap-3 px-3 py-2 rounded-r-lg text-sm font-medium transition-colors border-l-[4px] ${
+                className={`flex cursor-pointer items-center gap-3 px-3 py-2 rounded-r-lg text-sm font-medium transition-colors border-l-[4px] ${
                   isActive(href)
                     ? 'border-sky-500 bg-sky-50 text-sky-900'
                     : 'border-transparent text-slate-600 hover:bg-slate-50 hover:text-slate-800'
@@ -314,7 +314,7 @@ export function AppSidebar({
                 key={href || `nav-mobile-${idx}`}
                 href={href || '#'}
                 onClick={() => setMenuOpen?.(false)}
-                className={`flex items-center gap-3 px-3 py-2 rounded-r-lg text-sm font-medium transition-colors border-l-[4px] ${
+                className={`flex cursor-pointer items-center gap-3 px-3 py-2 rounded-r-lg text-sm font-medium transition-colors border-l-[4px] ${
                   isActive(href)
                     ? 'border-sky-500 bg-sky-50 text-sky-900'
                     : 'border-transparent text-slate-600 hover:bg-slate-50 hover:text-slate-800'
@@ -436,7 +436,7 @@ export function AppSidebarMenuButton({ onClick }: { onClick?: () => void }) {
     <button
       type="button"
       onClick={onClick}
-      className="md:hidden p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+      className="md:hidden cursor-pointer p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-slate-900"
       aria-label="Open menu"
     >
       <Menu className="h-6 w-6" />

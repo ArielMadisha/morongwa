@@ -69,12 +69,16 @@ export function normalizeProductSizes(sizes: string[] | undefined | null): strin
 
 export function resolveSelectedSize(
   raw: unknown,
-  product: { sizes?: string[] | null }
+  product: { sizes?: string[] | null },
+  opts?: { required?: boolean }
 ): string | undefined {
   const sizes = normalizeProductSizes(product.sizes);
   if (sizes.length === 0) return undefined;
   const sel = normalizeSizeToken(String(raw || ""));
-  if (!sel) throw new AppError("Please select a size", 400);
+  if (!sel) {
+    if (opts?.required === false) return undefined;
+    throw new AppError("Please select a size", 400);
+  }
   const match = sizes.find((s) => normalizeSizeToken(s) === sel);
   if (!match) throw new AppError("Invalid size selection", 400);
   return match;

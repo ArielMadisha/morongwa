@@ -95,13 +95,27 @@
               "arguments": [
                 "{{widgets.check_user.parsed.code}}"
               ],
+              "friendly_name": "register start",
+              "type": "equal_to",
+              "value": "REGISTER_START"
+            }
+          ],
+          "event": "match",
+          "next": "ask_dob"
+        },
+        {
+          "conditions": [
+            {
+              "arguments": [
+                "{{widgets.check_user.parsed.code}}"
+              ],
               "friendly_name": "new user",
               "type": "equal_to",
               "value": "USER_NOT_FOUND"
             }
           ],
           "event": "match",
-          "next": "ask_full_name"
+          "next": "show_unregistered"
         },
         {
           "conditions": [
@@ -167,7 +181,7 @@
       "type": "split-based-on"
     },
     {
-      "name": "ask_full_name",
+      "name": "show_unregistered",
       "properties": {
         "body": "{{widgets.check_user.parsed.message}}",
         "channel": "{{trigger.message.ChannelSid}}",
@@ -267,6 +281,34 @@
       "transitions": [
         {
           "event": "incomingMessage",
+          "next": "ask_name"
+        },
+        {
+          "event": "timeout"
+        },
+        {
+          "event": "deliveryFailure"
+        }
+      ],
+      "type": "send-and-wait-for-reply"
+    },
+    {
+      "name": "ask_name",
+      "properties": {
+        "body": "Please enter your name",
+        "channel": "{{trigger.message.ChannelSid}}",
+        "from": "{{flow.channel.address}}",
+        "message_type": "custom",
+        "offset": {
+          "x": -470,
+          "y": 920
+        },
+        "service": "{{trigger.message.InstanceSid}}",
+        "timeout": "600"
+      },
+      "transitions": [
+        {
+          "event": "incomingMessage",
           "next": "ask_password"
         },
         {
@@ -281,7 +323,7 @@
     {
       "name": "ask_password",
       "properties": {
-        "body": "Set your password.",
+        "body": "Please enter your password",
         "channel": "{{trigger.message.ChannelSid}}",
         "from": "{{flow.channel.address}}",
         "message_type": "custom",
@@ -309,7 +351,7 @@
     {
       "name": "ask_profile_pic",
       "properties": {
-        "body": "Please upload your profile picture here on WhatsApp.",
+        "body": "Please upload your profile picture",
         "channel": "{{trigger.message.ChannelSid}}",
         "from": "{{flow.channel.address}}",
         "message_type": "custom",
@@ -391,10 +433,38 @@
         },
         {
           "event": "noMatch",
-          "next": "register_api"
+          "next": "ask_town"
         }
       ],
       "type": "split-based-on"
+    },
+    {
+      "name": "ask_town",
+      "properties": {
+        "body": "Please enter town/area where you stay",
+        "channel": "{{trigger.message.ChannelSid}}",
+        "from": "{{flow.channel.address}}",
+        "message_type": "custom",
+        "offset": {
+          "x": -120,
+          "y": 880
+        },
+        "service": "{{trigger.message.InstanceSid}}",
+        "timeout": "600"
+      },
+      "transitions": [
+        {
+          "event": "incomingMessage",
+          "next": "register_api"
+        },
+        {
+          "event": "timeout"
+        },
+        {
+          "event": "deliveryFailure"
+        }
+      ],
+      "type": "send-and-wait-for-reply"
     },
     {
       "name": "profile_picture_update_api",
@@ -455,7 +525,7 @@
           },
           {
             "key": "name",
-            "value": "{{widgets.ask_full_name.inbound.Body}}"
+            "value": "{{widgets.ask_name.inbound.Body}}"
           },
           {
             "key": "dateOfBirth",
@@ -468,6 +538,10 @@
           {
             "key": "avatarMediaUrl",
             "value": "{{widgets.ask_profile_pic.inbound.MediaUrl0}}"
+          },
+          {
+            "key": "townArea",
+            "value": "{{widgets.ask_town.inbound.Body}}"
           }
         ],
         "url": "https://api.qwertymates.com/api/wa/flow/register"
@@ -506,7 +580,7 @@
             }
           ],
           "event": "match",
-          "next": "check_user"
+          "next": "register_success_message"
         },
         {
           "event": "noMatch",
@@ -514,6 +588,32 @@
         }
       ],
       "type": "split-based-on"
+    },
+    {
+      "name": "register_success_message",
+      "properties": {
+        "body": "{{widgets.register_api.parsed.message}}",
+        "channel": "{{trigger.message.ChannelSid}}",
+        "from": "{{flow.channel.address}}",
+        "message_type": "custom",
+        "offset": {
+          "x": -120,
+          "y": 1210
+        },
+        "service": "{{trigger.message.InstanceSid}}",
+        "to": "{{contact.channel.address}}"
+      },
+      "transitions": [
+        {
+          "event": "sent",
+          "next": "check_user"
+        },
+        {
+          "event": "failed",
+          "next": "check_user"
+        }
+      ],
+      "type": "send-message"
     },
     {
       "name": "register_error",
@@ -532,7 +632,7 @@
       "transitions": [
         {
           "event": "sent",
-          "next": "ask_full_name"
+          "next": "show_unregistered"
         },
         {
           "event": "failed"

@@ -32,6 +32,13 @@ import {
   type SadcDeliveryScope,
 } from '@/lib/sadcDeliveryCatalog';
 import { formatCurrencyAmount } from '@/lib/formatCurrency';
+import { cartIsInstorePickupOnly, productIsInstorePickup } from '@/lib/instorePickupCart';
+import {
+  isFullDeliveryAddressComplete,
+  readCartDeliveryAddress,
+  writeCartDeliveryAddress,
+} from '@/lib/cartDeliveryAddress';
+import toast from 'react-hot-toast';
 
 interface CartItem {
   productId: string;
@@ -50,6 +57,10 @@ interface CartItem {
     bulkTiers?: Array<{ minQty: number; maxQty: number; price: number }>;
     currency: string;
     stock: number;
+    categories?: string[];
+    tags?: string[];
+    colors?: Array<{ name: string }>;
+    sizes?: string[];
   };
   lineTotal: number;
 }
@@ -129,8 +140,17 @@ function CartPageContent() {
     hasMixedStoreOrigins?: boolean;
     requiresCrossborderCourierSelection?: boolean;
     crossborderCourierOptions?: ProgrammedDeliveryOption[];
+    warehouseFreeLocalApplied?: boolean;
+    freeDeliveryLabel?: string;
+    foodPickup?: boolean;
   } | null>(null);
   const [quoteLoading, setQuoteLoading] = useState(false);
+  const [deliveryCity, setDeliveryCity] = useState('');
+  const [addressLine1, setAddressLine1] = useState('');
+  const [addressLine2, setAddressLine2] = useState('');
+  const [addressState, setAddressState] = useState('');
+  const [addressPostal, setAddressPostal] = useState('');
+  const [debouncedDeliveryCity, setDebouncedDeliveryCity] = useState('');
   const [deliveryOptions, setDeliveryOptions] = useState<ProgrammedDeliveryOption[]>([]);
   const [deliveryHydrating, setDeliveryHydrating] = useState(false);
   const [quoteError, setQuoteError] = useState<string | null>(null);
@@ -166,7 +186,45 @@ function CartPageContent() {
   useEffect(() => {
     invalidateCartStoresCache();
     loadCart();
+    try {
+      const saved = readCartDeliveryAddress();
+      if (saved) {
+        setAddressLine1(saved.line1);
+        setAddressLine2(saved.line2);
+        setDeliveryCity(saved.city);
+        setAddressState(saved.state);
+        setAddressPostal(saved.postal);
+        if (saved.country) setDeliveryCountry(saved.country);
+      } else {
+        const cityOnly = sessionStorage.getItem('qwertymates.cart.deliveryCity');
+        if (cityOnly) setDeliveryCity(cityOnly);
+      }
+    } catch {
+      /* ignore */
+    }
   }, []);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setSelectedDeliveryId(undefined);
+      setCourierTariffId(undefined);
+      setSelectedCrossborderId(undefined);
+      setCrossborderCourierTariffId(undefined);
+      setDebouncedDeliveryCity(deliveryCity.trim());
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [deliveryCity]);
+
+  useEffect(() => {
+    writeCartDeliveryAddress({
+      line1: addressLine1,
+      line2: addressLine2,
+      city: deliveryCity,
+      state: addressState,
+      postal: addressPostal,
+      country: deliveryCountry,
+    });
+  }, [addressLine1, addressLine2, deliveryCity, addressState, addressPostal, deliveryCountry]);
 
   useEffect(() => {
     if (!loading && cartIsBwNative) {
@@ -200,7 +258,7 @@ function CartPageContent() {
   }, [courierTariffId, selectedDeliveryId, deliveryOptions]);
 
   useEffect(() => {
-    if (loading || items.length === 0) {
+    if (loading || items.length === 0 || cartIsInstorePickupOnly(items)) {
       setDeliveryOptions([]);
       return;
     }
@@ -211,10 +269,13 @@ function CartPageContent() {
       return;
     }
     setDeliveryOptions(getProgrammedSadcOptions(deliveryCountry, deliveryScope));
-  }, [loading, cartSignature, deliveryCountry, deliveryProvider, deliveryScope, items.length]);
+  }, [loading, cartSignature, deliveryCountry, deliveryProvider, deliveryScope, items]);
 
   const hydrateDeliveryTariffIds = useCallback(async () => {
-    if (items.length === 0) return;
+    if (items.length === 0 || cartIsInstorePickupOnly(items)) {
+      setDeliveryOptions([]);
+      return;
+    }
     setDeliveryHydrating(true);
     try {
       if (deliveryCountry === 'ZA') {
@@ -251,7 +312,7 @@ function CartPageContent() {
     } finally {
       setDeliveryHydrating(false);
     }
-  }, [deliveryCountry, deliveryScope, items.length, deliveryProvider, cartIsBwNative]);
+  }, [deliveryCountry, deliveryScope, items, deliveryProvider, cartIsBwNative]);
 
   useEffect(() => {
     hydrateDeliveryTariffIds();
@@ -266,8 +327,9 @@ function CartPageContent() {
     const localSubtotal =
       items.reduce((sum, i) => sum + i.lineTotal, 0) +
       musicItems.reduce((sum, i) => sum + i.lineTotal, 0);
+    const pickupCart = cartIsInstorePickupOnly(items);
 
-    if (items.length > 0 && !resolvedTariffId) {
+    if (!pickupCart && items.length > 0 && !resolvedTariffId && debouncedDeliveryCity.length < 2) {
       const minShip = deliveryOptions.length
         ? Math.min(...deliveryOptions.map((o) => o.priceZar))
         : undefined;
@@ -278,38 +340,55 @@ function CartPageContent() {
         shippingEstimateMinZar: minShip,
         courierOptions: deliveryOptions,
         requiresCourierSelection: deliveryOptions.length > 0,
+        foodPickup: false,
       });
       return;
     }
 
     setQuoteLoading(true);
     setQuoteError(null);
+    const quoteCourierTariffId = pickupCart
+      ? undefined
+      : debouncedDeliveryCity.length >= 2 && !resolvedTariffId
+        ? undefined
+        : resolvedTariffId;
     try {
       const res = await checkoutAPI.quote({
-        deliveryCountry,
-        courierTariffId: resolvedTariffId,
-        crossborderCourierTariffId,
-        deliveryScope: deliveryCountry !== 'ZA' ? deliveryScope : undefined,
+        deliveryCountry: pickupCart ? 'ZA' : deliveryCountry,
+        deliveryCity: pickupCart ? undefined : debouncedDeliveryCity || undefined,
+        deliveryAddress: pickupCart ? undefined : debouncedDeliveryCity || undefined,
+        courierTariffId: quoteCourierTariffId,
+        crossborderCourierTariffId: pickupCart ? undefined : crossborderCourierTariffId,
+        deliveryScope: pickupCart ? undefined : deliveryCountry !== 'ZA' ? deliveryScope : undefined,
       });
       const d = (res.data?.data ?? res.data) as Record<string, unknown> | null;
       if (!d) {
         setQuote(null);
         return;
       }
+      const breakdown = d.shippingBreakdown as Array<{
+        storeName?: string;
+        shippingCost: number;
+        serviceLabel?: string;
+      }> | undefined;
+      const freeLine = breakdown?.find((b) => Number(b.shippingCost) === 0);
       setQuote({
         subtotal: Number(d.subtotal) || localSubtotal,
         shipping: Number(d.shipping) || 0,
         total: Number(d.total) || localSubtotal,
         currency: typeof d.currency === 'string' ? d.currency : 'ZAR',
         shippingEstimateMinZar: d.shippingEstimateMinZar as number | undefined,
-        shippingBreakdown: d.shippingBreakdown as Array<{ storeName?: string; shippingCost: number }> | undefined,
+        shippingBreakdown: breakdown,
         courierOptions: deliveryOptions.length ? deliveryOptions : (d.courierOptions as ProgrammedDeliveryOption[]) || [],
-        requiresCourierSelection: deliveryOptions.length > 0,
+        requiresCourierSelection: d.requiresCourierSelection as boolean | undefined,
         courierDeliveryZar: d.courierDeliveryZar as number | undefined,
         readyForPayment: d.readyForPayment as boolean | undefined,
         hasMixedStoreOrigins: d.hasMixedStoreOrigins as boolean | undefined,
         requiresCrossborderCourierSelection: d.requiresCrossborderCourierSelection as boolean | undefined,
         crossborderCourierOptions: (d.crossborderCourierOptions as ProgrammedDeliveryOption[]) || [],
+        warehouseFreeLocalApplied: !!d.warehouseFreeLocalApplied,
+        freeDeliveryLabel: freeLine?.serviceLabel,
+        foodPickup: !!d.foodPickup || pickupCart,
       });
     } catch (err: unknown) {
       const e = err as { response?: { data?: { message?: string; error?: string } }; message?: string };
@@ -324,7 +403,8 @@ function CartPageContent() {
         shipping: 0,
         total: localSubtotal,
         courierOptions: deliveryOptions,
-        requiresCourierSelection: deliveryOptions.length > 0,
+        requiresCourierSelection: !pickupCart && deliveryOptions.length > 0,
+        foodPickup: pickupCart,
       });
     } finally {
       setQuoteLoading(false);
@@ -332,13 +412,14 @@ function CartPageContent() {
   }, [
     loading,
     cartSignature,
-    deliveryCountry,
-    deliveryScope,
-    resolvedTariffId,
-    crossborderCourierTariffId,
     items,
-    musicItems,
+    musicItems.length,
+    resolvedTariffId,
+    debouncedDeliveryCity,
     deliveryOptions,
+    deliveryCountry,
+    crossborderCourierTariffId,
+    deliveryScope,
   ]);
 
   useEffect(() => {
@@ -391,6 +472,29 @@ function CartPageContent() {
       .finally(() => setUpdating(null));
   };
 
+  const updateVariant = (
+    item: CartItem,
+    opts: { updateColor?: string; updateSize?: string }
+  ) => {
+    const lineKey = cartLineKey(item);
+    setUpdating(lineKey);
+    cartAPI
+      .updateItem(item.productId, item.qty, item.selectedColor, item.selectedSize, opts)
+      .then(() => {
+        invalidateCartStoresCache();
+        loadCart();
+      })
+      .catch((e: unknown) => {
+        const msg =
+          (e as { response?: { data?: { error?: string; message?: string } } })?.response?.data
+            ?.error ||
+          (e as { response?: { data?: { message?: string } } })?.response?.data?.message ||
+          'Could not update colour/size';
+        toast.error(msg);
+      })
+      .finally(() => setUpdating(null));
+  };
+
   const remove = (item: CartItem) => {
     const lineKey = cartLineKey(item);
     setUpdating(lineKey);
@@ -411,28 +515,69 @@ function CartPageContent() {
   const subtotal = items.reduce((sum, i) => sum + i.lineTotal, 0) + musicItems.reduce((sum, i) => sum + i.lineTotal, 0);
   const isEmpty = items.length === 0 && musicItems.length === 0;
   const hasPhysicalProducts = items.length > 0;
+  const isInstorePickupCart = !!quote?.foodPickup || cartIsInstorePickupOnly(items);
+  const variantsComplete = items.every((item) => {
+    if (productIsInstorePickup(item.product || {})) return true;
+    const colors = item.product?.colors || [];
+    const sizes = item.product?.sizes || [];
+    if (colors.length > 0 && !String(item.selectedColor || '').trim()) return false;
+    if (sizes.length > 0 && !String(item.selectedSize || '').trim()) return false;
+    return true;
+  });
+  const fullAddressComplete = isFullDeliveryAddressComplete({
+    line1: addressLine1,
+    line2: addressLine2,
+    city: deliveryCity,
+    state: addressState,
+    postal: addressPostal,
+    country: deliveryCountry,
+  });
   const isNonZaDelivery = deliveryCountry !== 'ZA';
   const sadcScopeEmpty =
     isNonZaDelivery && !deliveryHydrating && deliveryOptions.length === 0;
   const hasCourierOptions = deliveryOptions.length > 0;
-  const needsCourierChoice = hasPhysicalProducts && hasCourierOptions && !selectedDeliveryId;
+  const hasDeliveryLocality = debouncedDeliveryCity.length >= 2;
+  const freeLocalDelivery = !!quote?.warehouseFreeLocalApplied;
+  const checkingFreeDelivery = quoteLoading && hasDeliveryLocality && !freeLocalDelivery;
+  const showPaidCourierUi =
+    !isInstorePickupCart && hasCourierOptions && !freeLocalDelivery && !checkingFreeDelivery;
+  const needsCourierChoice =
+    hasPhysicalProducts &&
+    !isInstorePickupCart &&
+    showPaidCourierUi &&
+    !selectedDeliveryId;
   const awaitingTariffId = !!selectedDeliveryId && !resolvedTariffId;
-  const deliveryUiLoading = deliveryHydrating && !hasCourierOptions;
+  const deliveryUiLoading = !isInstorePickupCart && deliveryHydrating && !hasCourierOptions;
   const needsCrossborderChoice =
+    !isInstorePickupCart &&
     !!quote?.hasMixedStoreOrigins &&
     !!quote?.requiresCrossborderCourierSelection &&
     (quote?.crossborderCourierOptions?.length ?? 0) > 0 &&
     !crossborderCourierTariffId;
   const canProceedToCheckout =
-    !hasPhysicalProducts ||
-    (!!resolvedTariffId && !needsCrossborderChoice && (quote?.shipping ?? 0) > 0);
+    !variantsComplete
+      ? false
+      : isInstorePickupCart
+        ? !!quote && (quote.readyForPayment !== false)
+        : !hasPhysicalProducts ||
+          (fullAddressComplete &&
+            hasDeliveryLocality &&
+            !needsCrossborderChoice &&
+            (freeLocalDelivery || (!!resolvedTariffId && (quote?.shipping ?? 0) > 0)));
 
   const checkoutHref = (() => {
+    if (isInstorePickupCart) return '/checkout';
     const q = new URLSearchParams();
+    q.set('deliveryReady', '1');
     if (deliveryCountry) q.set('deliveryCountry', deliveryCountry);
+    if (debouncedDeliveryCity) q.set('deliveryCity', debouncedDeliveryCity);
+    if (addressLine1.trim()) q.set('addressLine1', addressLine1.trim());
+    if (addressLine2.trim()) q.set('addressLine2', addressLine2.trim());
+    if (addressState.trim()) q.set('addressState', addressState.trim());
+    if (addressPostal.trim()) q.set('addressPostal', addressPostal.trim());
     if (deliveryCountry !== 'ZA') q.set('deliveryScope', deliveryScope);
-    if (courierTariffId) q.set('courierTariffId', courierTariffId);
-    else if (resolvedTariffId) q.set('courierTariffId', resolvedTariffId);
+    if (!freeLocalDelivery && courierTariffId) q.set('courierTariffId', courierTariffId);
+    else if (!freeLocalDelivery && resolvedTariffId) q.set('courierTariffId', resolvedTariffId);
     if (crossborderCourierTariffId) q.set('crossborderCourierTariffId', crossborderCourierTariffId);
     const s = q.toString();
     return s ? `/checkout?${s}` : '/checkout';
@@ -530,12 +675,67 @@ function CartPageContent() {
                       >
                         {item.product?.title ?? 'Product'}
                       </Link>
-                      {(item.selectedSize || item.selectedColor) && (
+                      {(item.selectedSize || item.selectedColor) &&
+                        !productIsInstorePickup(item.product || {}) &&
+                        !(item.product?.colors?.length || item.product?.sizes?.length) && (
                         <p className="text-xs text-slate-500 mt-0.5">
                           {[item.selectedSize ? `Size ${item.selectedSize}` : null, item.selectedColor ? `Color ${item.selectedColor}` : null]
                             .filter(Boolean)
                             .join(' · ')}
                         </p>
+                      )}
+                      {!productIsInstorePickup(item.product || {}) &&
+                        ((item.product?.colors?.length || 0) > 0 || (item.product?.sizes?.length || 0) > 0) && (
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {(item.product?.colors?.length || 0) > 0 && (
+                            <label className="text-xs text-slate-600">
+                              Colour
+                              <select
+                                value={item.selectedColor || ''}
+                                disabled={updating === lineKey}
+                                onChange={(e) => {
+                                  const v = e.target.value;
+                                  if (!v) return;
+                                  updateVariant(item, { updateColor: v });
+                                }}
+                                className={`mt-0.5 block rounded-lg border px-2 py-1.5 text-sm ${
+                                  !item.selectedColor ? 'border-amber-400 bg-amber-50' : 'border-slate-200 bg-white'
+                                }`}
+                              >
+                                <option value="">Select colour</option>
+                                {(item.product?.colors || []).map((c) => (
+                                  <option key={c.name} value={c.name}>
+                                    {c.name}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                          )}
+                          {(item.product?.sizes?.length || 0) > 0 && (
+                            <label className="text-xs text-slate-600">
+                              Size
+                              <select
+                                value={item.selectedSize || ''}
+                                disabled={updating === lineKey}
+                                onChange={(e) => {
+                                  const v = e.target.value;
+                                  if (!v) return;
+                                  updateVariant(item, { updateSize: v });
+                                }}
+                                className={`mt-0.5 block rounded-lg border px-2 py-1.5 text-sm ${
+                                  !item.selectedSize ? 'border-amber-400 bg-amber-50' : 'border-slate-200 bg-white'
+                                }`}
+                              >
+                                <option value="">Select size</option>
+                                {(item.product?.sizes || []).map((s) => (
+                                  <option key={s} value={s}>
+                                    {s}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                          )}
+                        </div>
                       )}
                       {(() => {
                         const unit =
@@ -629,7 +829,16 @@ function CartPageContent() {
                   </div>
                 ))}
               </div>
-              {hasPhysicalProducts && (
+              {hasPhysicalProducts && isInstorePickupCart && (
+                <div className="bg-orange-50/90 backdrop-blur rounded-2xl border border-orange-200 p-4 sm:p-6 mb-6">
+                  <p className="font-semibold text-orange-950">In-store collection</p>
+                  <p className="mt-1 text-sm text-orange-900/90">
+                    Food and grocery orders are collected from the store. No delivery country or courier is
+                    needed — pay with Card or Wallet at checkout.
+                  </p>
+                </div>
+              )}
+              {hasPhysicalProducts && !isInstorePickupCart && (
                 <div className="bg-white/90 backdrop-blur rounded-2xl border border-slate-100 p-4 sm:p-6 mb-6 space-y-4">
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-2">
@@ -651,7 +860,91 @@ function CartPageContent() {
                       <option value="MZ">Mozambique</option>
                     </select>
                   </div>
-                  {deliveryCountry === 'ZA' && (
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-2">
+                      Street address (Line 1) *
+                    </label>
+                    <input
+                      type="text"
+                      value={addressLine1}
+                      onChange={(e) => setAddressLine1(e.target.value)}
+                      placeholder="Street number and name"
+                      className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-slate-900 focus:ring-2 focus:ring-sky-500 focus:border-sky-500"
+                      autoComplete="address-line1"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-2">
+                      Apartment / unit (Line 2)
+                    </label>
+                    <input
+                      type="text"
+                      value={addressLine2}
+                      onChange={(e) => setAddressLine2(e.target.value)}
+                      placeholder="Apartment, suite, unit (optional)"
+                      className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-slate-900 focus:ring-2 focus:ring-sky-500 focus:border-sky-500"
+                      autoComplete="address-line2"
+                    />
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-2">
+                        City / town *
+                      </label>
+                      <input
+                        type="text"
+                        value={deliveryCity}
+                        onChange={(e) => setDeliveryCity(e.target.value)}
+                        placeholder="e.g. Hammanskraal, Pretoria"
+                        className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-slate-900 focus:ring-2 focus:ring-sky-500 focus:border-sky-500"
+                        autoComplete="address-level2"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-2">
+                        Province / state
+                      </label>
+                      <input
+                        type="text"
+                        value={addressState}
+                        onChange={(e) => setAddressState(e.target.value)}
+                        className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-slate-900 focus:ring-2 focus:ring-sky-500 focus:border-sky-500"
+                        autoComplete="address-level1"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-2">
+                      Postal code
+                    </label>
+                    <input
+                      type="text"
+                      value={addressPostal}
+                      onChange={(e) => setAddressPostal(e.target.value)}
+                      className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-slate-900 focus:ring-2 focus:ring-sky-500 focus:border-sky-500"
+                      autoComplete="postal-code"
+                    />
+                    <p className="text-xs text-slate-500 mt-1.5">
+                      Enter your full delivery address once here. If your area qualifies for seller free shipping,
+                      delivery becomes <strong>R 0</strong> — otherwise choose a courier below. Checkout is
+                      payment only.
+                    </p>
+                  </div>
+                  {freeLocalDelivery && (
+                    <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+                      <p className="font-semibold">
+                        {quote?.freeDeliveryLabel || 'Free delivery'} — R 0
+                      </p>
+                      <p className="text-emerald-800 mt-0.5">
+                        Your address in <strong>{debouncedDeliveryCity}</strong> qualifies for free shipping on
+                        this order.
+                      </p>
+                    </div>
+                  )}
+                  {checkingFreeDelivery && (
+                    <p className="text-sm text-sky-700">Checking free delivery for {debouncedDeliveryCity}…</p>
+                  )}
+                  {deliveryCountry === 'ZA' && showPaidCourierUi && (
                     <div>
                       <label className="block text-sm font-medium text-slate-700 mb-2">
                         Delivery courier
@@ -707,7 +1000,7 @@ function CartPageContent() {
                   {deliveryUiLoading && (
                     <p className="text-sm text-slate-500">Loading delivery options…</p>
                   )}
-                  {!deliveryUiLoading && hasCourierOptions && deliveryCountry === 'ZA' && deliveryProvider === 'paxi' && (
+                  {!deliveryUiLoading && showPaidCourierUi && deliveryCountry === 'ZA' && deliveryProvider === 'paxi' && (
                     <PaxiDeliveryPicker
                       options={deliveryOptions}
                       selectedId={selectedDeliveryId}
@@ -715,7 +1008,7 @@ function CartPageContent() {
                       compact
                     />
                   )}
-                  {!deliveryUiLoading && hasCourierOptions && deliveryCountry === 'ZA' && deliveryProvider === 'courier-guy' && (
+                  {!deliveryUiLoading && showPaidCourierUi && deliveryCountry === 'ZA' && deliveryProvider === 'courier-guy' && (
                     <CourierGuyDeliveryPicker
                       options={deliveryOptions}
                       selectedId={selectedDeliveryId}
@@ -754,7 +1047,7 @@ function CartPageContent() {
                         />
                       </div>
                     )}
-                  {!deliveryUiLoading && hasCourierOptions && isNonZaDelivery && (
+                  {!deliveryUiLoading && showPaidCourierUi && isNonZaDelivery && (
                     <SadcDeliveryPicker
                       options={deliveryOptions}
                       selectedId={selectedDeliveryId}
@@ -802,10 +1095,10 @@ function CartPageContent() {
                         : formatPriceLocal(subtotal, cartDisplayCurrency)}
                     </span>
                   </div>
-                  {hasPhysicalProducts && (
+                  {hasPhysicalProducts && !isInstorePickupCart && (
                     deliveryUiLoading && !hasCourierOptions ? (
                       <div className="flex justify-between text-slate-500 text-sm">Calculating delivery...</div>
-                    ) : needsCourierChoice && !selectedDeliveryId ? (
+                    ) : needsCourierChoice && !selectedDeliveryId && hasDeliveryLocality ? (
                       <div className="flex justify-between text-amber-800 text-sm">
                         <span>Delivery</span>
                         <span className="font-medium text-right">
@@ -813,6 +1106,16 @@ function CartPageContent() {
                             ? `From ${formatPriceLocal(quote.shippingEstimateMinZar, quote.currency || sadcDisplayCurrency)} — select method`
                             : 'Select delivery method above'}
                         </span>
+                      </div>
+                    ) : !hasDeliveryLocality && hasPhysicalProducts ? (
+                      <div className="flex justify-between text-amber-800 text-sm">
+                        <span>Delivery</span>
+                        <span className="font-medium text-right">Enter town above</span>
+                      </div>
+                    ) : quote?.warehouseFreeLocalApplied ? (
+                      <div className="flex justify-between text-emerald-800">
+                        <span>Delivery</span>
+                        <span className="font-medium">Free</span>
                       </div>
                     ) : quote && quote.shipping > 0 ? (
                       <div className="flex justify-between text-slate-600">
@@ -828,12 +1131,20 @@ function CartPageContent() {
                       </div>
                     ) : null
                   )}
-                  {quote && (canProceedToCheckout || !hasPhysicalProducts) && (
+                  {isInstorePickupCart && (
+                    <div className="flex justify-between text-slate-600">
+                      <span>Collection</span>
+                      <span className="font-medium text-emerald-700">In-store · R 0</span>
+                    </div>
+                  )}
+                  {quote && (canProceedToCheckout || !hasPhysicalProducts || isInstorePickupCart) && (
                     <div className="flex justify-between text-base font-bold text-slate-900 pt-2 border-t border-slate-200">
                       <span>Total</span>
                       <span>
                         {formatPriceLocal(
-                          hasPhysicalProducts && canProceedToCheckout ? quote.total : subtotal,
+                          isInstorePickupCart || (hasPhysicalProducts && canProceedToCheckout)
+                            ? quote.total
+                            : subtotal,
                           quote?.currency || cartDisplayCurrency
                         )}
                       </span>
@@ -860,8 +1171,17 @@ function CartPageContent() {
                       <ArrowRight className="h-4 w-4" />
                     </button>
                   )}
-                  {needsCourierChoice && !selectedDeliveryId && (
+                  {needsCourierChoice && !selectedDeliveryId && hasDeliveryLocality && (
                     <p className="text-sm text-amber-800">Choose delivery above to continue.</p>
+                  )}
+                  {!variantsComplete && (
+                    <p className="text-sm text-amber-800">Choose colour and size for each product above.</p>
+                  )}
+                  {!isInstorePickupCart && !fullAddressComplete && hasPhysicalProducts && variantsComplete && (
+                    <p className="text-sm text-amber-800">Enter your full delivery address above.</p>
+                  )}
+                  {!isInstorePickupCart && fullAddressComplete && !hasDeliveryLocality && hasPhysicalProducts && (
+                    <p className="text-sm text-amber-800">Enter your delivery city/town to check rates.</p>
                   )}
                   {needsCrossborderChoice && (
                     <p className="text-sm text-amber-800">

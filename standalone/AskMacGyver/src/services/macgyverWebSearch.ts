@@ -26,6 +26,24 @@ function clip(s: string, max: number): string {
   return `${t.slice(0, max - 1)}…`;
 }
 
+/** Strip chatter so Wikipedia / DDG match the real topic (not "explain … in two sentences"). */
+function extractSearchTopic(q: string): string {
+  let t = (q || "").trim();
+  t = t.replace(
+    /^(please\s+)?(can you\s+|could you\s+)?(explain|describe|define|summarize|summarise|tell me about|what is|what are|who is|who was|who were|where is|when was|how does|how do|how did)\s+/i,
+    ""
+  );
+  t = t.replace(/\bin\s+(one|two|three|\d+)\s+(short\s+)?sentences?\b/gi, "");
+  t = t.replace(/[?!.]+$/g, "").trim();
+  return t.length >= 2 ? t : (q || "").trim();
+}
+
+function looksLikeQuestion(q: string): boolean {
+  const t = (q || "").trim();
+  if (t.includes("?")) return true;
+  return /^(who|what|where|when|why|how|explain|define|tell me)\b/i.test(t);
+}
+
 async function searchTavily(q: string): Promise<MacGyverWebBundle | null> {
   const key = process.env.TAVILY_API_KEY?.trim();
   if (!key) return null;
@@ -161,13 +179,25 @@ export async function fetchWebContextForMacGyver(query: string): Promise<MacGyve
     return { contextBlock: "", sources: [] };
   }
 
-  const tavily = await searchTavily(q);
+  const topic = extractSearchTopic(q);
+
+  const tavily = await searchTavily(topic);
   if (tavily?.contextBlock) return tavily;
 
-  const wiki = await searchWikipedia(q);
+  // Prefer DuckDuckGo instant answers for natural-language questions (Wikipedia title
+  // search is noisy on long prompts like "explain X in two sentences").
+  if (looksLikeQuestion(q)) {
+    const ddgFirst = await searchDuckDuckGoInstant(topic);
+    if (ddgFirst?.contextBlock) return ddgFirst;
+    const wikiQ = await searchWikipedia(topic);
+    if (wikiQ?.contextBlock) return wikiQ;
+    return { contextBlock: "", sources: [] };
+  }
+
+  const wiki = await searchWikipedia(topic);
   if (wiki?.contextBlock) return wiki;
 
-  const ddg = await searchDuckDuckGoInstant(q);
+  const ddg = await searchDuckDuckGoInstant(topic);
   if (ddg?.contextBlock) return ddg;
 
   return { contextBlock: "", sources: [] };

@@ -291,6 +291,84 @@ router.get("/suggested", authenticate, async (req: AuthRequest, res: Response, n
   }
 });
 
+/**
+ * Users with a birthday today (month+day), prefer people you follow, then public discovery users.
+ * GET /follows/birthdays/today?limit=12
+ */
+router.get("/birthdays/today", authenticate, async (req: AuthRequest, res: Response, next) => {
+  try {
+    const currentId = req.user!._id;
+    const limit = Math.min(parseInt(String(req.query.limit || "12"), 10) || 12, 30);
+
+    // Use Africa/Johannesburg calendar day for SA-facing product.
+    const nowSa = new Date(
+      new Date().toLocaleString("en-US", { timeZone: "Africa/Johannesburg" })
+    );
+    const month = nowSa.getMonth() + 1;
+    const day = nowSa.getDate();
+
+    const birthdayMatch = {
+      dateOfBirth: { $exists: true, $ne: null },
+      active: { $ne: false },
+      suspended: { $ne: true },
+      isSchoolAccount: { $ne: true },
+      role: { $nin: ["admin", "superadmin"] },
+      $expr: {
+        $and: [
+          { $eq: [{ $month: "$dateOfBirth" }, month] },
+          { $eq: [{ $dayOfMonth: "$dateOfBirth" }, day] },
+        ],
+      },
+    };
+
+    const followingIds = await Follow.find({
+      followerId: currentId,
+      status: "accepted",
+    }).distinct("followingId");
+
+    const project = { name: 1, avatar: 1, username: 1 };
+
+    let people: Record<string, unknown>[] = [];
+    if (followingIds.length) {
+      people = await User.find({
+        ...birthdayMatch,
+        _id: { $in: followingIds, $ne: currentId },
+      })
+        .select(project)
+        .limit(limit)
+        .lean();
+    }
+
+    if (people.length < limit) {
+      const exclude = new Set([
+        String(currentId),
+        ...people.map((p) => String(p._id)),
+        ...followingIds.map((id) => String(id)),
+      ]);
+      const more = await User.find({
+        ...birthdayMatch,
+        ...publicDiscoveryUserFilter(),
+        _id: { $nin: [...exclude] },
+      })
+        .select(project)
+        .limit(limit - people.length)
+        .lean();
+      people = [...people, ...more];
+    }
+
+    const sanitized = await sanitizeUsersForClientView(people, currentId.toString());
+    res.json({
+      data: {
+        date: `${nowSa.getFullYear()}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`,
+        count: sanitized.length,
+        users: sanitized,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // Get followers for a user (accepted only)
 router.get("/:userId/followers", async (req: AuthRequest, res: Response, next) => {
   try {

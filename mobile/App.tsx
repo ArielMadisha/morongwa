@@ -2,6 +2,7 @@ import { StatusBar } from "expo-status-bar";
 import { useState } from "react";
 import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
+import { AppErrorBoundary } from "./src/components/AppErrorBoundary";
 import { AuthProvider, useAuth } from "./src/contexts/AuthContext";
 import { usePhonePortraitOrientationLock } from "./src/hooks/usePhonePortraitOrientationLock";
 import { HomeScreen } from "./src/screens/HomeScreen";
@@ -12,16 +13,20 @@ import { socialTheme } from "./src/theme/socialTheme";
 export default function App() {
   usePhonePortraitOrientationLock();
   return (
-    <SafeAreaProvider>
-      <AuthProvider>
-        <SafeAreaView style={styles.safe}>
-          <View style={styles.container}>
-            <AuthGate />
-          </View>
-          <StatusBar style="dark" />
-        </SafeAreaView>
-      </AuthProvider>
-    </SafeAreaProvider>
+    <View style={styles.root}>
+      <SafeAreaProvider>
+        <AppErrorBoundary>
+          <AuthProvider>
+            <SafeAreaView style={styles.safe}>
+              <View style={styles.container}>
+                <AuthGate />
+              </View>
+              <StatusBar style="dark" />
+            </SafeAreaView>
+          </AuthProvider>
+        </AppErrorBoundary>
+      </SafeAreaProvider>
+    </View>
   );
 }
 
@@ -54,6 +59,10 @@ function AuthGate() {
 }
 
 const styles = StyleSheet.create({
+  root: {
+    flex: 1,
+    backgroundColor: socialTheme.canvas
+  },
   safe: {
     flex: 1,
     backgroundColor: socialTheme.canvas
@@ -76,7 +85,8 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    gap: 12
+    gap: 12,
+    backgroundColor: socialTheme.canvas
   },
   loadingText: {
     color: socialTheme.textSecondary,

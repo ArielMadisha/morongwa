@@ -5,6 +5,8 @@ import Follow from "../data/models/Follow";
 import { sendNotification } from "./notification";
 import { userPublicDisplayName } from "../utils/userDisplayLabel";
 import { logger } from "./monitoring";
+import { bumpStatusStripCache } from "./statusStripPolicy";
+import { clearTvFeedCache } from "./tvFeedCache";
 
 export const PROFILE_AVATAR_FEED_ACTIVITY = "profile_avatar_update";
 
@@ -16,7 +18,7 @@ export async function publishProfileAvatarFeedUpdate(params: {
   userId: mongoose.Types.ObjectId | string;
   avatarPath: string;
   previousAvatar?: string | null;
-}): Promise<{ postId?: string; skipped?: boolean }> {
+}): Promise<{ postId?: string; caption?: string; avatarPath?: string; createdAt?: Date; skipped?: boolean }> {
   try {
     const avatarPath = String(params.avatarPath || "").trim();
     if (!avatarPath) return { skipped: true };
@@ -73,7 +75,15 @@ export async function publishProfileAvatarFeedUpdate(params: {
       followerCount: followerIds.length,
     });
 
-    return { postId: String(post._id) };
+    bumpStatusStripCache();
+    clearTvFeedCache();
+
+    return {
+      postId: String(post._id),
+      caption,
+      avatarPath,
+      createdAt: post.createdAt,
+    };
   } catch (err) {
     logger.warn("publishProfileAvatarFeedUpdate failed (non-fatal)", {
       error: String((err as Error)?.message || err),

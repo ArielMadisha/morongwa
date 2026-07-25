@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import mongoose from "mongoose";
 import TVPost from "../data/models/TVPost";
+import { findProfileUploadSibling } from "./profileBackfillMedia";
 
 /** Legacy PHP profile uploads (bare filename in Mongo, often a logo — not the TV story image). */
 export const LEGACY_BARE_AVATAR_RE = /^avatar_\d+\.(jpe?g|png|gif|webp)$/i;
@@ -26,6 +27,8 @@ export function pickExistingUploadPath(candidates: string[], uploadsRoot: string
   for (const c of candidates) {
     if (/^https?:\/\//i.test(c)) return c;
     if (uploadPublicPathExists(c, uploadsRoot)) return c;
+    const sibling = findProfileUploadSibling(c, uploadsRoot);
+    if (sibling) return sibling;
   }
   return undefined;
 }

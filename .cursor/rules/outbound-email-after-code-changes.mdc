@@ -1,0 +1,61 @@
+---
+description: Send outbound ops email to administrator after every substantive code change
+alwaysApply: true
+---
+
+# Outbound email after code changes
+
+**Owner policy — treat like deploy guardrails.** After **every substantive code change**, send an outbound summary to **`administrator@qwertymates.com`** (via `PLATFORM_OPS_EMAIL` in `backend/.env`).
+
+## When to send
+
+Send after you change **behavior-affecting** code:
+
+- `backend/src/**`, `frontend/**`, `mobile/**`
+- Deploy scripts, production build config, ops scripts under `backend/scripts/`
+
+**Skip** only when:
+
+- User explicitly defers email for the task
+- **No code changed** (question-only / review-only with no edits)
+- SMTP unavailable — report the exact blocker in chat; retry when creds work
+
+Docs-only or `.cursor/rules` updates that **also** ship code still get an email covering the code part. Pure docs/rules-only edits: send a **short** email if the owner asked for policy changes; otherwise optional.
+
+## What to include
+
+- **What changed** (1–3 sentences, plain language)
+- **Files / areas** touched (bullet list)
+- **Build / test** result (`npm run build`, typecheck, smoke scripts)
+- **Deploy** status (deployed / not deployed + why)
+- **Health** when web touched (`www` + `/wall` not 502)
+- **Mobile** build/submit status when `mobile/**` touched
+- **Blockers** if any step could not run
+
+**Never** paste secrets, `.env` values, or passwords in the email.
+
+## How to send (agent duty)
+
+From **`backend/`**:
+
+```bash
+npm run ops:email-change-summary -- --summary "What changed and why" --files "path/a,path/b" --deployed yes --build "backend OK" --health "www 200, wall 200"
+```
+
+Or write a longer report to `backend/exports/` and:
+
+```bash
+node scripts/sendPlatformOpsEmail.mjs --subject "[Qwertymates] ..." --file exports/report.txt
+```
+
+## Order of operations
+
+1. Fix code
+2. Test / build
+3. Deploy (per **`deploy-after-changes`** when applicable)
+4. Verify health (per **`website-502-guardrail`** when web deployed)
+5. **Send this email** — do **not** close the task until sent or blocker reported
+
+## After Cursor rule refreshes
+
+Confirm this file exists with **`alwaysApply: true`**.

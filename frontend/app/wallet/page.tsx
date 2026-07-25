@@ -1,7 +1,6 @@
 'use client';
 
 import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
-import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import toast from 'react-hot-toast';
@@ -15,15 +14,15 @@ import {
   Send,
   Wallet,
   ArrowDownToLine,
-  QrCode,
   ScanLine,
   CreditCard,
-  MessageCircle,
-  Trash2,
   Store,
+  Bell,
+  Check,
+  X,
+  Inbox,
 } from 'lucide-react';
 
-const QRCodeSVG = dynamic(() => import('qrcode.react').then((m) => m.QRCodeSVG), { ssr: false });
 import { SearchButton } from '@/components/SearchButton';
 import { useAuth } from '@/contexts/AuthContext';
 import ProtectedRoute from '@/components/ProtectedRoute';
@@ -37,13 +36,18 @@ import { ProfileHeaderButton } from '@/components/ProfileHeaderButton';
 import { openPayGatePayment } from '@/lib/payGateRedirect';
 import { WalletQrScanner } from '@/components/WalletQrScanner';
 import { parseAcbPayUserId } from '@/lib/walletQr';
-import { WalletModeTabs, type WalletMode } from '@/components/wallet/WalletModeTabs';
 import { useWalletPaymentSocket } from '@/lib/useWalletPaymentSocket';
+import { FlowModal } from '@/components/wallet/FlowModal';
 import { WalletTransactionRow } from '@/components/wallet/WalletTransactionRow';
-import { MerchantAgentPicker } from '@/components/wallet/MerchantAgentPicker';
+import { WalletQrCard } from '@/components/wallet/WalletQrCard';
+import { QrScannerModal } from '@/components/wallet/QrScannerModal';
+import { PhoneVerifyModal } from '@/components/wallet/PhoneVerifyModal';
+import { PayAtShopFlow } from '@/components/wallet/PayAtShopFlow';
+import { PayMoneyFlow } from '@/components/wallet/PayMoneyFlow';
+import { CashAgentsFlow } from '@/components/wallet/CashAgentsFlow';
 
 function WalletDashboard() {
-  const { user, logout } = useAuth();
+  const { user, logout, refreshUser } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -55,7 +59,6 @@ function WalletDashboard() {
   };
   const [balance, setBalance] = useState(0);
   const [walletRoles, setWalletRoles] = useState({ user: true, merchant: false, runner: false, agent: false });
-  const [walletView, setWalletView] = useState<WalletMode>('pay');
   const [transactions, setTransactions] = useState<any[]>([]);
   const [orderPurchases, setOrderPurchases] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -115,10 +118,30 @@ function WalletDashboard() {
   const [maIsApproved, setMaIsApproved] = useState(false);
   const [maApplySubmitting, setMaApplySubmitting] = useState(false);
   const [maKycCheck, setMaKycCheck] = useState(false);
+  const [showPhoneVerify, setShowPhoneVerify] = useState(false);
+  const [showScanQr, setShowScanQr] = useState(false);
+  const [showPayAtShop, setShowPayAtShop] = useState(false);
+  const [showPayMoney, setShowPayMoney] = useState(false);
+  const [showCashAgents, setShowCashAgents] = useState(false);
+  const [showCardsModal, setShowCardsModal] = useState(false);
+  const [showAddFunds, setShowAddFunds] = useState(false);
+  const [showWithdraw, setShowWithdraw] = useState(false);
+  const [showReceive, setShowReceive] = useState(false);
+  const [payingRequestId, setPayingRequestId] = useState<string | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const acceptPaymentRequestIdRef = useRef<string | null>(null);
 
   const walletUserId = String((user as { _id?: string; id?: string })?._id || (user as { id?: string })?.id || '');
+  const walletReturnTo = (searchParams.get('returnTo') || '').trim();
+  const phoneVerified = Boolean((user as { phone?: string })?.phone?.trim());
+  const qrDisplayName = (user as { name?: string; username?: string })?.name || (user as { username?: string })?.username;
+
+  const clearWalletQueryParams = useCallback(() => {
+    if (typeof window === 'undefined') return;
+    const url = new URL(window.location.href);
+    ['addCard', 'cardPayment', 'pendingPayment', 'payRequest', 'pgType', 'pgRef'].forEach((k) => url.searchParams.delete(k));
+    window.history.replaceState({}, '', `${url.pathname}${url.search}`);
+  }, []);
 
   const applyPendingPayment = useCallback(
     (p: { paymentRequestId?: string; _id?: string; amount: number; merchantName: string }, notify = false) => {
@@ -126,7 +149,7 @@ function WalletDashboard() {
       if (!id) return;
       setPendingPaymentId(id);
       setPendingPayment({ _id: id, amount: p.amount, merchantName: p.merchantName });
-      setWalletView('pay');
+      setShowPayAtShop(true);
       if (notify) {
         toast.success(`Pay R${p.amount.toFixed(2)} at ${p.merchantName}? Confirm below.`, { duration: 8000 });
       }
@@ -136,16 +159,20 @@ function WalletDashboard() {
 
   acceptPaymentRequestIdRef.current = acceptPaymentRequestId;
 
-  const handleMainWheelCapture: React.WheelEventHandler<HTMLElement> = (e) => {
-    const target = e.target as HTMLElement | null;
-    if (!target) return;
-    if (target.closest('input, textarea, select, [contenteditable="true"]')) return;
+  useEffect(() => {
     const scroller = scrollContainerRef.current;
     if (!scroller) return;
-    if (scroller.scrollHeight <= scroller.clientHeight) return;
-    scroller.scrollTop += e.deltaY;
-    e.preventDefault();
-  };
+    const onWheel = (e: WheelEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (!target) return;
+      if (target.closest('input, textarea, select, [contenteditable="true"]')) return;
+      if (scroller.scrollHeight <= scroller.clientHeight) return;
+      scroller.scrollTop += e.deltaY;
+      e.preventDefault();
+    };
+    scroller.addEventListener('wheel', onWheel, { passive: false, capture: true });
+    return () => scroller.removeEventListener('wheel', onWheel, { capture: true });
+  }, [loading]);
 
   useEffect(() => {
     fetchWalletData();
@@ -171,10 +198,16 @@ function WalletDashboard() {
   useEffect(() => {
     const wantSell = searchParams.get('accept') === '1' || searchParams.get('merchant') === '1';
     if (wantSell && walletRoles.merchant) {
-      setWalletView('sell');
       setShowAcceptPayment(true);
     }
   }, [searchParams, walletRoles.merchant]);
+
+  useEffect(() => {
+    const topup = searchParams.get('topup');
+    if (topup === 'wallet' || topup === 'card') {
+      setShowAddFunds(true);
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     const load = async () => {
@@ -196,7 +229,10 @@ function WalletDashboard() {
 
   useEffect(() => {
     const pid = searchParams.get('pendingPayment');
-    if (pid) setPendingPaymentId(pid);
+    if (pid) {
+      setPendingPaymentId(pid);
+      setShowPayAtShop(true);
+    }
   }, [searchParams]);
 
   useEffect(() => {
@@ -206,31 +242,47 @@ function WalletDashboard() {
       .catch(() => setPendingPayment(null));
   }, [pendingPaymentId, user]);
 
-  /** Poll for in-store payment requests when socket missed (e.g. laptop buyer showing QR). */
+  /** Fallback poll when socket missed (e.g. laptop buyer showing QR). Socket is primary — keep interval gentle. */
   useEffect(() => {
-    if (!walletUserId) return;
+    if (!walletUserId || pendingPaymentId) return;
     let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let delayMs = 30_000;
+
+    const schedule = () => {
+      timer = setTimeout(() => void tick(), delayMs);
+    };
+
     const tick = async () => {
+      if (cancelled || pendingPaymentId || (typeof document !== 'undefined' && document.hidden)) {
+        if (!cancelled) schedule();
+        return;
+      }
       try {
         const res = await walletAPI.getPendingPaymentsForPayer();
         const list = Array.isArray(res.data) ? res.data : [];
-        if (cancelled || list.length === 0) return;
-        const latest = list[0];
-        applyPendingPayment(
-          { _id: String(latest._id), amount: latest.amount, merchantName: latest.merchantName },
-          false
-        );
-      } catch {
-        /* ignore */
+        if (!cancelled && list.length > 0) {
+          const latest = list[0];
+          applyPendingPayment(
+            { _id: String(latest._id), amount: latest.amount, merchantName: latest.merchantName },
+            false
+          );
+          return;
+        }
+        delayMs = 30_000;
+      } catch (err: unknown) {
+        const status = Number((err as { response?: { status?: number } })?.response?.status || 0);
+        if (status === 429) delayMs = Math.min(delayMs * 2, 120_000);
       }
+      if (!cancelled) schedule();
     };
+
     void tick();
-    const interval = setInterval(tick, 5000);
     return () => {
       cancelled = true;
-      clearInterval(interval);
+      if (timer) clearTimeout(timer);
     };
-  }, [walletUserId, applyPendingPayment]);
+  }, [walletUserId, pendingPaymentId, applyPendingPayment]);
 
   useEffect(() => {
     const addCard = searchParams.get('addCard');
@@ -239,20 +291,23 @@ function WalletDashboard() {
       toast.success('Card added successfully');
       fetchWalletData();
       walletAPI.getCards().then((r) => setCards(r.data ?? []));
-      router.replace('/wallet', { scroll: false });
+      clearWalletQueryParams();
     }
     if (cardPayment === 'done') {
       toast.success('Payment completed');
       fetchWalletData();
       setPendingPayment(null);
       setPendingPaymentId(null);
-      router.replace('/wallet', { scroll: false });
+      clearWalletQueryParams();
     }
-  }, [searchParams]);
+  }, [searchParams, clearWalletQueryParams]);
 
   useEffect(() => {
     const rid = searchParams.get('payRequest');
-    if (rid) setPayRequestId(rid);
+    if (rid) {
+      setPayRequestId(rid);
+      setShowPayMoney(true);
+    }
   }, [searchParams]);
 
   useEffect(() => {
@@ -425,6 +480,7 @@ function WalletDashboard() {
   };
 
   const handlePayRequest = async (requestId: string) => {
+    setPayingRequestId(requestId);
     try {
       const res = await walletAPI.payRequest(requestId);
       const data = res.data as {
@@ -447,10 +503,17 @@ function WalletDashboard() {
       }
       toast.success(data?.message || 'Payment sent!');
       setPayRequestId(null);
+      setShowPayMoney(false);
       fetchWalletData();
     } catch (e: any) {
       toast.error(e?.response?.data?.message || 'Failed to pay');
+    } finally {
+      setPayingRequestId(null);
     }
+  };
+
+  const openWalletTopUp = () => {
+    setShowAddFunds(true);
   };
 
 
@@ -516,10 +579,11 @@ function WalletDashboard() {
 
     setIsSubmitting(true);
     try {
-      const res = await walletAPI.topUp(amount, '/wallet');
+      const res = await walletAPI.topUp(amount, walletReturnTo || '/wallet');
       const paymentUrl = res.data?.paymentUrl;
       const payGateRedirect = res.data?.payGateRedirect;
       if (paymentUrl || payGateRedirect) {
+        setShowAddFunds(false);
         openPayGatePayment({ paymentUrl, payGateRedirect });
         return;
       }
@@ -547,6 +611,7 @@ function WalletDashboard() {
       await walletAPI.withdraw(amount);
       toast.success(`R${amount.toFixed(2)} withdrawal requested. Processed within 24 hours.`);
       setWithdrawAmount('');
+      setShowWithdraw(false);
       fetchWalletData();
     } catch (error: any) {
       toast.error(error.response?.data?.message || 'Withdrawal failed');
@@ -594,10 +659,25 @@ function WalletDashboard() {
   const roleRaw = (user as { role?: string | string[] })?.role;
   const roles = Array.isArray(roleRaw) ? roleRaw : roleRaw ? [roleRaw] : [];
   const isMerchantWallet = walletRoles.merchant || roles.includes('admin') || roles.includes('superadmin');
-  const isAgentWallet = walletRoles.agent || maIsApproved;
+
+  const monthlyTransactions = transactions.filter((tx) => {
+    const d = new Date(tx.createdAt || tx.date || 0);
+    const now = new Date();
+    return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+  });
+  const monthlyFundsIn = monthlyTransactions
+    .filter((tx) => ['topup', 'refund', 'credit'].includes(String(tx.type)))
+    .reduce((sum, tx) => sum + Math.abs(Number(tx.amount) || 0), 0);
+  const monthlyFundsOut = monthlyTransactions
+    .filter((tx) => ['debit', 'payout', 'escrow'].includes(String(tx.type)))
+    .reduce((sum, tx) => sum + Math.abs(Number(tx.amount) || 0), 0);
+  const emailVerified = Boolean((user as { isVerified?: boolean })?.isVerified);
 
   return (
-    <div className="flex h-[100dvh] min-h-0 flex-col overflow-hidden bg-gradient-to-br from-sky-50 via-blue-50 to-white text-slate-900">
+    <div
+      data-wallet-page="true"
+      className="flex h-[100dvh] min-h-0 flex-col overflow-hidden bg-gradient-to-br from-sky-50 via-blue-50 to-white text-slate-900"
+    >
       <AppShellHeader
         onMenuClick={() => setMenuOpen((v) => !v)}
         center={
@@ -632,10 +712,7 @@ function WalletDashboard() {
           ref={scrollContainerRef}
           className="flex min-h-0 min-w-0 flex-1 flex-col gap-0 overflow-x-hidden overflow-y-auto overscroll-y-contain lg:flex-row"
         >
-          <main
-            className="order-2 min-w-0 w-full flex-1 px-4 pt-0 pb-24 sm:px-6 lg:order-none lg:px-8 lg:pb-6"
-            onWheelCapture={handleMainWheelCapture}
-          >
+          <main className="order-2 min-w-0 w-full flex-1 px-4 pt-0 pb-24 sm:px-6 lg:order-none lg:px-8 lg:pb-6">
           <div className="max-w-6xl mx-auto">
           {loading ? (
             <div className="flex min-h-[400px] items-center justify-center">
@@ -693,9 +770,45 @@ function WalletDashboard() {
                       {c.brand} •••• {c.last4}
                     </button>
                   ))}
-                  {balance < pendingPayment.amount && cards.length === 0 && (
-                    <p className="text-sm text-slate-600">Add a card or top up your wallet to pay.</p>
+                  <button
+                    onClick={async () => {
+                      setPayWithCardLoading('new');
+                      try {
+                        const res = await walletAPI.payWithCard(pendingPayment._id);
+                        if (res.data?.paymentUrl || res.data?.payGateRedirect) {
+                          openPayGatePayment({
+                            paymentUrl: res.data.paymentUrl,
+                            payGateRedirect: res.data.payGateRedirect,
+                          });
+                        }
+                      } catch (e: any) {
+                        toast.error(e?.response?.data?.message || 'Could not start payment');
+                      } finally {
+                        setPayWithCardLoading(null);
+                      }
+                    }}
+                    disabled={!!payWithCardLoading}
+                    className="rounded-lg bg-sky-500 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-600 disabled:opacity-50"
+                  >
+                    {payWithCardLoading === 'new' ? <Loader2 className="inline h-4 w-4 animate-spin" /> : null}
+                    Pay with card
+                  </button>
+                  {balance < pendingPayment.amount && (
+                    <button
+                      type="button"
+                      onClick={openWalletTopUp}
+                      className="rounded-lg border border-amber-400 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-900 hover:bg-amber-100"
+                    >
+                      Top up wallet first
+                    </button>
                   )}
+                  <button
+                    type="button"
+                    onClick={() => setShowPayAtShop(true)}
+                    className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-white"
+                  >
+                    Open confirm screen
+                  </button>
                 </div>
               </div>
             )}
@@ -733,890 +846,245 @@ function WalletDashboard() {
             {!(user as any)?.phone && (
               <div className="lg:col-span-3 rounded-xl border-2 border-amber-200 bg-amber-50 p-3 flex items-center justify-between gap-3">
                 <p className="text-amber-800 text-sm font-medium">
-                  Add your phone number to use QR payments and request money. You&apos;ll receive SMS/WhatsApp verification codes.
+                  Verify your phone to use Show QR, Scan QR, and in-store payments.
                 </p>
-                <Link href="/profile" className="shrink-0 rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-700">
-                  Add phone
-                </Link>
+                <button
+                  type="button"
+                  onClick={() => setShowPhoneVerify(true)}
+                  className="shrink-0 rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-700"
+                >
+                  Verify Now
+                </button>
               </div>
             )}
-            <div className="space-y-3">
-              <div className="rounded-2xl border border-white/60 bg-gradient-to-br from-sky-500 via-cyan-500 to-teal-500 p-5 sm:p-6 text-white shadow-xl shadow-sky-200">
-                <p className="text-xs uppercase tracking-[0.3em] opacity-90">Current balance</p>
-                <h2 className="mt-2 text-5xl font-bold">R{balance.toFixed(2)}</h2>
-                <p className="mt-3 text-sm opacity-80">Keep it topped up for seamless task payouts.</p>
+            <div className="space-y-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-2xl font-bold text-slate-900">ACBPay Wallet</h2>
+                  <p className="mt-1 text-sm text-slate-500">
+                    Manage payments, transfers, QR payments and cash services.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50"
+                  aria-label="Notifications"
+                >
+                  <Bell className="h-4 w-4 text-sky-600" />
+                  <span className="hidden sm:inline">Notifications</span>
+                </button>
               </div>
 
-              <WalletModeTabs
-                mode={walletView}
-                showSell={isMerchantWallet}
-                onChange={(m) => {
-                  setWalletView(m);
-                  if (m === 'sell') setShowAcceptPayment(true);
-                }}
-              />
-
-              {walletView === 'pay' && (
-              <>
-              {/* QR code - pay at store */}
-              <div className={`rounded-2xl border border-white/60 bg-white/80 p-4 sm:p-5 shadow-xl shadow-sky-50 backdrop-blur ${!(user as any)?.phone ? 'opacity-75' : ''}`}>
-                <div className="mb-4 flex items-center gap-2">
-                  <QrCode className="h-5 w-5 text-sky-600" />
-                  <div>
-                    <p className="text-xs uppercase tracking-[0.2em] text-sky-600">Pay at store</p>
-                    <h3 className="text-lg font-semibold text-slate-900">Your QR code</h3>
-                  </div>
-                </div>
-                <p className="text-sm text-slate-600 mb-4">Show this at checkout. The merchant scans it; you confirm in your wallet.</p>
-                {!(user as any)?.phone ? (
-                  <div className="rounded-xl bg-amber-50 border border-amber-200 p-4 text-center">
-                    <p className="text-amber-800 text-sm">Add your phone number in Profile to receive verification codes.</p>
-                    <Link href="/profile" className="mt-2 inline-block text-sm font-semibold text-amber-700 hover:text-amber-800">Add phone →</Link>
-                  </div>
-                ) : qrPayload ? (
-                  <div className="space-y-3">
-                    <div className="flex justify-center p-4 bg-white rounded-xl border border-slate-100">
-                      <QRCodeSVG value={qrPayload} size={180} level="M" includeMargin />
-                    </div>
+              <div className="grid gap-3 md:grid-cols-2">
+                <div className="rounded-2xl bg-gradient-to-br from-sky-500 via-cyan-500 to-teal-600 p-5 text-white shadow-lg shadow-sky-200">
+                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-white/80">Wallet balance</p>
+                  <p className="mt-2 text-4xl font-bold sm:text-5xl">R {balance.toFixed(2).replace('.', ',')}</p>
+                  <p className="mt-1 text-sm text-white/80">Available balance</p>
+                  <div className="mt-5 flex flex-wrap gap-2">
                     <button
-                      onClick={async () => {
-                        try {
-                          const [{ default: QRCode }, { default: jsPDF }] = await Promise.all([
-                            import('qrcode'),
-                            import('jspdf'),
-                          ]);
-                          const qrDataUrl = await QRCode.toDataURL(qrPayload!, { width: 256, margin: 2 });
-                          const doc = new jsPDF('p', 'mm', 'a4');
-                          doc.setFontSize(18);
-                          doc.text('ACBPayWallet QR Code', 105, 25, { align: 'center' });
-                          doc.setFontSize(10);
-                          doc.text('Show this at checkout. Merchant scans → you confirm in your wallet.', 105, 35, { align: 'center' });
-                          const qrSize = 60;
-                          doc.addImage(qrDataUrl, 'PNG', (210 - qrSize) / 2, 45, qrSize, qrSize);
-                          doc.setFontSize(9);
-                          doc.text(`ID: ${qrPayload}`, 105, 120, { align: 'center' });
-                          doc.save(`ACBPayWallet-QR-${new Date().toISOString().slice(0, 10)}.pdf`);
-                          toast.success('PDF downloaded');
-                        } catch (e) {
-                          toast.error('Could not generate PDF');
-                        }
-                      }}
-                      className="w-full rounded-lg border-2 border-sky-500 px-4 py-2 text-sm font-semibold text-sky-600 hover:bg-sky-50 flex items-center justify-center gap-2"
+                      type="button"
+                      onClick={() => setShowAddFunds(true)}
+                      className="inline-flex items-center gap-1.5 rounded-full bg-white px-4 py-2 text-sm font-semibold text-sky-700 hover:bg-white/90"
+                    >
+                      <Plus className="h-4 w-4" />
+                      Add Funds
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowWithdraw(true)}
+                      className="inline-flex items-center gap-1.5 rounded-full border border-white/40 bg-white/10 px-4 py-2 text-sm font-semibold text-white hover:bg-white/20"
                     >
                       <ArrowDownToLine className="h-4 w-4" />
-                      Download PDF
+                      Withdraw
                     </button>
                   </div>
-                ) : null}
+                  {walletReturnTo && walletReturnTo.startsWith('/') ? (
+                    <Link
+                      href={walletReturnTo}
+                      className="mt-3 inline-flex rounded-lg bg-white/15 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/25"
+                    >
+                      ← Back
+                    </Link>
+                  ) : null}
+                </div>
+
+                <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Account status</p>
+                  <ul className="mt-4 space-y-3 text-sm text-slate-700">
+                    <li className="flex items-center gap-2">
+                      {emailVerified ? (
+                        <>
+                          <Check className="h-4 w-4 text-emerald-600" />
+                          Email verified
+                        </>
+                      ) : (
+                        <>
+                          <span className="h-4 w-4 rounded-full border-2 border-amber-500" />
+                          Email not verified
+                        </>
+                      )}
+                    </li>
+                    <li className="flex items-center gap-2">
+                      {phoneVerified ? (
+                        <>
+                          <Check className="h-4 w-4 text-emerald-600" />
+                          Phone verified
+                        </>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setShowPhoneVerify(true)}
+                          className="flex items-center gap-2 text-amber-700 hover:text-amber-800"
+                        >
+                          <span className="h-4 w-4 rounded-full border-2 border-amber-500" />
+                          Verify phone
+                        </button>
+                      )}
+                    </li>
+                  </ul>
+                </div>
               </div>
-              {/* Request & Receive money */}
-              <div className="rounded-2xl border border-white/60 bg-white/80 p-4 sm:p-5 shadow-xl shadow-sky-50 backdrop-blur">
-                <div className="mb-4 flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <MessageCircle className="h-5 w-5 text-sky-600" />
+
+              <section>
+                <p className="mb-2 text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Quick actions</p>
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                  {[
+                    { label: 'Pay', icon: Send, onClick: () => setShowPayMoney(true) },
+                    { label: 'Receive', icon: Inbox, onClick: () => setShowReceive(true) },
+                    {
+                      label: 'Scan QR',
+                      icon: ScanLine,
+                      onClick: () => (phoneVerified ? setShowScanQr(true) : setShowPhoneVerify(true)),
+                    },
+                    { label: 'Cards', icon: CreditCard, onClick: () => setShowCardsModal(true) },
+                  ].map(({ label, icon: Icon, onClick }) => (
+                    <button
+                      key={label}
+                      type="button"
+                      onClick={onClick}
+                      className="flex flex-col items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-4 shadow-sm hover:border-sky-200 hover:bg-sky-50/40"
+                    >
+                      <Icon className="h-6 w-6 text-sky-600" />
+                      <span className="text-sm font-semibold text-slate-900">{label}</span>
+                    </button>
+                  ))}
+                </div>
+              </section>
+
+              <section>
+                <p className="mb-2 text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Services</p>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowPayAtShop(true)}
+                    className="flex items-start gap-3 rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm hover:border-sky-200"
+                  >
+                    <Store className="mt-0.5 h-5 w-5 shrink-0 text-sky-600" />
                     <div>
-                      <p className="text-xs uppercase tracking-[0.2em] text-sky-600">P2P</p>
-                      <h3 className="text-lg font-semibold text-slate-900">Request & Receive</h3>
+                      <p className="font-semibold text-slate-900">Pay at Shop</p>
+                      <p className="mt-0.5 text-xs text-slate-500">Use QR at checkout</p>
                     </div>
-                  </div>
+                  </button>
                   <button
-                    onClick={() => setShowRequestMoney(true)}
-                    className="rounded-full bg-sky-500 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-600"
+                    type="button"
+                    onClick={() => setShowCashAgents(true)}
+                    className="flex items-start gap-3 rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm hover:border-sky-200"
                   >
-                    Request money
+                    <DollarSign className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600" />
+                    <div>
+                      <p className="font-semibold text-slate-900">Cash &amp; Agents</p>
+                      <p className="mt-0.5 text-xs text-slate-500">Deposit / withdraw cash</p>
+                    </div>
                   </button>
                 </div>
-                <p className="text-sm text-slate-600 mb-4">Request money from anyone — they get WhatsApp/SMS with a pay link.</p>
-                {payRequestId && moneyRequests.some((r: any) => r._id === payRequestId) && (
-                  <div className="mb-3 rounded-lg bg-sky-100 p-3 text-sm text-sky-800">
-                    You have a payment request. Pay it below.
-                  </div>
-                )}
-                {moneyRequests.length > 0 && (
-                  <div className="space-y-2">
-                    <p className="text-xs font-semibold text-slate-500 uppercase">Pending requests</p>
-                    {moneyRequests.map((r: any) => (
-                      <div key={r._id} className="flex items-center justify-between rounded-lg border border-slate-100 bg-slate-50/50 p-3">
-                        <div>
-                          <p className="font-semibold text-slate-900">{(r.fromUser as any)?.name || (r.fromUser as any)?.username || 'User'} — R{r.amount?.toFixed(2)}</p>
-                          {r.message && <p className="text-xs text-slate-600">{r.message}</p>}
-                        </div>
-                        <button
-                          onClick={() => handlePayRequest(r._id)}
-                          disabled={balance < (r.amount || 0)}
-                          className="rounded-lg bg-sky-500 px-3 py-1.5 text-sm font-semibold text-white hover:bg-sky-600 disabled:opacity-50"
-                        >
-                          Pay
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
+              </section>
 
-              <div className="rounded-2xl border border-white/60 bg-white/80 p-4 sm:p-5 shadow-xl shadow-sky-50 backdrop-blur">
-                <div className="mb-6 flex items-center justify-between">
-                  <div>
-                    <p className="text-xs uppercase tracking-[0.2em] text-sky-600">Commerce</p>
-                    <h3 className="mt-1 text-2xl font-semibold text-slate-900">Product purchase history</h3>
-                  </div>
-                  <span className="rounded-full bg-sky-100 px-3 py-1 text-xs font-semibold text-sky-700">
-                    {orderPurchases.length} recent
-                  </span>
-                </div>
-                {orderPurchases.length === 0 ? (
-                  <p className="text-sm text-slate-600">No purchases yet.</p>
-                ) : (
-                  <div className="space-y-3">
-                    {orderPurchases.map((o: any) => (
-                      <div key={String(o._id)} className="rounded-xl border border-slate-100 bg-white p-3">
-                        <div className="flex items-center justify-between gap-2">
-                          <p className="text-sm font-semibold text-slate-900">ORDER-{String(o._id).slice(-12)}</p>
-                          <p className="text-sm font-semibold text-slate-900">R{Number(o?.amounts?.total || 0).toFixed(2)}</p>
-                        </div>
-                        <p className="mt-1 text-xs text-slate-500">
-                          {o?.createdAt ? new Date(o.createdAt).toLocaleString() : "—"} · {String(o?.paymentMethod || "card").toUpperCase()} · {String(o?.status || "pending").replace("_", " ")}
-                        </p>
-                        <div className="mt-2 text-xs text-slate-600">
-                          {(Array.isArray(o?.paymentBreakdown?.items) ? o.paymentBreakdown.items : [])
-                            .slice(0, 4)
-                            .map((it: any, idx: number) => (
-                              <p key={`${o._id}-line-${idx}`}>{it.qty} x {it.title} - R{Number(it.price || 0).toFixed(2)}</p>
-                            ))}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-              </>
-              )}
 
-              {/* Accept payment (merchant) */}
-              {walletView === 'sell' && !isMerchantWallet && (
-              <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
-                <p className="font-semibold text-amber-950">Tuckshop / store owner?</p>
-                <p className="mt-1 text-sm text-amber-900">Apply as an approved supplier to accept QR payments at your till (Phase 1: enter total after basket).</p>
-                <Link href="/supplier/apply" className="mt-2 inline-block text-sm font-semibold text-sky-700 hover:underline">Apply as supplier →</Link>
-              </div>
-              )}
-
-              {walletView === 'sell' && isMerchantWallet && (
-              <div className="rounded-2xl border-2 border-amber-300 bg-white/80 p-4 sm:p-5 shadow-xl shadow-sky-50 backdrop-blur">
-                <div className="mb-4 flex items-center gap-2">
-                  <ScanLine className="h-5 w-5 text-sky-600" />
-                  <div>
-                    <p className="text-xs uppercase tracking-[0.2em] text-sky-600">Store / merchant</p>
-                    <h3 className="text-lg font-semibold text-slate-900">Accept payment</h3>
-                  </div>
-                </div>
-                <p className="text-sm text-slate-600 mb-4">Scan customer QR → enter amount → they confirm in their wallet (no SMS code).</p>
-                {!showAcceptPayment ? (
-                  <button
-                    onClick={() => setShowAcceptPayment(true)}
-                    className="rounded-full border-2 border-sky-500 px-4 py-2 text-sm font-semibold text-sky-600 hover:bg-sky-50"
-                  >
-                    Start accepting
-                  </button>
-                ) : (
-                  <div className="space-y-3">
-                    {acceptStep === 'scan' ? (
-                      <>
-                        <input
-                          placeholder="Add Payer ID or Scan QR code below"
-                          value={acceptPayerId}
-                          onChange={(e) => setAcceptPayerId(e.target.value)}
-                          className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+              <div className="grid gap-3 md:grid-cols-2">
+                <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Recent transactions</p>
+                  {transactions.length === 0 ? (
+                    <p className="mt-10 text-center text-sm text-slate-500">No transactions yet</p>
+                  ) : (
+                    <div className="mt-4 max-h-72 space-y-2 overflow-y-auto">
+                      {transactions.slice(0, 10).map((tx, idx) => (
+                        <WalletTransactionRow
+                          key={tx.reference ? `${tx.reference}-${idx}` : idx}
+                          tx={tx}
+                          icon={getTransactionIcon(tx.type)}
+                          amountClassName={getTransactionColor(tx.type)}
+                          amountPrefix={['topup', 'refund', 'credit'].includes(tx.type) ? '+' : '-'}
                         />
-                        {!showMerchantScanner ? (
-                          <button
-                            type="button"
-                            onClick={() => setShowMerchantScanner(true)}
-                            className="w-full rounded-lg border-2 border-dashed border-amber-300 py-3 text-sm font-semibold text-amber-800"
-                          >
-                            Scan customer QR
-                          </button>
-                        ) : (
-                          <WalletQrScanner
-                            title="Scan customer QR"
-                            onClose={() => setShowMerchantScanner(false)}
-                            onScan={(text) => {
-                              const id = parseAcbPayUserId(text);
-                              if (!id) {
-                                toast.error('Not a valid ACBPayWallet QR');
-                                return;
-                              }
-                              setAcceptPayerId(`ACBPAY:${id}`);
-                              setShowMerchantScanner(false);
-                            }}
-                          />
-                        )}
-                        <input
-                          type="number"
-                          placeholder="Amount (ZAR)"
-                          value={acceptAmount}
-                          onChange={(e) => setAcceptAmount(e.target.value)}
-                          className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
-                        />
-                        <input
-                          placeholder="Store name shown to buyer (e.g. Mama's Tuckshop)"
-                          value={acceptMerchantName}
-                          onChange={(e) => setAcceptMerchantName(e.target.value)}
-                          className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
-                        />
-                        <p className="text-xs text-slate-500">
-                          <Link href={user?._id ? '/pay/integrate' : '#'} className="text-sky-600 hover:underline">
-                            Add ACBPayWallet to your e-commerce site →
-                          </Link>
-                        </p>
-                        <div className="flex gap-2">
-                          <button onClick={() => setShowAcceptPayment(false)} className="rounded-lg border px-3 py-2 text-sm">Cancel</button>
-                          <button onClick={handleAcceptPaymentStep1} disabled={acceptSubmitting} className="rounded-lg bg-sky-500 px-4 py-2 text-sm font-semibold text-white">
-                            {acceptSubmitting ? <Loader2 className="inline h-4 w-4 animate-spin" /> : 'Request payment'}
-                          </button>
-                        </div>
-                      </>
-                    ) : acceptStep === 'waiting' ? (
-                      <>
-                        <div className="rounded-lg bg-amber-50 border border-amber-200 p-4 text-center">
-                          <Loader2 className="h-8 w-8 animate-spin text-amber-600 mx-auto mb-2" />
-                          <p className="font-semibold text-amber-900">Waiting for customer to confirm…</p>
-                        </div>
-                        <button
-                          onClick={() => {
-                            setAcceptStep('scan');
-                            setAcceptPaymentRequestId(null);
-                          }}
-                          className="rounded-lg border px-3 py-2 text-sm w-full mt-2"
-                        >
-                          Cancel
-                        </button>
-                      </>
-                    ) : acceptStep === 'done' ? (
-                      <>
-                        <div className="rounded-lg bg-emerald-50 border border-emerald-200 p-4 text-center text-emerald-800 font-semibold">
-                          Payment received
-                        </div>
-                        <button
-                          onClick={() => {
-                            setShowAcceptPayment(false);
-                            setAcceptStep('scan');
-                            setAcceptPayerId('');
-                            setAcceptAmount('');
-                            setAcceptPaymentRequestId(null);
-                          }}
-                          className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-white w-full"
-                        >
-                          New payment
-                        </button>
-                      </>
-                    ) : null}
-                  </div>
-                )}
-              </div>
-              )}
-
-{walletView === 'cash' && (
-              <>
-              {/* Merchant agent — cash-in / cash-out */}
-              <div className="rounded-2xl border border-white/60 bg-white/80 p-4 sm:p-5 shadow-xl shadow-sky-50 backdrop-blur">
-                <div className="mb-4 flex items-center gap-2">
-                  <Store className="h-5 w-5 text-sky-600" />
-                  <div>
-                    <p className="text-xs uppercase tracking-[0.2em] text-sky-600">Agent network</p>
-                    <h3 className="text-lg font-semibold text-slate-900">Merchant agents</h3>
-                  </div>
-                </div>
-                <p className="text-sm text-slate-600 mb-4">
-                  Become an approved agent after <strong>KYC verification</strong> and <strong>admin approval</strong>. You must run an <strong>active business</strong> and keep <strong>sufficient wallet float</strong> (top up or card) to move digital funds when customers deposit cash with you. Agents only transact when their ACBPayWallet has enough balance for each transaction.
-                </p>
-
-                {maApplicationStatus === 'suspended' && (
-                  <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">
-                    Your merchant agent access is suspended. Contact support.
-                  </div>
-                )}
-
-                {maApplicationStatus === 'pending' && (
-                  <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-                    <strong>Application under review.</strong> Admin will approve or reject your request. You cannot act as an agent until approved.
-                  </div>
-                )}
-
-                {maApplicationStatus === 'rejected' && maRejectionReason && (
-                  <div className="mb-4 rounded-lg border border-rose-100 bg-rose-50 p-3 text-sm text-rose-900">
-                    <strong>Previous application declined.</strong> {maRejectionReason}
-                  </div>
-                )}
-
-                {maCanApply && (
-                  <div className="rounded-xl border border-sky-100 bg-sky-50/50 p-4 mb-4 space-y-3">
-                    <p className="text-sm font-semibold text-slate-900">Apply to become a merchant agent</p>
-                    {!(user as any)?.isVerified && (
-                      <p className="text-xs text-amber-800">
-                        Complete <Link href="/profile" className="underline font-medium">KYC / account verification</Link> first.
-                      </p>
-                    )}
-                    {(user as any)?.isVerified && !(user as any)?.phone && (
-                      <p className="text-xs text-amber-800">
-                        Add a <Link href="/profile" className="underline font-medium">phone number</Link> on your profile.
-                      </p>
-                    )}
-                    <input
-                      placeholder="Registered business or trading name"
-                      value={maBusinessName}
-                      onChange={(e) => setMaBusinessName(e.target.value)}
-                      className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white"
-                    />
-                    <textarea
-                      placeholder="Describe your active operating business (min. 20 characters)"
-                      value={maBusinessDesc}
-                      onChange={(e) => setMaBusinessDesc(e.target.value)}
-                      rows={3}
-                      className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white"
-                    />
-                    <input
-                      placeholder="Public note when listed (location / hours)"
-                      value={maNote}
-                      onChange={(e) => setMaNote(e.target.value)}
-                      className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white"
-                    />
-                    <label className="flex items-start gap-2 text-xs text-slate-700 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={maKycCheck}
-                        onChange={(e) => setMaKycCheck(e.target.checked)}
-                        className="mt-0.5 rounded border-slate-300"
-                      />
-                      <span>
-                        I confirm my KYC details are accurate, I operate an active business, and I will maintain enough wallet float (by topping up) to settle cash deposits for customers.
-                      </span>
-                    </label>
-                    <button
-                      type="button"
-                      disabled={
-                        maApplySubmitting ||
-                        !maKycCheck ||
-                        maBusinessName.trim().length < 2 ||
-                        maBusinessDesc.trim().length < 20 ||
-                        !(user as any)?.isVerified ||
-                        !(user as any)?.phone
-                      }
-                      onClick={async () => {
-                        setMaApplySubmitting(true);
-                        try {
-                          await walletAPI.applyMerchantAgent({
-                            businessName: maBusinessName.trim(),
-                            businessDescription: maBusinessDesc.trim(),
-                            publicNote: maNote.trim(),
-                            kycAttestation: true,
-                          });
-                          toast.success('Application submitted');
-                          setMaKycCheck(false);
-                          loadMerchantAgent();
-                        } catch (e: any) {
-                          toast.error(e?.response?.data?.message || 'Could not submit');
-                        } finally {
-                          setMaApplySubmitting(false);
-                        }
-                      }}
-                      className="w-full rounded-lg bg-sky-600 py-2.5 text-sm font-semibold text-white hover:bg-sky-700 disabled:opacity-50"
-                    >
-                      {maApplySubmitting ? <Loader2 className="inline h-4 w-4 animate-spin" /> : 'Submit application'}
-                    </button>
-                  </div>
-                )}
-
-                {maIsApproved && maApplicationStatus !== 'suspended' && (
-                  <div className="rounded-xl border border-slate-100 bg-slate-50/80 p-4 mb-4">
-                    <label className="flex items-start gap-3 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={maEnabled}
-                        onChange={async (e) => {
-                          const v = e.target.checked;
-                          setMaEnabled(v);
-                          setMaSaving(true);
-                          try {
-                            await walletAPI.updateMerchantAgentSettings({ enabled: v, publicNote: maNote });
-                            toast.success(v ? 'Listed in agent search' : 'Hidden from agent search');
-                            loadMerchantAgent();
-                          } catch (err: any) {
-                            setMaEnabled(!v);
-                            toast.error(err?.response?.data?.message || 'Could not update');
-                          } finally {
-                            setMaSaving(false);
-                          }
-                        }}
-                        disabled={maSaving}
-                        className="mt-1 h-4 w-4 rounded border-slate-300 text-sky-600"
-                      />
-                      <span>
-                        <span className="font-semibold text-slate-900">Show me in agent search</span>
-                        <span className="block text-xs text-slate-600 mt-0.5">
-                          Users can find you for cash withdrawal. Keep wallet float via top-up for cash deposits.
-                        </span>
-                      </span>
-                    </label>
-                    <div className="mt-3">
-                      <label className="text-xs font-semibold text-slate-600">Public note</label>
-                      <input
-                        value={maNote}
-                        onChange={(e) => setMaNote(e.target.value)}
-                        placeholder="e.g. Rosebank Mall kiosk, weekdays 9–5"
-                        className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white"
-                      />
-                      <button
-                        type="button"
-                        disabled={maSaving}
-                        onClick={async () => {
-                          setMaSaving(true);
-                          try {
-                            await walletAPI.updateMerchantAgentSettings({ enabled: maEnabled, publicNote: maNote });
-                            toast.success('Saved');
-                            loadMerchantAgent();
-                          } catch (err: any) {
-                            toast.error(err?.response?.data?.message || 'Could not save');
-                          } finally {
-                            setMaSaving(false);
-                          }
-                        }}
-                        className="mt-2 rounded-lg bg-slate-800 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-900 disabled:opacity-50"
-                      >
-                        Save note
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {maPending && maPending.asCustomer && maPending.asCustomer.length > 0 && (
-                  <div className="mb-4 rounded-lg border border-emerald-100 bg-emerald-50/50 p-3">
-                    <p className="text-xs font-semibold text-emerald-800 uppercase mb-2">Pending deposit approvals</p>
-                    <div className="space-y-2">
-                      {maPending.asCustomer.map((tx: any) => (
-                        <div key={tx._id} className="flex flex-wrap items-center justify-between gap-2 text-sm">
-                          <span className="text-slate-700">
-                            {(tx.agent as any)?.name || (tx.agent as any)?.username} — R{Number(tx.amount).toFixed(2)}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={async () => {
-                              try {
-                                await walletAPI.approveAgentDeposit(String(tx._id));
-                                toast.success('Deposit approved');
-                                fetchWalletData();
-                                loadMerchantAgent();
-                              } catch (e: any) {
-                                toast.error(e?.response?.data?.message || 'Failed');
-                              }
-                            }}
-                            className="rounded-md bg-emerald-600 px-2 py-1 text-xs font-semibold text-white hover:bg-emerald-700"
-                          >
-                            Approve
-                          </button>
-                        </div>
                       ))}
                     </div>
-                  </div>
-                )}
-
-                {maPending && maPending.asAgent && maPending.asAgent.length > 0 && (
-                  <div className="mb-4 rounded-lg border border-amber-100 bg-amber-50/50 p-3">
-                    <p className="text-xs font-semibold text-amber-900 uppercase mb-2">Waiting on customer (cash deposit)</p>
-                    <p className="text-xs text-amber-800 mb-2">They must approve in the app after you sent the SMS link.</p>
-                    <div className="space-y-1 text-sm text-slate-700">
-                      {maPending.asAgent.map((tx: any) => (
-                        <div key={tx._id}>
-                          {(tx.customer as any)?.name || (tx.customer as any)?.username} — R{Number(tx.amount).toFixed(2)}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                <div className={`grid gap-4 ${maIsApproved ? 'md:grid-cols-2' : 'md:grid-cols-1'}`}>
-                  {maIsApproved && (
-                  <div className="rounded-xl border border-slate-100 p-3">
-                    <p className="text-sm font-semibold text-slate-900 mb-2">Agent: record cash deposit</p>
-                    <p className="text-xs text-slate-600 mb-3">
-                      Customer gave you cash — scan their wallet QR or enter username. They approve in the app (same as WhatsApp). Requires enough agent wallet float.
-                    </p>
-                    {!showAgentDepositScanner ? (
-                      <button
-                        type="button"
-                        onClick={() => setShowAgentDepositScanner(true)}
-                        className="w-full rounded-lg border-2 border-dashed border-sky-300 py-2 text-sm font-semibold text-sky-700 mb-2"
-                      >
-                        Scan customer QR
-                      </button>
-                    ) : (
-                      <WalletQrScanner
-                        title="Scan customer QR"
-                        onClose={() => setShowAgentDepositScanner(false)}
-                        onScan={(text) => {
-                          const id = parseAcbPayUserId(text);
-                          if (!id) {
-                            toast.error('Not a valid ACBPayWallet QR');
-                            return;
-                          }
-                          setMaDepositCustomerId(id);
-                          setShowAgentDepositScanner(false);
-                          toast.success('Customer scanned');
-                        }}
-                      />
-                    )}
-                    <input
-                      placeholder="Or customer username"
-                      value={maDepositUser}
-                      onChange={(e) => setMaDepositUser(e.target.value)}
-                      className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm mb-2"
-                    />
-                    <input
-                      type="number"
-                      placeholder="Amount (ZAR)"
-                      value={maDepositAmount}
-                      onChange={(e) => setMaDepositAmount(e.target.value)}
-                      className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm mb-2"
-                    />
-                    <button
-                      type="button"
-                      disabled={maDepositSubmitting || !maIsApproved}
-                      onClick={async () => {
-                        const amount = parseFloat(maDepositAmount);
-                        if (!amount || amount < 10) {
-                          toast.error('Minimum R10');
-                          return;
-                        }
-                        const cid =
-                          maDepositCustomerId.trim() ||
-                          (parseAcbPayUserId(maDepositUser.trim()) ?? '');
-                        if (!cid && !maDepositUser.trim()) {
-                          toast.error('Scan QR or enter customer username');
-                          return;
-                        }
-                        setMaDepositSubmitting(true);
-                        try {
-                          await walletAPI.initiateAgentDeposit({
-                            ...(cid && /^[a-f0-9]{24}$/i.test(cid)
-                              ? { customerUserId: cid }
-                              : { customerUsername: maDepositUser.trim() }),
-                            amount,
-                          });
-                          toast.success('SMS sent to customer');
-                          setMaDepositAmount('');
-                          loadMerchantAgent();
-                        } catch (e: any) {
-                          toast.error(e?.response?.data?.message || 'Failed');
-                        } finally {
-                          setMaDepositSubmitting(false);
-                        }
-                      }}
-                      className="w-full rounded-lg bg-sky-500 py-2 text-sm font-semibold text-white hover:bg-sky-600 disabled:opacity-50"
-                    >
-                      {maDepositSubmitting ? <Loader2 className="inline h-4 w-4 animate-spin" /> : 'Send approval SMS'}
-                    </button>
-                  </div>
                   )}
-
-                  <div className="rounded-xl border border-slate-100 p-3">
-                    <p className="text-sm font-semibold text-slate-900 mb-2">Get cash from an agent</p>
-                    <p className="text-xs text-slate-600 mb-3">Wallet balance is sent to the agent immediately — meet them to collect cash. Only use agents you trust.</p>
-                    <MerchantAgentPicker
-                      currentUserId={walletUserId}
-                      value={maWithdrawAgentId}
-                      onChange={setMaWithdrawAgentId}
-                    />
-                    <input
-                      type="number"
-                      placeholder="Amount (ZAR)"
-                      value={maWithdrawAmount}
-                      onChange={(e) => setMaWithdrawAmount(e.target.value)}
-                      className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm mb-2"
-                    />
-                    <button
-                      type="button"
-                      disabled={maWithdrawSubmitting}
-                      onClick={async () => {
-                        const amount = parseFloat(maWithdrawAmount);
-                        if (!amount || amount < 10) {
-                          toast.error('Minimum R10');
-                          return;
-                        }
-                        if (!maWithdrawAgentId) {
-                          toast.error('Select an agent');
-                          return;
-                        }
-                        if (amount > balance) {
-                          toast.error('Insufficient balance');
-                          return;
-                        }
-                        setMaWithdrawSubmitting(true);
-                        try {
-                          await walletAPI.initiateAgentWithdrawal({ agentId: maWithdrawAgentId, amount });
-                          toast.success('Funds sent to agent — collect cash from them');
-                          setMaWithdrawAmount('');
-                          fetchWalletData();
-                          loadMerchantAgent();
-                        } catch (e: any) {
-                          toast.error(e?.response?.data?.message || 'Failed');
-                        } finally {
-                          setMaWithdrawSubmitting(false);
-                        }
-                      }}
-                      className="w-full rounded-lg border-2 border-sky-500 py-2 text-sm font-semibold text-sky-600 hover:bg-sky-50 disabled:opacity-50"
-                    >
-                      {maWithdrawSubmitting ? <Loader2 className="inline h-4 w-4 animate-spin" /> : 'Send to agent & arrange pickup'}
-                    </button>
-                  </div>
                 </div>
 
-                {maIsApproved && maHistory.some((h: any) => h.kind === 'cash_withdrawal' && String(h.agent?._id || h.agent) === String(user?._id || user?.id) && !h.handoverConfirmedAt) && (
-                  <div className="mt-4 rounded-lg border border-slate-200 bg-white p-3">
-                    <p className="text-xs font-semibold text-slate-700 mb-2">Confirm cash handed out (withdrawals)</p>
-                    <div className="space-y-2">
-                      {maHistory
-                        .filter(
-                          (h: any) =>
-                            h.kind === 'cash_withdrawal' &&
-                            String(h.agent?._id || h.agent) === String(user?._id || user?.id) &&
-                            !h.handoverConfirmedAt
-                        )
-                        .slice(0, 8)
-                        .map((h: any) => (
-                          <div key={h._id} className="flex flex-wrap items-center justify-between gap-2 text-sm">
-                            <span className="text-slate-600">
-                              {(h.customer as any)?.name || (h.customer as any)?.username} — R{Number(h.amount).toFixed(2)}
-                            </span>
-                            <button
-                              type="button"
-                              onClick={async () => {
-                                try {
-                                  await walletAPI.confirmAgentHandover(String(h._id));
-                                  toast.success('Recorded');
-                                  loadMerchantAgent();
-                                } catch (e: any) {
-                                  toast.error(e?.response?.data?.message || 'Failed');
-                                }
-                              }}
-                              className="rounded-md bg-slate-700 px-2 py-1 text-xs font-medium text-white hover:bg-slate-800"
-                            >
-                              Cash handed
-                            </button>
-                          </div>
-                        ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-              </>
-              )}
-
-              {/* Cards - PayGate PayVault */}
-              <div className="rounded-2xl border border-white/60 bg-white/80 p-4 sm:p-5 shadow-xl shadow-sky-50 backdrop-blur">
-                <div className="mb-4 flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <CreditCard className="h-5 w-5 text-sky-600" />
-                    <div>
-                      <p className="text-xs uppercase tracking-[0.2em] text-sky-600">Scan & Pay</p>
-                      <h3 className="text-lg font-semibold text-slate-900">Your cards</h3>
-                    </div>
-                  </div>
-                  <button
-                    onClick={async () => {
-                      setAddCardLoading(true);
-                      try {
-                        const res = await walletAPI.addCard();
-                        if (res.data?.paymentUrl || res.data?.payGateRedirect) {
-                          openPayGatePayment({
-                            paymentUrl: res.data?.paymentUrl,
-                            payGateRedirect: res.data?.payGateRedirect,
-                          });
-                        } else toast.error('Could not add card');
-                      } catch (e: any) {
-                        toast.error(e?.response?.data?.message || 'Could not add card');
-                      } finally {
-                        setAddCardLoading(false);
-                      }
-                    }}
-                    disabled={addCardLoading}
-                    className="rounded-full bg-sky-500 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-600 disabled:opacity-50 flex items-center gap-2"
-                  >
-                    {addCardLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-                    Add card
-                  </button>
-                </div>
-                <p className="text-sm text-slate-600 mb-4">Store Visa/Mastercard securely. Pay at stores by scanning your QR—select a card and authorize. Like Apple Pay.</p>
-                {cards.length === 0 ? (
-                  <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/50 p-4 text-center">
-                    <CreditCard className="h-10 w-10 text-slate-300 mx-auto mb-2" />
-                    <p className="text-sm text-slate-600">No cards yet</p>
-                    <p className="text-xs text-slate-500 mt-1">Add a card to pay at stores with one tap</p>
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    {cards.map((c) => (
-                      <div key={c._id} className="flex items-center justify-between rounded-xl border border-slate-100 bg-white p-4">
-                        <div className="flex items-center gap-3">
-                          <div className="h-10 w-10 rounded-lg bg-slate-100 flex items-center justify-center">
-                            <CreditCard className="h-5 w-5 text-slate-600" />
-                          </div>
-                          <div>
-                            <p className="font-semibold text-slate-900">{c.brand} •••• {c.last4}</p>
-                            <p className="text-xs text-slate-500">Expires {String(c.expiryMonth).padStart(2, '0')}/{c.expiryYear}</p>
-                          </div>
-                          {c.isDefault && (
-                            <span className="rounded-full bg-sky-100 px-2 py-0.5 text-xs font-semibold text-sky-700">Default</span>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-2">
-                          {!c.isDefault && (
-                            <button
-                              onClick={async () => {
-                                try {
-                                  await walletAPI.setDefaultCard(c._id);
-                                  const r = await walletAPI.getCards();
-                                  setCards(r.data ?? []);
-                                } catch {
-                                  toast.error('Could not set default');
-                                }
-                              }}
-                              className="text-xs font-medium text-sky-600 hover:text-sky-700"
-                            >
-                              Set default
-                            </button>
-                          )}
-                          <button
-                            onClick={async () => {
-                              if (!confirm('Remove this card?')) return;
-                              try {
-                                await walletAPI.deleteCard(c._id);
-                                setCards((prev) => prev.filter((x) => x._id !== c._id));
-                                toast.success('Card removed');
-                              } catch {
-                                toast.error('Could not remove card');
-                              }
-                            }}
-                            className="p-2 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50"
-                            aria-label="Remove card"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              <div className="rounded-2xl border border-white/60 bg-white/80 p-4 sm:p-5 shadow-xl shadow-sky-50 backdrop-blur">
-                <div className="mb-6">
-                  <p className="text-xs uppercase tracking-[0.2em] text-sky-600">Quick topup</p>
-                  <h3 className="mt-1 text-2xl font-semibold text-slate-900">Add funds now</h3>
-                </div>
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-semibold text-slate-700 mb-2">Amount (ZAR)</label>
-                    <input
-                      type="number"
-                      placeholder="Enter amount..."
-                      value={topUpAmount}
-                      onChange={(e) => setTopUpAmount(e.target.value)}
-                      className="w-full rounded-lg border border-slate-200 bg-white/80 px-4 py-3 text-lg font-semibold text-slate-900 transition focus:border-sky-300 focus:outline-none focus:ring-2 focus:ring-sky-100"
-                    />
-                  </div>
-                  <div className="grid grid-cols-4 gap-3">
-                    {[50, 100, 250, 500].map((amt) => (
+                <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Linked cards</p>
+                  {cards.length === 0 ? (
+                    <div className="mt-6">
+                      <p className="font-semibold text-slate-900">No cards linked</p>
+                      <p className="mt-1 text-sm text-slate-500">Add a debit/credit card for faster transactions.</p>
                       <button
-                        key={amt}
-                        onClick={() => setTopUpAmount(amt.toString())}
-                        className="rounded-lg border border-slate-200 bg-white/80 px-3 py-2 text-sm font-semibold text-slate-700 transition hover:border-sky-300 hover:bg-sky-50"
+                        type="button"
+                        onClick={() => setShowCardsModal(true)}
+                        className="mt-4 rounded-full bg-sky-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-sky-700"
                       >
-                        +R{amt}
+                        Link Card
                       </button>
-                    ))}
-                  </div>
-                  <button
-                    onClick={handleTopUp}
-                    disabled={isSubmitting || !topUpAmount}
-                    className="w-full rounded-full bg-gradient-to-r from-sky-500 via-cyan-500 to-teal-500 px-6 py-3 font-semibold text-white shadow-lg shadow-sky-200 transition hover:scale-[1.01] disabled:opacity-50"
-                  >
-                    {isSubmitting ? <Loader2 className="inline h-4 w-4 animate-spin mr-2" /> : null}
-                    Top up ACBPayWallet
-                  </button>
-                </div>
-              </div>
-
-              <div className="rounded-2xl border border-white/60 bg-white/80 p-4 sm:p-5 shadow-xl shadow-sky-50 backdrop-blur">
-                <div className="mb-6">
-                  <p className="text-xs uppercase tracking-[0.2em] text-sky-600">Withdraw</p>
-                  <h3 className="mt-1 text-2xl font-semibold text-slate-900">Withdraw to bank</h3>
-                </div>
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-semibold text-slate-700 mb-2">Amount (ZAR)</label>
-                    <input
-                      type="number"
-                      placeholder="Enter amount..."
-                      value={withdrawAmount}
-                      onChange={(e) => setWithdrawAmount(e.target.value)}
-                      className="w-full rounded-lg border border-slate-200 bg-white/80 px-4 py-3 text-lg font-semibold text-slate-900 transition focus:border-sky-300 focus:outline-none focus:ring-2 focus:ring-sky-100"
-                    />
-                  </div>
-                  <p className="text-xs text-slate-600">Min R10. Withdrawals processed within 24 hours.</p>
-                  <div className="grid grid-cols-4 gap-3">
-                    {[50, 100, 250, 500].map((amt) => (
+                    </div>
+                  ) : (
+                    <div className="mt-4 space-y-2">
+                      {cards.map((c) => (
+                        <div key={c._id} className="flex items-center justify-between rounded-xl border border-slate-100 bg-slate-50 px-3 py-2.5 text-sm">
+                          <span className="font-medium text-slate-900">
+                            {c.brand} •••• {c.last4}
+                          </span>
+                          {c.isDefault ? <span className="text-xs font-semibold text-sky-600">Default</span> : null}
+                        </div>
+                      ))}
                       <button
-                        key={amt}
-                        onClick={() => setWithdrawAmount(amt.toString())}
-                        disabled={amt > balance}
-                        className="rounded-lg border border-slate-200 bg-white/80 px-3 py-2 text-sm font-semibold text-slate-700 transition hover:border-sky-300 hover:bg-sky-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                        type="button"
+                        onClick={() => setShowCardsModal(true)}
+                        className="mt-2 text-sm font-semibold text-sky-600 hover:text-sky-700"
                       >
-                        R{amt}
+                        Manage cards
                       </button>
-                    ))}
-                  </div>
-                  <button
-                    onClick={handleWithdraw}
-                    disabled={isWithdrawing || !withdrawAmount || parseFloat(withdrawAmount) < 10 || parseFloat(withdrawAmount) > balance}
-                    className="w-full rounded-full border-2 border-sky-500 bg-white px-6 py-3 font-semibold text-sky-600 shadow-lg shadow-sky-100 transition hover:bg-sky-50 disabled:opacity-50"
-                  >
-                    {isWithdrawing ? <Loader2 className="inline h-4 w-4 animate-spin mr-2" /> : <ArrowDownToLine className="inline h-4 w-4 mr-2" />}
-                    Withdraw funds
-                  </button>
+                    </div>
+                  )}
                 </div>
               </div>
 
-              <div className="rounded-2xl border border-white/60 bg-white/80 p-4 sm:p-5 shadow-xl shadow-sky-50 backdrop-blur">
-                <div className="mb-6 flex items-center justify-between">
-                  <div>
-                    <p className="text-xs uppercase tracking-[0.2em] text-sky-600">History</p>
-                    <h3 className="mt-1 text-2xl font-semibold text-slate-900">Recent transactions</h3>
-                  </div>
-                  <span className="rounded-full bg-sky-100 px-3 py-1 text-xs font-semibold text-sky-700">
-                    {transactions.length} total
-                  </span>
+              <div className="grid gap-3 md:grid-cols-2">
+                <div id="wallet-qr-card" className="scroll-mt-24">
+                  <WalletQrCard
+                    payload={qrPayload}
+                    displayName={qrDisplayName}
+                    phoneVerified={phoneVerified}
+                    onNeedPhone={() => setShowPhoneVerify(true)}
+                  />
                 </div>
 
-                {transactions.length === 0 ? (
-                  <div className="py-12 text-center text-slate-600">
-                    <DollarSign className="mx-auto mb-3 h-12 w-12 text-slate-300" />
-                    <p className="font-semibold text-slate-900">No transactions yet</p>
-                    <p className="text-sm">Top up or complete tasks to get started.</p>
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    {transactions.map((tx, idx) => (
-                      <WalletTransactionRow
-                        key={tx.reference ? `${tx.reference}-${idx}` : idx}
-                        tx={tx}
-                        icon={getTransactionIcon(tx.type)}
-                        amountClassName={getTransactionColor(tx.type)}
-                        amountPrefix={['topup', 'refund', 'credit'].includes(tx.type) ? '+' : '-'}
-                      />
-                    ))}
-                  </div>
-                )}
+                <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Monthly summary</p>
+                  <dl className="mt-4 space-y-3 text-sm">
+                    <div className="flex items-center justify-between">
+                      <dt className="text-slate-600">Funds In</dt>
+                      <dd className="font-semibold text-emerald-600">R {monthlyFundsIn.toFixed(0)}</dd>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <dt className="text-slate-600">Funds Out</dt>
+                      <dd className="font-semibold text-slate-900">R {monthlyFundsOut.toFixed(0)}</dd>
+                    </div>
+                    <div className="border-t border-slate-100 pt-3 flex items-center justify-between">
+                      <dt className="font-semibold text-slate-900">Balance</dt>
+                      <dd className="text-lg font-bold text-sky-600">R {balance.toFixed(0)}</dd>
+                    </div>
+                  </dl>
+                </div>
               </div>
+
             </div>
           </div>
           )}
@@ -1714,7 +1182,323 @@ function WalletDashboard() {
         </div>
       )}
 
+      <PhoneVerifyModal
+        open={showPhoneVerify}
+        userId={walletUserId}
+        onClose={() => setShowPhoneVerify(false)}
+        onSaved={() => void refreshUser()}
+      />
+      <QrScannerModal
+        open={showScanQr}
+        onClose={() => setShowScanQr(false)}
+        phoneVerified={phoneVerified}
+        onNeedPhone={() => setShowPhoneVerify(true)}
+        onPaid={() => void fetchWalletData()}
+      />
+      <PayAtShopFlow
+        open={showPayAtShop}
+        onClose={() => setShowPayAtShop(false)}
+        balance={balance}
+        cards={cards}
+        initialPendingId={pendingPaymentId}
+        pending={pendingPayment}
+        onTopUp={openWalletTopUp}
+        onComplete={() => {
+          void fetchWalletData();
+          setPendingPayment(null);
+          setPendingPaymentId(null);
+          clearWalletQueryParams();
+        }}
+      />
+      <PayMoneyFlow
+        open={showPayMoney}
+        onClose={() => setShowPayMoney(false)}
+        balance={balance}
+        moneyRequests={moneyRequests}
+        highlightRequestId={payRequestId}
+        onPay={(id) => void handlePayRequest(id)}
+        payingId={payingRequestId}
+      />
+      <CashAgentsFlow
+        open={showCashAgents}
+        onClose={() => setShowCashAgents(false)}
+        balance={balance}
+        walletUserId={walletUserId}
+        userPhone={(user as { phone?: string })?.phone}
+        username={(user as { username?: string })?.username}
+        displayName={qrDisplayName}
+        onRefresh={() => {
+          void fetchWalletData();
+          void loadMerchantAgent();
+        }}
+      />
+
+      <FlowModal open={showAddFunds} title="Add Funds" onClose={() => setShowAddFunds(false)} maxWidthClass="max-w-md">
+        <p className="text-sm text-slate-600 mb-4">Top up your wallet securely via PayGate.</p>
+        <label className="block text-sm font-medium text-slate-700 mb-1">Amount (ZAR)</label>
+        <input
+          type="number"
+          value={topUpAmount}
+          onChange={(e) => setTopUpAmount(e.target.value)}
+          placeholder="e.g. 100"
+          className="w-full rounded-lg border border-slate-200 px-3 py-2 mb-4"
+        />
+        <button
+          type="button"
+          onClick={() => void handleTopUp()}
+          disabled={isSubmitting}
+          className="w-full rounded-full bg-sky-600 py-3 text-sm font-semibold text-white hover:bg-sky-700 disabled:opacity-50"
+        >
+          {isSubmitting ? <Loader2 className="inline h-4 w-4 animate-spin" /> : 'Continue to payment'}
+        </button>
+      </FlowModal>
+
+      <FlowModal open={showWithdraw} title="Withdraw" onClose={() => setShowWithdraw(false)} maxWidthClass="max-w-md">
+        <p className="text-sm text-slate-600 mb-1">
+          Available: <strong>R{balance.toFixed(2)}</strong>
+        </p>
+        <p className="text-xs text-slate-500 mb-4">Minimum withdrawal R10. Processed within 24 hours.</p>
+        <label className="block text-sm font-medium text-slate-700 mb-1">Amount (ZAR)</label>
+        <input
+          type="number"
+          value={withdrawAmount}
+          onChange={(e) => setWithdrawAmount(e.target.value)}
+          placeholder="e.g. 50"
+          className="w-full rounded-lg border border-slate-200 px-3 py-2 mb-4"
+        />
+        <button
+          type="button"
+          onClick={() => void handleWithdraw()}
+          disabled={isWithdrawing}
+          className="w-full rounded-full bg-sky-600 py-3 text-sm font-semibold text-white hover:bg-sky-700 disabled:opacity-50"
+        >
+          {isWithdrawing ? <Loader2 className="inline h-4 w-4 animate-spin" /> : 'Request withdrawal'}
+        </button>
+      </FlowModal>
+
+      <FlowModal open={showReceive} title="Receive" onClose={() => setShowReceive(false)} maxWidthClass="max-w-md">
+        <button
+          type="button"
+          onClick={() => {
+            setShowReceive(false);
+            setShowRequestMoney(true);
+          }}
+          className="mb-6 text-sm font-semibold text-sky-600 hover:text-sky-700"
+        >
+          Request money from someone →
+        </button>
+        {isMerchantWallet ? (
+          <button
+            type="button"
+            onClick={() => {
+              setShowReceive(false);
+              setShowAcceptPayment(true);
+              setAcceptStep('scan');
+            }}
+            className="w-full rounded-full bg-sky-600 py-3.5 text-sm font-semibold text-white hover:bg-sky-700"
+          >
+            Accept in-store payment
+          </button>
+        ) : (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+            <p className="font-semibold">Store owner?</p>
+            <p className="mt-1">Apply as an approved supplier to accept in-store QR payments.</p>
+            <Link href="/supplier/apply" className="mt-2 inline-block font-semibold text-sky-700 hover:underline">
+              Apply as supplier →
+            </Link>
+          </div>
+        )}
+      </FlowModal>
+
+      {showAcceptPayment && (
+        <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-black/50 p-0 sm:p-4">
+          <div className="w-full max-w-md max-h-[92dvh] overflow-hidden rounded-t-2xl sm:rounded-2xl bg-white shadow-xl flex flex-col">
+            <div className="flex items-center gap-2 border-b border-slate-100 px-4 py-3">
+              <h2 className="flex-1 text-lg font-semibold text-slate-900 truncate">Accept payment</h2>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowAcceptPayment(false);
+                  setAcceptStep('scan');
+                  setAcceptPaymentRequestId(null);
+                  setShowMerchantScanner(false);
+                }}
+                className="rounded-lg p-2 text-slate-500 hover:bg-slate-100"
+                aria-label="Close"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4">
+              <p className="text-sm text-slate-600 mb-4">
+                Scan customer QR → enter amount → they confirm in their wallet.
+              </p>
+              {acceptStep === 'scan' ? (
+                <div className="space-y-3">
+                  <input
+                    placeholder="Payer ID from QR (e.g. ACBPAY:...)"
+                    value={acceptPayerId}
+                    onChange={(e) => setAcceptPayerId(e.target.value)}
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                  />
+                  {!showMerchantScanner ? (
+                    <button
+                      type="button"
+                      onClick={() => setShowMerchantScanner(true)}
+                      className="w-full rounded-lg border-2 border-dashed border-sky-300 py-3 text-sm font-semibold text-sky-700 hover:bg-sky-50"
+                    >
+                      Scan customer QR
+                    </button>
+                  ) : (
+                    <WalletQrScanner
+                      title="Scan customer QR"
+                      onClose={() => setShowMerchantScanner(false)}
+                      onScan={(text) => {
+                        const id = parseAcbPayUserId(text);
+                        if (!id) {
+                          toast.error('Not a valid ACBPayWallet QR');
+                          return;
+                        }
+                        setAcceptPayerId(`ACBPAY:${id}`);
+                        setShowMerchantScanner(false);
+                      }}
+                    />
+                  )}
+                  <input
+                    type="number"
+                    placeholder="Amount (ZAR)"
+                    value={acceptAmount}
+                    onChange={(e) => setAcceptAmount(e.target.value)}
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                  />
+                  <input
+                    placeholder="Store name shown to buyer"
+                    value={acceptMerchantName}
+                    onChange={(e) => setAcceptMerchantName(e.target.value)}
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                  />
+                  <div className="flex gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => setShowAcceptPayment(false)}
+                      className="flex-1 rounded-lg border border-slate-200 py-2.5 text-sm font-semibold"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleAcceptPaymentStep1()}
+                      disabled={acceptSubmitting}
+                      className="flex-1 rounded-lg bg-sky-600 py-2.5 text-sm font-semibold text-white hover:bg-sky-700 disabled:opacity-50"
+                    >
+                      {acceptSubmitting ? <Loader2 className="inline h-4 w-4 animate-spin" /> : 'Request payment'}
+                    </button>
+                  </div>
+                </div>
+              ) : acceptStep === 'waiting' ? (
+                <div className="space-y-3">
+                  <div className="rounded-lg border border-amber-200 bg-amber-50 p-6 text-center">
+                    <Loader2 className="mx-auto mb-2 h-8 w-8 animate-spin text-amber-600" />
+                    <p className="font-semibold text-amber-900">Waiting for customer to confirm…</p>
+                    <p className="mt-2 text-xs text-amber-800">Customer confirms in their wallet app.</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAcceptStep('scan');
+                      setAcceptPaymentRequestId(null);
+                    }}
+                    className="w-full rounded-lg border border-slate-200 py-2.5 text-sm font-semibold"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-6 text-center font-semibold text-emerald-800">
+                    Payment received
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAcceptStep('scan');
+                      setAcceptPayerId('');
+                      setAcceptAmount('');
+                      setAcceptPaymentRequestId(null);
+                    }}
+                    className="w-full rounded-full bg-sky-600 py-3 text-sm font-semibold text-white hover:bg-sky-700"
+                  >
+                    New payment
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showCardsModal && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md max-h-[90dvh] overflow-y-auto rounded-2xl bg-white p-6 shadow-xl">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-xl font-bold text-slate-900">Linked cards</h3>
+              <button type="button" onClick={() => setShowCardsModal(false)} className="text-slate-500">Close</button>
+            </div>
+            {cards.length === 0 ? (
+              <p className="text-sm text-slate-600 mb-4">No cards linked yet.</p>
+            ) : (
+              <div className="space-y-2 mb-4">
+                {cards.map((c) => (
+                  <div key={c._id} className="flex justify-between rounded-lg border p-3 text-sm">
+                    <span>{c.brand} •••• {c.last4}</span>
+                    {c.isDefault ? <span className="text-sky-600 font-medium">Default</span> : null}
+                  </div>
+                ))}
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={async () => {
+                setAddCardLoading(true);
+                try {
+                  const res = await walletAPI.addCard();
+                  if (res.data?.paymentUrl || res.data?.payGateRedirect) {
+                    openPayGatePayment({ paymentUrl: res.data.paymentUrl, payGateRedirect: res.data.payGateRedirect });
+                  }
+                } catch {
+                  toast.error('Could not add card');
+                } finally {
+                  setAddCardLoading(false);
+                }
+              }}
+              disabled={addCardLoading}
+              className="w-full rounded-full bg-sky-500 py-3 font-semibold text-white disabled:opacity-50"
+            >
+              {addCardLoading ? 'Starting…' : 'Link new card'}
+            </button>
+          </div>
+        </div>
+      )}
+
       <MobileBottomNav cartCount={cartCount} hasStore={hasStore} />
+      <style jsx global>{`
+        [data-wallet-page] button:not(:disabled),
+        [data-wallet-page] a[href],
+        [data-wallet-page] [role='button']:not([aria-disabled='true']),
+        [data-wallet-page] input[type='button']:not(:disabled),
+        [data-wallet-page] input[type='submit']:not(:disabled),
+        [data-wallet-page] input[type='reset']:not(:disabled),
+        [data-wallet-page] summary {
+          cursor: pointer;
+        }
+
+        [data-wallet-page] button:disabled,
+        [data-wallet-page] input:disabled,
+        [data-wallet-page] select:disabled,
+        [data-wallet-page] textarea:disabled {
+          cursor: not-allowed;
+        }
+      `}</style>
     </div>
   );
 }

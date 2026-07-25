@@ -11,6 +11,7 @@ import {
   View,
 } from "react-native";
 import { messengerAPI } from "../lib/api";
+import { MorongwaPstnCallFab } from "../components/MorongwaPstnCallFab";
 import { directCallRoomId } from "../lib/callRoom";
 import type { MessengerConversation, MessengerMessageRow, User } from "../types";
 
@@ -194,7 +195,8 @@ export function MessagesScreen({ currentUserId, onRequestVideoCall, onRequestVoi
 
   if (thread) {
     return (
-      <View style={styles.threadWrap}>
+      <View style={styles.screenWrap}>
+        <View style={styles.threadWrap}>
         <View style={styles.threadHeader}>
           <Pressable onPress={() => setThread(null)} style={styles.backPill}>
             <Text style={styles.backPillText}>← Back</Text>
@@ -241,11 +243,14 @@ export function MessagesScreen({ currentUserId, onRequestVideoCall, onRequestVoi
             <Text style={styles.sendBtnText}>{sending ? "…" : "Send"}</Text>
           </Pressable>
         </View>
+        </View>
+        <MorongwaPstnCallFab />
       </View>
     );
   }
 
   return (
+    <View style={styles.screenWrap}>
     <View style={styles.container}>
       <View style={styles.hero}>
         <Text style={styles.heroTitle}>Qwertymates Chat</Text>
@@ -311,10 +316,13 @@ export function MessagesScreen({ currentUserId, onRequestVideoCall, onRequestVoi
         />
       )}
     </View>
+    <MorongwaPstnCallFab />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  screenWrap: { flex: 1 },
   container: { flex: 1, gap: 8, backgroundColor: "#eef3f9" },
   hero: {
     borderWidth: 1,

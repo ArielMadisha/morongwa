@@ -74,6 +74,7 @@ export function CallScreen({
   const pendingOfferRef = useRef<{ type?: string; sdp?: string } | null>(null);
   const ringTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const connectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const callAcceptHandledRef = useRef(false);
   /** User id to send ICE / hangup to (other party). */
   const iceTargetRef = useRef("");
   const roomRef = useRef(roomId);
@@ -107,6 +108,7 @@ export function CallScreen({
     pendingIceRef.current = [];
     pendingAcceptRef.current = false;
     pendingOfferRef.current = null;
+    callAcceptHandledRef.current = false;
   }, []);
 
   const markCallConnected = useCallback(() => {
@@ -340,6 +342,7 @@ export function CallScreen({
     }
     setBusy(true);
     try {
+      callAcceptHandledRef.current = false;
       iceTargetRef.current = peer;
       connectSocket();
       const s = signaling.current.connect();
@@ -546,6 +549,8 @@ export function CallScreen({
     };
 
     const onCallAccept = async () => {
+      if (callAcceptHandledRef.current) return;
+      callAcceptHandledRef.current = true;
       try {
         await sendOfferToPeer();
       } catch (e) {

@@ -48,6 +48,7 @@ export function AuthLandingLayout({ children, eyebrow, topInset }: Props) {
 
 const styles = StyleSheet.create({
   root: {
+    flex: 1,
     backgroundColor: "#f8fafc"
   },
   orb: {

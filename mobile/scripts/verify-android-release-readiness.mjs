@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Pre-flight for June 2026 backlog Android release (v1.3.1 + calls + status viewer).
+ * Pre-flight for Android Play release (blank-screen fix v1.3.4 + June backlog).
  */
 import fs from "fs";
 import path from "path";
@@ -17,12 +17,12 @@ const fail = (m) => {
   exit = 1;
 };
 
-console.log("Qwertymates — Android release readiness (June 2026 backlog)\n");
+console.log("Qwertymates — Android release readiness (blank-screen fix + June backlog)\n");
 
 const appJson = JSON.parse(fs.readFileSync(path.join(mobileRoot, "app.json"), "utf8"));
 const version = appJson?.expo?.version;
-if (version === "1.3.1") ok(`app.json version ${version}`);
-else fail(`app.json version expected 1.3.1, got ${version}`);
+if (version === "1.3.4" || version === "1.3.3" || version === "1.3.2" || version === "1.3.1") ok(`app.json version ${version}`);
+else fail(`app.json version expected 1.3.4 (or 1.3.1–1.3.3), got ${version}`);
 
 const pluginPath = path.join(mobileRoot, "plugins", "withAndroidDeviceCompatibility.js");
 if (fs.existsSync(pluginPath)) ok("withAndroidDeviceCompatibility.js present");

@@ -402,6 +402,9 @@ export interface PaymentCallbackResult {
   success: boolean;
   reference: string;
   status: string;
+  transactionStatus?: string;
+  resultCode?: string;
+  resultDesc?: string;
   vaultId?: string;
   payvaultData1?: string;
   payvaultData2?: string;
@@ -419,17 +422,26 @@ export const processPaymentCallback = async (
       throw new Error("Invalid webhook signature");
     }
 
-    const status = callbackData.TRANSACTION_STATUS === "1" ? "successful" : "failed";
+    const transactionStatus = String(callbackData.TRANSACTION_STATUS ?? "").trim();
+    const status = transactionStatus === "1" ? "successful" : "failed";
+    const resultCode = String(callbackData.RESULT_CODE ?? "").trim() || undefined;
+    const resultDesc = String(callbackData.RESULT_DESC ?? "").trim() || undefined;
 
     logger.info("Payment callback processed", {
       reference: callbackData.REFERENCE,
       status,
+      transactionStatus,
+      resultCode,
+      resultDesc,
     });
 
     const result: PaymentCallbackResult = {
       success: true,
       reference: callbackData.REFERENCE,
       status,
+      transactionStatus,
+      resultCode,
+      resultDesc,
     };
     if (callbackData.VAULT_ID) result.vaultId = callbackData.VAULT_ID;
     if (callbackData.PAYVAULT_DATA_1) result.payvaultData1 = callbackData.PAYVAULT_DATA_1;

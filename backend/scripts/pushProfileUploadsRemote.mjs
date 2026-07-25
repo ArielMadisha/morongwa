@@ -1,9 +1,10 @@
 /**
- * SFTP local backend/uploads/profiles/school-* images to the production host
+ * SFTP local backend/uploads/profiles images to the production host
  * (backend tarball deploy excludes uploads/, so backfill output must be synced separately).
  *
  *   node scripts/pushProfileUploadsRemote.mjs
  *   node scripts/pushProfileUploadsRemote.mjs --user-id=69cd1cb9703cf9d7f5bb8575
+ *   node scripts/pushProfileUploadsRemote.mjs --prefix=aturetutu
  */
 import fs from "fs";
 import path from "path";
@@ -37,7 +38,9 @@ function resolveRemoteBackendRoot(cfg) {
 
 async function main() {
   const userIdArg = process.argv.find((a) => a.startsWith("--user-id="));
+  const prefixArg = process.argv.find((a) => a.startsWith("--prefix="));
   const userId = userIdArg ? userIdArg.split("=")[1]?.trim() : "";
+  const namePrefix = prefixArg ? prefixArg.split("=")[1]?.trim() : "school-";
 
   const profilesDir = path.join(__dirname, "..", "uploads", "profiles");
   if (!fs.existsSync(profilesDir)) {
@@ -47,12 +50,12 @@ async function main() {
 
   let files = fs
     .readdirSync(profilesDir)
-    .filter((f) => f.startsWith("school-") && /\.(jpe?g|png|gif|webp)$/i.test(f));
+    .filter((f) => f.startsWith(namePrefix) && /\.(jpe?g|png|gif|webp)$/i.test(f));
   if (userId) {
-    files = files.filter((f) => f.includes(`school-${userId}-`));
+    files = files.filter((f) => f.includes(`-${userId}-`) || f.includes(`school-${userId}-`));
   }
   if (files.length === 0) {
-    console.log("No matching school profile images — nothing to sync.");
+    console.log(`No matching profile images (${namePrefix}*) — nothing to sync.`);
     process.exit(0);
   }
 

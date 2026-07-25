@@ -1,9 +1,13 @@
 import Store from "../data/models/Store";
 import {
-  deliveryLocalityMatchesZone,
   resolveWarehouseLocalZoneFromName,
   type QwertymatesWarehouseLocalZone,
 } from "../config/qwertymatesWarehouses";
+import {
+  deliveryMatchesProductFreeShipping,
+  productUsesExplicitFreeShipping,
+  resolveProductFreeShippingZone,
+} from "./productFreeShipping";
 import type { ShippingStoreGroup } from "./checkoutShipping";
 import { resolveStoreCourierLane } from "./storeGroupCourierLane";
 
@@ -41,24 +45,7 @@ export function resolveProductWarehouseFreeLocal(
   product: Record<string, unknown>,
   supplierStoreName?: string | null
 ): QwertymatesWarehouseLocalZone | null {
-  const city = String(product.warehouseFreeLocalCity || "").trim();
-  const country = String(product.warehouseFreeLocalCountry || "")
-    .trim()
-    .toUpperCase();
-  if (city && country) {
-    const fromFields = resolveWarehouseLocalZoneFromName(
-      `Qwertymates - ${city} Warehouse (${country})`
-    );
-    if (fromFields && fromFields.city === city && fromFields.countryCode === country) {
-      return fromFields;
-    }
-  }
-
-  const populatedName =
-    supplierStoreName ||
-    (product.supplierId as { storeName?: string } | undefined)?.storeName ||
-    null;
-  return resolveWarehouseLocalZoneFromName(populatedName);
+  return resolveProductFreeShippingZone(product, supplierStoreName);
 }
 
 function cartItemGroupKey(
@@ -83,7 +70,7 @@ export function storeGroupQualifiesForWarehouseFreeLocal(params: {
   productMap: Map<string, Record<string, unknown>>;
   storeBySupplier: Map<string, { _id: unknown; name?: string }>;
   delivery: DeliveryLocalityInput;
-}): { qualifies: boolean; zone?: QwertymatesWarehouseLocalZone } {
+}): { qualifies: boolean; zone?: QwertymatesWarehouseLocalZone; freeDeliveryLabel?: string } {
   const itemsInGroup = params.cartItems.filter(
     (item) =>
       cartItemGroupKey(item, params.productMap, params.storeBySupplier) === params.group.groupKey
@@ -91,9 +78,22 @@ export function storeGroupQualifiesForWarehouseFreeLocal(params: {
   if (itemsInGroup.length === 0) return { qualifies: false };
 
   let zone: QwertymatesWarehouseLocalZone | null = null;
+  let freeDeliveryLabel: string | undefined;
+  let usesExplicit = false;
+
   for (const item of itemsInGroup) {
     const product = params.productMap.get(String(item.productId ?? ""));
     if (!product) return { qualifies: false };
+
+    const match = deliveryMatchesProductFreeShipping(product, params.delivery);
+    if (!match.matches) return { qualifies: false };
+    if (!freeDeliveryLabel && match.label) freeDeliveryLabel = match.label;
+
+    if (productUsesExplicitFreeShipping(product)) {
+      usesExplicit = true;
+      continue;
+    }
+
     const productZone = resolveProductWarehouseFreeLocal(product);
     if (!productZone) return { qualifies: false };
     if (!zone) zone = productZone;
@@ -102,17 +102,31 @@ export function storeGroupQualifiesForWarehouseFreeLocal(params: {
     }
   }
 
+  if (usesExplicit && !zone) {
+    const origin = String(params.group.originCountryCode || "").toUpperCase();
+    const allSameOrigin = itemsInGroup.every((item) => {
+      const product = params.productMap.get(String(item.productId ?? ""));
+      if (!product || !Array.isArray(product.freeShippingAreas)) return false;
+      return (product.freeShippingAreas as Array<{ countryCode: string }>).some(
+        (a) => String(a.countryCode || "").toUpperCase() === origin
+      );
+    });
+    if (!allSameOrigin) return { qualifies: false };
+    return {
+      qualifies: true,
+      freeDeliveryLabel: freeDeliveryLabel || "Free delivery",
+    };
+  }
+
   if (!zone) return { qualifies: false };
   const origin = String(params.group.originCountryCode || zone.countryCode).toUpperCase();
   if (origin !== zone.countryCode) return { qualifies: false };
 
-  const qualifies = deliveryLocalityMatchesZone({
-    deliveryCountry: params.delivery.deliveryCountry,
-    deliveryCity: params.delivery.deliveryCity,
-    deliveryAddress: params.delivery.deliveryAddress,
+  return {
+    qualifies: true,
     zone,
-  });
-  return qualifies ? { qualifies: true, zone } : { qualifies: false };
+    freeDeliveryLabel: freeDeliveryLabel || zone.freeDeliveryLabel,
+  };
 }
 
 export async function loadStoreBySupplierMap(

@@ -1,7 +1,9 @@
+import crypto from "crypto";
 import Wallet from "../data/models/Wallet";
 import WalletPaymentRequest from "../data/models/WalletPaymentRequest";
 import AuditLog from "../data/models/AuditLog";
 import { AppError } from "../middleware/errorHandler";
+import { getOtpSecret } from "../utils/secrets";
 import { emitWalletPaymentCompleted } from "./notification";
 
 export type PendingStorePaymentRow = {
@@ -112,4 +114,28 @@ export async function settlePendingStorePaymentWithWallet(
     balance: payerWallet.balance,
     reference: String(pr.reference || ""),
   };
+}
+
+/** Payer confirms in-store charge with SMS OTP (Pay at Shop). */
+export async function settlePendingStorePaymentWithOtp(
+  payerUserId: string,
+  paymentRequestId: string,
+  otp: string
+): Promise<{ amount: number; merchantName: string; balance: number; reference: string }> {
+  const pr = await WalletPaymentRequest.findById(paymentRequestId);
+  if (!pr) throw new AppError("Payment request not found", 404);
+  if (pr.status !== "pending") throw new AppError("Payment already completed or expired", 400);
+  if (String(pr.fromUser) !== String(payerUserId)) {
+    throw new AppError("You are not the payer for this payment", 403);
+  }
+  if (new Date() > pr.otpExpiresAt) {
+    pr.status = "expired";
+    await pr.save();
+    throw new AppError("Verification code expired", 400);
+  }
+
+  const otpHash = crypto.createHmac("sha256", getOtpSecret()).update(String(otp).trim()).digest("hex");
+  if (otpHash !== pr.otpHash) throw new AppError("Invalid verification code", 400);
+
+  return settlePendingStorePaymentWithWallet(payerUserId, paymentRequestId);
 }

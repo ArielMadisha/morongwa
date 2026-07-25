@@ -157,6 +157,15 @@ export const ADMIN_QUICK_MODULES: AdminQuickModule[] = [
   { href: '/admin/suppliers', title: 'Suppliers / Sellers', desc: 'Verify sellers', color: 'cyan', icon: Building2, group: 'Commerce', gate: S(['suppliers', 'supplier_uploads']) },
   { href: '/admin/orders', title: 'Marketplace orders', desc: 'Checkout & wallet orders', color: 'purple', icon: ShoppingBag, group: 'Commerce', gate: S(['orders']) },
   {
+    href: '/admin/food-restaurants',
+    title: 'Food restaurants',
+    desc: 'Order Food/Restaurant pickup stores',
+    color: 'orange',
+    icon: ShoppingBag,
+    group: 'Commerce',
+    gate: S(['orders', 'products', 'stores']),
+  },
+  {
     href: '/admin/shipping',
     title: 'Shipping',
     desc: 'Courier config & parcel tracking',

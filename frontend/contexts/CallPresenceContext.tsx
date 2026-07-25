@@ -10,12 +10,24 @@ import { getWebrtcNamespaceUrl } from '@/lib/socketUrl';
 import { getSocketAuth } from '@/lib/socketAuth';
 import { registerCallPresenceSocket } from '@/lib/callPresenceSocket';
 import { useIncomingCallRingtone, useUnlockCallAudioOnGesture } from '@/hooks/useIncomingCallRingtone';
+import { morongwaAPI } from '@/lib/api';
+
+export type IncomingMeetingInvite = {
+  meetingId: string;
+  title: string;
+  roomId: string;
+  hostUserId: string;
+  hostName: string;
+  joinUrl: string;
+};
 
 export type IncomingCallPayload = {
   callerId: string;
   callerName?: string;
   roomId: string;
   audioOnly?: boolean;
+  /** Caller's signaling socket id from call-request (direct delivery). */
+  callerSocketId?: string;
 };
 
 type CallPresenceContextValue = {
@@ -25,6 +37,46 @@ type CallPresenceContextValue = {
 };
 
 const CallPresenceContext = createContext<CallPresenceContextValue | undefined>(undefined);
+
+function IncomingMeetingInviteModal({
+  invite,
+  onJoin,
+  onDismiss,
+}: {
+  invite: IncomingMeetingInvite;
+  onJoin: () => void;
+  onDismiss: () => void;
+}) {
+  return (
+    <div
+      className="rounded-2xl bg-white shadow-xl p-8 max-w-sm w-full text-center"
+      onClick={(e) => e.stopPropagation()}
+    >
+      <div className="w-20 h-20 rounded-full bg-violet-100 flex items-center justify-center mx-auto mb-4">
+        <Video className="h-10 w-10 text-violet-600" />
+      </div>
+      <h3 className="text-lg font-semibold text-slate-900 mb-1">Meeting invite</h3>
+      <p className="text-slate-600 mb-1">{invite.hostName} invited you to</p>
+      <p className="text-slate-900 font-medium mb-4">{invite.title || 'a meeting'}</p>
+      <div className="flex gap-3">
+        <button
+          type="button"
+          onClick={onDismiss}
+          className="flex-1 py-3 rounded-xl bg-slate-200 text-slate-800 font-semibold hover:bg-slate-300"
+        >
+          Later
+        </button>
+        <button
+          type="button"
+          onClick={onJoin}
+          className="flex-1 py-3 rounded-xl bg-violet-600 text-white font-semibold hover:bg-violet-700"
+        >
+          Join
+        </button>
+      </div>
+    </div>
+  );
+}
 
 function IncomingCallGlobalModal({
   callerName,
@@ -80,21 +132,21 @@ function IncomingCallGlobalModal({
 
 export function CallPresenceProvider({ children }: { children: React.ReactNode }) {
   const { user, isAuthenticated } = useAuth();
-  const { acceptIncomingCall, callStatus, activeSession, webrtc } = useWebRTCCall();
+  const { acceptIncomingCall, callStatus, webrtc, joinMeetingCall } = useWebRTCCall();
   const socketRef = useRef<Socket | null>(null);
   const incomingCallRef = useRef<IncomingCallPayload | null>(null);
   const callStatusRef = useRef(callStatus);
-  const activeSessionRef = useRef(activeSession);
   const [incomingCall, setIncomingCall] = useState<IncomingCallPayload | null>(null);
+  const [incomingMeetingInvite, setIncomingMeetingInvite] = useState<IncomingMeetingInvite | null>(null);
+  const [joiningMeeting, setJoiningMeeting] = useState(false);
 
   const userId = user?._id || user?.id ? String(user._id || user.id) : '';
 
   incomingCallRef.current = incomingCall;
   callStatusRef.current = callStatus;
-  activeSessionRef.current = activeSession;
 
   useUnlockCallAudioOnGesture();
-  useIncomingCallRingtone(!!incomingCall && callStatus === 'idle');
+  useIncomingCallRingtone(!!incomingCall);
 
   useEffect(() => {
     if (!isAuthenticated || !userId) {
@@ -110,7 +162,9 @@ export function CallPresenceProvider({ children }: { children: React.ReactNode }
       transports: ['polling', 'websocket'],
       upgrade: true,
       reconnection: true,
-      reconnectionAttempts: 10,
+      reconnectionAttempts: 25,
+      reconnectionDelay: 2000,
+      reconnectionDelayMax: 10000,
       timeout: 20000,
     });
     socketRef.current = socket;
@@ -120,27 +174,28 @@ export function CallPresenceProvider({ children }: { children: React.ReactNode }
       socket.emit('join-user-presence', { userId });
     };
 
-    const onCallRequest = (data: { callerId?: string; callerName?: string; roomId?: string; audioOnly?: boolean }) => {
+    const onCallRequest = (data: {
+      callerId?: string;
+      callerName?: string;
+      roomId?: string;
+      audioOnly?: boolean;
+      socketId?: string;
+    }) => {
       if (!data?.callerId || !data?.roomId) return;
+      if (callStatusRef.current === 'connected') return;
+
       const callerId = String(data.callerId);
-      const status = callStatusRef.current;
-      const outgoingPeer = activeSessionRef.current?.peerUserId;
-
-      if (status === 'calling' && outgoingPeer && String(outgoingPeer) === callerId) {
-        webrtc.cancelCall();
-      } else if (status !== 'idle' && status !== 'incoming') {
-        return;
-      }
-
       const payload: IncomingCallPayload = {
         callerId,
         callerName: data.callerName,
         roomId: String(data.roomId),
         audioOnly: !!data.audioOnly,
+        callerSocketId: data.socketId ? String(data.socketId) : undefined,
       };
       setIncomingCall(payload);
       toast(`Incoming ${payload.audioOnly ? 'voice' : 'video'} call from ${payload.callerName || 'a user'}`, {
         icon: payload.audioOnly ? '📞' : '📹',
+        duration: 8000,
       });
     };
 
@@ -148,10 +203,25 @@ export function CallPresenceProvider({ children }: { children: React.ReactNode }
       setIncomingCall(null);
     };
 
+    const onMeetingInvite = (data: IncomingMeetingInvite) => {
+      if (!data?.meetingId || !data?.roomId) return;
+      if (callStatusRef.current === 'connected') return;
+      setIncomingMeetingInvite({
+        meetingId: String(data.meetingId),
+        title: String(data.title || 'Meeting'),
+        roomId: String(data.roomId),
+        hostUserId: String(data.hostUserId || ''),
+        hostName: String(data.hostName || 'Someone'),
+        joinUrl: String(data.joinUrl || ''),
+      });
+      toast(`${data.hostName || 'Someone'} invited you to a meeting`, { icon: '📹', duration: 8000 });
+    };
+
     socket.on('connect', joinPresence);
     socket.io.on('reconnect', joinPresence);
     socket.on('call-request', onCallRequest);
     socket.on('call-cancel', onCallCancel);
+    socket.on('meeting-invite', onMeetingInvite);
 
     const onVisible = () => {
       if (document.visibilityState === 'visible') joinPresence();
@@ -166,6 +236,7 @@ export function CallPresenceProvider({ children }: { children: React.ReactNode }
       socket.io.off('reconnect', joinPresence);
       socket.off('call-request', onCallRequest);
       socket.off('call-cancel', onCallCancel);
+      socket.off('meeting-invite', onMeetingInvite);
       document.removeEventListener('visibilitychange', onVisible);
       window.removeEventListener('focus', joinPresence);
       registerCallPresenceSocket(null);
@@ -183,6 +254,7 @@ export function CallPresenceProvider({ children }: { children: React.ReactNode }
         roomId: call.roomId,
         calleeId: userId,
         callerId: call.callerId,
+        ...(call.callerSocketId ? { callerSocketId: call.callerSocketId } : {}),
       });
     }
     setIncomingCall(null);
@@ -191,32 +263,86 @@ export function CallPresenceProvider({ children }: { children: React.ReactNode }
   const acceptIncoming = useCallback(() => {
     const call = incomingCallRef.current;
     if (!call) return;
+    if (callStatusRef.current === 'calling' || callStatusRef.current === 'connecting') {
+      webrtc.endCall();
+    }
+    setIncomingCall(null);
     const accepted = acceptIncomingCall(call, socketRef.current);
     if (!accepted) {
       toast.error('Could not accept call — refresh the page and try again');
     }
-  }, [acceptIncomingCall]);
+  }, [acceptIncomingCall, webrtc]);
 
   useEffect(() => {
-    if (callStatus === 'connecting' || callStatus === 'connected' || callStatus === 'calling') {
+    if (callStatus === 'connected') {
       setIncomingCall(null);
+      setIncomingMeetingInvite(null);
     }
   }, [callStatus]);
 
+  const acceptMeetingInvite = useCallback(async () => {
+    const invite = incomingMeetingInvite;
+    if (!invite || joiningMeeting) return;
+    if (callStatusRef.current === 'connected') {
+      toast.error('End your current call before joining a meeting');
+      return;
+    }
+    setJoiningMeeting(true);
+    try {
+      const res = await morongwaAPI.joinMeeting({ meetingId: invite.meetingId });
+      const m = res.data.data;
+      const hostId = String(m.hostUserId || invite.hostUserId || '');
+      const preferredPeer = hostId && hostId !== userId ? hostId : '';
+      const joined = joinMeetingCall({
+        roomId: m.roomId,
+        meetingId: m.meetingId,
+        peerUserId: preferredPeer,
+        peerUserName: m.hostName || invite.hostName,
+        meetingMode: true,
+        meetingTitle: m.title || invite.title,
+        audioOnly: false,
+      });
+      if (joined) {
+        setIncomingMeetingInvite(null);
+        toast.success(`Joined ${m.title || invite.title}`);
+      } else {
+        toast.error('Could not join meeting');
+      }
+    } catch (e: unknown) {
+      const msg =
+        e && typeof e === 'object' && 'response' in e
+          ? (e as { response?: { data?: { message?: string } } }).response?.data?.message
+          : undefined;
+      toast.error(msg || 'Could not join meeting');
+    } finally {
+      setJoiningMeeting(false);
+    }
+  }, [incomingMeetingInvite, joiningMeeting, joinMeetingCall, userId]);
+
   const getPresenceSocket = useCallback(() => socketRef.current, []);
 
-  const showIncomingModal = !!incomingCall && callStatus === 'idle';
+  const showIncomingModal = !!incomingCall;
+  const showMeetingInviteModal = !!incomingMeetingInvite && !showIncomingModal;
 
   return (
     <CallPresenceContext.Provider value={{ incomingCall, clearIncomingCall, getPresenceSocket }}>
       {children}
       {showIncomingModal ? (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-4">
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/70 p-4">
           <IncomingCallGlobalModal
             callerName={incomingCall.callerName}
             audioOnly={incomingCall.audioOnly}
             onAccept={acceptIncoming}
             onDecline={declineIncoming}
+          />
+        </div>
+      ) : null}
+      {showMeetingInviteModal && incomingMeetingInvite ? (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/70 p-4">
+          <IncomingMeetingInviteModal
+            invite={incomingMeetingInvite}
+            onJoin={() => void acceptMeetingInvite()}
+            onDismiss={() => setIncomingMeetingInvite(null)}
           />
         </div>
       ) : null}

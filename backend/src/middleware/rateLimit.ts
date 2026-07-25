@@ -86,9 +86,15 @@ export const strictLimiter = rateLimit({
 /** Stricter limits for wallet and payment routes (financial abuse prevention). */
 export const walletPaymentLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: process.env.NODE_ENV === "development" ? 300 : 80,
+  max: process.env.NODE_ENV === "development" ? 300 : Number(process.env.WALLET_RATE_LIMIT_MAX || 150),
   message: "Too many wallet requests. Please try again shortly.",
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: clientIpKey,
+  /** Read-only payer poll is a fallback when realtime socket misses — do not burn the strict wallet quota. */
+  skip: (req) => {
+    if (req.method !== "GET") return false;
+    const path = (req.originalUrl || req.url || "").split("?")[0] || "";
+    return path.endsWith("/pending-payments");
+  },
 });

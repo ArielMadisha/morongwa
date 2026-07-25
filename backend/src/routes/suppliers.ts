@@ -8,6 +8,7 @@ import {
   listApprovedSupplierProfilesForUser,
   resolveSupplierForProductUpload,
 } from "../utils/supplierAccess";
+import { notifyHrInbox } from "../services/notification";
 
 const router = express.Router();
 
@@ -105,6 +106,17 @@ router.post("/apply", authenticate, async (req: AuthRequest, res: Response, next
         appliedAt: new Date(),
       });
     }
+
+    void notifyHrInbox({
+      subject: "New supplier application",
+      message: [
+        `Supplier application submitted (${supplier.type}).`,
+        `Store: ${storeName || "—"}`,
+        `Contact: ${contactEmail} / ${contactPhone}`,
+        `User id: ${req.user!._id}`,
+        `Supplier id: ${supplier._id}`,
+      ].join("\n"),
+    });
 
     res.json({
       message: "Application submitted. We will review and notify you.",

@@ -5,8 +5,10 @@ import Link from 'next/link';
 import { tvAPI, followsAPI, getImageUrl } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
 import { FollowButton } from '@/components/FollowButton';
+import { WallRightRailExtras } from '@/components/WallRightRailExtras';
 import { Hash, Plus, TrendingUp } from 'lucide-react';
 import { wallHashtagSearchUrl, wallStartTopicUrl } from '@/lib/hashtagQuery';
+import { toAppealingDisplayName, userPublicDisplayName } from '@/lib/userDisplayLabel';
 
 interface AdvertSlotProps {
   /** When true, slot sticks below fixed header */
@@ -21,6 +23,8 @@ interface AdvertSlotProps {
   activeHashtag?: string;
   /** Wall-only: open create modal with the active hashtag prefilled. */
   onStartTopicWithHashtag?: (tag: string) => void;
+  /** Morongwa hub: skip mobile trending strip so section content uses full width. */
+  hideMobileStrip?: boolean;
 }
 
 /**
@@ -95,6 +99,7 @@ export function AdvertSlot({
   trendingRefreshKey,
   activeHashtag,
   onStartTopicWithHashtag,
+  hideMobileStrip,
 }: AdvertSlotProps = {}) {
   const { user } = useAuth();
   const [trendingHashtags, setTrendingHashtags] = useState<{ tag: string; count: number }[]>([]);
@@ -220,8 +225,8 @@ export function AdvertSlot({
 
   return (
     <>
-      {/* Mobile: horizontal trending strip */}
-      {(displayItems.length > 0 || normalizedActive) && (
+      {/* Mobile: horizontal trending strip (hidden on Morongwa hub — section content needs full width) */}
+      {!hideMobileStrip && (displayItems.length > 0 || normalizedActive) && (
         <div className="order-1 flex w-full min-w-0 max-w-full flex-shrink-0 flex-col gap-2 px-3 py-2 lg:hidden">
           <p className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">{mobileTitle}</p>
           {normalizedActive && (
@@ -301,7 +306,14 @@ export function AdvertSlot({
               <p className="text-[10px] uppercase tracking-wider text-slate-400 mb-1.5 font-semibold">Qwerty Users</p>
               <ul className="space-y-2.5">
                 {suggestedUsers.map((u) => {
-                  const displayName = u.name || (u.username ? `@${u.username}` : 'User');
+                  const displayName =
+                    toAppealingDisplayName(
+                      userPublicDisplayName({
+                        name: u.name,
+                        username: u.username,
+                        isSchoolAccount: (u as { isSchoolAccount?: boolean }).isSchoolAccount,
+                      })
+                    ) || 'User';
                   return (
                     <li key={u._id} className="flex items-start gap-2">
                       <Link href={`/user/${u._id}`} className="shrink-0 pt-0.5">
@@ -310,7 +322,7 @@ export function AdvertSlot({
                             <img src={getImageUrl(u.avatar)} alt="" className="h-full w-full object-cover" />
                           ) : (
                             <span className="text-sm font-medium text-slate-600">
-                              {(u.name || 'U').charAt(0).toUpperCase()}
+                              {displayName.charAt(0).toUpperCase()}
                             </span>
                           )}
                         </div>
@@ -340,6 +352,7 @@ export function AdvertSlot({
               </ul>
             </div>
           )}
+          <WallRightRailExtras refreshKey={trendingRefreshKey ?? 0} />
           {bottomContent}
         </div>
       </aside>

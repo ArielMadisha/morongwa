@@ -15,6 +15,10 @@ export interface IStore extends Document {
   createdBy?: mongoose.Types.ObjectId; // admin who created the store (optional)
   /** Store contact & address (owner editable) */
   address?: string;
+  /** Public Google Maps / place URL for pickup directions */
+  mapsUrl?: string;
+  latitude?: number;
+  longitude?: number;
   email?: string;
   cellphone?: string;
   whatsapp?: string;
@@ -37,6 +41,9 @@ const StoreSchema = new Schema<IStore>(
     supplierId: { type: Schema.Types.ObjectId, ref: "Supplier" },
     createdBy: { type: Schema.Types.ObjectId, ref: "User" },
     address: { type: String, trim: true },
+    mapsUrl: { type: String, trim: true },
+    latitude: { type: Number },
+    longitude: { type: Number },
     email: { type: String, trim: true },
     cellphone: { type: String, trim: true },
     whatsapp: { type: String, trim: true },

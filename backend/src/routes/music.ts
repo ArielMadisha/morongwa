@@ -8,6 +8,7 @@ import Wallet from "../data/models/Wallet";
 import User from "../data/models/User";
 import MusicPurchase from "../data/models/MusicPurchase";
 import AuditLog from "../data/models/AuditLog";
+import { notifyHrInbox } from "../services/notification";
 import { musicUploadSingle, musicUploadSong, musicUploadAlbum } from "../middleware/musicUpload";
 import multer from "multer";
 import path from "path";
@@ -572,6 +573,16 @@ router.post(
         },
         { upsert: true, new: true }
       );
+      void notifyHrInbox({
+        subject: "New artist verification application",
+        message: [
+          `Artist verification application (${type}).`,
+          `Stage name: ${stageName?.trim() || "—"}`,
+          `Label: ${labelName?.trim() || "—"}`,
+          `User id: ${req.user!._id}`,
+          `Documents: ${documents.length}`,
+        ].join("\n"),
+      });
       res.json({ data: { message: "Application submitted. Manual verification in progress." } });
     } catch (err) {
       next(err);

@@ -21,6 +21,12 @@ import {
 } from "../config/sheinPricing";
 import { assignProductColors } from "./assignProductColors";
 
+function queueFacebookForNewImport(productId: unknown): void {
+  void import("./facebookMarketplacePostService")
+    .then(({ queueFacebookPostForProduct }) => queueFacebookPostForProduct(String(productId), "dropship-import"))
+    .catch(() => {});
+}
+
 function slugify(s: string): string {
   return s
     .toLowerCase()
@@ -125,6 +131,7 @@ export async function importProductFromCJ(
   try {
     const product = await Product.create(doc);
     void detectColorsAfterImport(product._id, doc.images, doc.externalData as Record<string, unknown>);
+    queueFacebookForNewImport(product._id);
     return { product, created: true, updated: false };
   } catch {
     const duplicate = await Product.findOne({
@@ -265,6 +272,7 @@ export async function importProductFromEprolo(
   try {
     const product = await Product.create(doc);
     void detectColorsAfterImport(product._id, doc.images, doc.externalData as Record<string, unknown>);
+    queueFacebookForNewImport(product._id);
     return { product, created: true, updated: false };
   } catch {
     const duplicate = await Product.findOne({
@@ -392,6 +400,7 @@ export async function importProductFromShein(
   try {
     const product = await Product.create(doc);
     void detectColorsAfterImport(product._id, doc.images, doc.externalData as Record<string, unknown>);
+    queueFacebookForNewImport(product._id);
     return { product, created: true, updated: false };
   } catch {
     const duplicate = await Product.findOne({

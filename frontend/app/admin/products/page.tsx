@@ -14,12 +14,32 @@ import {
 } from '@/lib/marketplaceCategoryMarkups';
 import { BULK_TIER_DEFAULT_MAX_QTY, normalizeBulkTierMaxQty } from '@/lib/bulkTierLimits';
 import { currencyForCountryCode, currencyLabel } from '@/lib/storeProductCurrency';
+import { FreeShippingFields } from '@/components/products/FreeShippingFields';
+import {
+  serializeFreeShippingPayload,
+  freeShippingAreasFromProduct,
+  type FreeShippingAreaRow,
+} from '@/lib/freeShippingAreas';
 
 const MAX_IMAGES = 10;
 const MIN_IMAGES = 1;
 
 function formatPrice(price: number, currency: string) {
   return formatCurrencyAmount(price, currency || 'ZAR');
+}
+
+/** Product upload / create time for admin Load Products table. */
+function formatUploadedAt(iso?: string): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleString('en-ZA', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
 }
 
 function roundMoneyZar(n: number): number {
@@ -101,6 +121,8 @@ export default function AdminProductsPage() {
     tags: '',
   });
   const [bulkTiers, setBulkTiers] = useState<Array<{ minQty: string; maxQty: string; price: string }>>([]);
+  const [freeShippingEnabled, setFreeShippingEnabled] = useState(false);
+  const [freeShippingAreas, setFreeShippingAreas] = useState<FreeShippingAreaRow[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [bulkDeleting, setBulkDeleting] = useState(false);
 
@@ -240,6 +262,11 @@ export default function AdminProductsPage() {
       toast.error(`At least ${MIN_IMAGES} product image is required (up to ${MAX_IMAGES})`);
       return;
     }
+    const shippingPayload = serializeFreeShippingPayload(freeShippingEnabled, freeShippingAreas);
+    if (shippingPayload.freeShippingEnabled && !shippingPayload.freeShippingAreas?.length) {
+      toast.error('Add at least one free shipping area (town and country)');
+      return;
+    }
     const trimmedColors = colorNames.map((c) => c.trim());
     if (trimmedColors.length !== imageFiles.length || !trimmedColors.every((c) => c.length > 0)) {
       toast.error('Enter a color name for each product image (e.g. Yellow, Black, Navy)');
@@ -295,6 +322,7 @@ export default function AdminProductsPage() {
         categories: form.categories ? [form.categories] : [],
         tags: form.tags ? form.tags.split(',').map((s) => s.trim()).filter(Boolean) : [],
         colors: manualColors,
+        ...shippingPayload,
       });
       toast.success('Product created');
       setShowForm(false);
@@ -304,6 +332,8 @@ export default function AdminProductsPage() {
       setColorNames([]);
       setForm({ supplierId: form.supplierId, title: '', description: '', price: '', discountPrice: '', stock: '1000', outOfStock: false, sizes: '', allowResell: true, categories: '', tags: '' });
       setBulkTiers([]);
+      setFreeShippingEnabled(false);
+      setFreeShippingAreas([]);
       fetchProducts();
     } catch (err: any) {
       toast.error(err.response?.data?.message || 'Failed to create product');
@@ -620,6 +650,15 @@ export default function AdminProductsPage() {
                     </div>
                   )}
                 </div>
+                <div className="sm:col-span-2">
+                  <FreeShippingFields
+                    enabled={freeShippingEnabled}
+                    areas={freeShippingAreas}
+                    defaultCountryCode={selectedSupplier?.countryCode || 'ZA'}
+                    onEnabledChange={setFreeShippingEnabled}
+                    onAreasChange={setFreeShippingAreas}
+                  />
+                </div>
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">Stock</label>
                   <input
@@ -723,6 +762,7 @@ export default function AdminProductsPage() {
                           </button>
                         </th>
                         <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700">Product</th>
+                        <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700 whitespace-nowrap">Uploaded</th>
                         <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700">Supplier</th>
                         <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700">CJ / External ID</th>
                         <th className="text-right py-3 px-4 text-sm font-semibold text-slate-700">Price</th>
@@ -753,6 +793,9 @@ export default function AdminProductsPage() {
                           <td className="py-3 px-4">
                             <p className="font-medium text-slate-900">{p.title}</p>
                             <p className="text-xs text-slate-500">{p.slug}</p>
+                          </td>
+                          <td className="py-3 px-4 text-sm text-slate-600 whitespace-nowrap" title={p.createdAt || undefined}>
+                            {formatUploadedAt(p.createdAt)}
                           </td>
                           <td className="py-3 px-4 text-sm">{(p.supplierId as any)?.storeName ?? ((p as any).supplierSource === 'cj' ? 'CJ Dropshipping' : (p as any).supplierSource ?? '—')}</td>
                           <td className="py-3 px-4 text-sm">

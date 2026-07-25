@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Package, ArrowRight, ShoppingBag, HelpCircle } from 'lucide-react';
+import { Package, ArrowRight, HelpCircle } from 'lucide-react';
 import { productsAPI, tvAPI, cartAPI, getImageUrl, getEffectivePrice } from '@/lib/api';
 import type { Product } from '@/lib/types';
 import { useAuth } from '@/contexts/AuthContext';
@@ -17,6 +17,8 @@ import { MobileBottomNav } from '@/components/MobileBottomNav';
 import { MarketplaceCartStepper } from '@/components/MarketplaceCartStepper';
 import { formatCatalogProductPrice } from '@/lib/productPriceZar';
 import { WebAdPlacement } from '@/components/WebAdPlacement';
+import { FREE_DELIVERY_PROMO_LABEL, productShowsFreeDeliveryPromo } from '@/lib/freeShippingAreas';
+import { QwertyHubSectionNav } from '@/components/marketplace/QwertyHubSectionNav';
 
 function productQtyMapFromCartResponse(res: { data?: { data?: { items?: unknown[] } } }): Record<string, number> {
   const items = Array.isArray(res.data?.data?.items) ? res.data!.data!.items! : [];
@@ -223,7 +225,14 @@ function MarketplacePageContent() {
       .listCategories()
       .then((res) => {
         const rows = Array.isArray(res.data?.data) ? res.data.data : [];
-        setCategories(rows);
+        const foodLike = new Set([
+          'food & restaurant',
+          'kota / bunny chow',
+          'extras',
+        ]);
+        setCategories(
+          rows.filter((r: { name?: string }) => !foodLike.has(String(r?.name || '').trim().toLowerCase()))
+        );
       })
       .catch(() => setCategories([]));
   }, []);
@@ -257,13 +266,7 @@ function MarketplacePageContent() {
         showMenuButton={!isGuest}
         onMenuClick={isGuest ? undefined : () => setMenuOpen((v) => !v)}
         center={
-          <div className="flex w-full min-w-0 items-center gap-2 sm:gap-3">
-            <div className="h-8 w-8 shrink-0 rounded-lg bg-brand-50 flex items-center justify-center">
-              <ShoppingBag className="h-4 w-4 text-brand-600" />
-            </div>
-            <h1 className="min-w-0 flex-1 font-semibold text-slate-900 text-base sm:text-lg break-words">
-              QwertyHub
-            </h1>
+          <div className="flex w-full min-w-0 items-center justify-end gap-2 sm:gap-3">
             {isGuest ? (
               <Link
                 href="/support"
@@ -290,6 +293,7 @@ function MarketplacePageContent() {
             </>
           ) : null
         }
+        bottom={<QwertyHubSectionNav active="hub" />}
       />
       {/* min-w-0 + w-full: required so flex row beside AppSidebar does not collapse main to a narrow strip on mobile */}
       <div className="flex min-h-0 min-w-0 w-full flex-1 overflow-hidden">
@@ -470,6 +474,9 @@ function MarketplacePageContent() {
                         </span>
                       )}
                     </div>
+                    {productShowsFreeDeliveryPromo(p) ? (
+                      <p className="text-[11px] font-semibold text-sky-600 mt-1">{FREE_DELIVERY_PROMO_LABEL}</p>
+                    ) : null}
                   </div>
                   {p.ratingAvg != null && (
                     <p className="text-xs text-slate-500 px-3 pb-2 sm:px-4 sm:text-sm">
@@ -541,6 +548,9 @@ function MarketplacePageContent() {
                         {formatCatalogProductPrice(displayPrice, p?.currency, rates)}
                       </span>
                     </div>
+                    {productShowsFreeDeliveryPromo(p) ? (
+                      <p className="text-[11px] font-semibold text-sky-600 mt-1">{FREE_DELIVERY_PROMO_LABEL}</p>
+                    ) : null}
                   </div>
                 </div>
               );

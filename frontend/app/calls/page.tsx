@@ -147,10 +147,10 @@ function CallsPageContent() {
       <AppShellHeader
         onMenuClick={() => setMenuOpen((v) => !v)}
         center={
-          <>
+          <div className="inline-flex cursor-pointer items-center gap-2 select-none" aria-label="Calls">
             <Phone className="h-5 w-5 text-sky-600" />
             <h1 className="text-base sm:text-lg font-semibold">Calls</h1>
-          </>
+          </div>
         }
         actions={
           <>
@@ -177,7 +177,7 @@ function CallsPageContent() {
 
         <main className="flex-1 max-w-3xl mx-auto w-full px-4 py-6 pb-24 md:pb-8">
           <p className="text-sm text-slate-600 mb-4">
-            Start a voice or video call with people from your chats — no user IDs required.
+            Start a free in-app voice or video call with people from your chats.
           </p>
 
           <div className="relative mb-4">
@@ -198,14 +198,14 @@ function CallsPageContent() {
               <button
                 type="button"
                 onClick={() => startSelectedCall('voice')}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700"
+                className="inline-flex cursor-pointer items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700"
               >
                 <Phone className="h-4 w-4" /> Voice call
               </button>
               <button
                 type="button"
                 onClick={() => startSelectedCall('video')}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-sky-600 text-white text-sm font-semibold hover:bg-sky-700"
+                className="inline-flex cursor-pointer items-center gap-1.5 px-3 py-1.5 rounded-lg bg-sky-600 text-white text-sm font-semibold hover:bg-sky-700"
               >
                 <Video className="h-4 w-4" /> Video call
               </button>
@@ -242,7 +242,7 @@ function CallsPageContent() {
                       <button
                         type="button"
                         onClick={() => toggleUser(u)}
-                        className="flex flex-1 min-w-0 items-center gap-3 text-left"
+                        className="flex flex-1 min-w-0 cursor-pointer items-center gap-3 text-left"
                       >
                         <div className="w-10 h-10 shrink-0 rounded-full bg-sky-100 flex items-center justify-center text-sky-700 font-bold">
                           {(u.name || '?').slice(0, 1).toUpperCase()}
@@ -257,7 +257,7 @@ function CallsPageContent() {
                         <button
                           type="button"
                           onClick={() => startDirectCall(u, 'video')}
-                          className="rounded-lg p-2.5 text-sky-600 transition hover:bg-sky-100"
+                          className="cursor-pointer rounded-lg p-2.5 text-sky-600 transition hover:bg-sky-100"
                           aria-label={`Video call ${u.name || 'contact'}`}
                           title="Video call"
                         >
@@ -266,7 +266,7 @@ function CallsPageContent() {
                         <button
                           type="button"
                           onClick={() => startDirectCall(u, 'voice')}
-                          className="rounded-lg p-2.5 text-indigo-600 transition hover:bg-indigo-50"
+                          className="cursor-pointer rounded-lg p-2.5 text-indigo-600 transition hover:bg-indigo-50"
                           aria-label={`Voice call ${u.name || 'contact'}`}
                           title="Voice call"
                         >

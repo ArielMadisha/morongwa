@@ -7,15 +7,39 @@ import {
 } from "../config/facebookTvIngest";
 import { getFacebookIngestStatus, runFacebookTvIngestForSlot } from "../services/facebookTvIngestService";
 import { getFacebookTvIngestSchedulerStatus } from "../services/facebookTvIngestScheduler";
-import { isFacebookGraphConfigured } from "../services/facebookGraphApi";
+import { isFacebookGraphConfigured, debugFacebookAccessToken, missingFacebookPublishScopes } from "../services/facebookGraphApi";
+import {
+  getQwertymatesFacebookPageId,
+  publishProductToQwertymatesFacebook,
+} from "../services/facebookMarketplacePostService";
 import AuditLog from "../data/models/AuditLog";
 
 const router = express.Router();
 
 router.get("/status", async (_req: AuthRequest, res: Response) => {
+  let marketplacePost: Record<string, unknown> = {
+    pageId: getQwertymatesFacebookPageId(),
+    autoPostEnabled: !["0", "false", "off", "no"].includes(
+      String(process.env.FACEBOOK_MARKETPLACE_AUTO_POST || "1").trim().toLowerCase()
+    ),
+  };
+  if (isFacebookGraphConfigured()) {
+    try {
+      const debug = await debugFacebookAccessToken();
+      marketplacePost = {
+        ...marketplacePost,
+        tokenValid: debug.isValid,
+        tokenScopes: debug.scopes,
+        missingPublishScopes: missingFacebookPublishScopes(debug.scopes),
+      };
+    } catch (e) {
+      marketplacePost = { ...marketplacePost, tokenError: String((e as Error)?.message || e) };
+    }
+  }
   res.json({
     ok: true,
     graphConfigured: isFacebookGraphConfigured(),
+    marketplacePost,
     bots: FACEBOOK_TV_BOT_LABELS,
     scheduler: getFacebookTvIngestSchedulerStatus(),
     ingestState: await getFacebookIngestStatus(),
@@ -56,6 +80,23 @@ router.post("/run-all", async (req: AuthRequest, res: Response, next) => {
       meta: { count: results.length },
     });
     res.json({ ok: true, results });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** Manually post (or re-post) one marketplace product to the Qwertymates Facebook Page. */
+router.post("/marketplace-post/:productId", async (req: AuthRequest, res: Response, next) => {
+  try {
+    const force = req.body?.force === true || req.query?.force === "1";
+    const result = await publishProductToQwertymatesFacebook(String(req.params.productId), { force });
+    await AuditLog.create({
+      action: "FACEBOOK_MARKETPLACE_POST",
+      user: req.user!._id,
+      meta: { productId: req.params.productId, force, result },
+    });
+    if (!result.ok) throw new AppError(result.error, 502);
+    res.json({ ok: true, result });
   } catch (err) {
     next(err);
   }

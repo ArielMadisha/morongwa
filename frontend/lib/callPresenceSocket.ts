@@ -8,5 +8,5 @@ export function registerCallPresenceSocket(socket: Socket | null) {
 }
 
 export function getCallPresenceSocket(): Socket | null {
-  return presenceSocket?.connected ? presenceSocket : null;
+  return presenceSocket;
 }

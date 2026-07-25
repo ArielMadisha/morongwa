@@ -33,7 +33,7 @@ function ToolbarIconButton({
         onMouseLeave={() => setHover(false)}
         onFocus={() => setHover(true)}
         onBlur={() => setHover(false)}
-        className={`relative flex h-9 w-9 items-center justify-center rounded-md transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+        className={`relative flex h-9 w-9 cursor-pointer items-center justify-center rounded-md transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
           hover ? 'bg-slate-100' : 'bg-transparent'
         }`}
         aria-label={label}

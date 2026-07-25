@@ -120,7 +120,11 @@ router.get("/conversations", authenticate, async (req: AuthRequest, res: Respons
 router.get("/users/search", authenticate, async (req: AuthRequest, res: Response, next) => {
   try {
     const q = String(req.query.q || "").trim();
-    const limit = Math.min(25, Math.max(1, Number(req.query.limit || 12)));
+    const requested = Number(req.query.limit || 12);
+    const safeRequested = Number.isFinite(requested) ? requested : 12;
+    // Empty query: small recent slice. With search text: allow larger result sets.
+    const cap = q ? 100 : 25;
+    const limit = Math.min(cap, Math.max(1, safeRequested));
     const query: any = { _id: { $ne: req.user!._id } };
     if (q) {
       query.$or = [

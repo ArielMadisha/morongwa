@@ -51,9 +51,16 @@ export interface IProduct extends Document {
   warehouseFreeLocalCity?: string;
   /** ISO country for warehouse free local delivery (e.g. ZA, BW). */
   warehouseFreeLocalCountry?: string;
+  /** When true, buyer address matching freeShippingAreas gets R 0 delivery. */
+  freeShippingEnabled?: boolean;
+  /** Towns/suburbs per country where this product ships free (supplier-configured). */
+  freeShippingAreas?: Array<{ countryCode: string; locality: string }>;
   ratingAvg?: number;
   ratingCount?: number;
   active: boolean;
+  /** Facebook Page post id when auto-posted to Qwertymates Page */
+  facebookPostId?: string;
+  facebookPostedAt?: Date;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -109,9 +116,21 @@ const ProductSchema = new Schema<IProduct>(
     availableCountries: { type: [String], default: [] },
     warehouseFreeLocalCity: { type: String, trim: true },
     warehouseFreeLocalCountry: { type: String, trim: true, uppercase: true },
+    freeShippingEnabled: { type: Boolean, default: false },
+    freeShippingAreas: {
+      type: [
+        {
+          countryCode: { type: String, required: true, trim: true, uppercase: true },
+          locality: { type: String, required: true, trim: true },
+        },
+      ],
+      default: undefined,
+    },
     ratingAvg: { type: Number },
     ratingCount: { type: Number, default: 0 },
     active: { type: Boolean, default: true },
+    facebookPostId: { type: String, index: true, sparse: true },
+    facebookPostedAt: { type: Date },
   },
   { timestamps: true }
 );

@@ -22,6 +22,7 @@ import { AdvertTile } from '@/components/AdvertTile';
 import {
   type FeedAd,
   legacyAdvertToFeedAd,
+  isBrokenLegacyAdvert,
   pickFeedAd,
   sponsoredAdToFeedAd,
 } from '@/lib/feedAd';
@@ -35,6 +36,7 @@ import {
   getHideProducts,
 } from '@/components/ContentPreferencesModal';
 import { normalizeClientUser, userPublicDisplayName } from '@/lib/userDisplayLabel';
+import { dispatchAvatarUpdated } from '@/lib/avatarUpdatedEvent';
 import { mapProductToTvTile } from '@/lib/mapProductToTvTile';
 import { parseHashtagFromQuery } from '@/lib/hashtagQuery';
 import {
@@ -248,13 +250,48 @@ function WallPageContent() {
   );
 
   useEffect(() => {
-    const onAvatarUpdated = () => {
+    const onAvatarUpdated = (event: Event) => {
+      const detail = (event as CustomEvent<{ avatar?: string; feedPost?: TVGridItem }>).detail;
       setStatusRefreshKey((k) => k + 1);
-      void loadFeed(1, false);
+      refreshUser?.();
+      const uid = user?._id || user?.id;
+      const avatar = detail?.avatar || (user as { avatar?: string } | undefined)?.avatar;
+      if (uid && avatar) {
+        setGridItems((prev) =>
+          prev.map((p) => {
+            const c = p.creatorId;
+            if (!c || typeof c !== 'object') return p;
+            const cid = String((c as { _id?: string })._id ?? '');
+            if (cid !== String(uid)) return p;
+            return { ...p, creatorId: { ...(c as object), avatar } as TVGridItem['creatorId'] };
+          })
+        );
+      }
+      if (detail?.feedPost?._id) {
+        const enriched = uid
+          ? {
+              ...detail.feedPost,
+              creatorId: normalizeClientUser({
+                ...(typeof detail.feedPost.creatorId === 'object' ? detail.feedPost.creatorId : {}),
+                _id: uid,
+                avatar: detail.feedPost.creatorId?.avatar || avatar,
+                name: user ? userPublicDisplayName(user) : detail.feedPost.creatorId?.name,
+                username: (user as { username?: string })?.username || detail.feedPost.creatorId?.username,
+              }),
+            }
+          : detail.feedPost;
+        setLatestCreatedPost(enriched);
+        setGridItems((prev) => {
+          if (prev.some((p) => p._id === enriched._id)) return prev;
+          return [enriched, ...prev];
+        });
+      } else {
+        void loadFeed(1, false);
+      }
     };
     window.addEventListener('qwertymates:avatar-updated', onAvatarUpdated);
     return () => window.removeEventListener('qwertymates:avatar-updated', onAvatarUpdated);
-  }, [loadFeed]);
+  }, [loadFeed, refreshUser, user]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -285,7 +322,7 @@ function WallPageContent() {
 
   const loadFeaturedProducts = useCallback(() => {
     tvAPI
-      .getFeaturedProducts(!user ? hideProducts : undefined)
+      .getFeaturedProducts(!user ? hideProducts : undefined, 120)
       .then((res) => {
         const list = res.data?.data ?? res.data ?? [];
         const products = Array.isArray(list) ? list : [];
@@ -397,7 +434,9 @@ function WallPageContent() {
         const sponsoredRows = sponsoredRes.data?.data ?? [];
         const sponsoredList = Array.isArray(sponsoredRows) ? sponsoredRows : [];
         const merged: FeedAd[] = [
-          ...legacyList.map((row: Parameters<typeof legacyAdvertToFeedAd>[0]) => legacyAdvertToFeedAd(row)),
+          ...legacyList
+            .filter((row: Parameters<typeof isBrokenLegacyAdvert>[0]) => !isBrokenLegacyAdvert(row))
+            .map((row: Parameters<typeof legacyAdvertToFeedAd>[0]) => legacyAdvertToFeedAd(row)),
           ...sponsoredList.map((row: Parameters<typeof sponsoredAdToFeedAd>[0]) => sponsoredAdToFeedAd(row)),
         ];
         setFeedAds(merged);
@@ -474,9 +513,13 @@ function WallPageContent() {
   const handleSetProfilePicFromUrl = async (url: string) => {
     if (!user?._id && !user?.id) return;
     try {
-      await usersAPI.setAvatarFromUrl(user._id || user.id!, url);
+      const res = await usersAPI.setAvatarFromUrl(user._id || user.id!, url);
       toast.success('Profile picture updated');
-      refreshUser?.();
+      await refreshUser?.();
+      dispatchAvatarUpdated({
+        avatar: res.data?.avatar || url,
+        feedPost: res.data?.feedPost as Record<string, unknown> | undefined,
+      });
     } catch (e: any) {
       toast.error(e.response?.data?.message || 'Failed to update profile picture');
     }
@@ -848,6 +891,9 @@ function WallPageContent() {
           }
           setStatusRefreshKey((k) => k + 1);
           setTrendingRefreshKey((k) => k + 1);
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('qwertymates:status-strip-refresh'));
+          }
           if (!created) {
             setPage(1);
             loadFeed(1);

@@ -26,6 +26,7 @@ import { markWallExpectRefresh } from '@/lib/wallRefresh';
 import { resellerMarkupBoundsForProductCategories } from '@/lib/marketplaceCategoryMarkups';
 import { formatBulkTierRange, normalizeBulkTierMaxQty } from '@/lib/bulkTierLimits';
 import { buildProductSupportHref } from '@/lib/productSupportSubject';
+import { FREE_DELIVERY_PROMO_LABEL, productShowsFreeDeliveryPromo } from '@/lib/freeShippingAreas';
 
 const EMPTY_MARKUP_BOUNDS = resellerMarkupBoundsForProductCategories([]);
 
@@ -56,8 +57,11 @@ function ProductPageContent() {
   const [selectedImageIndex, setSelectedImageIndex] = useState(0);
   const [selectedColor, setSelectedColor] = useState<ProductColorOption | null>(null);
   const [selectedSize, setSelectedSize] = useState<string | null>(null);
+  const [mainImageFailed, setMainImageFailed] = useState(false);
+  const optionsSectionRef = useRef<HTMLDivElement>(null);
   const viewResell = searchParams.get('view') === 'resell';
   const autoResell = searchParams.get('autoResell') === '1';
+  const pickOptions = searchParams.get('pickOptions') === '1';
   const resellerIdFromUrl = searchParams.get('resellerId');
   const resellerCommissionPctFromUrl = searchParams.get('resellerCommissionPct');
 
@@ -75,6 +79,7 @@ function ProductPageContent() {
     setSelectedImageIndex(0);
     setSelectedColor(null);
     setSelectedSize(null);
+    setMainImageFailed(false);
   }, [product?._id]);
 
   const productColors = useMemo(() => {
@@ -88,17 +93,41 @@ function ProductPageContent() {
   }, [product]);
 
   useEffect(() => {
+    if (pickOptions) return;
     if (productColors.length > 0 && !selectedColor) {
       setSelectedColor(productColors[0]);
       setSelectedImageIndex(productColors[0].imageIndex ?? 0);
     }
-  }, [productColors, selectedColor]);
+  }, [productColors, selectedColor, pickOptions]);
 
   useEffect(() => {
+    if (pickOptions) return;
     if (productSizes.length > 0 && !selectedSize) {
       setSelectedSize(productSizes[0]);
     }
-  }, [productSizes, selectedSize]);
+  }, [productSizes, selectedSize, pickOptions]);
+
+  useEffect(() => {
+    if (!pickOptions || loading || !product) return;
+    if (productColors.length === 0 && productSizes.length === 0) return;
+    toast('Choose your options, then tap + on the image to add to cart');
+    requestAnimationFrame(() => {
+      optionsSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+  }, [pickOptions, loading, product, productColors.length, productSizes.length]);
+
+  useEffect(() => {
+    setMainImageFailed(false);
+  }, [selectedImageIndex, product?._id]);
+
+  const displayImageSrc = useMemo(() => {
+    if (mainImageFailed && productImages.length > 1) {
+      const fallback = productImages.find((_, i) => i !== selectedImageIndex);
+      return fallback ? getImageUrl(fallback) : '';
+    }
+    const raw = productImages[selectedImageIndex] ?? productImages[0];
+    return raw ? getImageUrl(raw) : '';
+  }, [mainImageFailed, productImages, selectedImageIndex]);
 
   const autoResellMarkup = useMemo(() => {
     const raw = Number(searchParams.get('markup'));
@@ -345,10 +374,11 @@ function ProductPageContent() {
               <div className="relative aspect-square flex items-center justify-center">
                 {productImages.length > 0 ? (
                   <img
-                    src={getImageUrl(productImages[selectedImageIndex] ?? productImages[0])}
+                    src={displayImageSrc}
                     alt={product.title}
                     className="w-full h-full object-cover relative z-10"
                     data-pin-nopin="true"
+                    onError={() => setMainImageFailed(true)}
                   />
                 ) : (
                   <Package className="h-24 w-24 text-slate-300" />
@@ -492,23 +522,28 @@ function ProductPageContent() {
                 </p>
               )}
               {productSizes.length > 0 && (
-                <ProductSizeSelector
-                  sizes={productSizes}
-                  selectedSize={selectedSize}
-                  onSelect={setSelectedSize}
-                />
+                <div ref={optionsSectionRef}>
+                  <ProductSizeSelector
+                    sizes={productSizes}
+                    selectedSize={selectedSize}
+                    onSelect={setSelectedSize}
+                  />
+                </div>
               )}
               {productColors.length > 0 && (
-                <ProductColorSelector
-                  colors={productColors}
-                  selectedName={selectedColor?.name}
-                  onSelect={(color) => {
-                    setSelectedColor(color);
-                    if (typeof color.imageIndex === 'number' && productImages[color.imageIndex]) {
-                      setSelectedImageIndex(color.imageIndex);
-                    }
-                  }}
-                />
+                <div ref={productSizes.length === 0 ? optionsSectionRef : undefined}>
+                  <ProductColorSelector
+                    colors={productColors}
+                    selectedName={selectedColor?.name}
+                    onSelect={(color) => {
+                      setSelectedColor(color);
+                      setMainImageFailed(false);
+                      if (typeof color.imageIndex === 'number' && productImages[color.imageIndex]) {
+                        setSelectedImageIndex(color.imageIndex);
+                      }
+                    }}
+                  />
+                </div>
               )}
               {product.ratingAvg != null && (
                 <p className="text-sm text-slate-600 mt-2">
@@ -537,6 +572,9 @@ function ProductPageContent() {
                   <p className="text-sm text-slate-600">Use + above to add to cart, then checkout.</p>
                 )}
               </div>
+              {productShowsFreeDeliveryPromo(product) ? (
+                <p className="text-sm font-semibold text-sky-600 mt-2">{FREE_DELIVERY_PROMO_LABEL}</p>
+              ) : null}
               <p className="text-sm text-slate-500 mt-4">
                 <Link href={user ? '/cart' : `/register?returnTo=${encodeURIComponent('/cart')}`} className="text-sky-600 hover:text-sky-700">View cart</Link>
                 {' · '}

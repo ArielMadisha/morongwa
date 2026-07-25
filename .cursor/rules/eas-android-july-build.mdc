@@ -27,7 +27,23 @@ Get-ScheduledTask -TaskName "Qwertymates-EAS-Android-July-Release"
 
 Backend school-gallery URL fixes are **server-side** — no extra mobile work for A.C.J. Phakade thumbs once API serves correct `/uploads/school-gallery/` URLs.
 
-## Scheduled job (owner PC)
+## Scheduled jobs (owner PC) — 1 July 2026
+
+| App | Task | Time |
+|-----|------|------|
+| **Qwertymates** | `Qwertymates-EAS-Android-July-Release` | **08:00** |
+| **ACBPay** | `ACBPay-EAS-Android-July-Release` | **09:30** |
+
+**Morongwa Messenger** Play release is **deferred** — disable task `Morongwa-Messenger-EAS-Android-July-Release`. See `DOCS/JULY_2026_ANDROID_PLAY_RELEASES.md`.
+
+Register Qwertymates:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File mobile/scripts/windows/Register-EasAndroidJulyBuildTask.ps1
+Get-ScheduledTask -TaskName "Qwertymates-EAS-Android-July-Release"
+```
+
+## Scheduled job (Qwertymates detail)
 
 | Item | Value |
 |------|--------|

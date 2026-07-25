@@ -1,5 +1,6 @@
 // User management routes
 import express, { Response } from "express";
+import bcrypt from "bcryptjs";
 import mongoose from "mongoose";
 import fs from "fs";
 import path from "path";
@@ -22,8 +23,9 @@ import {
   canManageSchoolManagers,
   schoolManagerIdStrings,
 } from "../utils/schoolPageAccess";
-import { sanitizeUserForClient } from "../utils/userDisplayLabel";
+import { sanitizeUserForClient, userPublicDisplayName } from "../utils/userDisplayLabel";
 import { applySchoolProfileMediaToUser } from "../utils/schoolProfileMedia";
+import { applyProfileBackfillMediaToUser } from "../utils/profileBackfillMedia";
 import { applyResolvedAvatarToUserPayload } from "../utils/resolveUserAvatar";
 
 const UPLOADS_ROOT = path.resolve(__dirname, "../../uploads");
@@ -31,7 +33,8 @@ const UPLOADS_ROOT = path.resolve(__dirname, "../../uploads");
 async function clientUserPayload(user: Record<string, unknown>): Promise<Record<string, unknown>> {
   const sanitized = sanitizeUserForClient(user) as Record<string, unknown>;
   const withSchool = applySchoolProfileMediaToUser(sanitized, UPLOADS_ROOT);
-  return applyResolvedAvatarToUserPayload(withSchool, UPLOADS_ROOT);
+  const withProfile = applyProfileBackfillMediaToUser(withSchool, UPLOADS_ROOT);
+  return applyResolvedAvatarToUserPayload(withProfile, UPLOADS_ROOT);
 }
 import {
   geocodePlaceLabel,
@@ -47,6 +50,62 @@ import {
 } from "../utils/publicContactPrivacy";
 
 const router = express.Router();
+
+function buildAvatarFeedPostPreview(
+  user: { _id: unknown; name?: string; username?: string; avatar?: string },
+  feed: { postId?: string; caption?: string; avatarPath?: string; createdAt?: Date }
+) {
+  if (!feed.postId || !feed.avatarPath) return undefined;
+  const uid = String(user._id);
+  return {
+    _id: feed.postId,
+    type: "image",
+    mediaUrls: [feed.avatarPath],
+    caption: feed.caption || `${userPublicDisplayName(user)} updated profile picture`,
+    feedActivity: "profile_avatar_update",
+    createdAt: feed.createdAt ? new Date(feed.createdAt).toISOString() : new Date().toISOString(),
+    creatorId: {
+      _id: uid,
+      name: userPublicDisplayName(user),
+      username: user.username,
+      avatar: feed.avatarPath,
+    },
+    likeCount: 0,
+    commentCount: 0,
+    shareCount: 0,
+  };
+}
+
+function userHasPrivilegedRole(role: unknown): boolean {
+  const roles = Array.isArray(role) ? role : role ? [role] : [];
+  return roles.some((r) => r === "admin" || r === "superadmin");
+}
+
+async function anonymizeSelfDeletedUser(userId: mongoose.Types.ObjectId): Promise<void> {
+  const idStr = userId.toString();
+  const tag = `${idStr.slice(-8)}${Date.now().toString(36)}`;
+  await User.findByIdAndUpdate(userId, {
+    $set: {
+      active: false,
+      name: "Deleted User",
+      email: `deleted_${tag}@deleted.qwertymates.local`,
+      username: `deleted_${tag}`.toLowerCase().slice(0, 30),
+      isLive: false,
+      suspended: false,
+      locked: false,
+      showPhonePublicly: false,
+      publicProfileLocation: { enabled: false },
+    },
+    $unset: {
+      phone: "",
+      avatar: "",
+      stripBackgroundPic: "",
+      liveStreamName: "",
+      resetPasswordToken: "",
+      resetPasswordExpires: "",
+    },
+  });
+}
 
 function isValidGalleryUploadPath(p: string): boolean {
   const s = p.trim();
@@ -82,8 +141,11 @@ router.get("/:id/profile-stats", authenticateOptional, async (req: AuthRequest, 
       ...user,
       isSchoolAccount: inferredSchool,
     };
-    const sanitizedForGallery = applySchoolProfileMediaToUser(
-      userWithSchoolFlag as Record<string, unknown>,
+    const sanitizedForGallery = applyProfileBackfillMediaToUser(
+      applySchoolProfileMediaToUser(
+        userWithSchoolFlag as Record<string, unknown>,
+        UPLOADS_ROOT
+      ),
       UPLOADS_ROOT
     );
     const galleryCount = Array.isArray(sanitizedForGallery.profileGalleryUrls)
@@ -504,6 +566,7 @@ router.post(
         avatar: avatarPath,
         user: sanitizeUserForClient(user.toJSON() as Record<string, unknown>),
         feedPostId: feed.postId,
+        feedPost: buildAvatarFeedPostPreview(user as any, feed),
       });
     } catch (err) {
       next(err);
@@ -542,6 +605,7 @@ router.patch("/:id/avatar-url", authenticate, async (req: AuthRequest, res: Resp
       avatar: avatarUrl,
       user: sanitizeUserForClient(user.toJSON() as Record<string, unknown>),
       feedPostId: feed.postId,
+      feedPost: buildAvatarFeedPostPreview(user as any, feed),
     });
   } catch (err) {
     next(err);
@@ -758,17 +822,46 @@ router.patch('/:id/location', authenticate, async (req: AuthRequest, res: Respon
   }
 });
 
-// Delete user account
+// Delete user account (self-service with password, or admin soft-delete)
 router.delete("/:id", authenticate, async (req: AuthRequest, res: Response, next) => {
   try {
-    const isAdmin = (r: any) => Array.isArray(r) ? r.includes('admin') : r === 'admin';
-    if (req.user?._id.toString() !== req.params.id && !isAdmin(req.user?.role)) {
+    const selfDelete = req.user?._id.toString() === req.params.id;
+    const actorIsAdmin = userHasPrivilegedRole(req.user?.role);
+    if (!selfDelete && !actorIsAdmin) {
       throw new AppError("Unauthorized", 403);
     }
 
-    const user = await User.findByIdAndUpdate(req.params.id, { active: false }, { new: true });
-
+    const user = await User.findById(req.params.id);
     if (!user) throw new AppError("User not found", 404);
+    if (!user.active) throw new AppError("Account already deleted", 400);
+
+    if (selfDelete) {
+      if (userHasPrivilegedRole(user.role)) {
+        throw new AppError("Admin accounts cannot be self-deleted. Contact support.", 403);
+      }
+      const password = String(req.body?.password || "").trim();
+      if (!password) {
+        throw new AppError("Password is required to delete your account", 400);
+      }
+      const passwordOk = await bcrypt.compare(password, user.passwordHash);
+      if (!passwordOk) throw new AppError("Incorrect password", 401);
+
+      await anonymizeSelfDeletedUser(user._id as mongoose.Types.ObjectId);
+
+      await AuditLog.create({
+        action: "USER_SELF_DELETED",
+        user: user._id,
+        meta: {
+          deletedBy: user._id,
+          previousUsername: (user as any).username,
+          previousPhone: user.phone,
+        },
+      });
+
+      return res.json({ message: "Your account has been deleted successfully" });
+    }
+
+    await User.findByIdAndUpdate(req.params.id, { active: false }, { new: true });
 
     await AuditLog.create({
       action: "USER_DELETED",

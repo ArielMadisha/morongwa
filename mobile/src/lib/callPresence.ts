@@ -5,6 +5,7 @@ export type IncomingCallPayload = {
   callerId: string;
   callerName?: string;
   roomId: string;
+  audioOnly?: boolean;
 };
 
 type IncomingHandler = (call: IncomingCallPayload) => void;
@@ -42,6 +43,7 @@ export class CallPresenceService {
         callerId,
         callerName: data.callerName ? String(data.callerName) : undefined,
         roomId,
+        audioOnly: !!data.audioOnly,
       });
     });
 
@@ -75,8 +77,9 @@ export class CallPresenceService {
 
   showIncomingAlert(call: IncomingCallPayload, onAccept: () => void, onDecline: () => void) {
     const name = call.callerName || "Someone";
+    const kind = call.audioOnly ? "voice" : "video";
     Alert.alert(
-      "Incoming video call",
+      `Incoming ${kind} call`,
       `${name} is calling you on Morongwa.`,
       [
         { text: "Decline", style: "cancel", onPress: onDecline },

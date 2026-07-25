@@ -136,7 +136,7 @@ export const payMoneyRequestSchema = Joi.object({
 
 export const payWithCardSchema = Joi.object({
   paymentRequestId: Joi.string().required(),
-  cardId: Joi.string().required(),
+  cardId: Joi.string().optional(),
 });
 
 export const checkoutPaySchema = Joi.object({

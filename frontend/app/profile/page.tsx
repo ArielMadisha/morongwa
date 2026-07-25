@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { ArrowLeft, LayoutDashboard, Wallet, ClipboardList, HelpCircle, ShieldCheck, Lock, Radio, UserCheck, Camera, Pencil, Check, X, Download, Music2, LayoutGrid, ShoppingBag } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { ArrowLeft, LayoutDashboard, Wallet, ClipboardList, HelpCircle, ShieldCheck, Lock, Radio, UserCheck, Camera, Pencil, Check, X, Download, Music2, LayoutGrid, ShoppingBag, Trash2 } from "lucide-react";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import { useAuth } from "@/contexts/AuthContext";
 import { usersAPI, followsAPI, musicAPI, checkoutAPI, getImageUrl, API_BASE } from "@/lib/api";
@@ -13,6 +14,7 @@ import { SetPictureOptionsModal } from "@/components/SetPictureOptionsModal";
 import { ContentPreferencesModal } from "@/components/ContentPreferencesModal";
 import { useCartAndStores } from "@/lib/useCartAndStores";
 import toast from "react-hot-toast";
+import { dispatchAvatarUpdated } from "@/lib/avatarUpdatedEvent";
 import { userPublicDisplayName } from "@/lib/userDisplayLabel";
 import { ProfileLocationSettings } from "@/components/ProfileLocationSettings";
 import type { PublicProfileLocation } from "@/lib/publicProfileLocation";
@@ -26,6 +28,7 @@ function initials(name: string) {
 
 export default function ProfilePage() {
   const { user, logout, refreshUser } = useAuth();
+  const router = useRouter();
   const profileLabel = user ? userPublicDisplayName(user) : "";
   const [menuOpen, setMenuOpen] = useState(false);
   const [isPrivate, setIsPrivate] = useState(false);
@@ -45,6 +48,10 @@ export default function ProfilePage() {
   const [contentPrefsOpen, setContentPrefsOpen] = useState(false);
   const [showPhonePublicly, setShowPhonePublicly] = useState(false);
   const [publicProfileKind, setPublicProfileKind] = useState<'individual' | 'school' | 'business'>('individual');
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deletePassword, setDeletePassword] = useState("");
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
+  const [deleteSaving, setDeleteSaving] = useState(false);
   const { cartCount, hasStore } = useCartAndStores(!!user);
 
   useEffect(() => {
@@ -175,13 +182,14 @@ export default function ProfilePage() {
   const handleSetProfilePic = async () => {
     if (!selectedPictureFile || !user?._id && !user?.id) return;
     try {
-      await usersAPI.uploadAvatar(user._id || user.id!, selectedPictureFile);
+      const res = await usersAPI.uploadAvatar(user._id || user.id!, selectedPictureFile);
       toast.success('Profile picture updated');
       setSelectedPictureFile(null);
       await refreshUser?.();
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent('qwertymates:avatar-updated'));
-      }
+      dispatchAvatarUpdated({
+        avatar: res.data?.avatar,
+        feedPost: res.data?.feedPost as Record<string, unknown> | undefined,
+      });
     } catch (e: any) {
       toast.error(e.response?.data?.message || 'Failed to update profile picture');
     }
@@ -258,11 +266,45 @@ export default function ProfilePage() {
     }
   };
 
+  const closeDeleteModal = () => {
+    if (deleteSaving) return;
+    setDeleteOpen(false);
+    setDeletePassword("");
+    setDeleteConfirmText("");
+  };
+
+  const handleDeleteAccount = async () => {
+    if (deleteConfirmText.trim().toUpperCase() !== "DELETE") {
+      toast.error('Type DELETE to confirm account removal');
+      return;
+    }
+    if (!deletePassword) {
+      toast.error("Enter your password to confirm");
+      return;
+    }
+    if (!user?._id && !user?.id) return;
+    setDeleteSaving(true);
+    try {
+      await usersAPI.deleteAccount(user._id || user.id!, deletePassword);
+      closeDeleteModal();
+      logout();
+      toast.success("Your account has been deleted");
+      router.push("/");
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { message?: string } } };
+      toast.error(err.response?.data?.message || "Could not delete account");
+    } finally {
+      setDeleteSaving(false);
+    }
+  };
+
   if (!user) return null;
 
   const roles = Array.isArray(user.role) ? user.role : [user.role];
   const statusLabel = user.suspended ? "Suspended" : user.active ? "Active" : "Inactive";
   const variant = roles.includes("runner") ? "runner" : "client";
+  const isPrivilegedAccount = roles.includes("admin") || roles.includes("superadmin");
+  const isSchoolAccount = !!(user as { isSchoolAccount?: boolean }).isSchoolAccount || publicProfileKind === "school";
 
   const dashboardHref = roles.includes("admin") || roles.includes("superadmin")
     ? "/admin"
@@ -698,6 +740,36 @@ export default function ProfilePage() {
               </Link>
             </p>
           </div>
+
+          {/* Delete account */}
+          <div className="mt-6 rounded-xl border border-red-100 bg-red-50/40 p-5">
+            <h3 className="text-sm font-semibold text-red-900 flex items-center gap-2">
+              <Trash2 className="h-4 w-4" />
+              Delete account
+            </h3>
+            <p className="mt-2 text-sm text-slate-600">
+              Permanently remove your Qwertymates account. You will be logged out and will not be able to sign in again with this account.
+              {isSchoolAccount ? " School gallery content may remain visible on the platform." : ""}
+            </p>
+            {isPrivilegedAccount ? (
+              <p className="mt-3 text-sm text-amber-800">
+                Admin accounts cannot be self-deleted.{" "}
+                <Link href="/support?category=general:account" className="font-medium underline">
+                  Contact support
+                </Link>
+                .
+              </p>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setDeleteOpen(true)}
+                className="mt-4 inline-flex items-center gap-2 rounded-lg border border-red-200 bg-white px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-50 transition-colors"
+              >
+                <Trash2 className="h-4 w-4" />
+                Delete my account
+              </button>
+            )}
+          </div>
         </div>
           </div>
         </div>
@@ -719,6 +791,58 @@ export default function ProfilePage() {
           refreshUser?.();
         }}
       />
+
+      {deleteOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" role="dialog" aria-modal="true" aria-labelledby="delete-account-title">
+          <div className="w-full max-w-md rounded-2xl bg-white shadow-xl border border-slate-100 p-6">
+            <h2 id="delete-account-title" className="text-lg font-semibold text-slate-900">Delete account?</h2>
+            <p className="mt-2 text-sm text-slate-600">
+              This cannot be undone. Your profile will be deactivated, your phone and email will be released for a new registration, and you will be logged out.
+            </p>
+            <div className="mt-4 space-y-3">
+              <div>
+                <label className="block text-xs font-medium text-slate-500 mb-1">Password</label>
+                <input
+                  type="password"
+                  value={deletePassword}
+                  onChange={(e) => setDeletePassword(e.target.value)}
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-red-500 focus:border-red-500"
+                  placeholder="Your account password"
+                  autoComplete="current-password"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-500 mb-1">Type DELETE to confirm</label>
+                <input
+                  type="text"
+                  value={deleteConfirmText}
+                  onChange={(e) => setDeleteConfirmText(e.target.value)}
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-red-500 focus:border-red-500"
+                  placeholder="DELETE"
+                />
+              </div>
+            </div>
+            <div className="mt-6 flex gap-3 justify-end">
+              <button
+                type="button"
+                onClick={closeDeleteModal}
+                disabled={deleteSaving}
+                className="px-4 py-2 rounded-lg border border-slate-200 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteAccount}
+                disabled={deleteSaving}
+                className="px-4 py-2 rounded-lg bg-red-600 text-white text-sm font-medium hover:bg-red-700 disabled:opacity-50"
+              >
+                {deleteSaving ? "Deleting…" : "Delete account"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </ProtectedRoute>
   );
 }

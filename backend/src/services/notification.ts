@@ -4,6 +4,12 @@ import { Server as SocketServer } from "socket.io";
 import Notification from "../data/models/Notification";
 import User from "../data/models/User";
 import Task from "../data/models/Task";
+import {
+  resolveDisputesInboxEmail,
+  resolveHrInboxEmail,
+  shouldNotifyHrInbox,
+} from "./emailRouting";
+import { parseEmailRecipientList } from "./emailRouting";
 import { logger } from "./monitoring";
 import {
   authenticateSocket,
@@ -250,9 +256,26 @@ export const emitRunnerLocation = async (runnerId: string, location: { type: str
   }
 };
 
+const DEFAULT_PLATFORM_OPS_EMAIL = "administrator@qwertymates.com";
+
+export { parseEmailRecipientList } from "./emailRouting";
+
+/** Ops / system-issue inbox (live calls, streams, platform admin alerts). */
+export function resolvePlatformOpsEmail(): string {
+  return (
+    String(process.env.PLATFORM_OPS_EMAIL || process.env.ADMINISTRATOR_EMAIL || DEFAULT_PLATFORM_OPS_EMAIL).trim() ||
+    DEFAULT_PLATFORM_OPS_EMAIL
+  );
+}
+
+function normalizeEmailToField(to: string | string[]): string {
+  const list = Array.isArray(to) ? to : parseEmailRecipientList(to.replace(/\s+/g, ""));
+  return list.length ? list.join(", ") : String(to || "").trim();
+}
+
 /** Send SMTP email with optional attachments (CSV/PDF). Best-effort; returns false on failure. */
 export async function sendEmailWithAttachments(params: {
-  to: string;
+  to: string | string[];
   subject: string;
   text: string;
   html?: string;
@@ -261,9 +284,11 @@ export async function sendEmailWithAttachments(params: {
   try {
     const transporter = await getTransporter();
     const attachments = Array.isArray(params.attachments) ? params.attachments : [];
+    const to = normalizeEmailToField(params.to);
+    if (!to) return false;
     await transporter.sendMail({
       from: process.env.SMTP_USER || "no-reply@qwertymates.local",
-      to: params.to,
+      to,
       subject: params.subject,
       text: params.text,
       html: params.html,
@@ -276,7 +301,58 @@ export async function sendEmailWithAttachments(params: {
   }
 }
 
-/** Notify admin/superadmin users via realtime (saved + Socket.IO room per user id). */
+async function sendStaffInboxEmail(options: {
+  to: string | string[];
+  subject: string;
+  message: string;
+}): Promise<void> {
+  const adminUrl = `${String(process.env.FRONTEND_URL || "https://www.qwertymates.com").replace(/\/$/, "")}/admin`;
+  const text = [options.message, "", `Admin: ${adminUrl}`].join("\n");
+  const html = `<div style="font-family:system-ui,sans-serif;line-height:1.5"><p>${options.message.replace(/</g, "&lt;")}</p><p><a href="${adminUrl}">Open admin</a></p></div>`;
+  await sendEmailWithAttachments({ to: options.to, subject: options.subject, text, html });
+}
+
+/** Disputes inbox — additive email; does not replace audit logs or in-app admin alerts. */
+export async function notifyDisputesInbox(payload: {
+  subject: string;
+  message: string;
+}): Promise<void> {
+  try {
+    const inbox = resolveDisputesInboxEmail();
+    if (!inbox) return;
+    await sendStaffInboxEmail({
+      to: inbox,
+      subject: payload.subject.startsWith("[Qwertymates]") ? payload.subject : `[Qwertymates] ${payload.subject}`,
+      message: payload.message,
+    });
+  } catch (error) {
+    logger.warn("notifyDisputesInbox failed (non-fatal)", { error: String((error as any)?.message || error) });
+  }
+}
+
+/** HR / employment inbox — additive email; does not replace in-app admin alerts. */
+export async function notifyHrInbox(payload: {
+  subject: string;
+  message: string;
+}): Promise<void> {
+  try {
+    const inbox = resolveHrInboxEmail();
+    if (!inbox) return;
+    await sendStaffInboxEmail({
+      to: inbox,
+      subject: payload.subject.startsWith("[Qwertymates]") ? payload.subject : `[Qwertymates] ${payload.subject}`,
+      message: payload.message,
+    });
+  } catch (error) {
+    logger.warn("notifyHrInbox failed (non-fatal)", { error: String((error as any)?.message || error) });
+  }
+}
+
+/**
+ * Notify admin/superadmin users via realtime (saved + Socket.IO).
+ * Also sends additive SMTP to PLATFORM_OPS_EMAIL (+ HR inbox when type matches).
+ * Does not remove or replace any existing notification channel.
+ */
 export async function notifyPlatformAdminsRealtime(payload: { type: string; message: string }): Promise<void> {
   try {
     const admins = await User.find({
@@ -293,6 +369,15 @@ export async function notifyPlatformAdminsRealtime(payload: { type: string; mess
         message: payload.message,
         channel: "realtime",
       });
+    }
+
+    const subject = `[Qwertymates] ${payload.type.replace(/_/g, " ")}`;
+    const opsEmail = resolvePlatformOpsEmail();
+    if (opsEmail) {
+      await sendStaffInboxEmail({ to: opsEmail, subject, message: payload.message });
+    }
+    if (shouldNotifyHrInbox(payload.type)) {
+      await notifyHrInbox({ subject, message: payload.message });
     }
   } catch (error) {
     logger.warn("notifyPlatformAdminsRealtime failed (non-fatal)", { error: String((error as any)?.message || error) });

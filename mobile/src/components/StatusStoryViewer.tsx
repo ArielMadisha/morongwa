@@ -4,6 +4,7 @@ import {
   Image,
   Modal,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   useWindowDimensions,
@@ -37,6 +38,13 @@ function displayName(post: TVPost | null, fallback?: string): string {
   const c = post?.creatorId;
   if (c && typeof c === "object" && c.name) return c.name;
   return fallback || "User";
+}
+
+function captionFontSize(length: number): number {
+  if (length > 1400) return 11;
+  if (length > 700) return 12;
+  if (length > 280) return 13;
+  return 14;
 }
 
 function primaryMediaUrl(post: TVPost | null): string | undefined {
@@ -143,10 +151,18 @@ export function StatusStoryViewer({
             ) : !post ? (
               <Text style={styles.emptyText}>This status could not be loaded.</Text>
             ) : post.type === "text" || (!absMedia && post.type !== "video") ? (
-              <View style={styles.textCard}>
+              <ScrollView
+                style={styles.textScroll}
+                contentContainerStyle={styles.textScrollContent}
+                showsVerticalScrollIndicator
+              >
                 <Text style={styles.textHeading}>{post.heading || name}</Text>
-                {post.caption ? <Text style={styles.textCaption}>{post.caption}</Text> : null}
-              </View>
+                {post.caption ? (
+                  <Text style={[styles.textCaption, { fontSize: captionFontSize(post.caption.length) }]}>
+                    {post.caption}
+                  </Text>
+                ) : null}
+              </ScrollView>
             ) : isVideo && absMedia ? (
               <>
                 {!videoReady ? <ActivityIndicator size="large" color="#fff" style={styles.mediaLoader} /> : null}
@@ -188,6 +204,15 @@ export function StatusStoryViewer({
                   <View style={styles.viewProductPill} pointerEvents="none">
                     <Ionicons name="bag-handle-outline" size={16} color="#fff" />
                     <Text style={styles.viewProductText}>View product</Text>
+                  </View>
+                ) : null}
+                {post.caption ? (
+                  <View style={styles.captionOverlay} pointerEvents="box-none">
+                    <ScrollView style={styles.captionScroll} showsVerticalScrollIndicator>
+                      <Text style={[styles.captionText, { fontSize: captionFontSize(post.caption.length) }]}>
+                        {post.caption}
+                      </Text>
+                    </ScrollView>
                   </View>
                 ) : null}
               </Pressable>
@@ -342,6 +367,16 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center"
   },
+  textScroll: {
+    flex: 1,
+    width: "100%"
+  },
+  textScrollContent: {
+    flexGrow: 1,
+    justifyContent: "center",
+    paddingHorizontal: 20,
+    paddingVertical: 24
+  },
   textHeading: {
     color: "#fff",
     fontSize: 22,
@@ -353,6 +388,24 @@ const styles = StyleSheet.create({
     color: "#cbd5e1",
     fontSize: 16,
     textAlign: "center"
+  },
+  captionOverlay: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    maxHeight: "44%",
+    backgroundColor: "rgba(0,0,0,0.82)",
+    paddingTop: 16,
+    paddingBottom: 12,
+    paddingHorizontal: 14
+  },
+  captionScroll: {
+    maxHeight: 220
+  },
+  captionText: {
+    color: "#f8fafc",
+    lineHeight: 20
   },
   emptyText: {
     color: "#94a3b8",

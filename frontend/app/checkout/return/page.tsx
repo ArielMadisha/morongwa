@@ -38,7 +38,7 @@ function CheckoutReturnContent() {
 
     let active = true;
     let attempts = 0;
-    const maxAttempts = 12;
+    const maxAttempts = 24; // ~60s — allow slow 3-D Secure / bank redirects before giving up
 
     const poll = async () => {
       if (!active) return;
@@ -129,7 +129,7 @@ function CheckoutReturnContent() {
           <p className="text-slate-600 mb-6">
             {restoring
               ? 'Restoring your cart…'
-              : 'Your card was not charged. Items should be back in your cart so you can try again.'}
+              : 'Your card was not charged. The bank or payment page did not approve this attempt (declined, cancelled, or incomplete 3-D Secure). Items should be back in your cart — try again or use another card / Wallet.'}
           </p>
           <div className="flex flex-col sm:flex-row gap-3 justify-center">
             <Link

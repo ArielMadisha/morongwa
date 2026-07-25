@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Kota">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#f59e0b"/>
+      <stop offset="100%" stop-color="#b45309"/>
+    </linearGradient>
+  </defs>
+  <rect width="128" height="128" rx="28" fill="#fff7ed"/>
+  <path d="M28 78c0-22 16-40 36-40s36 18 36 40v6H28v-6z" fill="url(#g)"/>
+  <path d="M34 74h60c-2 10-14 18-30 18S36 84 34 74z" fill="#92400e"/>
+  <rect x="40" y="58" width="48" height="8" rx="4" fill="#fbbf24"/>
+  <rect x="44" y="48" width="40" height="7" rx="3.5" fill="#ef4444"/>
+  <rect x="46" y="40" width="36" height="6" rx="3" fill="#22c55e"/>
+  <circle cx="64" cy="30" r="10" fill="#fde68a" stroke="#d97706" stroke-width="3"/>
+</svg>

@@ -15,6 +15,11 @@ import {
 } from "../utils/currencyPolicy";
 import { enrichProductsWithStoreFields } from "../services/enrichProductStoreFields";
 import {
+  FOOD_CATEGORY,
+  FOOD_HUB_EXCLUDED_CATEGORIES,
+  isFoodMarketplaceCategory,
+} from "../config/foodMarketplace";
+import {
   adminMarkupPctForCategory,
   catalogListPriceFromSupplierBaseZar,
   getMarketplaceCategoryMarkup,
@@ -28,6 +33,10 @@ import {
 import { resolveSupplierForProductUpload } from "../utils/supplierAccess";
 import { resolveSupplierStoreCurrency } from "../utils/storeProductCurrency";
 import { assignProductColors, ensureProductColors } from "../services/assignProductColors";
+import { resolveWarehouseFreeLocalForSupplier } from "../services/warehouseLocalDelivery";
+import { resolveFreeShippingFieldsForCreate } from "../services/productFreeShipping";
+import Store from "../data/models/Store";
+import { bumpStatusStripCache } from "../services/statusStripPolicy";
 import { normalizeProductSizes } from "../utils/productSizeTypes";
 
 const router = Router();
@@ -84,12 +93,19 @@ router.post(
  */
 router.get("/", async (req: Request, res: Response) => {
   try {
-    const limit = Math.min(parseInt(req.query.limit as string, 10) || 20, 50);
+    const category = (req.query.category as string)?.trim();
+    const foodCategoryQuery = isFoodMarketplaceCategory(category);
+    const limit = Math.min(
+      parseInt(req.query.limit as string, 10) || 20,
+      foodCategoryQuery ? 300 : 50
+    );
     const page = Math.max(parseInt(req.query.page as string, 10) || 1, 1);
     const skip = (page - 1) * limit;
     const random = req.query.random === "1" || req.query.random === "true";
     const q = (req.query.q as string)?.trim();
-    const category = (req.query.category as string)?.trim();
+    const warehouseCity = String(req.query.warehouseCity || req.query.warehouse || "")
+      .trim()
+      .toLowerCase();
 
     const approvedSupplierIds = await getApprovedSupplierIds();
 
@@ -114,12 +130,25 @@ router.get("/", async (req: Request, res: Response) => {
     if (category) {
       match = {
         ...match,
-        categories: { $in: [new RegExp(`^${category}$`, "i")] },
+        categories: { $in: [new RegExp(`^${category.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i")] },
+      };
+    } else {
+      // QwertyHub feed: never mix Food & Restaurant / kota menu into the product grid.
+      match = {
+        ...match,
+        categories: { $not: new RegExp(`^${FOOD_CATEGORY.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i") },
+      };
+    }
+    if (warehouseCity) {
+      // e.g. warehouseCity=hammanskraal → Qwertymates Hammanskraal warehouse free-local products
+      match = {
+        ...match,
+        warehouseFreeLocalCity: { $regex: warehouseCity.replace(/[^a-z0-9]/gi, ""), $options: "i" },
       };
     }
 
     const query = Product.find(match)
-      .select("title slug description images price discountPrice bulkTiers currency stock outOfStock categories tags availableCountries ratingAvg ratingCount supplierSource allowResell supplierId createdAt")
+      .select("title slug description images price discountPrice bulkTiers currency stock outOfStock categories tags availableCountries ratingAvg ratingCount supplierSource allowResell supplierId createdAt freeShippingEnabled freeShippingAreas colors sizes warehouseFreeLocalCity warehouseFreeLocalCountry")
       .populate("supplierId", "storeName userId")
       .lean();
 
@@ -164,6 +193,18 @@ router.get("/categories", async (_req: Request, res: Response) => {
       { $project: { c: { $trim: { input: "$categories" } } } },
       { $match: { c: { $ne: "" } } },
       { $match: { c: { $not: /^local$/i } } },
+      {
+        $match: {
+          $expr: {
+            $not: {
+              $in: [
+                { $toLower: "$c" },
+                FOOD_HUB_EXCLUDED_CATEGORIES.map((x) => x.toLowerCase()),
+              ],
+            },
+          },
+        },
+      },
       { $group: { _id: { $toLower: "$c" }, label: { $first: "$c" }, count: { $sum: 1 } } },
       { $sort: { count: -1, label: 1 } },
       { $limit: 50 },
@@ -286,6 +327,8 @@ router.post("/", authenticate, async (req: AuthRequest, res: Response, next) => 
       categories?: string[];
       tags?: string[];
       availableCountries?: string[];
+      freeShippingEnabled?: boolean;
+      freeShippingAreas?: Array<{ countryCode: string; locality: string }>;
     };
     const supplier = await resolveSupplierForProductUpload(
       req.user!._id,
@@ -368,6 +411,20 @@ router.post("/", authenticate, async (req: AuthRequest, res: Response, next) => 
       markupFields.resellerMarginPct = Math.round(mid * 10) / 10;
     }
 
+    const linkedStore = supplier.linkedStoreId
+      ? await Store.findById(supplier.linkedStoreId).select("name").lean()
+      : await Store.findOne({ supplierId: supplier._id, type: "supplier" }).select("name").lean();
+    const warehouseFreeLocal = resolveWarehouseFreeLocalForSupplier({
+      storeName: supplier.storeName,
+      linkedStoreName: linkedStore?.name,
+    });
+    let freeShippingFields: ReturnType<typeof resolveFreeShippingFieldsForCreate>;
+    try {
+      freeShippingFields = resolveFreeShippingFieldsForCreate(body, warehouseFreeLocal);
+    } catch (err) {
+      throw new AppError(err instanceof Error ? err.message : "Invalid free shipping areas", 400);
+    }
+
     const product = await Product.create({
       supplierId: supplier._id,
       title: title.trim(),
@@ -386,6 +443,7 @@ router.post("/", authenticate, async (req: AuthRequest, res: Response, next) => 
       categories,
       tags: Array.isArray(body.tags) ? body.tags : [],
       availableCountries: Array.isArray(body.availableCountries) ? body.availableCountries.filter(Boolean) : [],
+      ...freeShippingFields,
       active: true,
       ...markupFields,
     });
@@ -399,6 +457,9 @@ router.post("/", authenticate, async (req: AuthRequest, res: Response, next) => 
       status: "approved",
     }).catch(() => {});
     void assignProductColors(String(product._id), { images }).catch(() => {});
+    bumpStatusStripCache();
+    const { queueFacebookPostForProduct } = await import("../services/facebookMarketplacePostService");
+    queueFacebookPostForProduct(String(product._id), "supplier-create");
     res.status(201).json({ message: "Product created", data: product });
   } catch (err) {
     next(err);

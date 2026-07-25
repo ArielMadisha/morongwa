@@ -96,7 +96,9 @@ export function sanitizeUserForClient<T extends Record<string, unknown>>(
 }
 
 /**
- * Public-facing label: prefer institution/display name over legacy numeric @username.
+ * Public-facing label for strips, posts, sidebars, etc.
+ * Prefer a proper display `name` (Title Case brands / people) over @username.
+ * Usernames belong on the profile handle, not as the primary label.
  */
 export function userPublicDisplayName(u: UserLabelFields | null | undefined): string {
   if (!u) return "User";
@@ -104,13 +106,12 @@ export function userPublicDisplayName(u: UserLabelFields | null | undefined): st
   if (apiLabel && apiLabel !== "User") return apiLabel;
   const username = String(u.username || "").trim();
   const name = String(u.name || "").trim();
-  if (shouldPreferInstitutionDisplayName(u)) {
-    return name;
-  }
+  // Always prefer a real name when present — keeps status strip / feed consistent
+  // (e.g. "History Box" not "historybox").
+  if (name && !isGenericDisplayName(name)) return name;
   if (username && !isNumericOnlyLabel(username) && !isAutoImportGalleryUsername(username)) {
     return username;
   }
-  if (name && !isGenericDisplayName(name)) return name;
   const email = String(u.email || "").trim();
   if (email.includes("@")) return email.split("@")[0];
   return "User";

@@ -57,6 +57,7 @@ import { useCurrency } from '@/contexts/CurrencyContext';
 import { formatCurrencyAmount } from '@/lib/formatCurrency';
 import { formatCatalogProductPrice } from '@/lib/productPriceZar';
 import { bulkTierSummary } from '@/lib/bulkTierLabel';
+import { freeShippingAreasFromProduct, FREE_DELIVERY_PROMO_LABEL, productShowsFreeDeliveryPromo } from '@/lib/freeShippingAreas';
 import { creatorDisplayLabel } from '@/lib/userDisplayLabel';
 import { ProfileSummaryHoverCard } from '@/components/ProfileSummaryHoverCard';
 import { MarketplaceCartStepper } from '@/components/MarketplaceCartStepper';
@@ -229,6 +230,11 @@ export interface TVGridItem {
   fromResellerWall?: boolean;
   /** e.g. profile_avatar_update */
   feedActivity?: string;
+  colors?: Array<{ name: string; hex?: string; imageIndex?: number }>;
+  sizes?: string[];
+  outOfStock?: boolean;
+  freeShippingEnabled?: boolean;
+  freeShippingAreas?: Array<{ countryCode: string; locality: string }>;
 }
 
 function formatPostPeriod(createdAt?: string) {
@@ -251,6 +257,18 @@ function formatPostPeriod(createdAt?: string) {
   if (diffDays < 30) return `${diffDays} day${diffDays === 1 ? "" : "s"} ago`;
   if (diffMonths < 12) return `${diffMonths} month${diffMonths === 1 ? "" : "s"} ago`;
   return `${diffYears} year${diffYears === 1 ? "" : "s"} ago`;
+}
+
+function productCartOptionsFromItem(item: TVGridItem): { colorsRequired: boolean; sizesRequired: boolean } {
+  const colors =
+    (Array.isArray(item.colors) && item.colors.length > 0) ||
+    (Array.isArray((item.productId as { colors?: unknown[] } | undefined)?.colors) &&
+      ((item.productId as { colors: unknown[] }).colors?.length ?? 0) > 0);
+  const sizes =
+    (Array.isArray(item.sizes) && item.sizes.length > 0) ||
+    (Array.isArray((item.productId as { sizes?: unknown[] } | undefined)?.sizes) &&
+      ((item.productId as { sizes: unknown[] }).sizes?.length ?? 0) > 0);
+  return { colorsRequired: colors, sizesRequired: sizes };
 }
 
 interface TVGridTileProps {
@@ -343,9 +361,26 @@ export function TVGridTile({
     : item.creatorId
       ? String(item.creatorId)
       : null;
-  const isOwnPost = creatorIdResolved && currentUserId && creatorIdResolved === String(currentUserId);
 
   const isProductTile = item.type === 'product_tile';
+  /** Catalog product tiles often omit creatorId — fall back to supplier owner for store hover. */
+  const storeOwnerUserId = (() => {
+    const fromSupplier = (sid?: { userId?: string | { _id?: string } } | string | null): string | null => {
+      if (!sid || typeof sid !== 'object') return null;
+      const uid = (sid as { userId?: string | { _id?: string } }).userId;
+      if (!uid) return null;
+      if (typeof uid === 'object' && uid !== null && '_id' in uid) return String(uid._id);
+      return String(uid);
+    };
+    return (
+      fromSupplier(item.supplierId) ||
+      fromSupplier((item.productId as { supplierId?: { userId?: string } } | undefined)?.supplierId) ||
+      null
+    );
+  })();
+  const profileHoverUserId = creatorIdResolved || storeOwnerUserId;
+  const isOwnPost = profileHoverUserId && currentUserId && profileHoverUserId === String(currentUserId);
+
   const storeSlugResolved =
     item.storeSlug ||
     item.creatorId?.storeSlug ||
@@ -366,11 +401,12 @@ export function TVGridTile({
   const headerTitle = isProfileAvatarUpdate && item.caption ? item.caption : creatorName;
   const creatorProfileHref = (() => {
     if (isOwnPost) {
-      if (isProductTile && storeSlugResolved) return `/store/${storeSlugResolved}`;
+      if ((isProductTile || !!supplierStoreLabel) && storeSlugResolved) return `/store/${storeSlugResolved}`;
       return '/store';
     }
-    if (isProductTile && storeSlugResolved) return `/store/${storeSlugResolved}`;
+    if ((isProductTile || !!supplierStoreLabel) && storeSlugResolved) return `/store/${storeSlugResolved}`;
     if (item.creatorId?._id || item.creatorId) return `/user/${item.creatorId?._id ?? item.creatorId}`;
+    if (storeOwnerUserId) return `/user/${storeOwnerUserId}`;
     return '/wall';
   })();
   const isProductPost = isProductTile || !!item.productId;
@@ -386,16 +422,15 @@ export function TVGridTile({
     ? `/marketplace/product/${catalogProductId}${!isProductTile && creatorIdResolved ? `?resellerId=${creatorIdResolved}` : ''}`
     : '#';
   const showProductCartStepper = Boolean(isProductTile && catalogProductId && onCartUpdated);
+  const productCartOptions = productCartOptionsFromItem(item);
   const productCartStepperEl = showProductCartStepper ? (
     <MarketplaceCartStepper
       productId={catalogProductId}
       resellerId={undefined}
       qty={cartQty}
-      colorsRequired={
-        (Array.isArray((item as { colors?: unknown[] }).colors) && (item as { colors: unknown[] }).colors.length > 0) ||
-        (Array.isArray((item.productId as { colors?: unknown[] } | undefined)?.colors) &&
-          ((item.productId as { colors: unknown[] }).colors?.length ?? 0) > 0)
-      }
+      colorsRequired={productCartOptions.colorsRequired}
+      sizesRequired={productCartOptions.sizesRequired}
+      optionsPickerHref={productPageHref}
       outOfStock={productOutOfStock}
       isGuest={!currentUserId}
       loginHref={loginHref}
@@ -1283,12 +1318,9 @@ export function TVGridTile({
                 productId={catalogProductId}
                 resellerId={creatorIdResolved || undefined}
                 qty={cartQty}
-                colorsRequired={
-                  (Array.isArray((item.productId as { colors?: unknown[] } | undefined)?.colors) &&
-                    ((item.productId as { colors: unknown[] }).colors?.length ?? 0) > 0) ||
-                  (Array.isArray((item as { colors?: unknown[] }).colors) &&
-                    (item as { colors: unknown[] }).colors.length > 0)
-                }
+                colorsRequired={productCartOptions.colorsRequired}
+                sizesRequired={productCartOptions.sizesRequired}
+                optionsPickerHref={productPageHref}
                 outOfStock={!!(item.productId as Product & { outOfStock?: boolean })?.outOfStock}
                 isGuest={!currentUserId}
                 loginHref={loginHref}
@@ -1309,9 +1341,9 @@ export function TVGridTile({
         }`}
       >
         <div className="flex min-w-0 flex-1 items-center gap-2">
-          {creatorIdResolved ? (
+          {profileHoverUserId ? (
             <ProfileSummaryHoverCard
-              userId={creatorIdResolved}
+              userId={profileHoverUserId}
               displayName={headerTitle}
               avatar={item.creatorId?.avatar}
               currentUserId={currentUserId}
@@ -1321,7 +1353,7 @@ export function TVGridTile({
             >
               <Link
                 href={creatorProfileHref}
-                className="flex min-w-0 items-center gap-2"
+                className="flex min-w-0 items-center gap-2 cursor-pointer"
                 onClick={(e) => e.stopPropagation()}
               >
                 <div className="h-8 w-8 flex-shrink-0 overflow-hidden rounded-full border-2 border-white/40 bg-slate-600 shadow-md ring-1 ring-black/20">
@@ -1749,6 +1781,11 @@ export function TVGridTile({
             const hint = bulkTierSummary(tiers, (n) => formatPriceLocal(n, item.currency || 'ZAR'));
             return hint ? <p className="text-[11px] text-sky-700 mt-0.5">Bulk: {hint}</p> : null;
           })()}
+          {productShowsFreeDeliveryPromo(
+            isProductTile ? item : (item.productId as Parameters<typeof freeShippingAreasFromProduct>[0] | undefined)
+          ) ? (
+            <p className="text-[11px] font-semibold text-sky-600 mt-1">{FREE_DELIVERY_PROMO_LABEL}</p>
+          ) : null}
         </Link>
       )}
 

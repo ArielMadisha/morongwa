@@ -20,6 +20,11 @@ import {
 } from '@/lib/marketplaceCategoryMarkups';
 import { formatCurrencyAmount } from '@/lib/formatCurrency';
 import { currencyForCountryCode, currencyLabel } from '@/lib/storeProductCurrency';
+import { FreeShippingFields } from '@/components/products/FreeShippingFields';
+import {
+  serializeFreeShippingPayload,
+  type FreeShippingAreaRow,
+} from '@/lib/freeShippingAreas';
 
 const MAX_IMAGES = 10;
 const MIN_IMAGES = 1;
@@ -103,6 +108,8 @@ export default function SupplierProductsPage() {
     availableCountries: [] as string[],
   });
   const [bulkTiers, setBulkTiers] = useState<Array<{ minQty: string; maxQty: string; price: string }>>([]);
+  const [freeShippingEnabled, setFreeShippingEnabled] = useState(false);
+  const [freeShippingAreas, setFreeShippingAreas] = useState<FreeShippingAreaRow[]>([]);
 
   const topCategoryOptions = useMemo(
     () => Object.keys(MARKETPLACE_CATEGORY_MARKUPS).sort((a, b) => a.localeCompare(b)),
@@ -182,6 +189,11 @@ export default function SupplierProductsPage() {
       toast.error(`At least ${MIN_IMAGES} product image is required (up to ${MAX_IMAGES})`);
       return;
     }
+    const shippingPayload = serializeFreeShippingPayload(freeShippingEnabled, freeShippingAreas);
+    if (shippingPayload.freeShippingEnabled && !shippingPayload.freeShippingAreas?.length) {
+      toast.error('Add at least one free shipping area (town and country)');
+      return;
+    }
     setSubmitting(true);
     try {
       const uploadRes = await productsAPI.uploadImages(imageFiles, activeSupplierId);
@@ -216,6 +228,7 @@ export default function SupplierProductsPage() {
         categories: form.categories.trim() ? [form.categories.trim()] : [],
         tags: form.tags ? form.tags.split(',').map((s) => s.trim()).filter(Boolean) : [],
         availableCountries: form.availableCountries.length > 0 ? form.availableCountries : [],
+        ...shippingPayload,
       });
       toast.success('Product created and listed on QwertyHub');
       imagePreviews.forEach((url) => URL.revokeObjectURL(url));
@@ -223,6 +236,8 @@ export default function SupplierProductsPage() {
       setImagePreviews([]);
       setForm({ title: '', description: '', price: '', discountPrice: '', stock: '0', outOfStock: false, sizes: '', allowResell: true, categories: '', tags: '', availableCountries: [] });
       setBulkTiers([]);
+      setFreeShippingEnabled(false);
+      setFreeShippingAreas([]);
     } catch (err: any) {
       const msg = err.response?.data?.message || 'Failed to create product';
       toast.error(msg);
@@ -498,6 +513,13 @@ export default function SupplierProductsPage() {
                 </div>
               )}
             </div>
+            <FreeShippingFields
+              enabled={freeShippingEnabled}
+              areas={freeShippingAreas}
+              defaultCountryCode={supplierProfiles.find((p) => p._id === activeSupplierId)?.countryCode || 'ZA'}
+              onEnabledChange={setFreeShippingEnabled}
+              onAreasChange={setFreeShippingAreas}
+            />
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Stock</label>
               <input

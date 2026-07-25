@@ -26,7 +26,6 @@ import {
 } from "../lib/mediaUpload";
 import { ensureCameraAccess, ensureMediaLibraryAccess } from "../lib/mediaPermissions";
 import { SITE_ORIGIN } from "../constants/site";
-import { WEB_TV_LEGACY_PATH_PREFIX } from "../config";
 import { appTypography, socialTheme } from "../theme/socialTheme";
 
 type Props = {
@@ -38,6 +37,9 @@ type Props = {
 
 type Notice = { tone: "error" | "success"; text: string };
 type MediaMenu = "video" | "qwertz" | "images" | null;
+
+/** LiveKit in-app live rooms (not the legacy /morongwa-tv/live listing). */
+const LIVE_URL = `${SITE_ORIGIN}/live`;
 
 function parseHashtags(raw: string): string[] {
   return raw
@@ -52,8 +54,6 @@ function buildCaption(subject: string, tags: string[]): string | undefined {
   const out = [s, tagStr].filter(Boolean).join(" ").trim();
   return out || undefined;
 }
-
-const LIVE_URL = `${SITE_ORIGIN}${WEB_TV_LEGACY_PATH_PREFIX}/live`;
 
 function showToast(text: string) {
   if (Platform.OS === "android") {

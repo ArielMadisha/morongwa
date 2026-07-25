@@ -11,7 +11,9 @@ function storeLatestPostForHome(created: any) {
   }
 }
 import Link from 'next/link';
-import { tvAPI, musicAPI, getImageUrl, usersAPI, liveAPI, type SongRecord, formatUploadAxiosError } from '@/lib/api';
+import { useRouter } from 'next/navigation';
+import { tvAPI, musicAPI, getImageUrl, usersAPI, liveAPI, livekitAPI, type SongRecord, formatUploadAxiosError } from '@/lib/api';
+
 import {
   ACCEPT_TV_IMAGES,
   isVideoFile,
@@ -23,6 +25,7 @@ import { QSpinner } from '@/components/QSpinner';
 import { GENRES } from './GenresDropdown';
 import type { Product } from '@/lib/types';
 import toast from 'react-hot-toast';
+import { dispatchFeedContentUpdated } from '@/lib/avatarUpdatedEvent';
 
 const MAX_CAROUSEL_IMAGES = 20;
 const QWERTZ_MAX_DURATION_SECONDS = 180; // 3 minutes
@@ -57,6 +60,8 @@ interface CreatePostModalProps {
   currentUserId?: string;
   /** When opening from hashtag Join — prefill text-post hashtags (without #). */
   prefillHashtag?: string;
+  /** Open already focused on Create Qwertz (e.g. /morongwa-tv?compose=qwertz). */
+  composeMode?: 'qwertz' | null;
 }
 
 export function CreatePostModal({
@@ -66,7 +71,9 @@ export function CreatePostModal({
   featuredProducts = [],
   currentUserId,
   prefillHashtag,
+  composeMode = null,
 }: CreatePostModalProps) {
+  const router = useRouter();
   const [step, setStep] = useState<'upload' | 'details'>('upload');
   const [mediaUrls, setMediaUrls] = useState<string[]>([]);
   const [type, setType] = useState<'video' | 'image' | 'carousel' | 'audio'>('image');
@@ -148,6 +155,15 @@ export function CreatePostModal({
   const imagesInputRef = useRef<HTMLInputElement>(null);
   const audioInputRef = useRef<HTMLInputElement>(null);
   const musicInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!open || composeMode !== 'qwertz') return;
+    setGenre('qwertz');
+    const t = window.setTimeout(() => {
+      qwertzInputRef.current?.click();
+    }, 250);
+    return () => window.clearTimeout(t);
+  }, [open, composeMode]);
 
   const uploadTvVideo = async (
     file: File,
@@ -451,6 +467,7 @@ export function CreatePostModal({
       handleClose();
       const created = res.data?.data ?? res.data;
       storeLatestPostForHome(created);
+      dispatchFeedContentUpdated();
       onCreated(created);
     } catch (err: any) {
       toast.error(err.response?.data?.error || err.response?.data?.message || 'Failed to create post');
@@ -846,46 +863,16 @@ export function CreatePostModal({
                   }
                   setLiveActionBusy(true);
                   try {
-                    const sessionRes = await liveAPI.getSession();
-                    const sess = sessionRes.data?.data;
-                    if (sess?.isLive) {
-                      await liveAPI.stop();
-                      toast.success('Live ended');
-                      setLiveObsInfo(null);
-                      handleClose();
-                      onCreated?.();
+                    const cfgRes = await livekitAPI.getConfig().catch(() => null);
+                    const configured = cfgRes?.data?.data?.configured === true;
+                    if (!configured) {
+                      toast.error('Live streaming is not configured yet. Please try again shortly.');
                       return;
                     }
-
-                    const cfgRes = await liveAPI.getConfig();
-                    const publishConfigured = cfgRes.data?.data?.publishConfigured === true;
-
-                    if (publishConfigured) {
-                      const startRes = await liveAPI.start();
-                      const d = startRes.data?.data;
-                      const urls = d?.urls;
-                      if (!urls?.obsServerUrl || !urls?.streamKey) {
-                        toast.error('Could not build stream URLs');
-                        return;
-                      }
-                      const origin = typeof window !== 'undefined' ? window.location.origin : '';
-                      setLiveObsInfo({
-                        obsServerUrl: urls.obsServerUrl,
-                        streamKey: urls.streamKey,
-                        hlsUrl: urls.hlsUrl,
-                        watchUrl: `${origin}/morongwa-tv/live/watch/${currentUserId}`,
-                      });
-                      toast.success('You are live — open OBS with the details below, then share the watch link.');
-                      onCreated?.();
-                      return;
-                    }
-
                     await usersAPI.toggleLive(currentUserId);
-                    toast.success(
-                      'Live badge is on. HLS is not configured on the server yet — viewers will not see RTMP video until an admin sets LIVESTREAM_* env (see Admin → Live streaming).',
-                      { duration: 6000 }
-                    );
                     handleClose();
+                    router.push(`/live/${currentUserId}?host=1`);
+                    toast.success('Opening your live room…');
                     onCreated?.();
                   } catch (e: any) {
                     const msg = e.response?.data?.message || e.response?.data?.error || e.message || 'Failed to go live';

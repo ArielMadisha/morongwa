@@ -16,6 +16,11 @@ import { SearchButton } from '@/components/SearchButton';
 import toast from 'react-hot-toast';
 import { formatCurrencyAmount } from '@/lib/formatCurrency';
 import { openPayGatePayment } from '@/lib/payGateRedirect';
+import {
+  buildDeliveryAddressText,
+  isFullDeliveryAddressComplete,
+  readCartDeliveryAddress,
+} from '@/lib/cartDeliveryAddress';
 
 function formatCheckoutAmount(price: number, currency: string) {
   return formatCurrencyAmount(price, currency || 'ZAR');
@@ -31,26 +36,6 @@ function isZaOnlyCourier(slug?: string) {
   return s === 'paxi' || s === 'courier-guy' || s === 'pudo';
 }
 
-function buildDeliveryAddressText(fields: {
-  line1: string;
-  line2: string;
-  city: string;
-  state: string;
-  postal: string;
-  country: string;
-}) {
-  return [
-    fields.line1.trim(),
-    fields.line2.trim(),
-    fields.city.trim(),
-    fields.state.trim(),
-    fields.postal.trim(),
-    fields.country.trim(),
-  ]
-    .filter(Boolean)
-    .join('\n');
-}
-
 function CheckoutPageContent() {
   const { user, logout } = useAuth();
   const router = useRouter();
@@ -58,6 +43,7 @@ function CheckoutPageContent() {
   const initialCountry = (searchParams.get('deliveryCountry') || 'ZA').toUpperCase();
   const initialScope = searchParams.get('deliveryScope') === 'local' ? 'local' : 'crossborder';
   const initialTariff = searchParams.get('courierTariffId') || undefined;
+  const deliveryReadyFromCart = searchParams.get('deliveryReady') === '1';
   const [menuOpen, setMenuOpen] = useState(false);
   const { cartCount, hasStore } = useCartAndStores(!!user);
   const [quote, setQuote] = useState<{
@@ -107,7 +93,8 @@ function CheckoutPageContent() {
     payOnceTotal?: number;
     totalZarForPayment?: number;
     quoteInNativeCurrency?: boolean;
-    currency?: string;
+    foodPickup?: boolean;
+    deliveryMethodHint?: string;
   } | null>(null);
   const [courierTariffId, setCourierTariffId] = useState<string | undefined>(initialTariff);
   const [crossborderCourierTariffId, setCrossborderCourierTariffId] = useState<string | undefined>(
@@ -136,7 +123,8 @@ function CheckoutPageContent() {
       }),
     [addressLine1, addressLine2, addressCity, addressState, addressPostal, deliveryCountry]
   );
-  const [paymentMethod, setPaymentMethod] = useState<'wallet' | 'card' | 'eft' | 'orange_money'>('wallet');
+  const [paymentMethod, setPaymentMethod] = useState<'wallet' | 'card' | 'eft' | 'orange_money'>('card');
+  const [paymentDefaultApplied, setPaymentDefaultApplied] = useState(false);
   const [initialLoad, setInitialLoad] = useState(true);
   const [quoteRefreshing, setQuoteRefreshing] = useState(false);
   const [paying, setPaying] = useState(false);
@@ -218,10 +206,38 @@ function CheckoutPageContent() {
   ]);
 
   useEffect(() => {
+    if (!quote?.foodPickup) return;
+    if (paymentMethod === 'eft' || paymentMethod === 'orange_money') {
+      setPaymentMethod(walletBalance != null && walletBalance > 0 ? 'wallet' : 'card');
+    }
+  }, [quote?.foodPickup, paymentMethod, walletBalance]);
+
+  useEffect(() => {
+    if (paymentDefaultApplied) return;
+    if (walletBalance == null || !quote) return;
+    const pm = searchParams.get('pm');
+    if (pm === 'card' || pm === 'eft' || pm === 'orange_money' || pm === 'wallet') {
+      setPaymentDefaultApplied(true);
+      return;
+    }
+    const total =
+      quote.totalZarForPayment != null && Number.isFinite(quote.totalZarForPayment)
+        ? quote.totalZarForPayment
+        : quote.total;
+    if (walletBalance <= 0 || walletBalance < total) {
+      setPaymentMethod('card');
+    } else {
+      setPaymentMethod('wallet');
+    }
+    setPaymentDefaultApplied(true);
+  }, [walletBalance, quote, paymentDefaultApplied, searchParams]);
+
+  useEffect(() => {
     const pm = searchParams.get('pm');
     if (pm === 'card') setPaymentMethod('card');
     if (pm === 'eft') setPaymentMethod('eft');
     if (pm === 'orange_money') setPaymentMethod('orange_money');
+    if (pm === 'wallet') setPaymentMethod('wallet');
     const cc = searchParams.get('deliveryCountry');
     if (cc) {
       const up = cc.toUpperCase();
@@ -231,7 +247,34 @@ function CheckoutPageContent() {
     if (ct) setCourierTariffId(ct);
     const ds = searchParams.get('deliveryScope');
     if (ds === 'local' || ds === 'crossborder') setDeliveryScope(ds);
+    const cityFromCart = searchParams.get('deliveryCity');
+    if (cityFromCart) setAddressCity(cityFromCart);
+    const l1 = searchParams.get('addressLine1');
+    if (l1) setAddressLine1(l1);
+    const l2 = searchParams.get('addressLine2');
+    if (l2) setAddressLine2(l2);
+    const st = searchParams.get('addressState');
+    if (st) setAddressState(st);
+    const pc = searchParams.get('addressPostal');
+    if (pc) setAddressPostal(pc);
   }, [searchParams]);
+
+  useEffect(() => {
+    try {
+      const saved = readCartDeliveryAddress();
+      if (!saved) return;
+      if (!addressLine1.trim() && saved.line1) setAddressLine1(saved.line1);
+      if (!addressLine2.trim() && saved.line2) setAddressLine2(saved.line2);
+      if (!addressCity.trim() && saved.city) setAddressCity(saved.city);
+      if (!addressState.trim() && saved.state) setAddressState(saved.state);
+      if (!addressPostal.trim() && saved.postal) setAddressPostal(saved.postal);
+      if (saved.country && ['ZA', 'BW', 'NA', 'LS', 'SZ', 'ZW', 'ZM', 'MZ'].includes(saved.country)) {
+        setDeliveryCountry(saved.country);
+      }
+    } catch {
+      /* ignore */
+    }
+  }, [addressLine1, addressLine2, addressCity, addressState, addressPostal]);
 
   const checkoutCurrency = quote?.currency || 'ZAR';
   const isNonZaDelivery = deliveryCountry !== 'ZA';
@@ -247,16 +290,36 @@ function CheckoutPageContent() {
     return opts.filter((o) => !isZaOnlyCourier(o.providerSlug));
   }, [quote?.courierOptions, deliveryCountry]);
   const deliveryPreselectedFromCart = Boolean(initialTariff && courierTariffId === initialTariff);
+  const addressLockedFromCart =
+    !quote?.foodPickup &&
+    deliveryReadyFromCart &&
+    isFullDeliveryAddressComplete({
+      line1: addressLine1,
+      line2: addressLine2,
+      city: addressCity,
+      state: addressState,
+      postal: addressPostal,
+      country: deliveryCountry,
+    }) &&
+    (deliveryPreselectedFromCart || !!quote?.warehouseFreeLocalApplied || !!courierTariffId);
   const showCourierPicker =
-    visibleCourierOptions.length > 0 && !(deliveryPreselectedFromCart && quote?.selectedCourier);
+    !quote?.foodPickup &&
+    !addressLockedFromCart &&
+    visibleCourierOptions.length > 0 &&
+    !(deliveryPreselectedFromCart && quote?.selectedCourier);
   const walletCompareTotal =
     quote?.totalZarForPayment != null && Number.isFinite(quote.totalZarForPayment)
       ? quote.totalZarForPayment
       : quote?.total ?? 0;
 
   const needsCourierChoice =
-    !!quote?.requiresCourierSelection && visibleCourierOptions.length > 0;
+    !quote?.foodPickup &&
+    !addressLockedFromCart &&
+    !!quote?.requiresCourierSelection &&
+    visibleCourierOptions.length > 0;
   const needsCrossborderChoice =
+    !quote?.foodPickup &&
+    !addressLockedFromCart &&
     !!quote?.hasMixedStoreOrigins &&
     !!quote?.requiresCrossborderCourierSelection &&
     (quote?.crossborderCourierOptions?.length ?? 0) > 0 &&
@@ -281,28 +344,32 @@ function CheckoutPageContent() {
 
   const handlePay = () => {
     if (!quote) return;
-    if (!addressLine1.trim() || !addressCity.trim()) {
+    const foodPickup = !!quote.foodPickup;
+    if (!foodPickup && (!addressLine1.trim() || !addressCity.trim())) {
       toast.error('Street address and city are required');
       return;
     }
-    if (needsCourierChoice && !courierTariffId) {
+    if (!foodPickup && needsCourierChoice && !courierTariffId && !quote?.warehouseFreeLocalApplied) {
       toast.error('Please choose a delivery method that suits you');
       return;
     }
-    if (needsCrossborderChoice) {
+    if (!foodPickup && needsCrossborderChoice) {
       toast.error('Please choose international delivery for the Botswana shop');
       return;
     }
     setPaying(true);
+    const payAddress = foodPickup
+      ? 'Customer collection (food pickup)'
+      : deliveryAddress;
     checkoutAPI
       .pay(
         paymentMethod,
-        deliveryAddress,
-        deliveryCountry,
-        courierTariffId,
-        deliveryScope,
-        crossborderCourierTariffId,
-        addressCity
+        payAddress,
+        foodPickup ? 'ZA' : deliveryCountry,
+        foodPickup ? undefined : courierTariffId,
+        foodPickup ? 'local' : deliveryScope,
+        foodPickup ? undefined : crossborderCourierTariffId,
+        foodPickup ? 'Collection' : addressCity
       )
       .then((res) => {
       const d = res.data?.data ?? res.data;
@@ -364,10 +431,13 @@ function CheckoutPageContent() {
 
   const canPayWallet = walletBalance != null && walletCompareTotal <= walletBalance;
   const showZaEftOption =
-    deliveryCountry === 'ZA' && !quote?.quoteInNativeCurrency && checkoutCurrency === 'ZAR';
-  const showBwEftOption = deliveryCountry === 'BW';
+    !quote?.foodPickup &&
+    deliveryCountry === 'ZA' &&
+    !quote?.quoteInNativeCurrency &&
+    checkoutCurrency === 'ZAR';
+  const showBwEftOption = !quote?.foodPickup && deliveryCountry === 'BW';
   const showEftOption = showZaEftOption || showBwEftOption;
-  const showOrangeMoneyOption = deliveryCountry === 'BW';
+  const showOrangeMoneyOption = !quote?.foodPickup && deliveryCountry === 'BW';
   const canSubmitPay = courierChoiceComplete && !paying;
   const walletStatusText =
     walletBalance == null || walletBalance <= 0
@@ -423,6 +493,37 @@ function CheckoutPageContent() {
             </p>
           )}
           <div className="space-y-6 mb-8">
+            {quote?.foodPickup ? (
+              <div className="rounded-xl border border-orange-200 bg-orange-50 px-4 py-3 text-sm text-orange-950">
+                <p className="font-semibold">Customer collection</p>
+                <p className="mt-1 text-orange-900/90">
+                  Food and grocery orders are collected from the store. Pay with Wallet or Card — no courier
+                  delivery.
+                </p>
+              </div>
+            ) : addressLockedFromCart ? (
+              <div className="rounded-xl border border-sky-200 bg-sky-50/80 px-4 py-3 text-sm text-sky-950">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="font-semibold flex items-center gap-2">
+                      <MapPin className="h-4 w-4 text-sky-600 shrink-0" />
+                      Delivery from your cart
+                    </p>
+                    <p className="mt-2 whitespace-pre-line text-sky-900/90">{deliveryAddress}</p>
+                    {(selectedCourierLabel || quote?.warehouseFreeLocalApplied) && (
+                      <p className="mt-2 text-sky-800">
+                        {quote?.warehouseFreeLocalApplied
+                          ? 'Free delivery'
+                          : selectedCourierLabel}
+                      </p>
+                    )}
+                  </div>
+                  <Link href="/cart" className="shrink-0 text-sky-700 font-medium hover:underline">
+                    Change
+                  </Link>
+                </div>
+              </div>
+            ) : (
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-2"><MapPin className="h-4 w-4" /> Delivery address</label>
               <div className="mb-3">
@@ -496,8 +597,8 @@ function CheckoutPageContent() {
                       className="w-full rounded-xl border border-slate-200 px-4 py-3 text-slate-900 focus:ring-2 focus:ring-sky-500 focus:border-sky-500"
                     />
                   </div>
-                </div>
-                <div>
+            </div>
+            <div>
                   <label className="block text-xs text-slate-500 mb-1">Postal / ZIP code</label>
                   <input
                     type="text"
@@ -508,12 +609,20 @@ function CheckoutPageContent() {
                 </div>
               </div>
             </div>
+            )}
 
             {quote?.warehouseFreeLocalApplied && (
               <div className="rounded-xl border border-emerald-200 bg-emerald-50/80 p-4 text-sm">
-                <p className="font-semibold text-emerald-900">Free local delivery</p>
+                <p className="font-semibold text-emerald-900">Free delivery</p>
                 <p className="text-emerald-800 mt-1">
-                  Your Qwertymates warehouse order qualifies for free delivery to your address in town.
+                  Your delivery area
+                  {addressCity.trim() ? (
+                    <>
+                      {' '}
+                      (<strong>{addressCity.trim()}</strong>)
+                    </>
+                  ) : null}{' '}
+                  qualifies for free shipping on this order. No courier fee is charged.
                 </p>
               </div>
             )}
@@ -554,7 +663,7 @@ function CheckoutPageContent() {
                       South African items use Paxi. Your Botswana shop items ship via cross-border
                       freight — select a provider below.
                     </p>
-                  </div>
+                    </div>
                   <SadcDeliveryPicker
                     options={(quote.crossborderCourierOptions || []).map((o) => ({
                       key: o.tariffId,
@@ -622,10 +731,13 @@ function CheckoutPageContent() {
             {courierChoiceComplete ? (
               <>
                 <div className="rounded-2xl border-2 border-emerald-200 bg-gradient-to-br from-emerald-50/80 to-white p-5 shadow-sm">
-                  <h2 className="text-lg font-semibold text-slate-900 mb-1">Pay once at checkout</h2>
+                  <h2 className="text-lg font-semibold text-slate-900 mb-1">
+                    {quote.foodPickup ? 'Pay for collection' : 'Pay once at checkout'}
+                  </h2>
                   <p className="text-sm text-slate-600 mb-4">
-                    One payment covers your products and delivery. Qwertymates does not ask you to pay courier fees later —
-                    you will not be contacted to pay delivery separately.
+                    {quote.foodPickup
+                      ? 'Pay with Wallet or Card, then collect your order from the store. No courier delivery.'
+                      : 'One payment covers your products and delivery. Qwertymates does not ask you to pay courier fees later — you will not be contacted to pay delivery separately.'}
                   </p>
 
                   {quote.paymentBreakdown && quote.paymentBreakdown.length > 0 && (
@@ -686,7 +798,9 @@ function CheckoutPageContent() {
                   <div className="rounded-xl bg-slate-900 text-white px-4 py-4 flex justify-between items-center">
                     <div>
                       <p className="text-xs text-slate-300 uppercase tracking-wide">Amount due now</p>
-                      <p className="text-sm text-slate-200 mt-0.5">Products + delivery together</p>
+                      <p className="text-sm text-slate-200 mt-0.5">
+                        {quote.foodPickup ? 'Collection order · Wallet or Card' : 'Products + delivery together'}
+                      </p>
                     </div>
                     <p className="text-2xl font-bold tabular-nums">
                       {formatCheckoutAmount(quote.total, checkoutCurrency)}
@@ -800,12 +914,12 @@ function CheckoutPageContent() {
           </div>
           {courierChoiceComplete &&
             (paymentMethod === 'wallet' && !canPayWallet ? (
-              <div className="w-full rounded-2xl bg-sky-400 py-6 flex items-center justify-center">
-                <div className="px-8 py-1.5 text-2xl font-semibold text-white tracking-tight">
-                  {walletStatusText}
-                </div>
+            <div className="w-full rounded-2xl bg-sky-400 py-6 flex items-center justify-center">
+              <div className="px-8 py-1.5 text-2xl font-semibold text-white tracking-tight">
+                {walletStatusText}
               </div>
-            ) : (
+            </div>
+          ) : (
               <button
                 type="button"
                 onClick={handlePay}
@@ -830,11 +944,13 @@ function CheckoutPageContent() {
                         ? 'Bank details sent to Messenger · includes products & delivery'
                         : paymentMethod === 'orange_money'
                           ? 'Orange Money number sent to Messenger · includes products & delivery'
-                          : `${paymentMethod === 'card' ? 'Card' : 'Wallet'} · includes products & delivery`}
+                          : quote.foodPickup
+                            ? `${paymentMethod === 'card' ? 'Card' : 'Wallet'} · in-store collection`
+                            : `${paymentMethod === 'card' ? 'Card' : 'Wallet'} · includes products & delivery`}
                     </span>
                   </>
                 )}
-              </button>
+            </button>
             ))}
           {paymentMethod === 'wallet' && walletBalance != null && quote.total > walletBalance && (
             <div className="mt-3 flex flex-col items-center gap-2">

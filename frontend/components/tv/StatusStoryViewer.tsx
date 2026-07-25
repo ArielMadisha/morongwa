@@ -53,6 +53,13 @@ function formatStatusTime(createdAt?: string): string {
   return `${d}d`;
 }
 
+function statusCaptionTextClass(length: number): string {
+  if (length > 1400) return 'text-[11px] leading-relaxed';
+  if (length > 700) return 'text-xs leading-relaxed';
+  if (length > 280) return 'text-sm leading-snug';
+  return 'text-sm font-medium leading-snug';
+}
+
 export function StatusStoryViewer({ open, onClose, statuses, startIndex = 0 }: Props) {
   const router = useRouter();
   const [userIndex, setUserIndex] = useState(startIndex);
@@ -254,11 +261,14 @@ export function StatusStoryViewer({ open, onClose, statuses, startIndex = 0 }: P
   const absMedia = mediaUrl ? getImageUrl(mediaUrl) : '';
   const isHls = absMedia.includes('.m3u8');
   const isVideo = post?.type === 'video' || (absMedia ? looksLikeVideoUrl(absMedia) : false);
-  const profileHref = activeUser?.isStoreStatus && activeUser.storeSlug
-    ? `/store/${activeUser.storeSlug}`
-    : userId
-      ? `/user/${userId}`
-      : '/search';
+  const profileHref =
+    activeUser?.isStoreStatus && activeUser.isFoodStore && activeUser.supplierId
+      ? `/marketplace/food/store/${activeUser.supplierId}?by=supplier`
+      : activeUser?.isStoreStatus && activeUser.storeSlug
+        ? `/store/${activeUser.storeSlug}`
+        : userId
+          ? `/user/${userId}`
+          : '/search';
   const showTextOnly = !loading && post && post.type === 'text' && !absMedia;
 
   const overlay = (
@@ -325,15 +335,28 @@ export function StatusStoryViewer({ open, onClose, statuses, startIndex = 0 }: P
           ))}
         </div>
 
-        <div className="absolute top-8 left-0 right-0 z-30 flex items-center justify-between px-4 pointer-events-none">
+        <div className="absolute top-8 left-0 right-0 z-40 flex items-center justify-between px-4 pointer-events-none">
           <Link
             href={profileHref}
-            onClick={(e) => e.stopPropagation()}
-            className="flex items-center gap-2 min-w-0 pointer-events-auto"
+            onClick={(e) => {
+              e.stopPropagation();
+              onClose();
+            }}
+            className="flex items-center gap-2 min-w-0 pointer-events-auto rounded-full pr-2 hover:bg-white/10 active:bg-white/15"
           >
             <span className="h-9 w-9 rounded-full overflow-hidden border-2 border-sky-400 shrink-0 bg-slate-700">
               {avatar ? (
-                <img src={getImageUrl(avatar)} alt="" className="h-full w-full object-cover" referrerPolicy="no-referrer" />
+                <img
+                  src={getImageUrl(avatar)}
+                  alt=""
+                  className="h-full w-full object-cover"
+                  referrerPolicy="no-referrer"
+                  onError={(e) => {
+                    const el = e.currentTarget;
+                    const full = getImageUrlFull(avatar);
+                    if (full && el.src !== full) el.src = full;
+                  }}
+                />
               ) : (
                 <span className="flex h-full w-full items-center justify-center text-sm font-bold text-white">
                   {(label || '?')[0]}
@@ -341,7 +364,9 @@ export function StatusStoryViewer({ open, onClose, statuses, startIndex = 0 }: P
               )}
             </span>
             <div className="min-w-0 text-left">
-              <p className="text-sm font-semibold text-white truncate drop-shadow-md">{label}</p>
+              <p className="text-sm font-semibold text-white truncate drop-shadow-md underline underline-offset-2 decoration-white/50">
+                {label}
+              </p>
               {post?.createdAt ? (
                 <p className="text-xs text-white/80 drop-shadow-md">{formatStatusTime(post.createdAt)}</p>
               ) : null}
@@ -367,17 +392,17 @@ export function StatusStoryViewer({ open, onClose, statuses, startIndex = 0 }: P
           </div>
         </div>
 
-        {/* Tap zones — mobile: previous / next picture within this user */}
+        {/* Tap zones — leave top header clear so shop name stays clickable */}
         <button
           type="button"
-          className="absolute left-0 top-0 bottom-0 z-20 w-[28%] cursor-pointer bg-transparent border-0 sm:hidden"
+          className="absolute left-0 top-20 bottom-0 z-20 w-[28%] cursor-pointer bg-transparent border-0 sm:hidden"
           aria-label="Previous picture"
           onClick={goPrevPost}
           disabled={postIndex === 0 && userIndex === 0}
         />
         <button
           type="button"
-          className="absolute right-0 top-0 bottom-0 z-20 w-[28%] cursor-pointer bg-transparent border-0 sm:hidden"
+          className="absolute right-0 top-20 bottom-0 z-20 w-[28%] cursor-pointer bg-transparent border-0 sm:hidden"
           aria-label="Next picture"
           onClick={goNextPost}
         />
@@ -392,17 +417,19 @@ export function StatusStoryViewer({ open, onClose, statuses, startIndex = 0 }: P
               <p className="text-white/70 text-sm text-center">This status could not be loaded.</p>
             </div>
           ) : showTextOnly ? (
-            <div className="absolute inset-0 flex items-center justify-center px-8">
-              <div className="text-center max-w-lg">
-                <p className="text-2xl sm:text-3xl font-bold text-white">{post.heading || label}</p>
-                {post.caption ? (
-                  <LinkifiedText
-                    text={post.caption}
-                    className="mt-4 text-lg text-white/80"
-                    linkClassName="underline text-sky-300 hover:text-sky-200 break-all"
-                    preserveWhitespace
-                  />
-                ) : null}
+            <div className="absolute inset-0 flex flex-col overflow-hidden pt-20 pb-6 px-5 sm:px-8">
+              <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain flex items-center justify-center">
+                <div className="w-full max-w-lg text-center py-2">
+                  <p className="text-xl sm:text-2xl font-bold text-white">{post.heading || label}</p>
+                  {post.caption ? (
+                    <LinkifiedText
+                      text={post.caption}
+                      className={`mt-3 text-white/90 ${statusCaptionTextClass(post.caption.length)}`}
+                      linkClassName="underline text-sky-300 hover:text-sky-200 break-all"
+                      preserveWhitespace
+                    />
+                  ) : null}
+                </div>
               </div>
             </div>
           ) : isVideo && absMedia ? (
@@ -477,6 +504,21 @@ export function StatusStoryViewer({ open, onClose, statuses, startIndex = 0 }: P
                   }}
                 />
               )}
+              {!loading && post?.caption ? (
+                <div className="absolute inset-x-0 bottom-0 z-20 max-h-[min(44%,300px)] pointer-events-none">
+                  <div className="bg-gradient-to-t from-black via-black/90 to-transparent pt-10 pb-4 px-4 sm:px-5 pointer-events-auto">
+                    <div className="max-h-[min(38vh,260px)] overflow-y-auto overscroll-contain [scrollbar-width:thin]">
+                      <p className={`text-white text-left ${statusCaptionTextClass(post.caption.length)}`}>
+                        <LinkifiedText
+                          text={post.caption}
+                          linkClassName="underline text-sky-300 hover:text-sky-200 break-all"
+                          preserveWhitespace
+                        />
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
             </div>
           ) : (
             <div className="absolute inset-0 flex items-center justify-center">
@@ -484,30 +526,6 @@ export function StatusStoryViewer({ open, onClose, statuses, startIndex = 0 }: P
             </div>
           )}
         </div>
-
-        {!loading && post?.caption && absMedia ? (
-          <div className="absolute bottom-6 left-0 right-0 z-20 px-6 text-center">
-            {productHref ? (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  openProduct();
-                }}
-                className="inline-block rounded-lg bg-black/50 px-4 py-2 text-sm font-medium text-white backdrop-blur-sm pointer-events-auto max-w-full hover:bg-black/65 cursor-pointer border-0"
-              >
-                {post.caption}
-              </button>
-            ) : (
-              <p className="inline-block rounded-lg bg-black/50 px-4 py-2 text-sm font-medium text-white backdrop-blur-sm pointer-events-auto max-w-full">
-                <LinkifiedText
-                  text={post.caption}
-                  linkClassName="underline text-sky-300 hover:text-sky-200 break-all"
-                />
-              </p>
-            )}
-          </div>
-        ) : null}
       </div>
     </div>
   );

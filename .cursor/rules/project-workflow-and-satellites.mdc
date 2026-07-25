@@ -22,8 +22,9 @@ For changes that affect **behavior** users see (backend, frontend, **mobile**, d
    - Web: `backend/` → **`npm run deploy:production`**
    - Android: `mobile/` → EAS production build + Play Store submit (**`npm run release:android:play`** or build + submit by build id)
 4. After web deploy, follow **`website-502-guardrail`** for `https://www.qwertymates.com/` and `/wall`.
+5. **Email** ops summary per **`outbound-email-after-code-changes`** (`backend/` → `npm run ops:email-change-summary`).
 
-Skip deploy only when the task is docs-only, local-only, the user explicitly defers release, or you lack access to an external system (e.g. Facebook accounts) — report the blocker.
+Skip deploy only when the task is docs-only, local-only, the user explicitly defers release, or you lack access to an external system (e.g. Facebook accounts) — report the blocker. Still send the ops email when code changed unless the user defers email too.
 
 ## Standalone sync (one command, two mirrors)
 

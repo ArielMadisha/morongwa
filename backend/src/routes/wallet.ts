@@ -51,6 +51,7 @@ import {
   getOpenPendingStorePaymentForPayer,
   listOpenPendingStorePaymentsForPayer,
   settlePendingStorePaymentWithWallet,
+  settlePendingStorePaymentWithOtp,
 } from "../services/walletQrPaymentService";
 import { notifyWaPayAtStorePaymentRequest } from "../services/waPayAtStoreNotify";
 import { walletPaymentLimiter } from "../middleware/rateLimit";
@@ -91,6 +92,7 @@ async function notifyQrPaymentRequestToPayer(params: {
   amount: number;
   merchantName: string;
   payerPhone?: string;
+  otpPlain?: string;
 }): Promise<void> {
   const { payerId, paymentRequestId, amount, merchantName, payerPhone } = params;
   const amountText = `R${amount.toFixed(2)}`;
@@ -111,9 +113,11 @@ async function notifyQrPaymentRequestToPayer(params: {
     merchantName,
   });
 
-  // In-app confirm only (no SMS OTP). Optional backup link SMS if WALLET_QR_SMS_BACKUP=1.
-  if (payerPhone && String(process.env.WALLET_QR_SMS_BACKUP || "").trim() === "1") {
-    const text = `Pay ${amountText} at ${merchantName} via ACBPayWallet. Tap to confirm: ${payLink}`;
+  if (payerPhone) {
+    const otpFromMeta = (params as { otpPlain?: string }).otpPlain;
+    const text = otpFromMeta
+      ? `ACBPay: Pay ${amountText} at ${merchantName}. Code: ${otpFromMeta}. Or confirm: ${payLink}`
+      : `Pay ${amountText} at ${merchantName} via ACBPayWallet. Tap to confirm: ${payLink}`;
     await sendSms({ phone: payerPhone, text, channel: "sms" }).catch(() => {});
   }
 }
@@ -472,6 +476,37 @@ router.get("/pending-payments", authenticate, async (req: AuthRequest, res: Resp
   }
 });
 
+// Handoff alias — Pay at Shop polling
+router.get("/my-pending-payments", authenticate, async (req: AuthRequest, res: Response, next) => {
+  try {
+    const rows = await listOpenPendingStorePaymentsForPayer(String(req.user!._id));
+    res.json(rows);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Payer confirms in-store payment with SMS OTP (Pay at Shop)
+router.post("/confirm-my-payment", authenticate, async (req: AuthRequest, res: Response, next) => {
+  try {
+    const { paymentRequestId, otp } = req.body || {};
+    if (!paymentRequestId || !otp) throw new AppError("paymentRequestId and otp required", 400);
+    const result = await settlePendingStorePaymentWithOtp(
+      String(req.user!._id),
+      String(paymentRequestId),
+      String(otp)
+    );
+    res.json({
+      message: "Payment successful",
+      amount: result.amount,
+      balance: result.balance,
+      merchantName: result.merchantName,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // Get pending payment request (for payer - when they open link from SMS)
 router.get("/pending-payment/:id", authenticate, async (req: AuthRequest, res: Response, next) => {
   try {
@@ -530,8 +565,8 @@ router.post("/payment-from-scan", authenticate, async (req: AuthRequest, res: Re
     const payer = await User.findById(payerUserId).select("phone name").lean();
     if (!payer) throw new AppError("Payer not found", 404);
 
-    const otpPlaceholder = crypto.randomBytes(16).toString("hex");
-    const otpHash = crypto.createHmac("sha256", getOtpSecret()).update(otpPlaceholder).digest("hex");
+    const otpPlain = String(Math.floor(100000 + Math.random() * 900000));
+    const otpHash = crypto.createHmac("sha256", getOtpSecret()).update(otpPlain).digest("hex");
     const otpExpiresAt = new Date(Date.now() + PAYMENT_OTP_EXPIRY_MS);
     const reference = `QR-${Date.now()}-${Math.round(Math.random() * 1e6)}`;
     const storeName =
@@ -554,6 +589,7 @@ router.post("/payment-from-scan", authenticate, async (req: AuthRequest, res: Re
       amount,
       merchantName: storeName,
       payerPhone: (payer as any).phone,
+      otpPlain,
     });
 
     res.status(201).json({
@@ -795,8 +831,12 @@ router.post("/pay-with-card", authenticate, async (req: AuthRequest, res: Respon
       throw new AppError("Verification expired", 400);
     }
 
-    const card = await StoredCard.findOne({ _id: cardId, user: req.user!._id });
-    if (!card) throw new AppError("Card not found", 404);
+    let vaultId: string | undefined;
+    if (cardId) {
+      const card = await StoredCard.findOne({ _id: cardId, user: req.user!._id });
+      if (!card) throw new AppError("Card not found", 404);
+      vaultId = card.vaultId;
+    }
 
     const reference = `CARDPMT-${paymentRequestId}`;
 
@@ -806,7 +846,7 @@ router.post("/pay-with-card", authenticate, async (req: AuthRequest, res: Respon
       email: req.user!.email,
       returnUrl: `${process.env.FRONTEND_URL || "http://localhost:3000"}/wallet?cardPayment=done`,
       notifyUrl: `${process.env.BACKEND_URL || "http://localhost:4000"}/api/payments/webhook`,
-      vaultId: card.vaultId,
+      ...(vaultId ? { vaultId } : {}),
       // In-ecosystem store/QR card payment: no flat top-up fee.
       skipPayGateFee: true,
     });

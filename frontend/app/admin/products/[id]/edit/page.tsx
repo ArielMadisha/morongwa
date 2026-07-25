@@ -13,6 +13,12 @@ import {
   getMarketplaceCategoryMarkup,
 } from '@/lib/marketplaceCategoryMarkups';
 import { BULK_TIER_DEFAULT_MAX_QTY, displayBulkTierMaxQty, normalizeBulkTierMaxQty } from '@/lib/bulkTierLimits';
+import { FreeShippingFields } from '@/components/products/FreeShippingFields';
+import {
+  freeShippingAreasFromProduct,
+  serializeFreeShippingPayload,
+  type FreeShippingAreaRow,
+} from '@/lib/freeShippingAreas';
 
 type ProductForm = {
   title: string;
@@ -70,6 +76,8 @@ export default function AdminEditProductPage() {
   const [bulkTiers, setBulkTiers] = useState<Array<{ minQty: string; maxQty: string; price: string }>>([]);
   const [productImages, setProductImages] = useState<string[]>([]);
   const [colorNames, setColorNames] = useState<string[]>([]);
+  const [freeShippingEnabled, setFreeShippingEnabled] = useState(false);
+  const [freeShippingAreas, setFreeShippingAreas] = useState<FreeShippingAreaRow[]>([]);
   const [form, setForm] = useState<ProductForm>({
     title: '',
     description: '',
@@ -158,6 +166,9 @@ export default function AdminEditProductPage() {
         }
         setProductImages(imgs);
         setColorNames(namesByIndex);
+        const shipping = freeShippingAreasFromProduct(p as Parameters<typeof freeShippingAreasFromProduct>[0]);
+        setFreeShippingEnabled(shipping.enabled);
+        setFreeShippingAreas(shipping.areas);
         setForm({
           title: p.title || '',
           description: p.description || '',
@@ -229,6 +240,12 @@ export default function AdminEditProductPage() {
     setSaving(true);
     try {
       const trimmedColors = colorNames.map((c) => c.trim());
+      const shippingPayload = serializeFreeShippingPayload(freeShippingEnabled, freeShippingAreas);
+      if (shippingPayload.freeShippingEnabled && !shippingPayload.freeShippingAreas?.length) {
+        toast.error('Add at least one free shipping area (town and country)');
+        setSaving(false);
+        return;
+      }
       await adminAPI.updateProduct(id, {
         title: form.title.trim(),
         description: form.description.trim(),
@@ -247,6 +264,7 @@ export default function AdminEditProductPage() {
               colors: trimmedColors.map((name, imageIndex) => ({ name, imageIndex })),
             }
           : {}),
+        ...shippingPayload,
       });
       toast.success('Product updated');
       router.push('/admin/products');
@@ -431,6 +449,14 @@ export default function AdminEditProductPage() {
                     ))}
                   </div>
                 )}
+              </div>
+              <div className="sm:col-span-2">
+                <FreeShippingFields
+                  enabled={freeShippingEnabled}
+                  areas={freeShippingAreas}
+                  onEnabledChange={setFreeShippingEnabled}
+                  onAreasChange={setFreeShippingAreas}
+                />
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Stock</label>

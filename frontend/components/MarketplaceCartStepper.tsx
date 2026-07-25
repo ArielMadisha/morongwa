@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useState } from 'react';
 import Link from 'next/link';
@@ -10,14 +10,15 @@ type Props = {
   productId: string;
   /** When buying from a reseller post */
   resellerId?: string;
-  /** Required when product has color options */
+  /** Optional — colour/size can also be chosen later in the cart */
   selectedColor?: string;
-  /** Required when product has size options */
   selectedSize?: string;
-  /** Block add-to-cart until shopper picks a color on the product page */
+  /** @deprecated Colour is chosen in cart; kept for call-site compatibility */
   colorsRequired?: boolean;
-  /** Block add-to-cart until shopper picks a size on the product page */
+  /** @deprecated Size is chosen in cart; kept for call-site compatibility */
   sizesRequired?: boolean;
+  /** @deprecated Unused — variants are set in cart */
+  optionsPickerHref?: string;
   qty: number;
   outOfStock?: boolean;
   isGuest: boolean;
@@ -32,8 +33,6 @@ export function MarketplaceCartStepper({
   resellerId,
   selectedColor,
   selectedSize,
-  colorsRequired,
-  sizesRequired,
   qty,
   outOfStock,
   isGuest,
@@ -66,14 +65,7 @@ export function MarketplaceCartStepper({
   };
 
   const addOne = () => {
-    if (colorsRequired && !String(selectedColor || '').trim()) {
-      toast.error('Select a color before adding to cart');
-      return;
-    }
-    if (sizesRequired && !String(selectedSize || '').trim()) {
-      toast.error('Select a size before adding to cart');
-      return;
-    }
+    // Colour / size optional here — shoppers set them in the cart.
     run(() => cartAPI.add(productId, 1, resellerId, selectedColor, selectedSize));
   };
 
@@ -111,7 +103,7 @@ export function MarketplaceCartStepper({
           className={`flex cursor-not-allowed items-center justify-center font-bold leading-none text-slate-300 ${sm}`}
           aria-disabled
         >
-          −
+          -
         </span>
       </div>
     );
@@ -154,7 +146,7 @@ export function MarketplaceCartStepper({
         title="Remove one from cart"
         aria-label="Remove one from cart"
       >
-        −
+        -
       </button>
     </div>
   );

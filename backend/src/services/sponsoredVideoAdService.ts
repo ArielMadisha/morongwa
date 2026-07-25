@@ -233,9 +233,26 @@ export async function selectSponsoredVideoForPlacement(
  * uses Settings `wa_premenu_advert` (silver/gold/acbpay URLs) plus bundled qwertymates.com clips.
  * Returns empty ids — impressions are skipped (tracked ads only persist when Mongo picked a creative).
  */
+/** Bronze tier: text-only pre-menu copy (no fallback video). */
+export async function resolveWaBronzePremenuText(_action?: string): Promise<string | null> {
+  const cfg = await getWaPreMenuAdvertConfigResolved();
+  if (cfg.tier !== "bronze") return null;
+  const modeKey: WaAdvertCampaignKey =
+    cfg.campaignMode === "auto"
+      ? resolveWaAdvertCampaign(new Date())
+      : CAMPAIGN_MODE_OR_MARKET(cfg.campaignMode);
+  const text =
+    cfg.textOverrides?.[modeKey]?.trim() ||
+    WA_AD_CAMPAIGN_SCRIPTS[modeKey as WaAdvertCampaignKey] ||
+    WA_AD_CAMPAIGN_SCRIPTS.marketplace;
+  return text.trim() || null;
+}
+
 export async function resolveWaFallbackSponsoredVideoPick(action: string): Promise<SponsoredPick | null> {
   const placement = waPlacementKeyForSponsoredAction(action);
   const cfg = await getWaPreMenuAdvertConfigResolved();
+  if (cfg.tier === "bronze") return null;
+
   const walletish =
     action === "open_wallet" || action === "open_merchant_apply" || action === "open_jobs";
 
@@ -244,16 +261,15 @@ export async function resolveWaFallbackSponsoredVideoPick(action: string): Promi
     String(cfg.silverCaption || "").trim() ||
     String(cfg.goldCaption || "").trim();
 
-  const acUrls = [
-    cfg.acbpayMediaUrlA,
-    cfg.acbpayMediaUrlB,
-  ].filter((u) => isSponsoredVideoUrl(String(u || "")));
+  const acUrls = [cfg.acbpayMediaUrlA, cfg.acbpayMediaUrlB].filter((u) =>
+    isSponsoredVideoUrl(String(u || ""))
+  );
   if (walletish && acUrls.length) {
     videoUrl = String(acUrls[Math.floor(Math.random() * acUrls.length)]!).trim();
   }
 
   const goldOk = isSponsoredVideoUrl(String(cfg.goldMediaUrl || ""));
-  if (!videoUrl && goldOk && String(cfg.goldMediaUrl || "").trim()) {
+  if (!videoUrl && cfg.tier === "gold" && goldOk && String(cfg.goldMediaUrl || "").trim()) {
     videoUrl = String(cfg.goldMediaUrl).trim();
     caption =
       [

@@ -3,22 +3,26 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import {
-  ChevronLeft,
   ChevronRight,
   Globe,
   Heart,
   MessageCircle,
   MoreHorizontal,
   Share2,
+  ThumbsUp,
   X,
 } from 'lucide-react';
-import { advertsAPI, getImageUrl, getImageUrlFull } from '@/lib/api';
+import { advertsAPI, getImageUrl, getImageUrlFull, productsAPI } from '@/lib/api';
 import type { FeedAd, FeedAdCarouselCard } from '@/lib/feedAd';
+import { marketplaceProductToCarouselCards, shuffleArray } from '@/lib/randomProductFeedAds';
 import toast from 'react-hot-toast';
 
 export type AdvertTileProps = FeedAd;
 
-const CAPTION_PREVIEW_LEN = 125;
+const CAPTION_PREVIEW_LEN = 160;
+const HAMMANSKRAAL_WAREHOUSE_CITY = 'hammanskraal';
+const DEFAULT_WAREHOUSE_CAPTION =
+  'Enjoy free delivery within Hammanskraal on eligible items. Fresh stock from our local warehouse.';
 
 function resolveMediaUrl(url?: string): string {
   if (!url) return '';
@@ -68,67 +72,63 @@ function AdMedia({
   );
 }
 
-function CarouselCard({
+/** Alibaba/FB-style product card: square image + title + Shop now. */
+function ProductCarouselCard({
   card,
   defaultTitle,
-  defaultDescription,
   defaultHref,
   ctaLabel,
   onCtaClick,
+  fullWidth = false,
 }: {
   card: FeedAdCarouselCard;
   defaultTitle: string;
-  defaultDescription?: string;
   defaultHref: string;
   ctaLabel: string;
   onCtaClick?: () => void;
+  fullWidth?: boolean;
 }) {
   const href = card.linkUrl || defaultHref;
   const isExternal = href.startsWith('http');
   const title = card.title || defaultTitle;
-  const description = card.description || defaultDescription;
-
-  const cta = (
-    <span className="inline-flex shrink-0 items-center justify-center rounded-md border border-slate-300 bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-800 hover:bg-slate-200">
-      {ctaLabel}
-    </span>
-  );
-
-  const footer = (
-    <div className="flex items-center justify-between gap-3 border-t border-slate-200 bg-slate-50 px-3 py-2.5">
-      <div className="min-w-0">
-        <p className="truncate text-sm font-semibold text-slate-900">{title}</p>
-        {description ? <p className="truncate text-xs text-slate-500 mt-0.5">{description}</p> : null}
-      </div>
-      {cta}
-    </div>
-  );
 
   const inner = (
     <>
-      <div className="relative aspect-[4/5] max-h-[min(520px,62vh)] w-full bg-slate-100">
+      <div className={`relative w-full bg-[#f5f0e8] ${fullWidth ? 'aspect-[4/5] max-h-[min(480px,58vh)]' : 'aspect-square'}`}>
         <AdMedia src={card.imageUrl} alt={title} className="h-full w-full object-cover" />
       </div>
-      {footer}
+      <div className="flex items-center justify-between gap-2 border-t border-slate-200 bg-white px-2.5 py-2.5">
+        <p className="min-w-0 flex-1 line-clamp-2 text-[13px] font-semibold leading-snug text-slate-900">
+          {title}
+        </p>
+        <span className="inline-flex shrink-0 items-center justify-center rounded-md bg-[#e4e6eb] px-2.5 py-1.5 text-[12px] font-semibold text-slate-900">
+          {ctaLabel}
+        </span>
+      </div>
     </>
   );
 
+  const className = fullWidth
+    ? 'block w-full cursor-pointer overflow-hidden bg-white'
+    : 'block w-[min(220px,72vw)] shrink-0 cursor-pointer overflow-hidden rounded-md border border-slate-200 bg-white snap-start';
+
   if (isExternal) {
     return (
-      <a href={href} target="_blank" rel="noopener noreferrer" className="block" onClick={onCtaClick}>
+      <a href={href} target="_blank" rel="noopener noreferrer" className={className} onClick={onCtaClick}>
         {inner}
       </a>
     );
   }
   return (
-    <Link href={href} className="block" onClick={onCtaClick}>
+    <Link href={href} className={className} onClick={onCtaClick}>
       {inner}
     </Link>
   );
 }
 
 /**
- * Facebook-style sponsored post in the wall feed.
+ * Facebook / Alibaba-style sponsored post in the wall feed.
+ * Prefer Qwertymates Hammanskraal warehouse products for product carousels.
  */
 export function AdvertTile(ad: AdvertTileProps) {
   const {
@@ -140,7 +140,7 @@ export function AdvertTile(ad: AdvertTileProps) {
     advertiserAvatar,
     caption,
     description,
-    ctaLabel = 'Learn more',
+    ctaLabel = 'Shop now',
     videoUrl,
     carouselCards,
     sponsoredAdId,
@@ -148,19 +148,109 @@ export function AdvertTile(ad: AdvertTileProps) {
 
   const [dismissed, setDismissed] = useState(false);
   const [captionExpanded, setCaptionExpanded] = useState(false);
-  const [carouselIndex, setCarouselIndex] = useState(0);
+  const [warehouseCards, setWarehouseCards] = useState<FeedAdCarouselCard[]>([]);
+  const [loadingProductCards, setLoadingProductCards] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const trackedImpression = useRef(false);
 
-  const defaultHref = linkUrl || '/marketplace';
-  const brandName = advertiserName || title || 'Sponsored';
+  const isHammanskraalWarehouseAd = /hammanskraal/i.test(`${advertiserName || ''} ${title || ''}`);
+  const defaultHref = linkUrl || (isHammanskraalWarehouseAd ? '/marketplace?q=Hammanskraal' : '/marketplace');
+  const brandName = isHammanskraalWarehouseAd
+    ? advertiserName || 'Qwertymates - Hammanskraal warehouse'
+    : advertiserName || title || 'Sponsored';
   const avatarSrc = resolveMediaUrl(advertiserAvatar);
-  const cards = useMemo(() => {
-    if (carouselCards?.length) return carouselCards;
-    if (imageUrl?.trim()) {
+
+  const seededCards = useMemo(
+    () => (carouselCards || []).filter((c) => Boolean(c?.imageUrl?.trim())),
+    [carouselCards]
+  );
+
+  const staticCards = useMemo(() => {
+    // Hammanskraal ads always use product carousel (seeded + live refresh).
+    if (isHammanskraalWarehouseAd) return [];
+    if (seededCards.length) return seededCards;
+    if (imageUrl?.trim() && !/placehold\.co|172\.\d+\.\d+\.\d+|\/marketplace\/?$/i.test(imageUrl)) {
       return [{ imageUrl, title, description, linkUrl: defaultHref }];
     }
     return [];
-  }, [carouselCards, imageUrl, title, description, defaultHref]);
+  }, [seededCards, imageUrl, title, description, defaultHref, isHammanskraalWarehouseAd]);
+
+  // Show seeded warehouse cards immediately so we never flash the Q placeholder.
+  const cards =
+    staticCards.length > 0
+      ? staticCards
+      : warehouseCards.length > 0
+        ? warehouseCards
+        : isHammanskraalWarehouseAd
+          ? seededCards
+          : [];
+  const shopCta = 'Shop now';
+  const isMultiProductCarousel = cards.length > 1 && !videoUrl?.trim();
+  const needsProductFetch =
+    !videoUrl?.trim() && (isHammanskraalWarehouseAd || staticCards.length === 0);
+
+  useEffect(() => {
+    if (!needsProductFetch) return;
+    let cancelled = false;
+    // Keep showing seeded cards while refreshing; only show loader if nothing to show yet.
+    if (cards.length === 0) setLoadingProductCards(true);
+    void (async () => {
+      try {
+        const warehouseRes = await productsAPI.list({
+          random: true,
+          limit: isHammanskraalWarehouseAd ? 24 : 12,
+          warehouseCity: HAMMANSKRAAL_WAREHOUSE_CITY,
+        });
+        if (cancelled) return;
+        const warehouseRows = warehouseRes.data?.data ?? warehouseRes.data ?? [];
+        const warehouseList = Array.isArray(warehouseRows) ? warehouseRows : [];
+        // Expand every colour / gallery image so variants appear in the carousel.
+        let built = shuffleArray(warehouseList).flatMap((p) => marketplaceProductToCarouselCards(p));
+        // Deduplicate identical image URLs across products while keeping colourways.
+        {
+          const seenImg = new Set<string>();
+          built = built.filter((c) => {
+            const key = String(c.imageUrl || '').toLowerCase();
+            if (!key || seenImg.has(key)) return false;
+            seenImg.add(key);
+            return true;
+          });
+        }
+        if (built.length > 24) built = built.slice(0, 24);
+
+        if (built.length < 2 && seededCards.length) {
+          built = [...seededCards];
+        }
+
+        if (built.length < 3 && !isHammanskraalWarehouseAd) {
+          const fallbackRes = await productsAPI.list({ random: true, limit: 8 });
+          if (cancelled) return;
+          const rows = fallbackRes.data?.data ?? fallbackRes.data ?? [];
+          const list = Array.isArray(rows) ? rows : [];
+          const extra = shuffleArray(list).flatMap((p) => marketplaceProductToCarouselCards(p));
+          const seen = new Set(built.map((c) => String(c.imageUrl || '').toLowerCase()));
+          for (const card of extra) {
+            const key = String(card.imageUrl || '').toLowerCase();
+            if (!key || seen.has(key)) continue;
+            seen.add(key);
+            built.push(card);
+            if (built.length >= 12) break;
+          }
+        }
+
+        if (built.length) setWarehouseCards(built);
+        else if (seededCards.length) setWarehouseCards(seededCards);
+      } catch {
+        if (!cancelled && seededCards.length) setWarehouseCards(seededCards);
+      } finally {
+        if (!cancelled) setLoadingProductCards(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- refresh when ad identity / seed changes
+  }, [needsProductFetch, isHammanskraalWarehouseAd, seededCards, _id]);
 
   const trackClick = useCallback(() => {
     if (!sponsoredAdId) return;
@@ -183,7 +273,10 @@ export function AdvertTile(ad: AdvertTileProps) {
 
   if (dismissed) return null;
 
-  const captionText = (caption || '').trim();
+  const captionText = (
+    caption ||
+    (isHammanskraalWarehouseAd || staticCards.length === 0 ? DEFAULT_WAREHOUSE_CAPTION : '')
+  ).trim();
   const showSeeMore = captionText.length > CAPTION_PREVIEW_LEN && !captionExpanded;
   const captionDisplay = showSeeMore
     ? `${captionText.slice(0, CAPTION_PREVIEW_LEN).trim()}…`
@@ -201,7 +294,11 @@ export function AdvertTile(ad: AdvertTileProps) {
     }
   };
 
-  const activeCard = cards[carouselIndex] ?? cards[0];
+  const scrollNext = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollBy({ left: Math.min(240, el.clientWidth * 0.75), behavior: 'smooth' });
+  };
 
   return (
     <article
@@ -209,19 +306,19 @@ export function AdvertTile(ad: AdvertTileProps) {
       aria-label={`Sponsored ad from ${brandName}`}
       data-ad-id={_id}
     >
-      <div className="flex items-start gap-2 px-3 py-2.5">
-        <div className="h-10 w-10 shrink-0 overflow-hidden rounded-full bg-slate-200 ring-1 ring-slate-200">
+      {/* Header — Alibaba/FB style */}
+      <div className="flex items-start gap-2.5 px-3 py-2.5">
+        <div className="h-10 w-10 shrink-0 overflow-hidden rounded-full bg-slate-100 ring-1 ring-slate-200">
           {avatarSrc ? (
             <img src={avatarSrc} alt="" className="h-full w-full object-cover" referrerPolicy="no-referrer" />
           ) : (
-            <img src="/qwertymates-q-mark-official.png" alt="" className="h-full w-full object-cover p-1" />
+            <img src="/qwertymates-q-mark-official.png" alt="" className="h-full w-full object-cover" />
           )}
         </div>
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-semibold text-slate-900 leading-tight">{brandName}</p>
-          <p className="mt-0.5 flex items-center gap-1 text-xs text-slate-500">
-            <span className="font-medium">Ad</span>
-            <span aria-hidden>·</span>
+        <div className="min-w-0 flex-1 pt-0.5">
+          <p className="truncate text-[15px] font-bold text-slate-900 leading-tight">{brandName}</p>
+          <p className="mt-0.5 flex items-center gap-1 text-[12px] text-slate-500">
+            <span>Sponsored</span>
             <Globe className="h-3 w-3" aria-label="Public" />
           </p>
         </div>
@@ -230,7 +327,7 @@ export function AdvertTile(ad: AdvertTileProps) {
           className="shrink-0 rounded-full p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
           aria-label="More options"
         >
-          <MoreHorizontal className="h-4 w-4" />
+          <MoreHorizontal className="h-5 w-5" />
         </button>
         <button
           type="button"
@@ -238,12 +335,12 @@ export function AdvertTile(ad: AdvertTileProps) {
           className="shrink-0 rounded-full p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
           aria-label="Hide ad"
         >
-          <X className="h-4 w-4" />
+          <X className="h-5 w-5" />
         </button>
       </div>
 
       {captionText ? (
-        <div className="px-3 pb-2 text-sm text-slate-800 leading-snug">
+        <div className="px-3 pb-3 text-[15px] text-slate-900 leading-snug">
           <span>{captionDisplay}</span>
           {showSeeMore ? (
             <button
@@ -268,51 +365,79 @@ export function AdvertTile(ad: AdvertTileProps) {
             playsInline
             preload="metadata"
           />
+          <div className="flex items-center justify-between gap-3 border-t border-slate-200 bg-white px-3 py-2.5">
+            <div className="min-w-0">
+              <p className="truncate text-sm font-semibold text-slate-900">{title}</p>
+              {description ? <p className="truncate text-xs text-slate-500 mt-0.5">{description}</p> : null}
+            </div>
+            {defaultHref.startsWith('http') ? (
+              <a
+                href={defaultHref}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={trackClick}
+                className="inline-flex shrink-0 items-center justify-center rounded-md bg-[#e4e6eb] px-3 py-1.5 text-xs font-semibold text-slate-900"
+              >
+                {shopCta}
+              </a>
+            ) : (
+              <Link
+                href={defaultHref}
+                onClick={trackClick}
+                className="inline-flex shrink-0 items-center justify-center rounded-md bg-[#e4e6eb] px-3 py-1.5 text-xs font-semibold text-slate-900"
+              >
+                {shopCta}
+              </Link>
+            )}
+          </div>
         </div>
-      ) : cards.length > 0 ? (
-        <div className="relative border-y border-slate-100">
+      ) : isMultiProductCarousel ? (
+        <div className="relative pb-1">
+          <div
+            ref={scrollRef}
+            className="flex gap-2 overflow-x-auto px-3 pb-2 scroll-smooth snap-x snap-mandatory [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          >
+            {cards.map((card, i) => (
+              <ProductCarouselCard
+                key={`${card.linkUrl || card.imageUrl}-${i}`}
+                card={card}
+                defaultTitle={title}
+                defaultHref={defaultHref}
+                ctaLabel={shopCta}
+                onCtaClick={trackClick}
+              />
+            ))}
+          </div>
           {cards.length > 1 ? (
-            <>
-              {carouselIndex > 0 ? (
-                <button
-                  type="button"
-                  onClick={() => setCarouselIndex((i) => Math.max(0, i - 1))}
-                  className="absolute left-2 top-[38%] z-10 flex h-9 w-9 items-center justify-center rounded-full bg-white/95 shadow-md text-slate-700 hover:bg-white"
-                  aria-label="Previous slide"
-                >
-                  <ChevronLeft className="h-5 w-5" />
-                </button>
-              ) : null}
-              {carouselIndex < cards.length - 1 ? (
-                <button
-                  type="button"
-                  onClick={() => setCarouselIndex((i) => Math.min(cards.length - 1, i + 1))}
-                  className="absolute right-2 top-[38%] z-10 flex h-9 w-9 items-center justify-center rounded-full bg-white/95 shadow-md text-slate-700 hover:bg-white"
-                  aria-label="Next slide"
-                >
-                  <ChevronRight className="h-5 w-5" />
-                </button>
-              ) : null}
-              <div className="absolute bottom-[4.5rem] left-0 right-0 flex justify-center gap-1.5 z-10 pointer-events-none">
-                {cards.map((_, i) => (
-                  <span
-                    key={i}
-                    className={`h-1.5 w-1.5 rounded-full ${i === carouselIndex ? 'bg-sky-500' : 'bg-white/70'}`}
-                  />
-                ))}
-              </div>
-            </>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                scrollNext();
+              }}
+              className="absolute right-2 top-[42%] z-20 flex h-10 w-10 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full bg-white shadow-md ring-1 ring-black/5 text-slate-700 hover:bg-slate-50 pointer-events-auto"
+              aria-label="Next products"
+              title="See more products"
+            >
+              <ChevronRight className="h-5 w-5 pointer-events-none" />
+            </button>
           ) : null}
-          {activeCard ? (
-            <CarouselCard
-              card={activeCard}
-              defaultTitle={title}
-              defaultDescription={description}
-              defaultHref={defaultHref}
-              ctaLabel={ctaLabel}
-              onCtaClick={trackClick}
-            />
-          ) : null}
+        </div>
+      ) : cards.length === 1 ? (
+        <div className="border-y border-slate-100">
+          <ProductCarouselCard
+            card={cards[0]}
+            defaultTitle={title}
+            defaultHref={defaultHref}
+            ctaLabel={shopCta}
+            onCtaClick={trackClick}
+            fullWidth
+          />
+        </div>
+      ) : loadingProductCards ? (
+        <div className="border-y border-slate-100 px-3 py-16 text-center text-sm text-slate-500">
+          Loading Hammanskraal warehouse picks…
         </div>
       ) : (
         <div className="border-y border-slate-100 px-3 py-6 text-center text-sm text-slate-500">
@@ -320,54 +445,43 @@ export function AdvertTile(ad: AdvertTileProps) {
         </div>
       )}
 
-      {videoUrl?.trim() || cards.length === 0 ? (
-        <div className="flex items-center justify-between gap-3 border-t border-slate-200 bg-slate-50 px-3 py-2.5">
-          <div className="min-w-0">
-            <p className="truncate text-sm font-semibold text-slate-900">{title}</p>
-            {description ? <p className="truncate text-xs text-slate-500 mt-0.5">{description}</p> : null}
-          </div>
-          {defaultHref.startsWith('http') ? (
-            <a
-              href={defaultHref}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={trackClick}
-              className="inline-flex shrink-0 items-center justify-center rounded-md border border-slate-300 bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-800 hover:bg-slate-200"
-            >
-              {ctaLabel}
-            </a>
-          ) : (
-            <Link
-              href={defaultHref}
-              onClick={trackClick}
-              className="inline-flex shrink-0 items-center justify-center rounded-md border border-slate-300 bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-800 hover:bg-slate-200"
-            >
-              {ctaLabel}
-            </Link>
-          )}
+      {/* Engagement row — FB-style */}
+      <div className="flex items-center justify-between gap-2 border-t border-slate-100 px-3 py-2 text-slate-500">
+        <div className="flex items-center gap-3 text-[13px]">
+          <span className="inline-flex items-center gap-1">
+            <ThumbsUp className="h-3.5 w-3.5" />
+            <span>Shop local</span>
+          </span>
+          {isHammanskraalWarehouseAd || cards.length > 0 ? (
+            <span className="inline-flex items-center gap-1">
+              <MessageCircle className="h-3.5 w-3.5" />
+              <span>Free in Hammanskraal</span>
+            </span>
+          ) : null}
         </div>
-      ) : null}
+        <Share2 className="h-4 w-4 opacity-70" aria-hidden />
+      </div>
 
-      <div className="flex items-center justify-between border-t border-slate-100 px-2 py-1 text-slate-600">
+      <div className="flex items-center justify-between border-t border-slate-100 px-1 py-0.5 text-slate-600">
         <button
           type="button"
-          className="flex flex-1 items-center justify-center gap-1.5 rounded-lg py-2 text-sm font-medium hover:bg-slate-50"
+          className="flex flex-1 items-center justify-center gap-1.5 rounded-lg py-2.5 text-sm font-medium hover:bg-slate-50"
           onClick={() => toast.success('Thanks for your interest!')}
         >
           <Heart className="h-4 w-4" />
           Like
         </button>
-        <button
-          type="button"
-          className="flex flex-1 items-center justify-center gap-1.5 rounded-lg py-2 text-sm font-medium hover:bg-slate-50"
+        <Link
+          href={defaultHref}
+          className="flex flex-1 items-center justify-center gap-1.5 rounded-lg py-2.5 text-sm font-medium hover:bg-slate-50"
           onClick={trackClick}
         >
           <MessageCircle className="h-4 w-4" />
-          Learn more
-        </button>
+          Shop now
+        </Link>
         <button
           type="button"
-          className="flex flex-1 items-center justify-center gap-1.5 rounded-lg py-2 text-sm font-medium hover:bg-slate-50"
+          className="flex flex-1 items-center justify-center gap-1.5 rounded-lg py-2.5 text-sm font-medium hover:bg-slate-50"
           onClick={shareAd}
         >
           <Share2 className="h-4 w-4" />

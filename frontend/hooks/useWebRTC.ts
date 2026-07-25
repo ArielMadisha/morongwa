@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { io, type Socket } from 'socket.io-client';
 import { getSocketAuth } from '@/lib/socketAuth';
 import toast from 'react-hot-toast';
 import { getCallPresenceSocket } from '@/lib/callPresenceSocket';
@@ -35,6 +36,28 @@ async function flushIceQueue(pc: RTCPeerConnection, queue: RTCIceCandidateInit[]
   }
 }
 
+const CALL_SERVER_WAIT_MS = 20_000;
+
+/** Wait for Socket.IO to connect (survives brief API 502 / deploy restarts). */
+function waitForSocketReady(socket: Socket, timeoutMs = CALL_SERVER_WAIT_MS): Promise<boolean> {
+  if (socket.connected) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      socket.off('connect', onConnect);
+      resolve(false);
+    }, timeoutMs);
+    const onConnect = () => {
+      clearTimeout(timer);
+      resolve(true);
+    };
+    socket.once('connect', onConnect);
+    if (!socket.connected) socket.connect();
+  });
+}
+
+const CALL_SERVER_DOWN_MSG =
+  'Call server is temporarily unavailable (often during a deploy). Wait 30 seconds, refresh the page, then try again.';
+
 function attachCallSocketHandlers(
   socket: Socket,
   opts: {
@@ -57,6 +80,9 @@ function attachCallSocketHandlers(
     applyAnswer?: (answer: RTCSessionDescriptionInit) => Promise<void>;
     onConnected?: () => void;
     clearRingTimer?: () => void;
+    callAcceptHandledRef?: React.MutableRefObject<boolean>;
+    callStatusRef?: React.MutableRefObject<CallStatus>;
+    peerSocketIdRef?: React.MutableRefObject<string>;
   }
 ) {
   const rid = opts.signalingRoomId ?? opts.roomId;
@@ -73,12 +99,25 @@ function attachCallSocketHandlers(
       if (opts.pendingOfferRef) opts.pendingOfferRef.current = offer;
       return;
     }
+    if (pc.remoteDescription?.sdp === offer.sdp) return;
     try {
       await pc.setRemoteDescription(new RTCSessionDescription(offer));
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
-      socket.emit('webrtc-answer', { roomId: rid, toUserId: peer, answer });
+      const toSocketId = opts.peerSocketIdRef?.current || '';
+      socket.emit('webrtc-answer', {
+        roomId: rid,
+        toUserId: peer,
+        ...(toSocketId ? { toSocketId } : {}),
+        answer,
+      });
       if (opts.iceQueueRef) await flushIceQueue(pc, opts.iceQueueRef.current);
+      if (
+        opts.onConnected &&
+        (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed')
+      ) {
+        opts.onConnected();
+      }
     } catch (e) {
       console.error('Failed to handle offer', e);
       toast.error('Could not connect video');
@@ -87,22 +126,46 @@ function attachCallSocketHandlers(
   };
 
   const onCallReject = () => {
+    if (opts.callStatusRef?.current === 'idle' || opts.callStatusRef?.current === 'rejected') return;
     opts.setCallStatus('rejected');
     opts.cleanup();
   };
 
-  const onCallAccept = async () => {
+  const onCallAccept = async (data?: { socketId?: string; roomId?: string }) => {
+    if (opts.callAcceptHandledRef?.current) return;
+    if (opts.role === 'caller' && opts.callStatusRef?.current === 'connected') return;
+    const eventRoom = String(data?.roomId || '').trim();
+    if (eventRoom && eventRoom !== rid) return;
+    if (opts.callAcceptHandledRef) opts.callAcceptHandledRef.current = true;
+    if (data?.socketId && opts.peerSocketIdRef) {
+      opts.peerSocketIdRef.current = String(data.socketId);
+    }
     opts.setCallStatus('connecting');
     opts.clearRingTimer?.();
-    if (opts.sendOffer) {
-      await opts.sendOffer();
-    } else if (opts.pendingAcceptRef) {
-      opts.pendingAcceptRef.current = true;
+    try {
+      if (opts.sendOffer) {
+        await opts.sendOffer();
+      } else if (opts.pendingAcceptRef) {
+        opts.pendingAcceptRef.current = true;
+      }
+    } catch (e) {
+      console.error('sendOffer after accept failed', e);
+      if (opts.pendingAcceptRef) opts.pendingAcceptRef.current = true;
     }
   };
 
-  const onWebrtcAnswer = async (data: { fromUserId: string; answer: RTCSessionDescriptionInit }) => {
+  const onWebrtcAnswer = async (data: {
+    fromUserId: string;
+    answer: RTCSessionDescriptionInit;
+    fromSocketId?: string;
+    roomId?: string;
+  }) => {
     if (String(data.fromUserId) !== String(opts.peerUserId)) return;
+    const eventRoom = String(data.roomId || '').trim();
+    if (eventRoom && eventRoom !== rid) return;
+    if (data.fromSocketId && opts.peerSocketIdRef) {
+      opts.peerSocketIdRef.current = String(data.fromSocketId);
+    }
     if (opts.applyAnswer) {
       await opts.applyAnswer(data.answer);
       return;
@@ -125,13 +188,33 @@ function attachCallSocketHandlers(
     }
   };
 
-  const onWebrtcOffer = async (data: { fromUserId: string; offer: RTCSessionDescriptionInit }) => {
+  const onWebrtcOffer = async (data: {
+    fromUserId: string;
+    offer: RTCSessionDescriptionInit;
+    fromSocketId?: string;
+    roomId?: string;
+  }) => {
     if (String(data.fromUserId) !== String(peer)) return;
+    const eventRoom = String(data.roomId || '').trim();
+    if (eventRoom && eventRoom !== rid) return;
+    if (data.fromSocketId && opts.peerSocketIdRef) {
+      opts.peerSocketIdRef.current = String(data.fromSocketId);
+    }
     await handleCalleeOffer(data.offer);
   };
 
-  const onIceCandidate = async (data: { fromUserId: string; candidate: RTCIceCandidateInit }) => {
+  const onIceCandidate = async (data: {
+    fromUserId: string;
+    candidate: RTCIceCandidateInit;
+    fromSocketId?: string;
+    roomId?: string;
+  }) => {
     if (String(data.fromUserId) !== String(peer)) return;
+    const eventRoom = String(data.roomId || '').trim();
+    if (eventRoom && eventRoom !== rid) return;
+    if (data.fromSocketId && opts.peerSocketIdRef) {
+      opts.peerSocketIdRef.current = String(data.fromSocketId);
+    }
     if (!opts.pcRef.current) {
       if (opts.iceQueueRef) opts.iceQueueRef.current.push(data.candidate);
       return;
@@ -182,7 +265,7 @@ function attachCallSocketHandlers(
     socket.off('webrtc-hangup', onHangup);
   };
 
-  return { handleCalleeOffer, detach };
+  return { handleCalleeOffer, detach, onCallAccept, onCallReject };
 }
 
 export function useWebRTC({
@@ -225,10 +308,19 @@ export function useWebRTC({
   const sendOfferRef = useRef<(() => Promise<void>) | null>(null);
   const onSignalingReconnectRef = useRef<(() => void) | null>(null);
   const iceRestartAttemptedRef = useRef(false);
+  const callAcceptHandledRef = useRef(false);
+  const peerSocketIdRef = useRef('');
+  const meetingModeRef = useRef(false);
+  const meetingOfferSentRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     callStatusRef.current = callStatus;
   }, [callStatus]);
+
+  const syncCallStatus = useCallback((status: CallStatus) => {
+    callStatusRef.current = status;
+    setCallStatus(status);
+  }, []);
 
   const detachCallSocket = useCallback((socket: Socket | null) => {
     detachSignalingHandlersRef.current?.();
@@ -241,8 +333,9 @@ export function useWebRTC({
     onSignalingReconnectRef.current = null;
     sendOfferRef.current = null;
     if (!socket) return;
-    if (keepPresenceSocketRef.current) {
-      if (socket.connected) socket.emit('leave-call-room');
+    if (socket.connected) socket.emit('leave-call-room');
+    const isSharedPresence = socket === getCallPresenceSocket();
+    if (keepPresenceSocketRef.current || isSharedPresence) {
       keepPresenceSocketRef.current = false;
       return;
     }
@@ -271,6 +364,10 @@ export function useWebRTC({
     pendingAcceptRef.current = false;
     iceQueueRef.current = [];
     iceRestartAttemptedRef.current = false;
+    callAcceptHandledRef.current = false;
+    peerSocketIdRef.current = '';
+    meetingModeRef.current = false;
+    meetingOfferSentRef.current = new Set();
     detachSignalingHandlersRef.current?.();
     detachSignalingHandlersRef.current = null;
     if (pcRef.current) {
@@ -306,10 +403,10 @@ export function useWebRTC({
       keepPresenceSocketRef.current = false;
     }
     cleanup();
-    setCallStatus('idle');
+    syncCallStatus('idle');
     setIncomingCaller(null);
     onCallEnded?.();
-  }, [cleanup, onCallEnded, roomId, peerUserId, incomingCaller?.callerId, defaultAudioOnly]);
+  }, [cleanup, onCallEnded, roomId, peerUserId, incomingCaller?.callerId, defaultAudioOnly, syncCallStatus]);
 
   const armConnectTimer = useCallback(() => {
     clearConnectTimer();
@@ -322,8 +419,8 @@ export function useWebRTC({
 
   const markConnected = useCallback(() => {
     clearConnectTimer();
-    setCallStatus('connected');
-  }, [clearConnectTimer]);
+    syncCallStatus('connected');
+  }, [clearConnectTimer, syncCallStatus]);
 
   const joinSignalingRooms = useCallback((socket: Socket, rid: string, uid: string) => {
     socket.emit('join-user-presence', { userId: uid });
@@ -361,9 +458,11 @@ export function useWebRTC({
 
     pc.onicecandidate = (e) => {
       if (e.candidate && socketRef.current?.connected) {
+        const toSocketId = peerSocketIdRef.current;
         socketRef.current.emit('webrtc-ice-candidate', {
           roomId: rid,
           toUserId: targetUserId,
+          ...(toSocketId ? { toSocketId } : {}),
           candidate: e.candidate.toJSON(),
         });
       }
@@ -449,7 +548,9 @@ export function useWebRTC({
       return;
     }
 
-    setCallStatus('calling');
+    syncCallStatus('calling');
+    callAcceptHandledRef.current = false;
+    peerSocketIdRef.current = '';
     clearRingTimer();
     ringTimerRef.current = setTimeout(() => {
       if (callStatusRef.current !== 'calling') return;
@@ -464,29 +565,23 @@ export function useWebRTC({
       }
       detachCallSocket(socketRef.current);
       cleanup();
-      setCallStatus('idle');
+      syncCallStatus('idle');
     }, RING_TIMEOUT_MS);
 
-    const presenceSocket = getCallPresenceSocket();
-    let socket: Socket;
-    if (presenceSocket?.connected) {
-      keepPresenceSocketRef.current = true;
-      socket = presenceSocket;
-    } else {
-      detachCallSocket(socketRef.current);
-      socket = connectCallSocket();
+  /** One presence socket per user for ring + 1:1 call signaling (see CallPresenceProvider). */
+    detachSignalingHandlersRef.current?.();
+    detachSignalingHandlersRef.current = null;
+    const socket = getCallPresenceSocket();
+    if (!socket) {
+      toast.error('Could not start call — refresh the page and stay signed in');
+      clearRingTimer();
+      syncCallStatus('idle');
+      return;
     }
+    keepPresenceSocketRef.current = true;
     socketRef.current = socket;
     signalingRoomRef.current = rid;
     signalingUserRef.current = uid;
-
-    const onConnectError = (err: Error) => {
-      console.error('WebRTC socket connect_error', err);
-      toast.error('Could not connect for video call. Check your network and try again.');
-      clearRingTimer();
-      setCallStatus('idle');
-      detachCallSocket(socket);
-    };
 
     const runCallerSetup = async () => {
       pendingAcceptRef.current = false;
@@ -506,13 +601,23 @@ export function useWebRTC({
         armConnectTimer();
         try {
           if (pc.signalingState === 'have-local-offer' && pc.localDescription && !pc.remoteDescription) {
-            socket.emit('webrtc-offer', { roomId: rid, toUserId: peer, offer: pc.localDescription });
+            socket.emit('webrtc-offer', {
+              roomId: rid,
+              toUserId: peer,
+              ...(peerSocketIdRef.current ? { toSocketId: peerSocketIdRef.current } : {}),
+              offer: pc.localDescription,
+            });
             return;
           }
           if (pc.signalingState !== 'stable') return;
           const offer = await pc.createOffer({ iceRestart: iceRestartAttemptedRef.current });
           await pc.setLocalDescription(offer);
-          socket.emit('webrtc-offer', { roomId: rid, toUserId: peer, offer });
+          socket.emit('webrtc-offer', {
+            roomId: rid,
+            toUserId: peer,
+            ...(peerSocketIdRef.current ? { toSocketId: peerSocketIdRef.current } : {}),
+            offer,
+          });
         } catch (e) {
           console.error('Failed to create offer', e);
           toast.error('Could not start video call');
@@ -535,6 +640,9 @@ export function useWebRTC({
         try {
           await pc.setRemoteDescription(new RTCSessionDescription(answer));
           await flushIceQueue(pc, iceQueueRef.current);
+          if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
+            markConnected();
+          }
         } catch (e) {
           console.error('Failed to set remote description', e);
           toast.error('Could not complete video connection');
@@ -548,7 +656,7 @@ export function useWebRTC({
         userId: uid,
         peerUserId: peer,
         pcRef,
-        setCallStatus,
+        setCallStatus: syncCallStatus,
         setRemoteStream,
         cleanup,
         endCall,
@@ -560,6 +668,9 @@ export function useWebRTC({
         applyAnswer,
         onConnected: markConnected,
         clearRingTimer,
+        callAcceptHandledRef,
+        callStatusRef,
+        peerSocketIdRef,
       });
       detachSignalingHandlersRef.current = attached.detach;
 
@@ -573,7 +684,7 @@ export function useWebRTC({
         }
         detachCallSocket(socket);
         cleanup();
-        setCallStatus('idle');
+        syncCallStatus('idle');
       };
 
       socket.on('call-unavailable', onCallUnavailable);
@@ -583,14 +694,6 @@ export function useWebRTC({
         prevDetach?.();
       };
 
-      socket.emit('call-request', {
-        roomId: rid,
-        callerId: uid,
-        callerName: userName,
-        calleeId: peer,
-        audioOnly: voiceOnly,
-      });
-
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ video: !voiceOnly, audio: true });
         setLocalStream(stream);
@@ -599,6 +702,14 @@ export function useWebRTC({
         const pc = await createPeerConnection(peer, rid);
         pcRef.current = pc;
         stream.getTracks().forEach((t) => pc.addTrack(t, stream));
+
+        socket.emit('call-request', {
+          roomId: rid,
+          callerId: uid,
+          callerName: userName,
+          calleeId: peer,
+          audioOnly: voiceOnly,
+        });
 
         if (pendingAcceptRef.current) await sendOffer();
         if (pendingAnswerRef.current) await applyAnswer(pendingAnswerRef.current);
@@ -610,22 +721,22 @@ export function useWebRTC({
             : 'Camera/microphone permission is required for video calls'
         );
         clearRingTimer();
-        setCallStatus('idle');
+        syncCallStatus('idle');
         detachCallSocket(socket);
       }
     };
 
-    socket.off('connect_error', onConnectError);
-    socket.on('connect_error', onConnectError);
-
-    if (socket.connected) {
-      void runCallerSetup();
-    } else {
-      socket.once('connect', () => {
-        void runCallerSetup();
-      });
-      if (!socket.connected) socket.connect();
-    }
+    void (async () => {
+      const ready = await waitForSocketReady(socket);
+      if (!ready) {
+        console.error('WebRTC socket not ready after wait');
+        toast.error(CALL_SERVER_DOWN_MSG);
+        clearRingTimer();
+        syncCallStatus('idle');
+        return;
+      }
+      await runCallerSetup();
+    })();
   }, [
     roomId,
     userId,
@@ -642,15 +753,238 @@ export function useWebRTC({
     markConnected,
     joinSignalingRooms,
     wireSignalingReconnect,
+    syncCallStatus,
   ]);
+
+  /** Join a Morongwa meeting room — lobby + WebRTC to peers already present (no ring/accept). */
+  const joinMeetingRoom = useCallback(
+    async (opts: { roomId: string; preferredPeerId?: string; title?: string }) => {
+      const rid = String(opts.roomId || '').trim();
+      const uid = String(userId || '').trim();
+      const preferredPeer = String(opts.preferredPeerId || '').trim();
+      if (!rid || !uid) {
+        toast.error('Sign in to join a meeting');
+        return;
+      }
+
+      meetingModeRef.current = true;
+      meetingOfferSentRef.current = new Set();
+      setActiveAudioOnly(false);
+      setCallStatus('connecting');
+      clearRingTimer();
+
+      const presenceSocket = getCallPresenceSocket();
+      let socket: Socket;
+      if (presenceSocket?.connected) {
+        keepPresenceSocketRef.current = true;
+        socket = presenceSocket;
+      } else {
+        detachCallSocket(socketRef.current);
+        socket = connectCallSocket();
+      }
+      socketRef.current = socket;
+      signalingRoomRef.current = rid;
+      signalingUserRef.current = uid;
+
+      const offerToPeer = async (peer: string) => {
+        const target = String(peer || '').trim();
+        if (!target || target === uid || meetingOfferSentRef.current.has(target) || pcRef.current) return;
+        meetingOfferSentRef.current.add(target);
+        activePeerRef.current = target;
+        armConnectTimer();
+
+        const sendOffer = async () => {
+          if (!pcRef.current || !socket.connected) return;
+          const pc = pcRef.current;
+          try {
+            if (pc.signalingState !== 'stable') return;
+            const offer = await pc.createOffer({ iceRestart: false });
+            await pc.setLocalDescription(offer);
+            socket.emit('webrtc-offer', { roomId: rid, toUserId: target, offer });
+          } catch (e) {
+            console.error('Meeting offer failed', e);
+            toast.error('Could not connect to meeting participant');
+          }
+        };
+        sendOfferRef.current = sendOffer;
+
+        try {
+          let stream = localVideoRef.current?.srcObject as MediaStream | null;
+          if (!stream) {
+            stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+            setLocalStream(stream);
+            if (localVideoRef.current) localVideoRef.current.srcObject = stream;
+          }
+
+          const pc = await createPeerConnection(target, rid);
+          pcRef.current = pc;
+          stream.getTracks().forEach((t) => pc.addTrack(t, stream!));
+          await sendOffer();
+        } catch (e) {
+          console.error('Meeting peer connect failed', e);
+        }
+      };
+
+      const handleMeetingOffer = async (data: { fromUserId: string; offer: RTCSessionDescriptionInit }) => {
+        const from = String(data.fromUserId || '');
+        if (!from || from === uid || pcRef.current) return;
+        activePeerRef.current = from;
+        armConnectTimer();
+
+        try {
+          let stream = localVideoRef.current?.srcObject as MediaStream | null;
+          if (!stream) {
+            stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+            setLocalStream(stream);
+            if (localVideoRef.current) localVideoRef.current.srcObject = stream;
+          }
+
+          const pc = await createPeerConnection(from, rid);
+          pcRef.current = pc;
+          stream.getTracks().forEach((t) => pc.addTrack(t, stream!));
+
+          await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
+          const answer = await pc.createAnswer();
+          await pc.setLocalDescription(answer);
+          socket.emit('webrtc-answer', { roomId: rid, toUserId: from, answer });
+          await flushIceQueue(pc, iceQueueRef.current);
+        } catch (e) {
+          console.error('Meeting answer failed', e);
+          toast.error('Could not join meeting video');
+          endCall();
+        }
+      };
+
+      const onMeetingAnswer = async (data: { fromUserId: string; answer: RTCSessionDescriptionInit }) => {
+        if (!pcRef.current) return;
+        try {
+          await pcRef.current.setRemoteDescription(new RTCSessionDescription(data.answer));
+          await flushIceQueue(pcRef.current, iceQueueRef.current);
+        } catch (e) {
+          console.error('Meeting answer apply failed', e);
+        }
+      };
+
+      const onMeetingIce = async (data: { fromUserId: string; candidate: RTCIceCandidateInit }) => {
+        const from = String(data.fromUserId || '');
+        if (!from || from === uid) return;
+        if (!pcRef.current) {
+          iceQueueRef.current.push(data.candidate);
+          return;
+        }
+        if (!pcRef.current.remoteDescription) {
+          iceQueueRef.current.push(data.candidate);
+          return;
+        }
+        try {
+          await pcRef.current.addIceCandidate(new RTCIceCandidate(data.candidate));
+        } catch (e) {
+          console.error('Meeting ICE failed', e);
+        }
+      };
+
+      const connectPeers = (peers: string[]) => {
+        const list = peers.map((p) => String(p)).filter((p) => p && p !== uid);
+        if (!list.length) {
+          clearConnectTimer();
+          setCallStatus('connected');
+          return;
+        }
+        const target =
+          (preferredPeer && preferredPeer !== uid && list.includes(preferredPeer) ? preferredPeer : null) ||
+          list[0];
+        void offerToPeer(target);
+      };
+
+      const runMeetingJoin = async () => {
+        pendingOfferRef.current = null;
+        pendingAnswerRef.current = null;
+        iceQueueRef.current = [];
+
+        joinSignalingRooms(socket, rid, uid);
+        wireSignalingReconnect(socket, rid, uid);
+
+        detachSignalingHandlersRef.current?.();
+        const onRoomPeers = (data: { roomId?: string; peers?: string[] }) => {
+          if (data?.roomId && data.roomId !== rid) return;
+          connectPeers(Array.isArray(data.peers) ? data.peers : []);
+        };
+
+        socket.on('room-peers', onRoomPeers);
+        socket.on('webrtc-offer', handleMeetingOffer);
+        socket.on('webrtc-answer', onMeetingAnswer);
+        socket.on('webrtc-ice-candidate', onMeetingIce);
+        socket.on('peer-left', () => endCall());
+        socket.on('webrtc-hangup', () => endCall());
+
+        detachSignalingHandlersRef.current = () => {
+          socket.off('room-peers', onRoomPeers);
+          socket.off('webrtc-offer', handleMeetingOffer);
+          socket.off('webrtc-answer', onMeetingAnswer);
+          socket.off('webrtc-ice-candidate', onMeetingIce);
+          socket.off('peer-left', () => endCall());
+          socket.off('webrtc-hangup', () => endCall());
+        };
+
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+          setLocalStream(stream);
+          if (localVideoRef.current) localVideoRef.current.srcObject = stream;
+          clearConnectTimer();
+          setCallStatus('connected');
+        } catch (err) {
+          console.error('Failed to get media for meeting', err);
+          toast.error('Camera/microphone permission is required for meetings');
+          setCallStatus('idle');
+          detachCallSocket(socket);
+        }
+      };
+
+      socket.off('connect_error');
+      socket.on('connect_error', (err) => {
+        console.error('Meeting socket connect_error', err);
+        toast.error('Could not connect to meeting. Check your network and try again.');
+        setCallStatus('idle');
+        detachCallSocket(socket);
+      });
+
+      if (socket.connected) {
+        void runMeetingJoin();
+      } else {
+        socket.once('connect', () => {
+          void runMeetingJoin();
+        });
+        if (!socket.connected) socket.connect();
+      }
+    },
+    [
+      userId,
+      createPeerConnection,
+      endCall,
+      connectCallSocket,
+      detachCallSocket,
+      clearRingTimer,
+      clearConnectTimer,
+      armConnectTimer,
+      joinSignalingRooms,
+      wireSignalingReconnect,
+    ]
+  );
 
   const acceptCall = useCallback(
     async (
-      override?: { callerId: string; roomId?: string; callerName?: string; audioOnly?: boolean },
+      override?: {
+        callerId: string;
+        roomId?: string;
+        callerName?: string;
+        audioOnly?: boolean;
+        callerSocketId?: string;
+      },
       opts?: { existingSocket?: Socket | null }
     ) => {
       const effectiveRoomId = String(override?.roomId || incomingCallRoomRef.current || roomId || '');
       const callerId = String(override?.callerId || incomingCaller?.callerId || '');
+      const callerSocketId = String(override?.callerSocketId || '').trim();
       const uid = String(userId || '');
       if (!callerId || !effectiveRoomId || !uid) {
         toast.error('Could not join call — sign in again or refresh the page');
@@ -663,22 +997,27 @@ export function useWebRTC({
       const voiceOnly = incomingAudioOnlyRef.current;
       setActiveAudioOnly(voiceOnly);
       activePeerRef.current = callerId;
+      peerSocketIdRef.current = callerSocketId;
+      callAcceptHandledRef.current = false;
 
-      setCallStatus('connecting');
+      syncCallStatus('connecting');
       armConnectTimer();
       setIncomingCaller(null);
       incomingCallRoomRef.current = null;
       clearRingTimer();
 
-      const reuseSocket = opts?.existingSocket?.connected ? opts.existingSocket : null;
+      const reuseSocket = opts?.existingSocket ?? getCallPresenceSocket();
       let socket: Socket;
-      if (reuseSocket) {
+      // Callee keeps the presence socket (ring + offer/answer); caller uses a dedicated socket.
+      if (reuseSocket?.connected) {
         keepPresenceSocketRef.current = true;
         socket = reuseSocket;
         socketRef.current = socket;
       } else {
         detachCallSocket(socketRef.current);
         socket = connectCallSocket();
+        keepPresenceSocketRef.current = false;
+        socketRef.current = socket;
       }
 
       const runCalleeAccept = async () => {
@@ -696,7 +1035,7 @@ export function useWebRTC({
           userId: uid,
           peerUserId: callerId,
           pcRef,
-          setCallStatus,
+          setCallStatus: syncCallStatus,
           setRemoteStream,
           cleanup,
           endCall,
@@ -706,9 +1045,18 @@ export function useWebRTC({
           pendingOfferRef,
           iceQueueRef,
           onConnected: markConnected,
+          peerSocketIdRef,
         });
         detachSignalingHandlersRef.current = attached.detach;
         const handleCalleeOffer = attached.handleCalleeOffer;
+
+        socket.emit('call-accept', {
+          roomId: effectiveRoomId,
+          calleeId: uid,
+          calleeName: userName,
+          callerId,
+          ...(callerSocketId ? { callerSocketId } : {}),
+        });
 
         try {
           const stream = await navigator.mediaDevices.getUserMedia({ video: !voiceOnly, audio: true });
@@ -723,37 +1071,24 @@ export function useWebRTC({
             await handleCalleeOffer(pendingOfferRef.current);
             pendingOfferRef.current = null;
           }
-
-          socket.emit('call-accept', {
-            roomId: effectiveRoomId,
-            calleeId: uid,
-            calleeName: userName,
-            callerId,
-          });
         } catch (err) {
           console.error('Failed to get media', err);
           toast.error(voiceOnly ? 'Microphone permission is required' : 'Camera/microphone permission is required');
-          setCallStatus('idle');
+          syncCallStatus('idle');
           detachCallSocket(socket);
         }
       };
 
-      socket.off('connect_error');
-      socket.on('connect_error', (err) => {
-        console.error('WebRTC socket connect_error', err);
-        toast.error('Could not connect for video call');
-        setCallStatus('idle');
-        detachCallSocket(socket);
-      });
-
-      if (socket.connected) {
-        void runCalleeAccept();
-      } else {
-        socket.once('connect', () => {
-          void runCalleeAccept();
-        });
-        if (!socket.connected) socket.connect();
-      }
+      void (async () => {
+        const ready = await waitForSocketReady(socket);
+        if (!ready) {
+          console.error('WebRTC socket not ready for accept');
+          toast.error(CALL_SERVER_DOWN_MSG);
+          syncCallStatus('idle');
+          return;
+        }
+        await runCalleeAccept();
+      })();
     },
     [
       roomId,
@@ -771,6 +1106,7 @@ export function useWebRTC({
       detachCallSocket,
       joinSignalingRooms,
       wireSignalingReconnect,
+      syncCallStatus,
     ]
   );
 
@@ -787,9 +1123,9 @@ export function useWebRTC({
       detachCallSocket(socket);
     }
     incomingCallRoomRef.current = null;
-    setCallStatus('idle');
+    syncCallStatus('idle');
     setIncomingCaller(null);
-  }, [roomId, userId, incomingCaller?.callerId, detachCallSocket]);
+  }, [roomId, userId, incomingCaller?.callerId, detachCallSocket, syncCallStatus]);
 
   const cancelCall = useCallback(() => {
     clearRingTimer();
@@ -805,8 +1141,8 @@ export function useWebRTC({
       detachCallSocket(socket);
     }
     cleanup();
-    setCallStatus('idle');
-  }, [roomId, userId, peerUserId, cleanup, clearRingTimer, detachCallSocket]);
+    syncCallStatus('idle');
+  }, [roomId, userId, peerUserId, cleanup, clearRingTimer, detachCallSocket, syncCallStatus]);
 
   /** Join call room for incoming when a thread is open (global presence handles ring). */
   const joinRoomForIncoming = useCallback(() => {
@@ -866,6 +1202,7 @@ export function useWebRTC({
     isVideoOff,
     incomingCaller,
     startCall,
+    joinMeetingRoom,
     acceptCall,
     rejectCall,
     cancelCall,

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { getImageUrl, getImageUrlFull } from '@/lib/api';
 import { tvAPI } from '@/lib/api';
 import { looksLikeAudioUrl, looksLikeVideoUrl } from '@/lib/tvMedia';
@@ -9,6 +9,7 @@ import { FollowButton, seedFollowStatusCache } from '@/components/FollowButton';
 import { userPublicDisplayName } from '@/lib/userDisplayLabel';
 import { StatusStoryViewer } from '@/components/tv/StatusStoryViewer';
 import { sortStatusStripNewestFirst } from '@/lib/statusStripSort';
+import { useFeedAutoRefresh } from '@/lib/useFeedAutoRefresh';
 
 /** Ensure every status row has posts[] (oldest-first) for the story viewer. */
 function normalizeStatusItem(s: StatusItem): StatusItem {
@@ -38,6 +39,8 @@ export interface StatusItem {
   isLive?: boolean;
   /** Store/supplier status — label is the shop name, not the uploader */
   isStoreStatus?: boolean;
+  /** Food & Restaurant store — header links to Order Food menu */
+  isFoodStore?: boolean;
   supplierId?: string;
   storeSlug?: string;
   isFollowing?: boolean;
@@ -74,7 +77,7 @@ export function StatusesStrip({ currentUserId, userAvatar, stripBackgroundPic, o
   const [viewerIndex, setViewerIndex] = useState(0);
   const stripRef = useRef<HTMLDivElement>(null);
 
-  const fetchStatuses = () => {
+  const fetchStatuses = useCallback(() => {
     tvAPI
       .getStatuses()
       .then((res) => {
@@ -98,11 +101,33 @@ export function StatusesStrip({ currentUserId, userAvatar, stripBackgroundPic, o
       })
       .catch(() => setStatuses([]))
       .finally(() => setLoading(false));
-  };
+  }, [currentUserId]);
 
   useEffect(() => {
     fetchStatuses();
-  }, [refreshTrigger, currentUserId]);
+  }, [refreshTrigger, fetchStatuses]);
+
+  useEffect(() => {
+    if (!currentUserId || !userAvatar) return;
+    setStatuses((prev) =>
+      prev.map((s) => {
+        const uid = String(s.userId?._id ?? s.userId);
+        if (uid !== currentUserId) return s;
+        return { ...s, avatar: userAvatar };
+      })
+    );
+  }, [currentUserId, userAvatar]);
+
+  useFeedAutoRefresh({
+    enabled: true,
+    onRefresh: fetchStatuses,
+  });
+
+  useEffect(() => {
+    const onRefresh = () => fetchStatuses();
+    window.addEventListener('qwertymates:status-strip-refresh', onRefresh);
+    return () => window.removeEventListener('qwertymates:status-strip-refresh', onRefresh);
+  }, [fetchStatuses]);
 
   // Merge current user's just-created post into statuses (optimistic update)
   const displayStatuses = useMemo(() => {
@@ -304,7 +329,10 @@ export function StatusesStrip({ currentUserId, userAvatar, stripBackgroundPic, o
                 </span>
               ) : null}
             </div>
-            <span className="text-[9px] sm:text-[10px] font-semibold leading-tight text-slate-700 truncate max-w-[58px] sm:max-w-[70px]">
+            <span
+              className="text-[9px] sm:text-[10px] font-semibold leading-tight text-slate-700 text-center line-clamp-2 max-w-[64px] sm:max-w-[80px]"
+              title={label}
+            >
               {label}
             </span>
           </button>

@@ -45,10 +45,30 @@ router.get("/", async (req: Request, res: Response, next) => {
       query.slot = slot;
     }
 
-    const adverts = await Advert.find(query)
+    const advertsRaw = await Advert.find(query)
       .sort({ order: 1, createdAt: -1 })
-      .limit(20)
+      .limit(40)
       .lean();
+
+    const isBroken = (a: any) => {
+      const title = String(a?.title || "").trim().toLowerCase();
+      const imageUrl = String(a?.imageUrl || "");
+      const cards = Array.isArray(a?.carouselCards) ? a.carouselCards : [];
+      if (title === "buy local") return true;
+      if (/shop local on qwertyhub|handwoven baskets/i.test(title)) return true;
+      if (/placehold\.co|172\.\d+\.\d+\.\d+/i.test(imageUrl)) return true;
+      if (/^https?:\/\/[^/]+\/marketplace\/?$/i.test(imageUrl)) return true;
+      const hasCards = cards.some((c: any) => String(c?.imageUrl || "").trim());
+      const hasVideo = Boolean(String(a?.videoUrl || "").trim());
+      if (hasCards || hasVideo) return false;
+      if (!imageUrl.trim()) return true;
+      if (/\/marketplace(\/|$|\?)/i.test(imageUrl) && !/\.(jpe?g|png|webp|gif)(\?|$)/i.test(imageUrl)) {
+        return true;
+      }
+      return false;
+    };
+
+    const adverts = advertsRaw.filter((a) => !isBroken(a)).slice(0, 20);
 
     res.json({ data: adverts });
   } catch (err) {

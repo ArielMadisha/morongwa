@@ -15,6 +15,7 @@ When **`backend/src/**`**, **`frontend/**`**, deploy scripts, or production buil
 2. **Test**: `npm run build` in `backend/`; `npm run build` in `frontend/` when frontend touched; run smoke/targeted scripts when they exist for the area.
 3. **Deploy**: from **`backend/`** run **`npm run deploy:production`** (backend + Twilio flow + Botswana webhook verify + frontend + NPM edge unless `SKIP_NPM_EDGE_FIX=1`).
 4. **Verify**: follow **`website-502-guardrail`** — `https://www.qwertymates.com/` and `/wall` must not return 502.
+5. **Email**: follow **`outbound-email-after-code-changes`** — send ops summary to **administrator@qwertymates.com** (`npm run ops:email-change-summary` from `backend/`).
 
 ## Android (mobile / EAS / Play Store)
 
@@ -28,6 +29,7 @@ When **`mobile/**`** changes app behavior (UI, API client, permissions, create-p
    - **`npm run submit:android:production:by-build-id -- <BUILD_ID>`** (prefer by build id over `--latest` when multiple profiles exist)
    - Or one shot: **`npm run release:android:play`**
 4. **Confirm**: EAS build finished and Play submit succeeded; report version, versionCode, build URL, and submission URL.
+5. **Email**: include mobile build/submit outcome in the **`outbound-email-after-code-changes`** ops summary.
 
 Scripts already set **`EAS_NO_VCS=1`** via `cross-env` when Git is unavailable on the build machine.
 

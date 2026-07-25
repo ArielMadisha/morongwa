@@ -12,6 +12,7 @@ import { logger } from "./services/monitoring";
 import { initializeNotificationService } from "./services/notification";
 import { initializeChatService } from "./services/chat";
 import { initializeWebRTCSignaling } from "./services/webrtcSignaling";
+import { logLiveKitStartup } from "./services/livekitService";
 import { securityMiddleware, requestLogger, validateInput } from "./middleware/security";
 import { apiLimiter } from "./middleware/rateLimit";
 import { errorHandler, notFoundHandler } from "./middleware/errorHandler";
@@ -43,6 +44,9 @@ import storesRoutes from "./routes/stores";
 import waFlowRoutes from "./routes/waFlow";
 import waRedirectRoutes from "./routes/waRedirect";
 import webrtcRoutes from "./routes/webrtc";
+import livekitRoutes from "./routes/livekit";
+import voiceRoutes from "./routes/voice";
+import morongwaHubRoutes from "./routes/morongwaHub";
 import landingBackgroundRoutes from "./routes/landingBackgrounds";
 import advertsRoutes from "./routes/adverts";
 import adminSponsoredVideoRoutes from "./routes/adminSponsoredVideoAds";
@@ -74,7 +78,23 @@ const allowedOrigins = [
 const uniqueAllowedOrigins = [...new Set(allowedOrigins)];
 
 const corsOriginOption =
-  uniqueAllowedOrigins.length > 0 ? uniqueAllowedOrigins : "http://localhost:3000";
+  uniqueAllowedOrigins.length > 0
+    ? (
+        origin: string | undefined,
+        callback: (err: Error | null, allow?: boolean | string) => void
+      ) => {
+        // Non-browser clients (no Origin) — allow.
+        if (!origin) {
+          callback(null, true);
+          return;
+        }
+        if (uniqueAllowedOrigins.includes(origin)) {
+          callback(null, origin);
+          return;
+        }
+        callback(null, false);
+      }
+    : "http://localhost:3000";
 
 // Socket.IO setup with CORS
 const io = new SocketServer(server, {
@@ -85,14 +105,26 @@ const io = new SocketServer(server, {
   },
 });
 
-// Middleware
+// Middleware — CORS first so 4xx/5xx from later layers still include ACAO when Origin is allowed.
 app.use(
   cors({
     origin: corsOriginOption,
     credentials: true,
+    methods: ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "Accept"],
+    maxAge: 86400,
   })
 );
-app.use(express.json());
+app.options("*", cors({ origin: corsOriginOption, credentials: true }));
+app.use(express.json({
+  verify: (req, _res, buf) => {
+    // Preserve raw bytes for LiveKit webhook HMAC verification.
+    const url = String((req as { originalUrl?: string; url?: string }).originalUrl || req.url || "");
+    if (url.includes("/api/livekit/webhook")) {
+      (req as express.Request & { rawBody?: Buffer }).rawBody = Buffer.from(buf);
+    }
+  },
+}));
 app.use(express.urlencoded({ extended: true }));
 app.use(...securityMiddleware);
 app.use(requestLogger);
@@ -135,6 +167,9 @@ app.use("/api/stores", storesRoutes);
 app.use("/api/wa", waRedirectRoutes);
 app.use("/api/wa/flow", waFlowRoutes);
 app.use("/api/webrtc", webrtcRoutes);
+app.use("/api/livekit", livekitRoutes);
+app.use("/api/voice", voiceRoutes);
+app.use("/api/morongwa", morongwaHubRoutes);
 app.use("/api/landing-backgrounds", landingBackgroundRoutes);
 app.use("/api/adverts", advertsRoutes);
 app.use("/api/ads", advertsRoutes);
@@ -150,6 +185,7 @@ const initializeServices = () => {
   initializeNotificationService(io);
   initializeChatService(io);
   initializeWebRTCSignaling(io);
+  logLiveKitStartup();
   logger.info("Services initialized successfully");
 };
 

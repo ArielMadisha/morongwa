@@ -91,22 +91,48 @@ export function shouldExposeNumericUsername(
   return false;
 }
 
+/**
+ * Public-facing label for strips, posts, sidebars, etc.
+ * Prefer a proper display `name` (Title Case brands / people) over @username.
+ * Usernames belong on the profile handle (`userAtUsername`), not as the primary label.
+ */
 export function userPublicDisplayName(u: UserLabelFields | null | undefined): string {
   if (!u) return 'User';
   const apiLabel = String(u.publicDisplayName || '').trim();
   if (apiLabel && apiLabel !== 'User') return apiLabel;
   const username = String(u.username || '').trim();
   const name = String(u.name || '').trim();
-  if (shouldPreferInstitutionDisplayName(u)) {
-    return name;
-  }
+  // Always prefer a real name when present — keeps status strip / feed consistent
+  // (e.g. "History Box" not "historybox").
+  if (name && !isGenericDisplayName(name)) return name;
   if (username && !isNumericOnlyLabel(username) && !isAutoImportGalleryUsername(username)) {
     return username;
   }
-  if (name && !isGenericDisplayName(name)) return name;
   const email = String(u.email || '').trim();
   if (email.includes('@')) return email.split('@')[0];
   return 'User';
+}
+
+/**
+ * Professional display casing for rail / strip labels.
+ * Converts ALL-CAPS imports (e.g. school names) to Title Case; leaves mixed-case names alone.
+ */
+export function toAppealingDisplayName(name?: string | null): string {
+  const n = String(name || '').trim();
+  if (!n) return '';
+  const letters = n.replace(/[^A-Za-z]/g, '');
+  if (!letters.length) return n;
+  const upperCount = [...letters].filter((c) => c === c.toUpperCase() && c !== c.toLowerCase()).length;
+  if (upperCount / letters.length < 0.7) return n;
+  return n
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((word) => {
+      // Keep short connectors lowercase when mid-phrase? Prefer capitalizing all for schools.
+      return word.charAt(0).toUpperCase() + word.slice(1);
+    })
+    .join(' ');
 }
 
 /** Public handle without @ — masks phone-number usernames for private individuals. */

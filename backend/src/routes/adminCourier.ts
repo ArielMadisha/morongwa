@@ -10,6 +10,7 @@ import AuditLog from "../data/models/AuditLog";
 import { ensureCourierCatalogSeed } from "../services/courierSeed";
 import { getPaginationParams } from "../utils/helpers";
 import { finalizeCourierOnOrderPaid } from "../services/courierOrderHooks";
+import { notifyDisputesInbox } from "../services/notification";
 
 const router = express.Router();
 
@@ -272,6 +273,18 @@ router.post("/shipments/:id/dispute", async (req: AuthRequest, res: Response, ne
       target: row.orderId,
       meta: { shipmentId: String(row._id), disputeStatus: row.disputeStatus },
     });
+    if (action === "open") {
+      void notifyDisputesInbox({
+        subject: `Courier dispute opened — shipment ${String(row._id).slice(-8)}`,
+        message: [
+          `Courier shipment dispute opened.`,
+          `Shipment: ${row._id}`,
+          `Order: ${row.orderId}`,
+          `Reason: ${row.disputeReason || "—"}`,
+          `Tracking: ${row.trackingNumber || "—"}`,
+        ].join("\n"),
+      });
+    }
     res.json({ data: row });
   } catch (err) {
     next(err);

@@ -45,7 +45,7 @@ export function AppShellHeader({
       <div className="px-3 sm:px-6 lg:px-8 py-2.5 sm:py-3">
         <div className="flex flex-wrap items-center gap-x-2 gap-y-2 sm:gap-4 min-w-0">
           <div className="flex items-center gap-1 sm:gap-2 shrink-0">
-            <Link href={homeHref} className="shrink-0 flex items-center" aria-label="Home">
+            <Link href={homeHref} className="shrink-0 flex cursor-pointer items-center" aria-label="Home">
               <img
                 src="/qwertymates-q-mark-official.png"
                 alt=""

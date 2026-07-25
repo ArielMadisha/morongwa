@@ -9,6 +9,8 @@ export interface IOrderItem {
   selectedSize?: string;
   commissionPct?: number;
   commissionValue?: number;
+  /** Per-unit food platform service fee included in `price` (not paid to restaurant). */
+  foodServiceFeeZar?: number;
 }
 
 export interface IOrderMusicItem {
@@ -95,6 +97,14 @@ export interface IOrder extends Document {
   paymentMethod: "wallet" | "card" | "eft" | "orange_money";
   paymentReference?: string;
   paidAt?: Date;
+  /**
+   * Food/grocery pickup: merchant SMS/WhatsApp alerts already sent (idempotent on settle retries).
+   * Keyed by supplierId string.
+   */
+  foodMerchantAlerts?: Record<
+    string,
+    { smsSid?: string; waSid?: string; phone?: string; notifiedAt?: Date }
+  >;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -114,6 +124,7 @@ const OrderItemSchema = new Schema<IOrderItem>(
     selectedSize: { type: String, trim: true },
     commissionPct: { type: Number },
     commissionValue: { type: Number },
+    foodServiceFeeZar: { type: Number },
   },
   { _id: false }
 );
@@ -179,6 +190,7 @@ const OrderSchema = new Schema<IOrder>(
     paymentMethod: { type: String, enum: ["wallet", "card", "eft", "orange_money"], required: true },
     paymentReference: { type: String },
     paidAt: { type: Date },
+    foodMerchantAlerts: { type: Schema.Types.Mixed, default: undefined },
   },
   { timestamps: true }
 );

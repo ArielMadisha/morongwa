@@ -8,6 +8,7 @@ import { authenticate, AuthRequest } from "../middleware/auth";
 import { AppError } from "../middleware/errorHandler";
 import { effectiveResellerMarkupPctFromWall } from "../config/marketplaceCategoryMarkups";
 import { getProductPriceForQty } from "../utils/productPricing";
+import { cartHasFoodMenuItem, withFoodOrderServiceFee } from "../config/foodMarketplace";
 import { normalizeColorName } from "../utils/productColorTypes";
 import { normalizeSizeToken, resolveSelectedSize } from "../utils/productSizeTypes";
 
@@ -15,12 +16,16 @@ const router = express.Router();
 
 function resolveSelectedColor(
   raw: unknown,
-  product: { colors?: Array<{ name: string }> | null }
+  product: { colors?: Array<{ name: string }> | null },
+  opts?: { required?: boolean }
 ): string | undefined {
   const colors = Array.isArray(product.colors) ? product.colors : [];
   if (colors.length === 0) return undefined;
   const sel = normalizeColorName(String(raw || ""));
-  if (!sel) throw new AppError("Please select a color", 400);
+  if (!sel) {
+    if (opts?.required === false) return undefined;
+    throw new AppError("Please select a color", 400);
+  }
   const match = colors.find((c) => c.name.toLowerCase() === sel.toLowerCase());
   if (!match) throw new AppError("Invalid color selection", 400);
   return match.name;
@@ -71,10 +76,11 @@ router.get("/", authenticate, async (req: AuthRequest, res: Response, next) => {
 
     const productIds = cart.items.map((i) => i.productId);
     const products = await Product.find({ _id: { $in: productIds }, active: true })
-      .select("title slug images price discountPrice bulkTiers currency stock outOfStock allowResell categories colors sizes")
+      .select("title slug images price discountPrice bulkTiers currency stock outOfStock allowResell categories tags colors sizes")
       .lean();
 
     const productMap = new Map(products.map((p) => [p._id.toString(), p]));
+    const cartHasMenu = cartHasFoodMenuItem(products as any[]);
     const items: any[] = [];
     for (const item of cart.items) {
       const product = productMap.get((item.productId as any).toString?.() ?? item.productId);
@@ -88,6 +94,8 @@ router.get("/", authenticate, async (req: AuthRequest, res: Response, next) => {
           (product as any).categories
         );
       }
+      const priced = withFoodOrderServiceFee(price, product as any, { cartHasMenuItem: cartHasMenu });
+      price = priced.unitPrice;
       items.push({
         type: "product",
         productId: item.productId,
@@ -95,12 +103,14 @@ router.get("/", authenticate, async (req: AuthRequest, res: Response, next) => {
         resellerId: item.resellerId,
         selectedColor: item.selectedColor,
         selectedSize: item.selectedSize,
+        foodServiceFeeZar: priced.serviceFeeZar,
         product: {
           _id: product._id,
           title: product.title,
           slug: product.slug,
           images: product.images,
           colors: (product as any).colors,
+          sizes: (product as any).sizes,
           price,
           originalPrice: (product as any).price,
           discountPrice: (product as any).discountPrice,
@@ -109,6 +119,8 @@ router.get("/", authenticate, async (req: AuthRequest, res: Response, next) => {
           stock: product.stock,
           outOfStock: (product as any).outOfStock,
           allowResell: product.allowResell,
+          categories: (product as any).categories,
+          tags: (product as any).tags,
         },
         lineTotal: price * item.qty,
       });
@@ -187,8 +199,8 @@ router.post("/", authenticate, async (req: AuthRequest, res: Response, next) => 
     if (!product) throw new AppError("Product not found", 404);
     if ((product as any).outOfStock) throw new AppError("Product is out of stock", 400);
     if (product.stock < qty) throw new AppError("Insufficient stock", 400);
-    const colorChoice = resolveSelectedColor(selectedColor, product as any);
-    const sizeChoice = resolveSelectedSize(selectedSize, product as any);
+    const colorChoice = resolveSelectedColor(selectedColor, product as any, { required: false });
+    const sizeChoice = resolveSelectedSize(selectedSize, product as any, { required: false });
 
     let cart = await Cart.findOne({ user: req.user!._id });
     if (!cart) cart = await Cart.create({ user: req.user!._id, items: [], musicItems: [] });
@@ -247,11 +259,11 @@ router.post("/", authenticate, async (req: AuthRequest, res: Response, next) => 
   }
 });
 
-// Update item qty
+// Update item qty and/or color/size (variants can be chosen later in cart)
 router.put("/item/:productId", authenticate, async (req: AuthRequest, res: Response, next) => {
   try {
     const { productId } = req.params;
-    const { qty, selectedColor, selectedSize } = req.body;
+    const { qty, selectedColor, selectedSize, updateColor, updateSize } = req.body;
     const colorQ = selectedColor != null ? String(selectedColor) : undefined;
     const sizeQ = selectedSize != null ? String(selectedSize) : undefined;
     if (qty !== undefined && (qty < 1 || !Number.isInteger(qty))) {
@@ -277,8 +289,49 @@ router.put("/item/:productId", authenticate, async (req: AuthRequest, res: Respo
       const product = await Product.findById(productId);
       if (!product) throw new AppError("Product not found", 404);
       if ((product as any).outOfStock) throw new AppError("Product is out of stock", 400);
-      if (product.stock < qty) throw new AppError("Insufficient stock", 400);
-      target.qty = qty;
+      if (qty !== undefined) {
+        if (product.stock < qty) throw new AppError("Insufficient stock", 400);
+        target.qty = qty;
+      }
+
+      const wantsVariantUpdate = updateColor !== undefined || updateSize !== undefined;
+      if (wantsVariantUpdate) {
+        const nextColor =
+          updateColor !== undefined
+            ? resolveSelectedColor(updateColor, product as any, { required: true })
+            : target.selectedColor;
+        const nextSize =
+          updateSize !== undefined
+            ? resolveSelectedSize(updateSize, product as any, { required: true })
+            : target.selectedSize;
+
+        const duplicate = cart.items.find(
+          (i) =>
+            i !== target &&
+            cartLineMatches(
+              i,
+              productId,
+              target.resellerId as any,
+              nextColor || "",
+              nextSize || ""
+            )
+        );
+        if (duplicate) {
+          const mergedQty = Number(duplicate.qty || 0) + Number(target.qty || 0);
+          if (product.stock < mergedQty) throw new AppError("Insufficient stock", 400);
+          duplicate.qty = mergedQty;
+          cart.items = cart.items.filter((i) => i !== target);
+        } else {
+          if (updateColor !== undefined) {
+            if (nextColor) target.selectedColor = nextColor;
+            else delete (target as { selectedColor?: string }).selectedColor;
+          }
+          if (updateSize !== undefined) {
+            if (nextSize) target.selectedSize = nextSize;
+            else delete (target as { selectedSize?: string }).selectedSize;
+          }
+        }
+      }
     }
 
     await cart.save();

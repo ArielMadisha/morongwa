@@ -505,9 +505,14 @@ function SearchContent() {
                         const res = await macgyverAPI.ask(query);
                         const data: any = res.data?.data;
                         if (data?.type === 'search' && data?.query) {
+                          // Legacy response: keep the modal open and show a written prompt
+                          // instead of closing onto a possibly-empty search page.
                           setQ(data.query);
-                          router.push(`/search?q=${encodeURIComponent(data.query)}`);
-                          setMacgyverOpen(false);
+                          router.replace(`/search?q=${encodeURIComponent(data.query)}&macgyver=1`);
+                          setMacgyverResponse(
+                            data?.text ||
+                              `I found matches on Qwertymates for “${data.query}”. Browse results below, or ask a fuller question for a written answer.`
+                          );
                         } else {
                           setMacgyverResponse(data?.text ?? 'No response.');
                         }
@@ -525,7 +530,13 @@ function SearchContent() {
                       onChange={(e) => {
                         const v = e.target.value;
                         setMacgyverQuery(v);
+                        // Keep page search in sync for inline results, but avoid router thrash
+                        // on every keystroke (that remounted search state while Ask was running).
                         setQ(v);
+                      }}
+                      onBlur={() => {
+                        const v = macgyverQuery.trim();
+                        if (!v) return;
                         router.replace(`/search?q=${encodeURIComponent(v)}${macgyverOpen ? '&macgyver=1' : ''}`);
                       }}
                       placeholder="Search or ask anything..."

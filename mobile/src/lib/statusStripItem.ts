@@ -106,6 +106,21 @@ export function tvPostFromStatusStripRow(item: StatusStripItem, postOverride?: S
   }
 
   if (post.type === "text" || String(post._id).startsWith("join-")) {
+    const fallbackMedia = [
+      ...(post.mediaUrls || []).filter(Boolean),
+      ...(item.avatar ? [String(item.avatar)] : []),
+    ].filter(Boolean);
+    if (fallbackMedia.length) {
+      return {
+        _id: String(post._id),
+        type: "image",
+        mediaUrls: [fallbackMedia[0]],
+        heading: item.name,
+        caption: String(post._id).startsWith("join-") ? "New on Qwertymates" : undefined,
+        creatorId,
+        createdAt: post.createdAt
+      };
+    }
     return {
       _id: String(post._id),
       type: "text",

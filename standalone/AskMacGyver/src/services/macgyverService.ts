@@ -24,15 +24,23 @@ export async function handleAskMacGyver(query: string): Promise<MacGyverResult> 
     return { text: "What would you like to know? Ask me anything – about Qwertymates or the world." };
   }
 
+  // Single-character queries match almost everything on the platform and used to
+  // return type:"search", which closed the Ask modal onto an empty search page.
+  if (trimmed.length < 2) {
+    return {
+      text: "Give me a bit more to work with — try a name, product, place, or a short question (at least 2 characters).",
+    };
+  }
+
   const qwertymatesAnswer = findQwertymatesAnswer(trimmed);
   if (qwertymatesAnswer) {
     return { text: qwertymatesAnswer };
   }
 
-  const { hasResults, contextForLlm } = await searchPlatformMacGyverBundle(trimmed);
-  if (hasResults) {
-    return { type: "search", query: trimmed };
-  }
+  // Platform hits feed LLM context (and the search UI already shows matches inline).
+  // Do not redirect Ask MacGyver with type:"search" — that looked broken when browse
+  // APIs returned nothing for thin substring matches.
+  const { contextForLlm } = await searchPlatformMacGyverBundle(trimmed);
 
   const storeHits = await searchPublicStores(trimmed, 5);
   const storeAnswer = formatMarketplaceStoreAnswer(trimmed, storeHits);
@@ -81,8 +89,18 @@ export async function handleAskMacGyver(query: string): Promise<MacGyverResult> 
       rawMessage.toLowerCase().includes("quota") ||
       rawMessage.toLowerCase().includes("billing")
     ) {
-      if (webFallback) return { text: webFallback, error: "QUOTA_EXCEEDED" };
-      return { text: "Try again in a moment.", error: "QUOTA_EXCEEDED" };
+      if (webFallback) {
+        return {
+          text:
+            webFallback +
+            "\n\n(MacGyver AI is temporarily on open-web mode — OpenAI quota needs a top-up for fuller answers.)",
+          error: "QUOTA_EXCEEDED",
+        };
+      }
+      return {
+        text: "MacGyver AI is temporarily unavailable (OpenAI billing/quota). Try again after the API key is topped up, or ask a Qwertymates how-to (pay, store, post).",
+        error: "QUOTA_EXCEEDED",
+      };
     }
 
     if (webFallback) return { text: webFallback, error: "LLM_ERROR" };

@@ -50,10 +50,18 @@ const OPTIONAL_HARDWARE_FEATURES = [
   'android.software.leanback',
   'android.software.live_wallpaper',
   'android.software.app_widgets',
+];
+
+/**
+ * Play rejects phone AABs that declare these form-factor features with
+ * android:required="false" (InvalidWearFeatureAttribute / similar). Never inject
+ * them; strip them if a dependency added them.
+ */
+const FORBIDDEN_OPTIONAL_FORM_FACTORS = new Set([
+  'android.hardware.type.watch',
   'android.hardware.type.television',
   'android.hardware.type.automotive',
-  'android.hardware.type.watch',
-];
+]);
 
 function ensureUsesFeatureOptional(manifest, featureName) {
   if (!manifest.manifest) manifest.manifest = {};
@@ -74,12 +82,22 @@ function ensureUsesFeatureOptional(manifest, featureName) {
   });
 }
 
+/** Remove Wear/TV/auto form-factor tags — phone apps must not declare them. */
+function stripForbiddenFormFactorFeatures(manifest) {
+  const list = manifest.manifest?.['uses-feature'];
+  if (!Array.isArray(list)) return;
+  manifest.manifest['uses-feature'] = list.filter(
+    (item) => !FORBIDDEN_OPTIONAL_FORM_FACTORS.has(item?.$?.['android:name'])
+  );
+}
+
 /** Demote every uses-feature injected by Expo/RN deps (camera, mic, etc.). */
 function demoteAllHardwareFeatures(manifest) {
   const list = manifest.manifest?.['uses-feature'];
   if (!Array.isArray(list)) return;
   for (const item of list) {
-    if (item?.$) {
+    const name = item?.$?.['android:name'];
+    if (item?.$ && !FORBIDDEN_OPTIONAL_FORM_FACTORS.has(name)) {
       item.$['android:required'] = 'false';
     }
   }
@@ -108,10 +126,12 @@ function ensureSupportsScreens(manifest) {
 function withAndroidDeviceCompatibility(config) {
   return withAndroidManifest(config, (config) => {
     const manifest = config.modResults;
+    stripForbiddenFormFactorFeatures(manifest);
     demoteAllHardwareFeatures(manifest);
     for (const feature of OPTIONAL_HARDWARE_FEATURES) {
       ensureUsesFeatureOptional(manifest, feature);
     }
+    stripForbiddenFormFactorFeatures(manifest);
     ensureSupportsScreens(manifest);
     return config;
   });

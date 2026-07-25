@@ -16,6 +16,7 @@ import { logger } from "./src/services/monitoring";
 import { initializeNotificationService } from "./src/services/notification";
 import { initializeChatService } from "./src/services/chat";
 import { initializeWebRTCSignaling } from "./src/services/webrtcSignaling";
+import { logLiveKitStartup } from "./src/services/livekitService";
 import { securityMiddleware, requestLogger, validateInput } from "./src/middleware/security";
 import { apiLimiter } from "./src/middleware/rateLimit";
 import { errorHandler, notFoundHandler } from "./src/middleware/errorHandler";
@@ -57,6 +58,9 @@ import webhookRoutes from "./src/routes/webhooks";
 import fxRoutes from "./src/routes/fx";
 import waFlowRoutes from "./src/routes/waFlow";
 import webrtcRoutes from "./src/routes/webrtc";
+import livekitRoutes from "./src/routes/livekit";
+import voiceRoutes from "./src/routes/voice";
+import morongwaHubRoutes from "./src/routes/morongwaHub";
 import { getCardPaymentConfigIssues } from "./src/services/payment";
 import { ensureDefaultPolicies } from "./src/services/policyService";
 import { seedPricingConfig } from "./src/services/pricingConfig";
@@ -70,6 +74,7 @@ import {
 } from "./src/services/tvChannelRestreamWorker";
 import { startAgentCommissionDigestSchedulers } from "./src/services/agentCommissionDigestScheduler";
 import { startFacebookTvIngestScheduler } from "./src/services/facebookTvIngestScheduler";
+import { startTwilioVoicePricingScheduler } from "./src/services/twilioVoicePricingScheduler";
 import { initializeNewsScheduler } from "./src/services/newsScheduler";
 import { initializeWorldCupTvScheduler } from "./src/services/worldCupTvScheduler";
 import { getFxRates } from "./src/services/fxService";
@@ -130,7 +135,14 @@ app.use(
     credentials: true,
   })
 );
-app.use(express.json());
+app.use(express.json({
+  verify: (req, _res, buf) => {
+    const url = String((req as { originalUrl?: string; url?: string }).originalUrl || req.url || "");
+    if (url.includes("/api/livekit/webhook")) {
+      (req as express.Request & { rawBody?: Buffer }).rawBody = Buffer.from(buf);
+    }
+  },
+}));
 app.use(express.urlencoded({ extended: true }));
 app.use(...securityMiddleware);
 app.use(requestLogger);
@@ -240,6 +252,9 @@ const routePairs: [string, express.RequestHandler | undefined][] = [
   ["/api/webhooks", webhookRoutes],
   ["/api/fx", fxRoutes],
   ["/api/webrtc", webrtcRoutes],
+  ["/api/livekit", livekitRoutes],
+  ["/api/voice", voiceRoutes],
+  ["/api/morongwa", morongwaHubRoutes],
   ["/api/wa/flow", waFlowRoutes],
 ];
 for (const [path, handler] of routePairs) {
@@ -282,6 +297,7 @@ const initializeServices = () => {
   initializeNotificationService(io);
   initializeChatService(io);
   initializeWebRTCSignaling(io);
+  logLiveKitStartup();
   logger.info("Services initialized successfully");
 };
 
@@ -309,6 +325,7 @@ const startServer = async () => {
   startTvChannelRestreamWorker();
   startAgentCommissionDigestSchedulers();
   startFacebookTvIngestScheduler();
+  startTwilioVoicePricingScheduler();
   initializeNewsScheduler();
   initializeWorldCupTvScheduler();
   server.listen(PORT, () => {

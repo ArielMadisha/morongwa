@@ -36,6 +36,7 @@ function MorongwaTVPageContent() {
   const [hasMore, setHasMore] = useState(true);
   const [createOpen, setCreateOpen] = useState(false);
   const [createPrefillHashtag, setCreatePrefillHashtag] = useState<string | undefined>();
+  const [createComposeMode, setCreateComposeMode] = useState<'qwertz' | null>(null);
   const [enquireOpen, setEnquireOpen] = useState(false);
   const [enquireProductId, setEnquireProductId] = useState<string | null>(null);
   const [enquireMessage, setEnquireMessage] = useState('');
@@ -131,6 +132,7 @@ function MorongwaTVPageContent() {
       composeHandledRef.current = true;
       setGenre('qwertz');
       if (hashtag) setCreatePrefillHashtag(hashtag);
+      setCreateComposeMode('qwertz');
       setCreateOpen(true);
       router.replace('/morongwa-tv');
       return;
@@ -138,6 +140,7 @@ function MorongwaTVPageContent() {
     if (compose === '1') {
       composeHandledRef.current = true;
       if (hashtag) setCreatePrefillHashtag(hashtag);
+      setCreateComposeMode(null);
       setCreateOpen(true);
       router.replace('/morongwa-tv');
     }
@@ -424,14 +427,17 @@ function MorongwaTVPageContent() {
         onClose={() => {
           setCreateOpen(false);
           setCreatePrefillHashtag(undefined);
+          setCreateComposeMode(null);
           composeHandledRef.current = false;
         }}
         prefillHashtag={createPrefillHashtag}
+        composeMode={createComposeMode}
         onCreated={() => {
           setPage(1);
           loadFeed(1);
           loadLiveUsers();
           setCreatePrefillHashtag(undefined);
+          setCreateComposeMode(null);
         }}
         featuredProducts={[]}
         currentUserId={user?._id || user?.id}

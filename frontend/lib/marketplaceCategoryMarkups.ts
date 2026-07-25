@@ -26,6 +26,7 @@ export const MARKETPLACE_CATEGORY_MARKUPS: Record<string, MarketplaceCategoryMar
   "Toys, Kids & Babies": { adminMarkupPct: 30, resellerMinPct: 20, resellerMaxPct: 35 },
   "Computer & Office": { adminMarkupPct: 20, resellerMinPct: 15, resellerMaxPct: 25 },
   "Health, Beauty & Hair": { adminMarkupPct: 50, resellerMinPct: 40, resellerMaxPct: 50 },
+  "Food & Restaurant": { adminMarkupPct: 0, resellerMinPct: 0, resellerMaxPct: 0 },
 };
 
 export const DEFAULT_MARKETPLACE_ADMIN_MARKUP_PCT =

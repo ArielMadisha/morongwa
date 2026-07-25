@@ -677,6 +677,7 @@ export const MARKETPLACE_CATEGORY_TREE: Record<string, string[]> = {
     "3G Modems",
     "Network Cable",
   ],
+  "Food & Restaurant": ["Kota / Bunny Chow", "Extras", "Meals"],
 };
 
 export const MARKETPLACE_TOP_CATEGORIES = Object.keys(MARKETPLACE_CATEGORY_TREE);
@@ -718,6 +719,7 @@ const TOP_CATEGORY_KEYWORDS: Record<string, string[]> = {
   "Automobiles & Motorcycles": ["car", "auto", "motor", "motorcycle", "vehicle", "dash", "gps", "seat cover"],
   "Phones & Accessories": ["phone", "mobile", "charger", "case", "screen protector", "sim", "iphone", "galaxy"],
   "Computer & Office": ["computer", "laptop", "tablet", "office", "printer", "scanner", "router", "ssd"],
+  "Food & Restaurant": ["food", "restaurant", "kota", "bunny", "burger", "chips", "meal", "atchaar"],
 };
 
 export function keywordsForTop(topCategory: string): string[] {

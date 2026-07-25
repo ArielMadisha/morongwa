@@ -15,6 +15,28 @@ import { getPrimaryWhatsappSendProfile } from "../utils/twilioWaCredentials";
 import { isValidForOtp, normalizePhone } from "../utils/phoneValidation";
 import { canonicalPhoneDigits } from "../utils/phoneE164";
 import { computePhoneLocale, sanitizePreferredCurrencyForApi } from "../utils/phoneCountryCurrency";
+
+/**
+ * Phone lookup variants for login (digits-only storage + common SA local form).
+ */
+function phoneLoginCandidates(raw: string): string[] {
+  const digits = String(raw || "").replace(/\D/g, "");
+  const canon = canonicalPhoneDigits(raw) || canonicalPhoneDigits(digits);
+  const out = new Set<string>();
+  if (digits) out.add(digits);
+  if (canon) {
+    out.add(canon);
+    out.add(`+${canon}`);
+    // SA national: 27XXXXXXXXX → 0XXXXXXXXX
+    if (canon.startsWith("27") && canon.length === 11) out.add(`0${canon.slice(2)}`);
+  }
+  if (digits.startsWith("0") && digits.length >= 10) {
+    const asZa = `27${digits.slice(1)}`;
+    out.add(asZa);
+    out.add(`+${asZa}`);
+  }
+  return [...out].filter(Boolean);
+}
 import { isGenericDisplayName, sanitizeUserForClient } from "../utils/userDisplayLabel";
 import { assertRegistrationAllowed, isBlockedRegistrationPhonePrefix } from "../utils/registrationSecurity";
 import { getJwtSecret, getOtpSecret } from "../utils/secrets";
@@ -22,6 +44,7 @@ import { getRunnerServiceCity } from "../data/runnerServiceAreas";
 import { bumpStatusStripCache } from "../services/statusStripPolicy";
 import path from "path";
 import { applyResolvedAvatarToUserPayload } from "../utils/resolveUserAvatar";
+import { assignStockAvatarForNewUser } from "../utils/stockAvatar";
 
 const UPLOADS_ROOT = path.resolve(__dirname, "../uploads");
 
@@ -324,6 +347,10 @@ router.post("/register", registerLimiter, async (req: Request, res: Response, ne
       const loc = computePhoneLocale(finalPhone);
       if (loc.countryCode) Object.assign(userData, loc);
     }
+    // Email/username signups often skip a photo — assign gendered stock avatar.
+    const stock = assignStockAvatarForNewUser({ name, username: finalUsername });
+    userData.avatar = stock.avatar;
+
     const user = await User.create(userData);
     bumpStatusStripCache();
 
@@ -334,7 +361,7 @@ router.post("/register", registerLimiter, async (req: Request, res: Response, ne
     await AuditLog.create({
       action: "USER_REGISTERED",
       user: user._id,
-      meta: { email: user.email, role: user.role },
+      meta: { email: user.email, role: user.role, avatar: stock.avatar, inferredGender: stock.gender },
     });
 
     const token = jwt.sign({ userId: user._id }, getJwtSecret(), { expiresIn: "7d" });
@@ -354,6 +381,7 @@ router.post("/register", registerLimiter, async (req: Request, res: Response, ne
         phone: (fresh as any)?.phone,
         countryCode: (fresh as any)?.countryCode,
         preferredCurrency: sanitizePreferredCurrencyForApi((fresh as any)?.preferredCurrency),
+        avatar: (fresh as any)?.avatar || stock.avatar,
       }),
     });
   } catch (err) {
@@ -371,10 +399,32 @@ router.post("/login", authLimiter, async (req: Request, res: Response, next) => 
 
     let user;
     if (phone) {
-      const normalized = phone.replace(/\D/g, "");
-      user = await User.findOne({ $or: [{ phone: normalized }, { email: `wa_${normalized}@morongwa.local` }] });
+      const candidates = phoneLoginCandidates(phone);
+      const or: Array<Record<string, string>> = [];
+      for (const c of candidates) {
+        or.push({ phone: c });
+        or.push({ email: `wa_${c.replace(/^\+/, "")}@morongwa.local` });
+      }
+      user = or.length ? await User.findOne({ $or: or }) : null;
+      // If digits were entered but stored under username-like identifier, fall through below.
+      if (!user && username) {
+        user = await User.findOne({ username: String(username).trim().toLowerCase() });
+      }
     } else if (username) {
-      user = await User.findOne({ username: username.trim().toLowerCase() });
+      const uname = String(username).trim().toLowerCase();
+      user = await User.findOne({ username: uname });
+      // Allow typing a phone into the username field (mobile / single-box UIs).
+      if (!user) {
+        const candidates = phoneLoginCandidates(uname);
+        if (candidates.length) {
+          const or: Array<Record<string, string>> = [];
+          for (const c of candidates) {
+            or.push({ phone: c });
+            or.push({ email: `wa_${c.replace(/^\+/, "")}@morongwa.local` });
+          }
+          user = await User.findOne({ $or: or });
+        }
+      }
     } else if (email) {
       user = await User.findOne({ email: email.trim().toLowerCase() });
     } else {

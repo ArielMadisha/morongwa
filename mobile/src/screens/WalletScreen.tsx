@@ -390,10 +390,45 @@ export function WalletScreen({ onOpenMessages, onBack }: WalletScreenProps) {
         <View style={styles.phoneBanner}>
           <Ionicons name="warning-outline" size={20} color="#92400e" />
           <Text style={styles.phoneBannerText}>
-            Add your phone on the website profile to receive SMS codes for QR payments and money requests.
+            Add your phone on the website wallet (Verify Now) for SMS codes on QR and in-store payments.
           </Text>
+          <Pressable onPress={() => void Linking.openURL(`${WEB_WALLET}`)} style={styles.verifyLink}>
+            <Text style={styles.verifyLinkText}>Open wallet to verify</Text>
+          </Pressable>
         </View>
       ) : null}
+
+      <View style={styles.quickActions}>
+        <Text style={styles.sectionTitle}>Quick Actions</Text>
+        <View style={styles.quickGrid}>
+          <Pressable style={styles.quickTile} onPress={() => moneyRequests[0] && void handlePayRequest(moneyRequests[0]._id)}>
+            <Ionicons name="send-outline" size={22} color="#0284c7" />
+            <Text style={styles.quickLabel}>Pay</Text>
+          </Pressable>
+          <Pressable style={styles.quickTile} onPress={() => setShowRequestMoney(true)}>
+            <Ionicons name="download-outline" size={22} color="#059669" />
+            <Text style={styles.quickLabel}>Receive</Text>
+          </Pressable>
+          <Pressable style={styles.quickTile} onPress={() => void Linking.openURL(`${WEB_WALLET}`)}>
+            <Ionicons name="scan-outline" size={22} color="#7c3aed" />
+            <Text style={styles.quickLabel}>Scan QR</Text>
+          </Pressable>
+          <Pressable style={styles.quickTile} onPress={handleAddCard}>
+            <Ionicons name="card-outline" size={22} color="#334155" />
+            <Text style={styles.quickLabel}>Cards</Text>
+          </Pressable>
+        </View>
+        <View style={styles.servicesRow}>
+          <Pressable style={styles.serviceTile} onPress={() => void Linking.openURL(`${WEB_WALLET}`)}>
+            <Ionicons name="storefront-outline" size={20} color="#0284c7" />
+            <Text style={styles.serviceText}>Pay at Shop</Text>
+          </Pressable>
+          <Pressable style={styles.serviceTile} onPress={() => void Linking.openURL(`${WEB_WALLET}`)}>
+            <Ionicons name="cash-outline" size={20} color="#059669" />
+            <Text style={styles.serviceText}>Cash & Agents</Text>
+          </Pressable>
+        </View>
+      </View>
 
       <View style={styles.card}>
         <View style={styles.cardHead}>
@@ -756,6 +791,35 @@ const styles = StyleSheet.create({
     padding: 12
   },
   phoneBannerText: { flex: 1, color: "#92400e", fontSize: 13, lineHeight: 18 },
+  verifyLink: { marginTop: 8, alignSelf: "flex-start" },
+  verifyLinkText: { color: "#b45309", fontWeight: "800", fontSize: 13 },
+  quickActions: { gap: 10, marginBottom: 4 },
+  quickGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  quickTile: {
+    width: "23%",
+    minWidth: 72,
+    flexGrow: 1,
+    alignItems: "center",
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+    backgroundColor: "#f8fafc"
+  },
+  quickLabel: { marginTop: 4, fontSize: 11, fontWeight: "700", color: "#0f172a" },
+  servicesRow: { flexDirection: "row", gap: 8, marginTop: 4 },
+  serviceTile: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#bae6fd",
+    backgroundColor: "#f0f9ff"
+  },
+  serviceText: { fontWeight: "700", fontSize: 13, color: "#0f172a", flexShrink: 1 },
   card: {
     backgroundColor: "#fff",
     borderRadius: 16,

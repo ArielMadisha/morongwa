@@ -12,7 +12,6 @@ import ProtectedRoute from '@/components/ProtectedRoute';
 import { useCartAndStores } from '@/lib/useCartAndStores';
 import { AppSidebar } from '@/components/AppSidebar';
 import { AppShellHeader } from '@/components/AppShellHeader';
-import { AdvertSlot } from '@/components/AdvertSlot';
 import { MobileBottomNav } from '@/components/MobileBottomNav';
 import { ProfileHeaderButton } from '@/components/ProfileHeaderButton';
 import { useWebRTCCall } from '@/contexts/WebRTCCallContext';
@@ -22,10 +21,23 @@ import { useMessengerUnread } from '@/contexts/MessengerUnreadContext';
 import { directCallRoomId } from '@/lib/callRoom';
 import { MorongwaMessengerToolbar } from '@/components/morongwa/MorongwaMessengerToolbar';
 import { MorongwaGroupChatModal, type GroupChatParticipant } from '@/components/morongwa/MorongwaGroupChatModal';
+import { MorongwaPstnCallFab } from '@/components/morongwa/MorongwaPstnCallFab';
+import { MorongwaCallHistoryList } from '@/components/morongwa/MorongwaCallHistoryList';
+import { MorongwaRail } from '@/components/morongwa/MorongwaRail';
+import { MorongwaMeetSection } from '@/components/morongwa/MorongwaMeetSection';
+import { MorongwaPeopleSection } from '@/components/morongwa/MorongwaPeopleSection';
+import { MorongwaFilesSection } from '@/components/morongwa/MorongwaFilesSection';
+import { MorongwaCalendarSection } from '@/components/morongwa/MorongwaCalendarSection';
+import { MorongwaActivitySection } from '@/components/morongwa/MorongwaActivitySection';
+import { MorongwaCallSection } from '@/components/morongwa/MorongwaCallSection';
+import { MorongwaSupportSection } from '@/components/morongwa/MorongwaSupportSection';
+import { MorongwaPageLayout } from '@/components/morongwa/MorongwaPageLayout';
+import type { MorongwaSection } from '@/lib/api';
+import { notificationsAPI } from '@/lib/api';
 
 function MessagesPageContent() {
   const { user, logout } = useAuth();
-  const { refreshUnread } = useMessengerUnread();
+  const { refreshUnread, unreadCount: messengerUnread } = useMessengerUnread();
   const router = useRouter();
   const searchParams = useSearchParams();
   const withUserHandledRef = useRef(false);
@@ -58,6 +70,32 @@ function MessagesPageContent() {
   const [enquirySending, setEnquirySending] = useState(false);
   const [enquiryNewMessage, setEnquiryNewMessage] = useState('');
   const [groupChatOpen, setGroupChatOpen] = useState(false);
+  const [leftPanelMode, setLeftPanelMode] = useState<'chats' | 'calls'>('chats');
+  const [callHistoryRefresh, setCallHistoryRefresh] = useState(0);
+  const [pstnDialTo, setPstnDialTo] = useState('');
+  const [pstnFabOpen, setPstnFabOpen] = useState(false);
+  const [activityUnread, setActivityUnread] = useState(0);
+  const [chatListFilter, setChatListFilter] = useState<'chats' | 'unread'>('chats');
+
+  const sectionParam = searchParams.get('section');
+  const morongwaSection: MorongwaSection =
+    sectionParam === 'meet' ||
+    sectionParam === 'people' ||
+    sectionParam === 'files' ||
+    sectionParam === 'calendar' ||
+    sectionParam === 'activity' ||
+    sectionParam === 'call' ||
+    sectionParam === 'support'
+      ? sectionParam
+      : 'chat';
+  const meetJoinId = searchParams.get('join') || '';
+
+  const setMorongwaSection = (next: MorongwaSection) => {
+    const q = new URLSearchParams();
+    if (next !== 'chat') q.set('section', next);
+    const qs = q.toString();
+    router.replace(qs ? `/messages?${qs}` : '/messages');
+  };
 
   const roomId =
     activeTab === 'tasks'
@@ -116,6 +154,13 @@ function MessagesPageContent() {
   useEffect(() => {
     fetchConversations();
   }, []);
+
+  useEffect(() => {
+    notificationsAPI.getUnreadCount().then((res) => {
+      const n = Number(res.data?.unreadCount ?? 0);
+      setActivityUnread(Number.isFinite(n) ? n : 0);
+    }).catch(() => setActivityUnread(0));
+  }, [morongwaSection]);
 
   useEffect(() => {
     if (!newChatOpen) return;
@@ -321,9 +366,12 @@ function MessagesPageContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- run once per ?with= navigation
   }, [searchParams, user, loading, conversations]);
 
-  const filteredConversations = conversations.filter((conv) =>
-    `${conv.user?.name ?? ''} ${conv.taskTitle ?? ''}`.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredConversations = conversations.filter((conv) => {
+    const matchesSearch = `${conv.user?.name ?? ''} ${conv.taskTitle ?? ''}`.toLowerCase().includes(searchQuery.toLowerCase());
+    if (!matchesSearch) return false;
+    if (chatListFilter === 'unread') return Number(conv.unread || 0) > 0;
+    return true;
+  });
 
   const handleToolbarVideoCall = () => {
     if (peerUserId && roomId) {
@@ -393,7 +441,43 @@ function MessagesPageContent() {
           belowHeader
         />
         <div className="flex-1 flex flex-col min-w-0 overflow-visible">
-        <div className="flex-1 flex flex-col lg:flex-row gap-0 pt-6 min-h-0 overflow-hidden min-w-0">
+        <div className="flex flex-1 min-h-0 overflow-hidden min-w-0 pt-2 sm:pt-4">
+          <MorongwaRail
+            active={morongwaSection}
+            onChange={setMorongwaSection}
+            chatUnread={messengerUnread}
+            activityUnread={activityUnread}
+          />
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+          <MorongwaPageLayout>
+          {morongwaSection === 'meet' ? (
+            <MorongwaMeetSection initialJoinId={meetJoinId || undefined} />
+          ) : morongwaSection === 'people' ? (
+            <MorongwaPeopleSection
+              onCallPhone={(e164) => {
+                setPstnDialTo(e164);
+                setMorongwaSection('call');
+              }}
+              onMessageUser={(userId) => {
+                setMorongwaSection('chat');
+                router.replace(`/messages?with=${encodeURIComponent(userId)}`);
+              }}
+            />
+          ) : morongwaSection === 'files' ? (
+            <MorongwaFilesSection />
+          ) : morongwaSection === 'calendar' ? (
+            <MorongwaCalendarSection onNewMeeting={() => setMorongwaSection('meet')} />
+          ) : morongwaSection === 'activity' ? (
+            <MorongwaActivitySection />
+          ) : morongwaSection === 'call' ? (
+            <MorongwaCallSection
+              initialTo={pstnDialTo}
+              onCallEnded={() => setCallHistoryRefresh((n) => n + 1)}
+            />
+          ) : morongwaSection === 'support' ? (
+            <MorongwaSupportSection />
+          ) : (
+        <div className="flex-1 flex flex-col lg:flex-row gap-0 min-h-0 overflow-hidden min-w-0 order-2 lg:order-none w-full">
           <main className="flex-1 min-w-0 overflow-auto pb-24 md:pb-0 order-2 lg:order-none w-full">
           {loading ? (
             <div className="flex min-h-[400px] items-center justify-center">
@@ -403,12 +487,65 @@ function MessagesPageContent() {
         <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
           <div className="grid gap-6 lg:grid-cols-3 h-[600px]">
             <div className="rounded-2xl border border-white/60 bg-white/80 shadow-xl shadow-sky-50 backdrop-blur overflow-hidden flex flex-col">
-              <div className="p-4 border-b border-slate-100">
+              <div className="p-4 border-b border-slate-100 space-y-3">
+                <div className="flex gap-1 rounded-lg bg-slate-100 p-1">
+                  <button
+                    type="button"
+                    onClick={() => setChatListFilter('chats')}
+                    className={`flex-1 rounded-md px-2 py-1.5 text-xs font-semibold transition ${
+                      chatListFilter === 'chats' ? 'bg-white text-violet-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    Chats
+                  </button>
+                  <button
+                    type="button"
+                    onClick={openNewChat}
+                    className="flex-1 rounded-md px-2 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-white hover:text-violet-700 hover:shadow-sm"
+                  >
+                    New Chat
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setChatListFilter('unread')}
+                    className={`flex-1 rounded-md px-2 py-1.5 text-xs font-semibold transition ${
+                      chatListFilter === 'unread' ? 'bg-white text-violet-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    Unread
+                  </button>
+                </div>
+                <div className="flex gap-1 rounded-lg bg-slate-100 p-1">
+                  <button
+                    type="button"
+                    onClick={() => setLeftPanelMode('chats')}
+                    className={`flex-1 rounded-md px-2 py-1.5 text-xs font-semibold transition ${
+                      leftPanelMode === 'chats' ? 'bg-white text-sky-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    Messages
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setLeftPanelMode('calls')}
+                    className={`flex-1 rounded-md px-2 py-1.5 text-xs font-semibold transition ${
+                      leftPanelMode === 'calls' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    Call history
+                  </button>
+                </div>
                 <div className="relative">
                   <Search className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
                   <input
                     type="text"
-                    placeholder={activeTab === 'tasks' ? 'Search conversations...' : 'Search enquiries...'}
+                    placeholder={
+                      leftPanelMode === 'calls'
+                        ? 'Search calls…'
+                        : activeTab === 'tasks'
+                          ? 'Search conversations...'
+                          : 'Search enquiries...'
+                    }
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     className="w-full rounded-lg border border-slate-200 bg-white/80 pl-10 pr-4 py-2 text-sm text-slate-900 transition focus:border-sky-300 focus:outline-none focus:ring-2 focus:ring-sky-100"
@@ -417,7 +554,16 @@ function MessagesPageContent() {
               </div>
 
               <div className="flex-1 overflow-y-auto overflow-x-hidden space-y-2 p-2">
-                {activeTab === 'tasks' ? (
+                {leftPanelMode === 'calls' ? (
+                  <MorongwaCallHistoryList
+                    searchQuery={searchQuery}
+                    refreshKey={callHistoryRefresh}
+                    onRedial={(e164) => {
+                      setPstnDialTo(e164);
+                      setPstnFabOpen(true);
+                    }}
+                  />
+                ) : activeTab === 'tasks' ? (
                   filteredConversations.length === 0 ? (
                   <div className="py-8 text-center text-slate-600">
                     <MessageCircle className="mx-auto mb-2 h-8 w-8 text-slate-300" />
@@ -699,11 +845,22 @@ function MessagesPageContent() {
         </div>
           )}
           </main>
-          <AdvertSlot belowHeader />
+        </div>
+          )}
+          </MorongwaPageLayout>
+          </div>
         </div>
         </div>
       </div>
       <MobileBottomNav cartCount={cartCount} hasStore={hasStore} />
+      {morongwaSection === 'chat' ? (
+      <MorongwaPstnCallFab
+        open={pstnFabOpen}
+        onOpenChange={setPstnFabOpen}
+        initialTo={pstnDialTo}
+        onCallEnded={() => setCallHistoryRefresh((n) => n + 1)}
+      />
+      ) : null}
 
       <MorongwaGroupChatModal
         open={groupChatOpen}

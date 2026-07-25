@@ -49,10 +49,14 @@ function pickFacebook() {
   const appSecret = (localEnv.FACEBOOK_APP_SECRET || "").trim();
   const token = (localEnv.FACEBOOK_PAGE_ACCESS_TOKEN || "").trim();
   if (!appId || !appSecret || !token) return {};
+  const siteUrl = (localEnv.FACEBOOK_MARKETPLACE_SITE_URL || "https://www.qwertymates.com").trim();
+  const mediaOrigin = (localEnv.FACEBOOK_MARKETPLACE_MEDIA_ORIGIN || "https://api.qwertymates.com").trim();
   return {
     FACEBOOK_APP_ID: appId,
     FACEBOOK_APP_SECRET: appSecret,
     FACEBOOK_PAGE_ACCESS_TOKEN: token,
+    FACEBOOK_MARKETPLACE_SITE_URL: siteUrl,
+    FACEBOOK_MARKETPLACE_MEDIA_ORIGIN: mediaOrigin,
   };
 }
 

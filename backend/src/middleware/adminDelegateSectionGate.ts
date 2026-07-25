@@ -66,6 +66,10 @@ const PREFIX_RULES: Array<{
   { prefix: "/policies", match: { kind: "anyOf", sections: ["policies"] } },
 
   { prefix: "/merchant-agents", match: { kind: "anyOf", sections: ["merchant_agents"] } },
+  {
+    prefix: "/wa-premenu-advert",
+    match: { kind: "anyOf", sections: ["adverts", "sponsored_video", "web_advertising"] },
+  },
   { prefix: "/adverts", match: { kind: "anyOf", sections: ["adverts"] } },
   { prefix: "/product-enquiries", match: { kind: "anyOf", sections: ["product_enquiries"] } },
   { prefix: "/messages", match: { kind: "anyOf", sections: ["messages_dm"] } },

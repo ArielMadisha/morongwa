@@ -20,7 +20,7 @@ export function MorongwaChatButton() {
   return (
     <Link
       href="/messages"
-      className="fixed right-1.5 bottom-[8.25rem] sm:right-4 sm:bottom-36 lg:bottom-10 z-40 flex items-center justify-center gap-0 sm:gap-2 w-11 h-11 sm:w-auto sm:h-auto px-0 sm:px-4 py-0 sm:py-3 rounded-full bg-white border border-slate-200 text-sky-600 shadow-lg hover:bg-slate-50 hover:border-slate-300 transition-all font-semibold"
+      className="fixed right-1.5 bottom-[8.25rem] sm:right-4 sm:bottom-36 lg:bottom-10 z-40 flex cursor-pointer items-center justify-center gap-0 sm:gap-2 w-11 h-11 sm:w-auto sm:h-auto px-0 sm:px-4 py-0 sm:py-3 rounded-full bg-white border border-slate-200 text-sky-600 shadow-lg hover:bg-slate-50 hover:border-slate-300 transition-all font-semibold"
       aria-label={
         badgeLabel
           ? `Open Morongwa, ${badgeLabel} unread messages`

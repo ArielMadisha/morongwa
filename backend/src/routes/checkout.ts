@@ -42,6 +42,12 @@ import CourierShipment from "../data/models/CourierShipment";
 import { finalizeCourierOnOrderPaid } from "../services/courierOrderHooks";
 import { getProductPriceForQty } from "../utils/productPricing";
 import {
+  cartHasFoodMenuItem,
+  cartProductsAreFoodPickupOnly,
+  withFoodOrderServiceFee,
+} from "../config/foodMarketplace";
+import { settleFoodPickupOrderPaid } from "../services/foodOrderSettlement";
+import {
   buildEftPaymentMessage,
   getEftBankDetails,
   resolveEftPaymentReference,
@@ -302,6 +308,21 @@ router.post("/quote", authenticate, async (req: AuthRequest, res: Response, next
     let courierOptions = internalCourier.availableOptions;
 
     let shipping = internalCourier.internalShippingZar;
+    const foodPickupOnlyQuote = cartProductsAreFoodPickupOnly(
+      [...productMap.values()] as Array<{ categories?: string[] | null; tags?: string[] | null }>
+    );
+    if (foodPickupOnlyQuote) {
+      shipping = 0;
+      internalCourier = {
+        ...internalCourier,
+        internalShippingZar: 0,
+        requiresCourierSelection: false,
+        warehouseFreeLocalApplied: false,
+        storeGroupBreakdown: [],
+        selectedCourier: undefined,
+        availableOptions: [],
+      };
+    }
     let cjShippingZar = 0;
     if (cjProductItems.length > 0) {
       const { getCJAdapter } = await import("../services/suppliers/supplierService");
@@ -335,6 +356,10 @@ router.post("/quote", authenticate, async (req: AuthRequest, res: Response, next
 
     let subtotal = 0;
     let commissionTotal = 0;
+    let foodServiceFeeTotal = 0;
+    const cartHasMenuQuote = cartHasFoodMenuItem(
+      [...productMap.values()] as Array<{ categories?: string[] | null; tags?: string[] | null }>
+    );
     const breakdown: Array<{ productId?: string; songId?: string; title: string; price: number; qty: number; type?: string }> = [];
 
     for (const item of cart.items || []) {
@@ -357,6 +382,11 @@ router.post("/quote", authenticate, async (req: AuthRequest, res: Response, next
           commissionTotal += (effectivePrice * resellerCommissionPct) / 100 * item.qty;
         }
       }
+      const priced = withFoodOrderServiceFee(sellingPrice, product as any, {
+        cartHasMenuItem: cartHasMenuQuote,
+      });
+      sellingPrice = priced.unitPrice;
+      foodServiceFeeTotal += priced.serviceFeeZar * item.qty;
       const linePrice = sellingPrice * item.qty;
       subtotal += linePrice;
       breakdown.push({
@@ -445,6 +475,7 @@ router.post("/quote", authenticate, async (req: AuthRequest, res: Response, next
         shippingBreakdown,
         shippingQuoteType,
         commissionTotal,
+        foodServiceFee: Math.round(foodServiceFeeTotal * 100) / 100,
         total,
         totalZarForPayment,
         currency: currencyCtx.settlementCurrency,
@@ -460,16 +491,21 @@ router.post("/quote", authenticate, async (req: AuthRequest, res: Response, next
         requiresCrossborderCourierSelection:
           internalCourier.requiresCrossborderCourierSelection ?? false,
         selectedCourier: internalCourier.selectedCourier ?? null,
-        requiresCourierSelection: internalCourier.requiresCourierSelection,
+        requiresCourierSelection: foodPickupOnlyQuote ? false : internalCourier.requiresCourierSelection,
         /** Products + all shipping in one checkout charge */
         payOnceTotal: total,
-        readyForPayment:
-          !internalCourier.requiresCourierSelection &&
-          (!hasProducts || shipping > 0 || !!internalCourier.warehouseFreeLocalApplied),
+        readyForPayment: foodPickupOnlyQuote
+          ? true
+          : !internalCourier.requiresCourierSelection &&
+            (!hasProducts || shipping > 0 || !!internalCourier.warehouseFreeLocalApplied),
         deliveryCollectionPolicy: "checkout_single_payment",
         deliveryPrepaidAtCheckout:
-          hasProducts && (shipping > 0 || !!internalCourier.warehouseFreeLocalApplied),
+          !foodPickupOnlyQuote &&
+          hasProducts &&
+          (shipping > 0 || !!internalCourier.warehouseFreeLocalApplied),
         warehouseFreeLocalApplied: internalCourier.warehouseFreeLocalApplied ?? false,
+        foodPickup: foodPickupOnlyQuote,
+        deliveryMethodHint: foodPickupOnlyQuote ? "collection" : "courier",
       },
     });
   } catch (err) {
@@ -510,9 +546,6 @@ router.post("/pay", authenticate, async (req: AuthRequest, res: Response, next) 
     if (!cart || (!hasProducts && !hasMusic)) {
       throw new AppError("Cart is empty", 400);
     }
-    if (hasProducts && !String(deliveryAddress || "").trim()) {
-      throw new AppError("Delivery address is required", 400);
-    }
 
     const productIds = (cart.items || []).map((i) => i.productId);
     const products = productIds.length > 0
@@ -521,6 +554,40 @@ router.post("/pay", authenticate, async (req: AuthRequest, res: Response, next) 
           .lean()
       : [];
     const productMap = new Map(products.map((p) => [p._id.toString(), p]));
+    const foodPickupOnly = cartProductsAreFoodPickupOnly(products as any[]);
+
+    for (const item of cart.items || []) {
+      const product = productMap.get((item.productId as any).toString());
+      if (!product) continue;
+      const colors = Array.isArray((product as any).colors) ? (product as any).colors : [];
+      const sizes = Array.isArray((product as any).sizes) ? (product as any).sizes : [];
+      if (colors.length > 0 && !String((item as any).selectedColor || "").trim()) {
+        throw new AppError(
+          `Please choose a colour for "${(product as any).title || "product"}" in your cart before paying`,
+          400
+        );
+      }
+      if (sizes.length > 0 && !String((item as any).selectedSize || "").trim()) {
+        throw new AppError(
+          `Please choose a size for "${(product as any).title || "product"}" in your cart before paying`,
+          400
+        );
+      }
+    }
+
+    if (foodPickupOnly && (paymentMethod === "eft" || paymentMethod === "orange_money")) {
+      throw new AppError(
+        "Food and grocery collection orders can only be paid with Wallet or Card",
+        400
+      );
+    }
+
+    if (hasProducts && !foodPickupOnly && !String(deliveryAddress || "").trim()) {
+      throw new AppError("Delivery address is required", 400);
+    }
+    const effectiveDeliveryAddress = foodPickupOnly
+      ? String(deliveryAddress || "").trim() || "Customer collection (food pickup)"
+      : String(deliveryAddress || "").trim();
 
     const uniqueExternalSupplierIdsPay = new Set<string>();
     for (const item of cart.items || []) {
@@ -615,41 +682,59 @@ router.post("/pay", authenticate, async (req: AuthRequest, res: Response, next) 
       }
     }
 
-    await assertCourierSelectedForPay(
-      deliveryCountry,
-      storeGroupsPay,
-      courierTariffId,
-      cart.items || [],
-      productMap,
-      {
-        deliveryScope: effectiveDeliveryScopePay,
-        quoteInNativeCurrency: currencyCtxPay.quoteInNativeCurrency,
-        crossborderCourierTariffId,
-        deliveryCity: req.body?.deliveryCity ? String(req.body.deliveryCity) : undefined,
-        deliveryAddress: deliveryAddress ? String(deliveryAddress) : undefined,
-      }
-    );
-    const internalCourierPay = await computeInternalCourierShipping(
-      deliveryCountry,
-      storeGroupsPay,
-      courierTariffId,
-      supplierMap,
-      cart.items || [],
-      productMap,
-      {
-        deliveryScope: effectiveDeliveryScopePay,
-        settlementCurrency: currencyCtxPay.settlementCurrency,
-        quoteInNativeCurrency: currencyCtxPay.quoteInNativeCurrency,
-        crossborderCourierTariffId,
-        deliveryCity: req.body?.deliveryCity ? String(req.body.deliveryCity) : undefined,
-        deliveryAddress: deliveryAddress ? String(deliveryAddress) : undefined,
-      }
-    );
-    if (internalCourierPay.requiresCourierSelection) {
+    if (!foodPickupOnly) {
+      await assertCourierSelectedForPay(
+        deliveryCountry,
+        storeGroupsPay,
+        courierTariffId,
+        cart.items || [],
+        productMap,
+        {
+          deliveryScope: effectiveDeliveryScopePay,
+          quoteInNativeCurrency: currencyCtxPay.quoteInNativeCurrency,
+          crossborderCourierTariffId,
+          deliveryCity: req.body?.deliveryCity ? String(req.body.deliveryCity) : undefined,
+          deliveryAddress: effectiveDeliveryAddress ? String(effectiveDeliveryAddress) : undefined,
+        }
+      );
+    }
+    let internalCourierPay = foodPickupOnly
+      ? {
+          internalShippingZar: 0,
+          requiresCourierSelection: false,
+          warehouseFreeLocalApplied: false,
+          storeGroupBreakdown: [] as Array<{
+            storeName: string;
+            shippingCostZar: number;
+            providerName?: string;
+            serviceLabel?: string;
+            courierTariffId?: string;
+            originCountryCode?: string;
+          }>,
+          selectedCourier: undefined,
+          availableOptions: [] as unknown[],
+        }
+      : await computeInternalCourierShipping(
+          deliveryCountry,
+          storeGroupsPay,
+          courierTariffId,
+          supplierMap,
+          cart.items || [],
+          productMap,
+          {
+            deliveryScope: effectiveDeliveryScopePay,
+            settlementCurrency: currencyCtxPay.settlementCurrency,
+            quoteInNativeCurrency: currencyCtxPay.quoteInNativeCurrency,
+            crossborderCourierTariffId,
+            deliveryCity: req.body?.deliveryCity ? String(req.body.deliveryCity) : undefined,
+            deliveryAddress: effectiveDeliveryAddress ? String(effectiveDeliveryAddress) : undefined,
+          }
+        );
+    if (!foodPickupOnly && internalCourierPay.requiresCourierSelection) {
       throw new AppError("Please select a delivery method before paying", 400);
     }
 
-    let shipping = internalCourierPay.internalShippingZar;
+    let shipping = foodPickupOnly ? 0 : internalCourierPay.internalShippingZar;
     let cjShippingZarPay = 0;
     if (cjProductItemsPay.length > 0) {
       const { getCJAdapter } = await import("../services/suppliers/supplierService");
@@ -690,12 +775,14 @@ router.post("/pay", authenticate, async (req: AuthRequest, res: Response, next) 
       selectedSize?: string;
       commissionPct?: number;
       commissionValue?: number;
+      foodServiceFeeZar?: number;
     }> = [];
     let subtotal = 0;
     let commissionTotal = 0;
     let platformFeeTotal = 0;
     let supplierId: any = null;
     const { rates: checkoutFxRates } = await getFxRates();
+    const cartHasMenuPay = cartHasFoodMenuItem(products as any[]);
 
     for (const item of cart.items || []) {
       const product = productMap.get((item.productId as any).toString());
@@ -726,6 +813,14 @@ router.post("/pay", authenticate, async (req: AuthRequest, res: Response, next) 
           commissionPct = pct;
           price = Math.round(price * (1 + pct / 100) * 100) / 100;
         }
+      }
+      const priced = withFoodOrderServiceFee(price, product as any, {
+        cartHasMenuItem: cartHasMenuPay,
+      });
+      price = priced.unitPrice;
+      const foodServiceFeeZar = priced.serviceFeeZar;
+      if (foodServiceFeeZar > 0) {
+        platformFeeTotal += foodServiceFeeZar * item.qty;
       }
       const lineTotal = price * item.qty;
       subtotal += lineTotal;
@@ -761,6 +856,7 @@ router.post("/pay", authenticate, async (req: AuthRequest, res: Response, next) 
         ...(item.selectedSize ? { selectedSize: item.selectedSize } : {}),
         commissionPct,
         commissionValue,
+        ...(foodServiceFeeZar > 0 ? { foodServiceFeeZar } : {}),
       });
     }
 
@@ -784,22 +880,26 @@ router.post("/pay", authenticate, async (req: AuthRequest, res: Response, next) 
       : total;
 
     const cartProductQtyPay = (cart.items || []).reduce((sum, i) => sum + (i.qty || 1), 0);
-    await assertPhysicalOrderIncludesPrepaidDelivery({
-      hasProducts: orderItems.length > 0,
-      shippingZar: shipping,
-      internalStoreGroupCount: storeGroupsPay.length,
-      deliveryCountry,
-      cartItemQty: cartProductQtyPay,
-      courierTariffId,
-      requiresCourierSelection: internalCourierPay.requiresCourierSelection,
-      warehouseFreeLocalApplied: internalCourierPay.warehouseFreeLocalApplied,
-    });
+    if (!foodPickupOnly) {
+      await assertPhysicalOrderIncludesPrepaidDelivery({
+        hasProducts: orderItems.length > 0,
+        shippingZar: shipping,
+        internalStoreGroupCount: storeGroupsPay.length,
+        deliveryCountry,
+        cartItemQty: cartProductQtyPay,
+        courierTariffId,
+        requiresCourierSelection: internalCourierPay.requiresCourierSelection,
+        warehouseFreeLocalApplied: internalCourierPay.warehouseFreeLocalApplied,
+      });
+    }
 
-    const deliveryFlags = deliveryPrepaidFlagsForOrder(
-      orderItems.length > 0,
-      shipping,
-      internalCourierPay.warehouseFreeLocalApplied
-    );
+    const deliveryFlags = foodPickupOnly
+      ? { deliveryPrepaid: false, deliveryCollectionPolicy: "checkout_single_payment" as const }
+      : deliveryPrepaidFlagsForOrder(
+          orderItems.length > 0,
+          shipping,
+          internalCourierPay.warehouseFreeLocalApplied
+        );
 
     const shippingBreakdownForOrder: Array<{
       storeName: string;
@@ -871,9 +971,16 @@ router.post("/pay", authenticate, async (req: AuthRequest, res: Response, next) 
         ...deliveryFlags,
       },
       paymentBreakdown: paymentBreakdownForOrder,
-      delivery: {
+      delivery: foodPickupOnly
+        ? {
+            method: "collection",
+            address: effectiveDeliveryAddress,
+            countryCode: deliveryCountry || "ZA",
+            serviceLabel: "Customer collection",
+          }
+        : {
         method: "courier",
-        address: String(deliveryAddress || "").trim(),
+        address: effectiveDeliveryAddress,
         countryCode: deliveryCountry,
         carrier:
           internalCourierPay.storeGroupBreakdown
@@ -897,7 +1004,9 @@ router.post("/pay", authenticate, async (req: AuthRequest, res: Response, next) 
     }
     }
 
-    if (order) {
+    // Orders inbox: EFT / Orange Money show as pending payment when placed.
+    // Card + wallet emails go out only after successful payment (notifyOrderPaid).
+    if (order && (paymentMethod === "eft" || paymentMethod === "orange_money")) {
       void sendOrderPlacedEmailToOrdersInbox(order._id.toString());
     }
 
@@ -1027,6 +1136,9 @@ router.post("/pay", authenticate, async (req: AuthRequest, res: Response, next) 
             qty: it.qty,
           })),
         });
+        await settleFoodPickupOrderPaid(order._id.toString()).catch((err) =>
+          console.error("Food pickup settlement failed:", err)
+        );
         if ((order.amounts as any)?.deliveryPrepaid) {
           await notifyBuyerDeliveryPrepaid({
             buyerId: req.user!._id.toString(),

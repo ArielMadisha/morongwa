@@ -72,17 +72,23 @@ See `backend/src/services/worldCupTvService.ts`.
 
 ## 4. EAS Android Play — **resume 1 July 2026**
 
+**Owner priority (June 2026):** Ship **Qwertymates** + **ACBPay** on **1 July**; **defer Morongwa Messenger** until hub/call fixes are done. See `DOCS/JULY_2026_ANDROID_PLAY_RELEASES.md`.
+
+| App | Task | Time | Path |
+|-----|------|------|------|
+| **Qwertymates** | `Qwertymates-EAS-Android-July-Release` | **08:00** | `morongwa/mobile/` |
+| **ACBPay** | `ACBPay-EAS-Android-July-Release` | **09:30** | sibling `ACBPayWallet/mobile/` |
+| ~~Morongwa Messenger~~ | `Morongwa-Messenger-EAS-Android-July-Release` | — | **Disabled** until owner re-enables |
+
 | What | Detail |
 |------|--------|
-| **Why** | Expo free-tier Android builds exhausted **June 2026**; upload reached EAS but build rejected (quota). |
-| **Resume** | **2026-07-01** (quota reset) — production build + Play submit for **v1.3.1** backlog. |
-| **Windows task** | `Qwertymates-EAS-Android-July-Release` @ **08:00** daily **1–7 July** — `mobile/scripts/windows/Register-EasAndroidJulyBuildTask.ps1` |
-| **Manual** | From `mobile/`: `npm run release:android:play:quota-resume` or `npm run release:android:play` |
-| **State / log** | `mobile/exports/eas-android-release-state.json`, `eas-android-release-task.log` |
-| **Runbook** | `DOCS/EAS_ANDROID_JULY_BUILD.md` |
+| **Why** | Expo free-tier Android builds exhausted **June 2026**; quota resets **1 July 2026**. |
+| **Qwertymates** | Production build + Play submit — **v1.3.1** backlog (`DOCS/EAS_ANDROID_JULY_BUILD.md`). |
+| **ACBPay** | First Play release **`com.acbpay.wallet`** v1.0.0. |
+| **Retries** | Daily **1–7 July** if quota still blocked. |
 | **Rule** | `.cursor/rules/eas-android-july-build.mdc` (`alwaysApply: true`) |
 
-**Agent checks after Cursor updates:** confirm rule file exists; `Get-ScheduledTask -TaskName Qwertymates-EAS-Android-July-Release`; on/after 1 July run `npm run verify:android-release-readiness` then full Play release if quota open.
+**Agent checks after Cursor updates:** confirm `Qwertymates-EAS-Android-July-Release` and `ACBPay-EAS-Android-July-Release` registered; confirm Morongwa Messenger task **Disabled**; on/after 1 July run Qwertymates `verify:android-release-readiness` + ACBPay `typecheck`, then quota-resume releases.
 
 ---
 
@@ -94,6 +100,6 @@ See `backend/src/services/worldCupTvService.ts`.
 | `Register-SchoolGalleryDailyTask.ps1` | Daily 06:30 trigger; task name `Qwertymates-SchoolGallery-Daily` |
 | `facebookTvIngest.ts` | Sports / WorldNews **Tuesday + Friday** cron slots unless owner changes schedule |
 | `runFacebookNewsBots.ts` | Sports bot **tue + fri** weekdays unless owner changes schedule |
-| `Register-EasAndroidJulyBuildTask.ps1` | Task name `Qwertymates-EAS-Android-July-Release`; 08:00 from 2026-07-01 |
+| `Register-EasAndroidJulyBuildTask.ps1` | Qwertymates task @ **08:00**; ACBPay @ **09:30**; Morongwa Messenger task **disabled** until owner re-enables |
 
 If the owner asks to “speed up school imports”, the answer is still **one school per day** unless they explicitly override this rule.

@@ -1,6 +1,12 @@
 import fs from "fs";
 import path from "path";
 import { TV_UPLOAD_STORAGE_DIR } from "../middleware/tvUpload";
+import {
+  findProfileUploadSibling,
+  isProfileBackfillUploadPath,
+  isProfileBackfillUploadUrl,
+  uploadPublicPathExists as profileUploadExists,
+} from "../utils/profileBackfillMedia";
 
 const UPLOADS_ROOT = path.resolve(__dirname, "../../uploads");
 const SCHOOL_GALLERY_PATH_SEGMENT = "/uploads/school-gallery/";
@@ -107,6 +113,14 @@ export function tvUploadMediaExists(url: string | undefined): boolean {
 /** True when the file exists on this API host (or URL is not a local TV/school-gallery upload). */
 export function localUploadMediaExists(url: string | undefined, uploadsRoot?: string): boolean {
   if (!url || typeof url !== "string") return false;
+  const root = uploadsRoot ?? UPLOADS_ROOT;
+  if (isProfileBackfillUploadUrl(url)) {
+    const p = String(url).trim();
+    if (profileUploadExists(p, root)) return true;
+    if (findProfileUploadSibling(p, root)) return true;
+    // Nginx may serve /uploads/profiles from the host volume while the API container lacks the file.
+    return isProfileBackfillUploadPath(url);
+  }
   if (isLocalTvUploadUrl(url)) return resolveUploadedTvFilePath(url) !== null;
   if (isLocalSchoolGalleryUrl(url)) {
     if (resolveSchoolGalleryFilePath(url, uploadsRoot ?? UPLOADS_ROOT) !== null) return true;
@@ -122,7 +136,7 @@ export function localUploadMediaExists(url: string | undefined, uploadsRoot?: st
 }
 
 function isManagedLocalUploadUrl(url: string): boolean {
-  return isLocalTvUploadUrl(url) || isLocalSchoolGalleryUrl(url);
+  return isLocalTvUploadUrl(url) || isLocalSchoolGalleryUrl(url) || isProfileBackfillUploadUrl(url);
 }
 
 /** Keep remote URLs; drop local TV/school-gallery paths missing on disk. */

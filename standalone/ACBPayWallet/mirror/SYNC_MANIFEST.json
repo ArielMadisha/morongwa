@@ -1,0 +1,37 @@
+{
+  "syncedAt": "2026-06-29T23:24:17.907Z",
+  "source": "morongwa monorepo",
+  "apiBase": "https://api.qwertymates.com/api",
+  "walletWeb": "https://www.qwertymates.com/wallet",
+  "files": [
+    {
+      "src": "backend/src/services/satelliteSync.ts",
+      "dest": "mirror/morongwa/services/satelliteSync.ts"
+    },
+    {
+      "src": "backend/src/services/walletBalanceSideEffects.ts",
+      "dest": "mirror/morongwa/services/walletBalanceSideEffects.ts"
+    },
+    {
+      "src": "backend/src/routes/wallet.ts",
+      "dest": "mirror/morongwa/routes/wallet.ts"
+    },
+    {
+      "src": "backend/src/services/walletQrPaymentService.ts",
+      "dest": "mirror/morongwa/services/walletQrPaymentService.ts"
+    },
+    {
+      "src": "backend/src/services/moneyRequestService.ts",
+      "dest": "mirror/morongwa/services/moneyRequestService.ts"
+    },
+    {
+      "src": "backend/src/services/agentEarningsService.ts",
+      "dest": "mirror/morongwa/services/agentEarningsService.ts"
+    },
+    {
+      "src": "backend/src/data/models/Wallet.ts",
+      "dest": "mirror/morongwa/models/Wallet.ts"
+    }
+  ],
+  "notes": "Reference mirrors only — live wallet API runs on Qwertymates backend. ACBPay mobile app calls the same /api/wallet and /api/auth endpoints."
+}

@@ -31,6 +31,7 @@ import { trySettleMoneyRequestAfterTopup, finalizeMoneyRequestAfterDirectCard } 
 import { generateReference } from "../utils/helpers";
 import { walletPaymentLimiter } from "../middleware/rateLimit";
 import { notifyOrderPaid, notifyBuyerDeliveryPrepaid, notifyBuyerOrderPurchase } from "../services/orderNotification";
+import { settleFoodPickupOrderPaid } from "../services/foodOrderSettlement";
 import { finalizeCourierOnOrderPaid } from "../services/courierOrderHooks";
 import { forwardOrderToExternalSupplier } from "../services/orderForwardingService";
 import MusicPurchase from "../data/models/MusicPurchase";
@@ -496,6 +497,15 @@ router.post("/webhook", async (req: Request, res: Response) => {
     const wasSuccessful = payment.status === "successful";
 
     payment.status = result.status as "pending" | "successful" | "failed" | "refunded" | "disputed";
+    payment.metadata = {
+      ...(payment.metadata && typeof payment.metadata === "object" ? payment.metadata : {}),
+      paygate: {
+        transactionStatus: result.transactionStatus || null,
+        resultCode: result.resultCode || null,
+        resultDesc: result.resultDesc || null,
+        receivedAt: new Date().toISOString(),
+      },
+    };
     await payment.save();
 
     if (result.status === "successful" && !wasSuccessful) {
@@ -526,6 +536,9 @@ router.post("/webhook", async (req: Request, res: Response) => {
               qty: it.qty,
             })),
           });
+          await settleFoodPickupOrderPaid(order._id.toString()).catch((err) =>
+            console.error("Food pickup settlement failed:", err)
+          );
           if ((order.amounts as any)?.deliveryPrepaid) {
             await notifyBuyerDeliveryPrepaid({
               buyerId: order.buyerId.toString(),
@@ -655,7 +668,13 @@ router.post("/webhook", async (req: Request, res: Response) => {
     await AuditLog.create({
       action: "PAYMENT_WEBHOOK_RECEIVED",
       user: payment.user,
-      meta: { reference: payment.reference, status: payment.status },
+      meta: {
+        reference: payment.reference,
+        status: payment.status,
+        transactionStatus: result.transactionStatus || null,
+        resultCode: result.resultCode || null,
+        resultDesc: result.resultDesc || null,
+      },
     });
 
     return sendOk();

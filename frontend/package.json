@@ -10,6 +10,9 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@livekit/components-react": "^2.9.21",
+    "@livekit/components-styles": "^1.2.0",
+    "@twilio/voice-sdk": "^2.18.3",
     "axios": "^1.13.2",
     "date-fns": "^4.1.0",
     "dompurify": "^3.3.3",
@@ -17,6 +20,7 @@
     "html5-qrcode": "^2.3.8",
     "jspdf": "^4.2.0",
     "libphonenumber-js": "^1.12.41",
+    "livekit-client": "^2.20.0",
     "lucide-react": "^0.562.0",
     "next": "16.2.3",
     "qrcode": "^1.5.4",

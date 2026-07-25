@@ -66,6 +66,7 @@ export function getProductPriceForQty(
   },
   qty: number
 ): number {
+  const base = getEffectivePrice(p);
   const tiers = p.bulkTiers;
   if (Array.isArray(tiers) && tiers.length > 0 && qty > 0) {
     const tier = tiers
@@ -74,9 +75,13 @@ export function getProductPriceForQty(
           qty >= t.minQty && qty <= normalizeBulkTierMaxQty(Number(t.maxQty), Number(t.minQty))
       )
       .sort((a, b) => b.minQty - a.minQty)[0];
-    if (tier && Number(tier.price) >= 0) return Number(tier.price);
+    const tierPrice = tier != null ? Number(tier.price) : NaN;
+    // Bulk must be a discount — never raise unit price above catalog/discount.
+    if (Number.isFinite(tierPrice) && tierPrice >= 0 && tierPrice < base) {
+      return tierPrice;
+    }
   }
-  return getEffectivePrice(p);
+  return base;
 }
 
 /** Supplier storefront label from populated supplierId. */
@@ -417,14 +422,27 @@ export const walletAPI = {
   getCards: () => api.get<Array<{ _id: string; last4: string; brand: string; expiryMonth: number; expiryYear: number; isDefault: boolean }>>('/wallet/cards'),
   deleteCard: (cardId: string) => api.delete(`/wallet/cards/${cardId}`),
   setDefaultCard: (cardId: string) => api.patch(`/wallet/cards/${cardId}/default`),
-  payWithCard: (paymentRequestId: string, cardId: string) =>
-    api.post<{ paymentUrl: string; reference: string }>('/wallet/pay-with-card', { paymentRequestId, cardId }),
+  payWithCard: (paymentRequestId: string, cardId?: string) =>
+    api.post<{ paymentUrl: string; reference: string; payGateRedirect?: { processUrl: string; payRequestId: string; checksum: string } }>(
+      '/wallet/pay-with-card',
+      cardId ? { paymentRequestId, cardId } : { paymentRequestId }
+    ),
   payPendingWithWallet: (paymentRequestId: string) =>
     api.post('/wallet/pay-pending-with-wallet', { paymentRequestId }),
   getPendingPayment: (id: string) =>
     api.get<{ _id: string; amount: number; merchantName: string; expiresAt: string }>(`/wallet/pending-payment/${id}`),
   getPendingPaymentsForPayer: () =>
-    api.get<Array<{ _id: string; amount: number; merchantName: string; expiresAt: string }>>('/wallet/pending-payments'),
+    api.get<Array<{ _id: string; amount: number; merchantName: string; expiresAt: string }>>(
+      '/wallet/pending-payments',
+      { _skip429Retry: true } as Record<string, unknown>
+    ),
+  getMyPendingPayments: () =>
+    api.get<Array<{ _id: string; amount: number; merchantName: string; expiresAt: string }>>(
+      '/wallet/my-pending-payments',
+      { _skip429Retry: true } as Record<string, unknown>
+    ),
+  confirmMyPayment: (paymentRequestId: string, otp: string) =>
+    api.post('/wallet/confirm-my-payment', { paymentRequestId, otp }),
   // E-commerce checkout
   getCheckoutDetails: (params: {
     sessionId?: string;
@@ -527,6 +545,43 @@ export const webrtcAPI = {
     }>('/webrtc/turn-credentials'),
 };
 
+export type LiveKitTokenResponse = {
+  token: string;
+  url: string;
+  room: string;
+  role: string;
+  ttlSec?: number;
+  hostUserId?: string;
+  roomId?: string;
+};
+
+export const livekitAPI = {
+  getConfig: () =>
+    api.get<{ data: { configured: boolean; url: string | null } }>('/livekit/config'),
+  getCallToken: (peerUserId: string) =>
+    api.post<{ data: LiveKitTokenResponse }>('/livekit/call-token', { peerUserId }),
+  getCallTokenWithRoom: (body: { peerUserId?: string; roomName?: string }) =>
+    api.post<{ data: LiveKitTokenResponse }>('/livekit/call-token', body),
+  getLiveToken: (body: { asHost?: boolean; hostUserId?: string }) =>
+    api.post<{ data: LiveKitTokenResponse }>('/livekit/live/token', body),
+  getAudioToken: (body: { roomId: string; role?: 'host' | 'speaker' | 'listener' }) =>
+    api.post<{ data: LiveKitTokenResponse }>('/livekit/audio/token', body),
+  getQwertzToken: (body: { asHost?: boolean; hostUserId?: string }) =>
+    api.post<{ data: LiveKitTokenResponse }>('/livekit/qwertz/token', body),
+};
+
+export const voiceAPI = {
+  getStatus: () => api.get<{ enabled: boolean; clientSdk?: boolean; modes: string[] }>('/voice/status'),
+  getQuote: (to: string) => api.get<{ quote: Record<string, unknown> }>('/voice/rates', { params: { to } }),
+  outbound: (data: { to: string }) =>
+    api.post<{ message: string; callId: string; token: string; status: string; quote: Record<string, unknown> }>(
+      '/voice/outbound',
+      data
+    ),
+  getHistory: (limit = 20) => api.get('/voice/history', { params: { limit } }),
+  getClientToken: () => api.get<{ token: string }>('/voice/client-token'),
+};
+
 export const messengerAPI = {
   getConversations: () => api.get('/messenger/conversations'),
   getMessages: (taskId: string) => api.get(`/messenger/task/${taskId}`),
@@ -537,6 +592,81 @@ export const messengerAPI = {
   sendDirectMessage: (userId: string, content: string) => api.post(`/messenger/direct/${userId}`, { content }),
   markAsRead: (taskId: string) => api.post(`/messenger/task/${taskId}/read`),
   getUnreadCount: () => api.get('/messenger/unread'),
+};
+
+export type MorongwaSection =
+  | 'chat'
+  | 'meet'
+  | 'people'
+  | 'files'
+  | 'calendar'
+  | 'activity'
+  | 'call'
+  | 'support';
+
+export const morongwaAPI = {
+  getContacts: () => api.get<{ data: MorongwaContactRow[] }>('/morongwa/contacts'),
+  addContact: (body: { name: string; phone?: string; email?: string; platformUserId?: string; source?: string }) =>
+    api.post('/morongwa/contacts', body),
+  importContacts: (contacts: Array<{ name: string; phone?: string; email?: string; source?: string }>) =>
+    api.post('/morongwa/contacts/import', { contacts }),
+  deleteContact: (id: string) => api.delete(`/morongwa/contacts/${id}`),
+  getMeetings: (params?: { from?: string; to?: string }) => api.get('/morongwa/meetings', { params }),
+  createInstantMeeting: (body?: { title?: string; passcode?: string }) =>
+    api.post<{ data: MorongwaMeetingRow; joinUrl: string }>('/morongwa/meetings/instant', body ?? {}),
+  scheduleMeeting: (body: {
+    title?: string;
+    passcode?: string;
+    scheduledStart: string;
+    scheduledEnd: string;
+  }) => api.post<{ data: MorongwaMeetingRow; joinUrl: string }>('/morongwa/meetings/schedule', body),
+  joinMeeting: (body: { meetingId: string; passcode?: string }) =>
+    api.post<{ data: { meetingId: string; title: string; roomId: string; hostUserId: string; hostName: string } }>(
+      '/morongwa/meetings/join',
+      body
+    ),
+  inviteToMeeting: (body: { meetingId: string; recipientUserIds: string[] }) =>
+    api.post<{ sent: number; recipientUserIds: string[]; joinUrl: string }>('/morongwa/meetings/invite', body),
+  getFiles: () => api.get<{ data: MorongwaFileRow[] }>('/morongwa/files'),
+  sendFile: (recipientUserId: string, file: File) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    fd.append('recipientUserId', recipientUserId);
+    return api.post('/morongwa/files', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+  },
+  deleteFile: (id: string) => api.delete(`/morongwa/files/${id}`),
+  fileDownloadUrl: (id: string) => `${api.defaults.baseURL || ''}/morongwa/files/${id}/download`,
+};
+
+export type MorongwaContactRow = {
+  _id: string;
+  name: string;
+  phone?: string;
+  email?: string;
+  platformUserId?: { _id: string; name?: string; username?: string; avatar?: string; phone?: string };
+  source?: string;
+};
+
+export type MorongwaMeetingRow = {
+  _id: string;
+  meetingId: string;
+  title: string;
+  passcode?: string;
+  scheduledStart?: string;
+  scheduledEnd?: string;
+  roomId: string;
+  kind: 'instant' | 'scheduled';
+  createdAt?: string;
+};
+
+export type MorongwaFileRow = {
+  _id: string;
+  originalName: string;
+  size: number;
+  mimetype: string;
+  createdAt: string;
+  senderId?: { _id: string; name?: string; username?: string };
+  recipientId?: { _id: string; name?: string; username?: string };
 };
 
 export const notificationsAPI = {
@@ -617,6 +747,33 @@ export const adminAPI = {
   updateAdvert: (id: string, data: Partial<{ title: string; imageUrl: string; linkUrl: string; slot: string; productId: string; active: boolean; startDate: string; endDate: string; order: number }>) =>
     api.put(`/admin/adverts/${id}`, data),
   deleteAdvert: (id: string) => api.delete(`/admin/adverts/${id}`),
+
+  getWaPremenuAdvert: () =>
+    api.get<{
+      data: {
+        tier: 'bronze' | 'silver' | 'gold';
+        campaignMode: string;
+        textOverrides: Record<string, string>;
+        silverMediaUrl: string;
+        silverCaption: string;
+        goldMediaUrl: string;
+        goldCaption: string;
+        goldFeaturedPartnerLabel: string;
+        acbpayMediaUrlA: string;
+        acbpayMediaUrlB: string;
+        campaignScripts: Record<string, string>;
+        bundledDefaults: { silverSample: string; acbpayA: string; acbpayB: string };
+        raw?: Record<string, unknown>;
+        updatedAt?: string | null;
+        updatedBy?: { name?: string; email?: string } | null;
+      };
+    }>('/admin/wa-premenu-advert'),
+  updateWaPremenuAdvert: (data: Record<string, unknown>) => api.put('/admin/wa-premenu-advert', data),
+  uploadWaPremenuMedia: (file: File) => {
+    const formData = new FormData();
+    formData.append('media', file);
+    return api.post<{ url: string; path: string }>('/admin/wa-premenu-advert/media', formData);
+  },
 
   // Landing backgrounds (login/register page)
   getLandingBackgrounds: () => api.get('/admin/landing-backgrounds'),
@@ -743,7 +900,7 @@ export const adminAPI = {
   getResellerStats: () => api.get('/admin/reseller-stats'),
 
   // Stores
-  getStores: (params?: { page?: number; limit?: number; type?: string }) =>
+  getStores: (params?: { page?: number; limit?: number; type?: string; supplierId?: string }) =>
     api.get('/admin/stores', { params }),
   /** Store-owner picker (works for delegated admins with `stores` only; avoids GET /admin/users). */
   getStoresUserOptions: (params?: { limit?: number; q?: string }) =>
@@ -774,6 +931,9 @@ export const adminAPI = {
       whatsapp?: string;
       stripBackgroundPic?: string;
       whatsappMarketCountries?: string[];
+      mapsUrl?: string;
+      latitude?: number | null;
+      longitude?: number | null;
     }
   ) => api.put(`/admin/stores/${id}`, data),
   uploadStoreProfilePicture: (id: string, file: File) => {
@@ -866,6 +1026,8 @@ export const adminAPI = {
     tags?: string[];
     availableCountries?: string[];
     colors?: Array<{ name: string; hex?: string; imageIndex?: number }>;
+    freeShippingEnabled?: boolean;
+    freeShippingAreas?: Array<{ countryCode: string; locality: string }>;
   }) => api.post('/admin/products', data),
   getProduct: (id: string) => api.get(`/admin/products/${id}`),
   updateProduct: (id: string, data: Record<string, unknown>) => api.put(`/admin/products/${id}`, data),
@@ -1377,6 +1539,8 @@ export const usersAPI = {
   },
   updateContentPreferences: (id: string, data: { showProducts?: boolean; preferencesAskedAt?: string }) =>
     api.patch(`/users/${id}/content-preferences`, data),
+  deleteAccount: (id: string, password: string) =>
+    api.delete(`/users/${id}`, { data: { password } }),
 };
 
 export const policiesAPI = {
@@ -1390,8 +1554,22 @@ export const policiesAPI = {
 };
 
 export const productsAPI = {
-  list: (params?: { limit?: number; page?: number; random?: boolean; q?: string; category?: string }) =>
-    api.get('/products', { params: { ...params, random: params?.random ? '1' : undefined } }),
+  list: (params?: {
+    limit?: number;
+    page?: number;
+    random?: boolean;
+    q?: string;
+    category?: string;
+    /** Filter to Qwertymates warehouse free-local city (e.g. hammanskraal) */
+    warehouseCity?: string;
+  }) =>
+    api.get('/products', {
+      params: {
+        ...params,
+        random: params?.random ? '1' : undefined,
+        warehouseCity: params?.warehouseCity || undefined,
+      },
+    }),
   listCategories: () => api.get<{ data: Array<{ name: string; count: number }> }>('/products/categories'),
   getByIdOrSlug: (idOrSlug: string) => api.get(`/products/${idOrSlug}`),
   /** Upload 1–10 product images. Returns { urls: string[] }. */
@@ -1430,8 +1608,20 @@ export const cartAPI = {
     api.post('/cart', { productId, qty: qty ?? 1, resellerId, selectedColor, selectedSize }),
   addMusic: (songId: string, qty?: number) =>
     api.post('/cart', { type: 'music', songId, qty: qty ?? 1 }),
-  updateItem: (productId: string, qty: number, selectedColor?: string, selectedSize?: string) =>
-    api.put(`/cart/item/${productId}`, { qty, selectedColor, selectedSize }),
+  updateItem: (
+    productId: string,
+    qty: number,
+    selectedColor?: string,
+    selectedSize?: string,
+    opts?: { updateColor?: string; updateSize?: string }
+  ) =>
+    api.put(`/cart/item/${productId}`, {
+      qty,
+      selectedColor,
+      selectedSize,
+      ...(opts?.updateColor !== undefined ? { updateColor: opts.updateColor } : {}),
+      ...(opts?.updateSize !== undefined ? { updateSize: opts.updateSize } : {}),
+    }),
   removeItem: (productId: string, selectedColor?: string, selectedSize?: string) =>
     api.delete(`/cart/item/${productId}`, {
       params: {
@@ -1542,8 +1732,24 @@ export const followsAPI = {
   friendRequest: (userId: string) => api.post(`/follows/friend/${userId}`),
   unfollow: (userId: string) => api.delete(`/follows/${userId}`),
   getSuggested: (params?: { limit?: number; q?: string }) => api.get<{ data: Array<{ _id: string; name: string; avatar?: string; username?: string; followerCount?: number }> }>('/follows/suggested', { params }),
+  getBirthdaysToday: (params?: { limit?: number }) =>
+    api.get<{
+      data: {
+        date: string;
+        count: number;
+        users: Array<{ _id: string; name?: string; avatar?: string; username?: string }>;
+      };
+    }>('/follows/birthdays/today', { params }),
   getStatus: (userId: string) => api.get(`/follows/${userId}/status`),
   getPendingRequests: () => api.get('/follows/requests/pending'),
+  getFollowers: (userId: string) =>
+    api.get<{ data: Array<{ _id: string; name?: string; avatar?: string; username?: string }> }>(
+      `/follows/${userId}/followers`
+    ),
+  getFollowing: (userId: string) =>
+    api.get<{ data: Array<{ _id: string; name?: string; avatar?: string; username?: string }> }>(
+      `/follows/${userId}/following`
+    ),
   acceptRequest: (followerId: string) => api.post(`/follows/${followerId}/accept`),
   rejectRequest: (followerId: string) => api.post(`/follows/${followerId}/reject`),
 };
@@ -1653,8 +1859,13 @@ export const tvAPI = {
     return api.post(`/tv/${id}/comments`, payload);
   },
   getWatermark: () => api.get<{ data: { watermark: string } }>('/tv/watermark'),
-  getFeaturedProducts: (hideProducts?: boolean) =>
-    api.get('/tv/products/featured', { params: hideProducts ? { hideProducts: '1' } : undefined }),
+  getFeaturedProducts: (hideProducts?: boolean, limit?: number) =>
+    api.get('/tv/products/featured', {
+      params: {
+        ...(hideProducts ? { hideProducts: '1' } : {}),
+        ...(typeof limit === 'number' && Number.isFinite(limit) && limit > 0 ? { limit } : {}),
+      },
+    }),
 };
 
 export type LivePlaybackData = {

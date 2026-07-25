@@ -1,8 +1,9 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Video, VideoOff, Mic, MicOff, PhoneOff, Loader2, Phone } from 'lucide-react';
 import type { CallStatus } from '@/hooks/useWebRTC';
+import { MeetingInvitePanel } from '@/components/morongwa/MeetingInvitePanel';
 
 interface VideoCallViewProps {
   callStatus: CallStatus;
@@ -22,6 +23,11 @@ interface VideoCallViewProps {
   onToggleMute: () => void;
   onToggleVideo: () => void;
   audioOnly?: boolean;
+  meetingLobby?: boolean;
+  meetingTitle?: string;
+  meetingId?: string;
+  meetingRoomId?: string;
+  currentUserId?: string;
 }
 
 export function VideoCallView({
@@ -42,7 +48,14 @@ export function VideoCallView({
   onToggleMute,
   onToggleVideo,
   audioOnly = false,
+  meetingLobby = false,
+  meetingTitle,
+  meetingId,
+  meetingRoomId,
+  currentUserId,
 }: VideoCallViewProps) {
+  const [showInvitePanel, setShowInvitePanel] = useState(false);
+
   useEffect(() => {
     if (localStream && localVideoRef.current) {
       localVideoRef.current.srcObject = localStream;
@@ -146,6 +159,45 @@ export function VideoCallView({
               <p className="text-white text-lg font-semibold">{peerName || 'Connected'}</p>
               <p className="text-sky-200 text-sm">Voice call in progress</p>
             </div>
+          ) : meetingLobby && !remoteStream ? (
+            <>
+              <video
+                ref={localVideoRef}
+                autoPlay
+                playsInline
+                muted
+                className="absolute inset-0 w-full h-full object-cover"
+              />
+              <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/40 px-6 text-center">
+                <p className="text-white text-xl font-semibold mb-2">{meetingTitle || 'Meeting'}</p>
+                <p className="text-sky-100 text-sm">You&apos;re in the meeting — waiting for others to join</p>
+                {meetingId ? (
+                  <p className="text-sky-200/80 text-xs mt-2">Meeting ID: {meetingId}</p>
+                ) : meetingRoomId ? (
+                  <p className="text-sky-200/80 text-xs mt-2">Room: {meetingRoomId}</p>
+                ) : null}
+                <p className="text-sky-200/80 text-xs mt-1">Invite Qwertymates users or share the meeting ID</p>
+                {meetingId && currentUserId ? (
+                  <div className="mt-4 flex flex-col items-center gap-2 w-full max-w-md">
+                    <button
+                      type="button"
+                      onClick={() => setShowInvitePanel((v) => !v)}
+                      className="px-4 py-2 rounded-lg bg-sky-500 text-white text-sm font-semibold hover:bg-sky-600 transition"
+                    >
+                      Invite users
+                    </button>
+                    {showInvitePanel ? (
+                      <MeetingInvitePanel
+                        meetingId={meetingId}
+                        meetingTitle={meetingTitle}
+                        currentUserId={currentUserId}
+                        onClose={() => setShowInvitePanel(false)}
+                      />
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+            </>
           ) : (
             <>
               <video

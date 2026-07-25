@@ -102,6 +102,7 @@ import { normalizeProductSizes } from "../utils/productSizeTypes";
 import { syncCjProductStock } from "../services/cjStockSyncService";
 import { syncEproloProductStock } from "../services/eproloStockSyncService";
 import { resolveWarehouseFreeLocalForSupplier } from "../services/warehouseLocalDelivery";
+import { applyFreeShippingUpdate, resolveFreeShippingFieldsForCreate } from "../services/productFreeShipping";
 import { syncSheinProductStock } from "../services/sheinStockSyncService";
 import { isExternalSupplierConfigured } from "../services/suppliers/supplierService";
 import { aggregateDropshippingReport, buildOrderProfitBreakdown } from "../services/dropshippingProfitService";
@@ -135,6 +136,17 @@ import { runOnboardingAgentFraudScan, runTuckshopFraudScan } from "../services/r
 import { listAgentRegistrationIncentiveReference } from "../config/agentRegistrationIncentive.config";
 import { adminMarkupPctForCategory, getMarketplaceCategoryMarkup } from "../config/marketplaceCategoryMarkups";
 import { enforceDelegatedAdminSectionAccess } from "../middleware/adminDelegateSectionGate";
+import { waPremenuMediaUpload } from "../middleware/waPremenuMediaUpload";
+import {
+  WA_PREMENU_ADVERT_SETTING_KEY,
+  WA_AD_CAMPAIGN_SCRIPTS,
+  getWaPreMenuAdvertConfigResolved,
+  mergeWaPreMenuAdvertPatch,
+  invalidateWaPreMenuAdvertConfigCache,
+  publicBundledWaPremenuSampleVideoUrl,
+  publicBundledAcbpayVideoUrlA,
+  publicBundledAcbpayVideoUrlB,
+} from "../services/waPreMenuAdvertConfig";
 import { LEGACY_PUBLISHER_USERNAMES } from "../config/legacyPublisherAccounts";
 import {
   isInvalidNumericSchoolAccount,
@@ -2978,13 +2990,16 @@ router.get("/stores/countries", async (_req: AuthRequest, res: Response) => {
 router.get("/stores", async (req: AuthRequest, res: Response, next) => {
   try {
     await backfillSupplierStoresMissingLink(req.user!._id);
-    const { page, limit, type } = req.query;
+    const { page, limit, type, supplierId } = req.query;
     const { skip, limit: limitNum } = getPaginationParams(
       page ? parseInt(page as string) : undefined,
       limit ? parseInt(limit as string) : undefined
     );
     const query: any = {};
     if (type) query.type = type as string;
+    if (supplierId && mongoose.Types.ObjectId.isValid(String(supplierId))) {
+      query.supplierId = new mongoose.Types.ObjectId(String(supplierId));
+    }
     const [stores, total] = await Promise.all([
       Store.find(query).populate("userId", "name email").populate("supplierId", "storeName status").sort({ createdAt: -1 }).skip(skip).limit(limitNum).lean(),
       Store.countDocuments(query),
@@ -3091,6 +3106,9 @@ router.put("/stores/:id", async (req: AuthRequest, res: Response, next) => {
       whatsapp?: string;
       stripBackgroundPic?: string;
       whatsappMarketCountries?: string[];
+      mapsUrl?: string;
+      latitude?: number | null;
+      longitude?: number | null;
     };
     const store = await Store.findById(req.params.id);
     if (!store) throw new AppError("Store not found", 404);
@@ -3461,6 +3479,8 @@ router.post("/products", requireAnySection(["products", "product_uploads"]), asy
       tags?: string[];
       availableCountries?: string[];
       colors?: Array<{ name: string; hex?: string; imageIndex?: number }>;
+      freeShippingEnabled?: boolean;
+      freeShippingAreas?: Array<{ countryCode: string; locality: string }>;
     };
     const { supplierId, title, price } = body;
     if (!supplierId || !title || price == null) throw new AppError("supplierId, title, and price are required", 400);
@@ -3476,6 +3496,12 @@ router.post("/products", requireAnySection(["products", "product_uploads"]), asy
       storeName: supplier.storeName,
       linkedStoreName: linkedStore?.name,
     });
+    let freeShippingFields: ReturnType<typeof resolveFreeShippingFieldsForCreate>;
+    try {
+      freeShippingFields = resolveFreeShippingFieldsForCreate(body, warehouseFreeLocal);
+    } catch (err) {
+      throw new AppError(err instanceof Error ? err.message : "Invalid free shipping areas", 400);
+    }
     let slug = (body.slug && body.slug.trim()) || slugify(title);
     let n = 1;
     while (await Product.findOne({ slug })) slug = `${slugify(title)}-${++n}`;
@@ -3552,13 +3578,15 @@ router.post("/products", requireAnySection(["products", "product_uploads"]), asy
       categories,
       tags: Array.isArray(body.tags) ? body.tags : [],
       availableCountries: Array.isArray(body.availableCountries) ? body.availableCountries.filter(Boolean) : [],
-      ...(warehouseFreeLocal ? warehouseFreeLocal : {}),
+      ...freeShippingFields,
       active: true,
       ...markupFields,
       colors: adminColors,
       colorsManual: true,
     });
     await AuditLog.create({ action: "PRODUCT_CREATED_BY_ADMIN", user: req.user!._id, target: product._id, meta: { supplierId } });
+    const { queueFacebookPostForProduct } = await import("../services/facebookMarketplacePostService");
+    queueFacebookPostForProduct(String(product._id), "admin-create");
     res.status(201).json({ message: "Product created", data: product });
   } catch (err) {
     next(err);
@@ -3818,6 +3846,7 @@ router.put("/products/:id", requireAnySection(["products", "product_uploads"]), 
   try {
     const product = await Product.findById(req.params.id);
     if (!product) throw new AppError("Product not found", 404);
+    const wasActive = !!product.active;
     const body = req.body as Record<string, unknown>;
     const allowed = ["title", "description", "images", "price", "discountPrice", "bulkTiers", "currency", "stock", "outOfStock", "sku", "sizes", "allowResell", "categories", "tags", "active", "colors", "colorsManual"];
     for (const key of allowed) {
@@ -3890,8 +3919,17 @@ router.put("/products/:id", requireAnySection(["products", "product_uploads"]), 
       product.slug = slug;
     }
     syncQwertymatesMarkupAndResellerHintsFromProductState(product as any);
+    try {
+      applyFreeShippingUpdate(product as unknown as Record<string, unknown>, body);
+    } catch (err) {
+      throw new AppError(err instanceof Error ? err.message : "Invalid free shipping areas", 400);
+    }
     stripInrFromMongooseProductDoc(product as any);
     await product.save();
+    if (!wasActive && product.active) {
+      const { queueFacebookPostForProduct } = await import("../services/facebookMarketplacePostService");
+      queueFacebookPostForProduct(String(product._id), "admin-activate");
+    }
     if (
       body.images !== undefined &&
       body.colors === undefined &&
@@ -4047,6 +4085,92 @@ router.delete("/adverts/:id", async (req: AuthRequest, res: Response, next) => {
     next(err);
   }
 });
+
+// ——— WhatsApp pre-menu advert config (tier / fallback media when no SponsoredVideoAd) ———
+
+const WA_PREMENU_ADVERT_SECTIONS = ["adverts", "sponsored_video", "web_advertising"] as const;
+
+router.get(
+  "/wa-premenu-advert",
+  requireAnySection([...WA_PREMENU_ADVERT_SECTIONS]),
+  async (_req: AuthRequest, res: Response, next) => {
+    try {
+      const resolved = await getWaPreMenuAdvertConfigResolved();
+      const doc = await Setting.findOne({ key: WA_PREMENU_ADVERT_SETTING_KEY })
+        .select("value updatedAt updatedBy")
+        .populate("updatedBy", "name email")
+        .lean();
+      res.json({
+        data: {
+          ...resolved,
+          campaignScripts: WA_AD_CAMPAIGN_SCRIPTS,
+          bundledDefaults: {
+            silverSample: publicBundledWaPremenuSampleVideoUrl(),
+            acbpayA: publicBundledAcbpayVideoUrlA(),
+            acbpayB: publicBundledAcbpayVideoUrlB(),
+          },
+          raw: (doc as any)?.value || {},
+          updatedAt: (doc as any)?.updatedAt || null,
+          updatedBy: (doc as any)?.updatedBy || null,
+        },
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+router.put(
+  "/wa-premenu-advert",
+  requireAnySection([...WA_PREMENU_ADVERT_SECTIONS]),
+  async (req: AuthRequest, res: Response, next) => {
+    try {
+      const existingDoc = await Setting.findOne({ key: WA_PREMENU_ADVERT_SETTING_KEY }).lean();
+      const merged = mergeWaPreMenuAdvertPatch((existingDoc as any)?.value, req.body || {});
+      const tier = String(merged.tier || "silver").toLowerCase();
+      if (!["bronze", "silver", "gold"].includes(tier)) {
+        throw new AppError("tier must be bronze, silver, or gold", 400);
+      }
+      await Setting.findOneAndUpdate(
+        { key: WA_PREMENU_ADVERT_SETTING_KEY },
+        {
+          $set: {
+            value: merged,
+            description: "WhatsApp pre-menu advert tier, campaigns, and fallback media URLs",
+            updatedBy: req.user!._id,
+          },
+        },
+        { upsert: true, new: true }
+      );
+      invalidateWaPreMenuAdvertConfigCache();
+      const resolved = await getWaPreMenuAdvertConfigResolved();
+      await AuditLog.create({
+        action: "WA_PREMENU_ADVERT_UPDATED",
+        user: req.user!._id,
+        meta: { tier: resolved.tier, campaignMode: resolved.campaignMode },
+      });
+      res.json({ message: "WA pre-menu advert config updated", data: resolved });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+router.post(
+  "/wa-premenu-advert/media",
+  requireAnySection([...WA_PREMENU_ADVERT_SECTIONS]),
+  waPremenuMediaUpload.single("media"),
+  async (req: AuthRequest, res: Response, next) => {
+    try {
+      if (!req.file) throw new AppError("No file uploaded", 400);
+      const rel = encodeUploadsPublicPath(`/uploads/wa-adverts/${req.file.filename}`);
+      const absolute = `${FRONTEND_URL}${rel.startsWith("/") ? rel : `/${rel}`}`;
+      res.json({ url: absolute, path: rel });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
 
 // ——— Landing backgrounds (admin: upload backgrounds for login/register pages) ———
 

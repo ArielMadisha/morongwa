@@ -17,15 +17,22 @@ export default function ProtectedRoute({ children, allowedRoles }: ProtectedRout
   useEffect(() => {
     if (!loading && !user) {
       const returnTo = pathname ? `/login?returnTo=${encodeURIComponent(pathname)}` : '/login';
-      router.push(returnTo);
-    } else if (!loading && user && allowedRoles) {
+      const id = requestAnimationFrame(() => {
+        router.push(returnTo);
+      });
+      return () => cancelAnimationFrame(id);
+    }
+    if (!loading && user && allowedRoles) {
       const userRoles = Array.isArray(user.role) ? user.role : [user.role];
       const hasAllowedRole = userRoles.some(role => allowedRoles.includes(role));
       if (!hasAllowedRole) {
-        router.push('/wall');
+        const id = requestAnimationFrame(() => {
+          router.push('/wall');
+        });
+        return () => cancelAnimationFrame(id);
       }
     }
-  }, [user, loading, router, allowedRoles]);
+  }, [user, loading, router, allowedRoles, pathname]);
 
   if (loading) {
     return (

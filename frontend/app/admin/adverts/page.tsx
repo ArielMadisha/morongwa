@@ -14,6 +14,8 @@ import {
   CheckCircle,
   XCircle,
   ExternalLink,
+  Save,
+  Upload,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -33,6 +35,295 @@ interface Advert {
   active: boolean;
   order?: number;
   createdAt?: string;
+}
+
+type WaPremenuForm = {
+  tier: 'bronze' | 'silver' | 'gold';
+  campaignMode: string;
+  silverMediaUrl: string;
+  silverCaption: string;
+  goldMediaUrl: string;
+  goldCaption: string;
+  goldFeaturedPartnerLabel: string;
+  acbpayMediaUrlA: string;
+  acbpayMediaUrlB: string;
+  textOverrides: Record<string, string>;
+};
+
+const WA_CAMPAIGN_KEYS = ['marketplace', 'resellers', 'wallet', 'employment'] as const;
+
+function WaPremenuAdvertPanel() {
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [uploadField, setUploadField] = useState<string | null>(null);
+  const [bundled, setBundled] = useState<{ silverSample: string; acbpayA: string; acbpayB: string } | null>(null);
+  const [form, setForm] = useState<WaPremenuForm>({
+    tier: 'silver',
+    campaignMode: 'auto',
+    silverMediaUrl: '',
+    silverCaption: '',
+    goldMediaUrl: '',
+    goldCaption: '',
+    goldFeaturedPartnerLabel: '',
+    acbpayMediaUrlA: '',
+    acbpayMediaUrlB: '',
+    textOverrides: {},
+  });
+
+  const load = async () => {
+    try {
+      const res = await adminAPI.getWaPremenuAdvert();
+      const d = res.data?.data;
+      if (!d) return;
+      setForm({
+        tier: d.tier,
+        campaignMode: d.campaignMode,
+        silverMediaUrl: d.silverMediaUrl || '',
+        silverCaption: d.silverCaption || '',
+        goldMediaUrl: d.goldMediaUrl || '',
+        goldCaption: d.goldCaption || '',
+        goldFeaturedPartnerLabel: d.goldFeaturedPartnerLabel || '',
+        acbpayMediaUrlA: d.acbpayMediaUrlA || '',
+        acbpayMediaUrlB: d.acbpayMediaUrlB || '',
+        textOverrides: { ...(d.textOverrides || {}) },
+      });
+      setBundled(d.bundledDefaults || null);
+    } catch {
+      toast.error('Failed to load WhatsApp pre-menu advert settings');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    load();
+  }, []);
+
+  const save = async () => {
+    try {
+      setSaving(true);
+      await adminAPI.updateWaPremenuAdvert({
+        tier: form.tier,
+        campaignMode: form.campaignMode,
+        silverMediaUrl: form.silverMediaUrl || null,
+        silverCaption: form.silverCaption || null,
+        goldMediaUrl: form.goldMediaUrl || null,
+        goldCaption: form.goldCaption || null,
+        goldFeaturedPartnerLabel: form.goldFeaturedPartnerLabel || null,
+        acbpayMediaUrlA: form.acbpayMediaUrlA || null,
+        acbpayMediaUrlB: form.acbpayMediaUrlB || null,
+        textOverrides: form.textOverrides,
+      });
+      toast.success('WhatsApp pre-menu advert saved');
+      await load();
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'Save failed');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const uploadMedia = async (field: keyof WaPremenuForm, file: File) => {
+    try {
+      setUploadField(field);
+      const res = await adminAPI.uploadWaPremenuMedia(file);
+      const url = res.data?.url || res.data?.data?.url;
+      if (!url) throw new Error('No URL returned');
+      setForm((f) => ({ ...f, [field]: url }));
+      toast.success('Media uploaded');
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || err.message || 'Upload failed');
+    } finally {
+      setUploadField(null);
+    }
+  };
+
+  return (
+    <section className="mb-8 rounded-2xl border border-emerald-100 bg-white/90 p-6 shadow-sm">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h2 className="text-lg font-semibold text-slate-900">WhatsApp pre-menu adverts</h2>
+          <p className="mt-1 text-sm text-slate-600">
+            Fallback when no active{' '}
+            <Link href="/admin/sponsored-video" className="font-semibold text-emerald-700 hover:underline">
+              Sponsored video
+            </Link>{' '}
+            matches the menu branch. <strong>Bronze</strong> = text only; <strong>Silver/Gold</strong> = video clip
+            before the menu (options 2–7, welcome, etc.).
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={save}
+          disabled={saving || loading}
+          className="inline-flex items-center gap-2 rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
+        >
+          {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+          Save WA settings
+        </button>
+      </div>
+
+      {loading ? (
+        <div className="flex justify-center py-10">
+          <Loader2 className="h-7 w-7 animate-spin text-emerald-600" />
+        </div>
+      ) : (
+        <div className="mt-5 grid gap-4 lg:grid-cols-2">
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Tier</label>
+            <select
+              value={form.tier}
+              onChange={(e) => setForm((f) => ({ ...f, tier: e.target.value as WaPremenuForm['tier'] }))}
+              className="w-full rounded-lg border border-slate-200 px-3 py-2"
+            >
+              <option value="bronze">Bronze — campaign text only</option>
+              <option value="silver">Silver — sample / silver video</option>
+              <option value="gold">Gold — featured partner video</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Campaign mode</label>
+            <select
+              value={form.campaignMode}
+              onChange={(e) => setForm((f) => ({ ...f, campaignMode: e.target.value }))}
+              className="w-full rounded-lg border border-slate-200 px-3 py-2"
+            >
+              <option value="auto">Auto (calendar / weekday rotation)</option>
+              <option value="marketplace">Marketplace</option>
+              <option value="resellers">Resellers</option>
+              <option value="wallet">Wallet / ACBPay</option>
+              <option value="employment">Employment / errands</option>
+            </select>
+          </div>
+
+          {(form.tier === 'silver' || form.tier === 'gold') && (
+            <>
+              <div className="lg:col-span-2">
+                <label className="block text-sm font-medium text-slate-700 mb-1">Silver video URL (HTTPS MP4)</label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={form.silverMediaUrl}
+                    onChange={(e) => setForm((f) => ({ ...f, silverMediaUrl: e.target.value }))}
+                    className="flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                    placeholder={bundled?.silverSample || 'https://www.qwertymates.com/wa-adverts/...'}
+                  />
+                  <label className="inline-flex cursor-pointer items-center gap-1 rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
+                    <Upload className="h-4 w-4" />
+                    {uploadField === 'silverMediaUrl' ? '…' : 'Upload'}
+                    <input
+                      type="file"
+                      accept="video/mp4,video/quicktime,image/*"
+                      className="hidden"
+                      onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        if (f) void uploadMedia('silverMediaUrl', f);
+                        e.target.value = '';
+                      }}
+                    />
+                  </label>
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Silver caption</label>
+                <textarea
+                  value={form.silverCaption}
+                  onChange={(e) => setForm((f) => ({ ...f, silverCaption: e.target.value }))}
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2 min-h-[72px] text-sm"
+                />
+              </div>
+              {form.tier === 'gold' && (
+                <>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Gold video URL</label>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={form.goldMediaUrl}
+                        onChange={(e) => setForm((f) => ({ ...f, goldMediaUrl: e.target.value }))}
+                        className="flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                      />
+                      <label className="inline-flex cursor-pointer items-center gap-1 rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
+                        <Upload className="h-4 w-4" />
+                        {uploadField === 'goldMediaUrl' ? '…' : 'Upload'}
+                        <input
+                          type="file"
+                          accept="video/mp4,video/quicktime"
+                          className="hidden"
+                          onChange={(e) => {
+                            const f = e.target.files?.[0];
+                            if (f) void uploadMedia('goldMediaUrl', f);
+                            e.target.value = '';
+                          }}
+                        />
+                      </label>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Gold featured partner label</label>
+                    <input
+                      type="text"
+                      value={form.goldFeaturedPartnerLabel}
+                      onChange={(e) => setForm((f) => ({ ...f, goldFeaturedPartnerLabel: e.target.value }))}
+                      className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                    />
+                  </div>
+                  <div className="lg:col-span-2">
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Gold caption</label>
+                    <textarea
+                      value={form.goldCaption}
+                      onChange={(e) => setForm((f) => ({ ...f, goldCaption: e.target.value }))}
+                      className="w-full rounded-lg border border-slate-200 px-3 py-2 min-h-[72px] text-sm"
+                    />
+                  </div>
+                </>
+              )}
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">ACBPay video A (menu 5 / wallet)</label>
+                <input
+                  type="text"
+                  value={form.acbpayMediaUrlA}
+                  onChange={(e) => setForm((f) => ({ ...f, acbpayMediaUrlA: e.target.value }))}
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                  placeholder={bundled?.acbpayA}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">ACBPay video B</label>
+                <input
+                  type="text"
+                  value={form.acbpayMediaUrlB}
+                  onChange={(e) => setForm((f) => ({ ...f, acbpayMediaUrlB: e.target.value }))}
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                  placeholder={bundled?.acbpayB}
+                />
+              </div>
+            </>
+          )}
+
+          <div className="lg:col-span-2 space-y-3">
+            <p className="text-sm font-medium text-slate-800">Campaign copy overrides (bronze tier + caption fallback)</p>
+            {WA_CAMPAIGN_KEYS.map((key) => (
+              <div key={key}>
+                <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 mb-1">{key}</label>
+                <textarea
+                  value={form.textOverrides[key] || ''}
+                  onChange={(e) =>
+                    setForm((f) => ({
+                      ...f,
+                      textOverrides: { ...f.textOverrides, [key]: e.target.value },
+                    }))
+                  }
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2 min-h-[64px] text-sm"
+                  placeholder={`Default script used when empty`}
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </section>
+  );
 }
 
 function AdvertsManagement() {
@@ -194,13 +485,17 @@ function AdvertsManagement() {
 
       <main className="mx-auto max-w-6xl px-6 py-8">
         <div className="mb-6 rounded-xl border border-amber-100 bg-amber-50/80 px-4 py-3 text-sm text-amber-950">
-          <strong className="font-semibold">Reminder:</strong> Twilio Studio decides <em>when</em> a WhatsApp step runs; this
-          page does not configure that. After your flow calls the sponsored API with a placement key, the creative comes from{' '}
+          <strong className="font-semibold">Reminder:</strong> Twilio Studio decides <em>when</em> a WhatsApp step runs. After
+          your flow calls the backend, the creative comes from{' '}
           <Link href="/admin/sponsored-video" className="font-semibold text-amber-900 underline">
-            /admin/sponsored-video
-          </Link>
-          .
+            Sponsored video
+          </Link>{' '}
+          first, then the fallback block below when no sponsored ad matches.
         </div>
+
+        <WaPremenuAdvertPanel />
+
+        <h2 className="mb-4 text-lg font-semibold text-slate-900">Wall feed slot adverts</h2>
 
         {loading ? (
           <div className="flex justify-center py-16">

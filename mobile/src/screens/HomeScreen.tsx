@@ -182,7 +182,7 @@ export function HomeScreen() {
             peerUserId: call.callerId,
             roomId: call.roomId,
             autoJoin: true,
-            audioOnly: false,
+            audioOnly: !!call.audioOnly,
             answerIncoming: true,
             callerId: call.callerId,
           });

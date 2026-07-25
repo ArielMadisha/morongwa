@@ -76,5 +76,10 @@ export function assertWebrtcRoomAccess(roomId: string, userId: string): void {
     return;
   }
 
+  /** Morongwa Meet — any signed-in user who obtained the meeting ID may join. */
+  if (rid.startsWith("meeting-")) {
+    return;
+  }
+
   throw new Error("Forbidden");
 }

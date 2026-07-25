@@ -1,0 +1,28 @@
+---
+description: After mobile app code changes, always EAS build + Play submit without asking
+alwaysApply: true
+---
+
+# Mobile ship without asking
+
+**Owner policy — same class as deploy-after-changes.** When you change **mobile app behavior** (UI, auth, API client, wallet screens, calls, etc.) in either:
+
+- `morongwa/mobile/` (Qwertymates — `com.qwertymates`)
+- sibling `ACBPayWallet/mobile/` (ACBPay — `com.acbpay.wallet`)
+
+…complete the **full** pipeline yourself. Do **not** stop at “reload Expo” or ask “want me to submit?”.
+
+## Required pipeline
+
+1. **Test** — `npm run typecheck` in that app’s `mobile/` folder.
+2. **Version** — bump `app.json` `expo.version` for user-visible releases when appropriate (EAS `autoIncrement` handles Android `versionCode`).
+3. **Build** — `npm run build:android:production` (or `release:android:play`).
+4. **Submit** — `npm run submit:android:production:by-build-id -- <BUILD_ID>` (prefer by build id) or `submit:android:production`.
+5. **Report** — version, versionCode, EAS build URL, Play submission URL.
+6. **Email** — include outcome in `ops:email-change-summary` from `morongwa/backend/`.
+
+## Do not
+
+- Ask the user for permission to build/submit after mobile changes.
+- Leave shippable mobile fixes as Expo Go / “reload the app” only when credentials exist.
+- Skip Play submit after a successful production AAB unless blocked (quota, Play Console declaration, missing service account) — then report the exact blocker and retry path.
