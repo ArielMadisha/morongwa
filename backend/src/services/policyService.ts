@@ -360,30 +360,67 @@ For catalogue or payout questions, use **in-app support** and reference your **a
   },
   {
     slug: "acceptable-use",
-    title: "Acceptable Use & Community Guidelines",
+    title: "Community Rules",
     category: "conduct",
     visibility: "public",
     countryScope: ["ZA", "BW", "LS", "NA", "ZW", "ZM"],
-    tags: ["safety", "conduct", "stores", "resellers"],
-    summary: "Bans illegal/unsafe tasks, harassment, discrimination, deceptive listings, rating abuse; store and reseller guidelines; Morongwa-TV prohibited content.",
-    content: `# Acceptable Use & Community Guidelines
+    tags: ["safety", "conduct", "community", "qwertytv", "stores", "resellers"],
+    summary:
+      "Standards for respect, safety, honest commerce, and fair use of QwertyTV, QwertyHub, music, and wallet features. Violations may lead to content removal or account suspension.",
+    content: `# Community Rules
 
-## General Conduct
-- No illegal, unsafe, or violent tasks.
-- No harassment, hate, or discrimination.
-- No deceptive listings or fraud.
-- No rating manipulation or spam.
-- Comply with local laws and platform safety rules.
+These Community Rules describe how members are expected to behave on Qwertymates (web, mobile, and WhatsApp). They are published for everyone to read. Breaking them may result in content removal, feature limits, or account suspension.
 
-## Stores & Resellers (MyStore)
+## 1. Be respectful
+- Treat other members, shops, runners, and staff with respect.
+- No harassment, bullying, threats, hate speech, or discrimination.
+- No doxxing or sharing someone else's private information without consent.
+
+## 2. Keep the community safe
+- No illegal activity, scams, or instructions that help others break the law.
+- No violent, pornographic, exploitative, or otherwise prohibited content on QwertyTV, stories, comments, or messages.
+- Do not post content involving minors in a sexual, abusive, or unsafe context.
+- Report harmful content instead of amplifying it.
+
+## 3. Be honest on QwertyHub & commerce
+- Product and menu listings must be accurate (photos, price, stock, description).
+- No fake reviews, rating manipulation, or spam promotions.
+- Resellers must use **Resell** on existing catalog products — do not pretend supplier inventory is yours without verification.
+- Shop owners / suppliers upload their own products and remain responsible for fulfilment quality.
+
+## 4. Stores & Resellers (MyStore)
 - **Store creation:** A store is created automatically when you add a product to MyStore from QwertyHub (Add to MyStore). Stores are not created for every user—only when you resell.
 - **Store name:** Created automatically (e.g. "My Store"); you can edit it via the Edit button in MyStore.
 - **Store details:** Store owners may add address, email, cellphone, WhatsApp, and a strip background image via the Edit button.
 - **Physical products:** If your store was created by reselling and you want to add your own physical products, you must first get verified as a supplier. Reseller-only stores cannot list physical inventory until supplier verification is complete.
 - **MyStore:** Products you add from QwertyHub appear in MyStore and on your public storefront (Home). Use "Explore products for resale" in MyStore to browse QwertyHub and add more products.
 
-## Morongwa-TV
-- No sexual, pornographic, violent, or sensitive content (e.g. hacked victim imagery). Automated moderation may detect and block such content; users may report posts. Content showing prohibited material will be removed; repeat offenders may be suspended.`,
+## 5. Protect payments & accounts
+- Do not attempt fraud, chargeback abuse, wallet manipulation, or money-mule activity.
+- Do not share your password or OTP codes. You are responsible for activity on your account.
+- Cash send/receive and merchant features must follow local law and platform KYC/AML checks.
+
+## 6. Fair use of QwertyTV, Music & World
+- No sexual, pornographic, violent, or sensitive content (e.g. hacked victim imagery). Automated moderation may detect and block such content; users may report posts.
+- No stolen copyrighted media you do not have rights to publish.
+- No artificial view inflation, bot farms, or coordinated abuse of algorithms.
+- Music used as themes or posts must respect artist rights and the sound library rules.
+- Do not spam hashtags, comments, or messages.
+
+## 7. Platform integrity
+- Do not attempt to hack, scrape abusively, or disrupt Qwertymates services.
+- Do not create multiple accounts to evade suspension or limits.
+- Follow staff instructions during disputes and investigations.
+
+## 8. Enforcement
+- We may remove content, restrict features, or suspend accounts that break these rules.
+- Serious or repeated violations may lead to permanent suspension.
+- Appeals: email **support@qwertymates.com** with your username and a short explanation.
+
+## 9. Updates
+- We may update Community Rules from time to time. The latest version is always available at [/policies/acceptable-use](/policies/acceptable-use).
+- Related policies: [Terms of Service](/policies/terms-of-service), [Privacy Policy](/policies/privacy-policy).
+`,
   },
   {
     slug: "ratings-reviews",

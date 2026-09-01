@@ -36,6 +36,14 @@ import {
 } from "../utils/tvHashtags";
 import { userPublicDisplayName } from "../utils/userDisplayLabel";
 import {
+  actorDisplayName,
+  hydrateTaggedUsers,
+  mapTaggedUsersForClient,
+  notifyTaggedUsers,
+  resolveTaggedUserIds,
+  taggedIdsFromPost,
+} from "../utils/tvUserTags";
+import {
   filterTvPostsWithAvailableMedia,
   pruneTvPostMedia,
   resolveUploadedTvFilePath,
@@ -69,6 +77,11 @@ router.use((req, _res, next) => {
 const CREATOR_POPULATE_SELECT =
   "name username email avatar storeSlug isSchoolAccount profileGalleryUrls";
 
+const TAGGED_USER_POPULATE = {
+  path: "taggedUserIds",
+  select: "name username avatar isSchoolAccount",
+};
+
 /** Cart stepper on wall/TV needs colors/sizes to avoid 400 when adding to cart. */
 const TV_PRODUCT_POPULATE_SELECT =
   "title description price discountPrice images currency allowResell supplierId colors sizes outOfStock stock freeShippingEnabled freeShippingAreas bulkTiers";
@@ -101,15 +114,18 @@ function mapPopulatedCreatorDisplay(post: any): any {
   ) {
     schoolAware.avatar = mediaFirst;
   }
-  return {
-    ...post,
-    creatorId: withCreatorDisplayName({
-      ...schoolAware,
-      username: schoolAware.username as string | undefined,
-      name: schoolAware.name as string | undefined,
-      email: schoolAware.email as string | undefined,
-    }),
-  };
+  return mapTaggedUsersForClient(
+    {
+      ...post,
+      creatorId: withCreatorDisplayName({
+        ...schoolAware,
+        username: schoolAware.username as string | undefined,
+        name: schoolAware.name as string | undefined,
+        email: schoolAware.email as string | undefined,
+      }),
+    },
+    withCreatorDisplayName
+  );
 }
 
 /** Remap school-gallery TV media to the creator's synced folder before availability checks. */
@@ -419,9 +435,10 @@ async function attachResellerWallMarkup(posts: any[]): Promise<void> {
 function buildSortedFeedQuery(match: Record<string, unknown>, sort: string) {
   let query = TVPost.find(match)
     .select(
-      "creatorId type mediaUrls caption heading subject hashtags productId artworkUrl songId filter genre hasWatermark originalPostId repostedBy feedActivity status sensitive likeCount commentCount shareCount viewCount createdAt updatedAt isAiNews newsCategory"
+      "creatorId type mediaUrls caption heading subject hashtags taggedUserIds productId artworkUrl songId filter genre hasWatermark originalPostId repostedBy feedActivity status sensitive likeCount commentCount shareCount viewCount createdAt updatedAt isAiNews newsCategory"
     )
     .populate("creatorId", CREATOR_POPULATE_SELECT)
+    .populate(TAGGED_USER_POPULATE)
     .populate(TV_PRODUCT_POPULATE)
     .populate("songId", "title artist artworkUrl downloadEnabled downloadPrice");
 
@@ -434,7 +451,8 @@ function buildSortedFeedQuery(match: Record<string, unknown>, sort: string) {
 }
 
 async function prepareVisibleFeedPosts(rawPosts: any[]): Promise<any[]> {
-  const posts = await enrichAudioPostsWithSongArtwork(rawPosts);
+  const withTags = await hydrateTaggedUsers(rawPosts);
+  const posts = await enrichAudioPostsWithSongArtwork(withTags);
   await attachResellerWallMarkup(posts);
   return filterTvPostsWithAvailableMedia(prepareFeedPostsForClient(posts)).filter(
     (post) => !isIncompleteAiNewsPost(post as { isAiNews?: boolean; heading?: string; subject?: string; caption?: string })
@@ -826,6 +844,32 @@ router.get("/statuses", authenticateOptional, async (req: AuthRequest, res: Resp
   }
 });
 
+/** Canonical QwertyTV genres, surfaced as chips on web and mobile. */
+export const TV_GENRES = [
+  { id: "live", label: "Live TV", desc: "Live channels and streaming right now" },
+  { id: "comedy", label: "Comedy", desc: "Sitcoms, sketches, dark comedy, mockumentary" },
+  { id: "drama", label: "Drama", desc: "Emotional, character-driven storytelling" },
+  {
+    id: "qwertz",
+    label: "Qwertz",
+    desc: "Short-form, vertical, full-screen video for entertaining, fast-paced content, often set to music or trending audio",
+  },
+  { id: "action", label: "Action/Adventure", desc: "Superhero, spy, or high-stakes action" },
+  { id: "sport", label: "Sport", desc: "Football, cricket, rugby, athletics, and live sports highlights" },
+  { id: "scifi", label: "Science Fiction & Fantasy", desc: "Dystopian, space opera, magical, or supernatural" },
+  { id: "thriller", label: "Thriller & Mystery", desc: "True crime, detective, or suspenseful shows" },
+  { id: "reality", label: "Reality TV", desc: "Competition, lifestyle, or documentary-style" },
+  { id: "family", label: "Children & Family", desc: "Animation or educational" },
+  { id: "nature", label: "Nature", desc: "Wildlife, landscapes, conservation, and outdoor storytelling" },
+  { id: "history", label: "History", desc: "Historical figures, heritage, archives, and educational storytelling" },
+  { id: "podcast", label: "Podcasts", desc: "Audio episodes cross-posted from QwertyPodcasts" },
+] as const;
+
+// GET /api/tv/genres - genre chips for the QwertyTV catalog
+router.get("/genres", (_req: express.Request, res: Response) => {
+  res.json({ data: TV_GENRES });
+});
+
 // GET /api/tv/hashtags/trending - hashtags ranked by recent usage (default: last 7 days)
 router.get("/hashtags/trending", async (req: express.Request, res: Response, next) => {
   try {
@@ -998,8 +1042,18 @@ router.get("/", authenticateOptional, async (req: AuthRequest, res: Response, ne
       }
     }
     const genreParam = (req.query.genre as string)?.trim();
-    if (genreParam && genreParam !== "qwertz") {
-      (match as any).genre = genreParam;
+    if (genreParam && genreParam !== "all") {
+      if (genreParam === "qwertz") {
+        // Qwertz = short-form vertical video. Surface posts tagged/authored as Qwertz;
+        // the standalone Qwertz service exports into this catalog with the same markers.
+        (match as any).type = "video";
+        (match as any).$and = [
+          ...((match as any).$and ?? []),
+          { $or: [{ genre: "qwertz" }, { hashtags: { $in: [/^qwertz$/i] } }] },
+        ];
+      } else {
+        (match as any).genre = genreParam;
+      }
     }
     const qRaw = (req.query.q as string)?.trim();
     const q = qRaw?.replace(/^#/, "") ?? "";
@@ -1014,7 +1068,20 @@ router.get("/", authenticateOptional, async (req: AuthRequest, res: Response, ne
     }
     const creatorIdParam = req.query.creatorId as string;
     if (creatorIdParam && mongoose.Types.ObjectId.isValid(creatorIdParam)) {
-      match.creatorId = new mongoose.Types.ObjectId(creatorIdParam);
+      const oid = new mongoose.Types.ObjectId(creatorIdParam);
+      const taggedOr = [{ creatorId: oid }, { taggedUserIds: oid }];
+      if ((match as any).$or) {
+        (match as any).$and = [
+          ...((match as any).$and ?? []),
+          { $or: (match as any).$or },
+          { $or: taggedOr },
+        ];
+        delete (match as any).$or;
+      } else if ((match as any).$and) {
+        (match as any).$and = [...(match as any).$and, { $or: taggedOr }];
+      } else {
+        (match as any).$or = taggedOr;
+      }
     }
 
     const cacheKey = tvFeedCacheKey(req);
@@ -1304,7 +1371,7 @@ router.get("/products/featured", authenticateOptional, async (req: AuthRequest, 
 // POST /api/tv - create post
 router.post("/", authenticate, async (req: AuthRequest, res: Response, next) => {
   try {
-    const { type, mediaUrls, caption, heading, subject, hashtags, productId, filter, genre, artworkUrl, songId, sensitive } = req.body;
+    const { type, mediaUrls, caption, heading, subject, hashtags, taggedUserIds: taggedUserIdsRaw, productId, filter, genre, artworkUrl, songId, sensitive } = req.body;
     if (!type) throw new AppError("type required", 400);
     if (!["video", "image", "carousel", "product", "text", "audio"].includes(type)) throw new AppError("Invalid type", 400);
     const isTextPost = type === "text";
@@ -1353,6 +1420,11 @@ router.post("/", authenticate, async (req: AuthRequest, res: Response, next) => 
       trimmedSubject,
       trimmedHeading
     );
+    const taggedUserIds = await resolveTaggedUserIds({
+      actorId: String(req.user!._id),
+      explicitIds: taggedUserIdsRaw,
+      texts: [trimmedCaption, trimmedHeading, trimmedSubject],
+    });
 
     const post = await TVPost.create({
       creatorId: req.user!._id,
@@ -1362,6 +1434,7 @@ router.post("/", authenticate, async (req: AuthRequest, res: Response, next) => 
       heading: trimmedHeading,
       subject: trimmedSubject,
       hashtags: resolvedHashtags,
+      taggedUserIds,
       productId: productId || undefined,
       artworkUrl: isAudioPost && artworkUrl ? String(artworkUrl).trim() : undefined,
       songId: resolvedSongId,
@@ -1389,9 +1462,20 @@ router.post("/", authenticate, async (req: AuthRequest, res: Response, next) => 
     }
     const populated = await TVPost.findById(post._id)
       .populate("creatorId", CREATOR_POPULATE_SELECT)
+      .populate(TAGGED_USER_POPULATE)
       .populate("productId", TV_PRODUCT_POPULATE_SELECT)
       .populate("songId", "title artist artworkUrl downloadEnabled downloadPrice")
       .lean();
+    if (taggedUserIds.length) {
+      void notifyTaggedUsers({
+        actorId: String(req.user!._id),
+        actorName: actorDisplayName(req.user as { name?: string; username?: string; email?: string }),
+        postId: String(post._id),
+        postType: type,
+        taggedIds: taggedUserIds,
+        kind: "post",
+      });
+    }
     bumpStatusStripCache();
     res.status(201).json({ data: populated ? mapPopulatedCreatorDisplay(populated) : populated });
   } catch (err) {
@@ -1514,7 +1598,8 @@ router.patch("/:id", authenticate, async (req: AuthRequest, res: Response, next:
     if (String(creatorId) !== String(req.user!._id)) throw new AppError("You can only edit your own posts", 403);
     if (post.originalPostId) throw new AppError("Reposts cannot be edited", 400);
 
-    const { caption, heading, subject, hashtags, filter, genre } = req.body ?? {};
+    const { caption, heading, subject, hashtags, taggedUserIds: taggedUserIdsRaw, filter, genre } = req.body ?? {};
+    const previousTagged = taggedIdsFromPost(post);
     if (caption !== undefined) post.caption = String(caption).trim().slice(0, 4000) || undefined;
     if (heading !== undefined) post.heading = String(heading).trim().slice(0, 500) || undefined;
     if (subject !== undefined) post.subject = String(subject).trim().slice(0, 8000) || undefined;
@@ -1528,14 +1613,36 @@ router.patch("/:id", authenticate, async (req: AuthRequest, res: Response, next:
     }
     if (filter !== undefined) post.filter = String(filter).trim() || undefined;
     if (genre !== undefined) post.genre = String(genre).trim() || undefined;
+    if (
+      taggedUserIdsRaw !== undefined ||
+      caption !== undefined ||
+      subject !== undefined ||
+      heading !== undefined
+    ) {
+      post.taggedUserIds = await resolveTaggedUserIds({
+        actorId: String(req.user!._id),
+        explicitIds: taggedUserIdsRaw !== undefined ? taggedUserIdsRaw : previousTagged,
+        texts: [post.caption, post.heading, post.subject],
+      });
+    }
 
     await post.save();
     const populated = await TVPost.findById(post._id)
       .populate("creatorId", CREATOR_POPULATE_SELECT)
+      .populate(TAGGED_USER_POPULATE)
       .populate("productId", TV_PRODUCT_POPULATE_SELECT)
       .populate("songId", "title artist artworkUrl downloadEnabled downloadPrice")
       .lean();
-    res.json({ data: populated });
+    void notifyTaggedUsers({
+      actorId: String(req.user!._id),
+      actorName: actorDisplayName(req.user as { name?: string; username?: string; email?: string }),
+      postId: String(post._id),
+      postType: post.type,
+      taggedIds: taggedIdsFromPost(post),
+      previousIds: previousTagged,
+      kind: "post",
+    });
+    res.json({ data: populated ? mapPopulatedCreatorDisplay(populated) : populated });
   } catch (err) {
     next(err);
   }
@@ -1585,7 +1692,7 @@ router.delete("/:id", authenticate, async (req: AuthRequest, res: Response, next
 router.get("/:id/comments", async (req: express.Request, res: Response, next) => {
   try {
     const comments = await TVComment.find({ postId: req.params.id, status: "visible" })
-      .populate("userId", "name avatar")
+      .populate("userId", "name username avatar")
       .sort({ createdAt: 1 })
       .lean();
     res.json({ data: comments });
@@ -1610,7 +1717,23 @@ router.post("/:id/comments", authenticate, async (req: AuthRequest, res: Respons
       audioUrl: audioUrl || undefined,
     });
     await TVPost.findByIdAndUpdate(post._id, { $inc: { commentCount: 1 } });
-    const populated = await TVComment.findById(comment._id).populate("userId", "name avatar").lean();
+    if (rawText) {
+      const mentioned = await resolveTaggedUserIds({
+        actorId: String(req.user!._id),
+        texts: [rawText],
+      });
+      if (mentioned.length) {
+        void notifyTaggedUsers({
+          actorId: String(req.user!._id),
+          actorName: actorDisplayName(req.user as { name?: string; username?: string; email?: string }),
+          postId: String(post._id),
+          postType: post.type,
+          taggedIds: mentioned,
+          kind: "comment",
+        });
+      }
+    }
+    const populated = await TVComment.findById(comment._id).populate("userId", "name username avatar").lean();
     res.status(201).json({ data: populated });
   } catch (err) {
     next(err);
@@ -1639,12 +1762,14 @@ router.get("/:id", async (req: express.Request, res: Response, next) => {
 
     let post = await TVPost.findOne({ _id: req.params.id, status: "approved" })
       .populate("creatorId", CREATOR_POPULATE_SELECT)
+      .populate(TAGGED_USER_POPULATE)
       .populate(TV_PRODUCT_POPULATE)
       .populate("songId", "title artist artworkUrl downloadEnabled downloadPrice")
       .lean();
     if (!post && mongoose.Types.ObjectId.isValid(req.params.id)) {
       post = await TVPost.findById(req.params.id)
         .populate("creatorId", CREATOR_POPULATE_SELECT)
+        .populate(TAGGED_USER_POPULATE)
         .populate(TV_PRODUCT_POPULATE)
         .populate("songId", "title artist artworkUrl downloadEnabled downloadPrice")
         .lean();

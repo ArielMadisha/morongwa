@@ -60,7 +60,28 @@ function LoginForm() {
       if (typeof window !== 'undefined') {
         returnTo = new URLSearchParams(window.location.search).get('returnTo');
       }
-      const target = returnTo && returnTo.startsWith('/') && !returnTo.startsWith('//') ? returnTo : '/wall';
+      let target = returnTo && returnTo.startsWith('/') && !returnTo.startsWith('//') ? returnTo : '/wall';
+      // After mobile PayGate → unauthenticated /checkout/return → /login, prefer order page when paid.
+      try {
+        if (target.startsWith('/checkout/return')) {
+          const orderId = new URL(target, 'https://www.qwertymates.com').searchParams.get('orderId');
+          if (orderId && !orderId.startsWith('MUSIC-')) {
+            const { checkoutAPI } = await import('@/lib/api');
+            const st = await checkoutAPI.getPaymentStatus(orderId);
+            const status = String((st.data as { data?: { status?: string } })?.data?.status || '').toLowerCase();
+            if (status === 'paid') {
+              target = `/checkout/order/${orderId}`;
+            } else {
+              target = `/checkout/return?orderId=${encodeURIComponent(orderId)}`;
+            }
+          }
+        } else if (target === '/checkout' || target.startsWith('/checkout?')) {
+          // Do not dump users back onto empty checkout after a completed payment.
+          target = '/cart';
+        }
+      } catch {
+        /* keep target */
+      }
       // Allow React state and localStorage to settle before navigation
       await new Promise((r) => setTimeout(r, 50));
       router.push(target);

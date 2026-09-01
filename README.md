@@ -188,7 +188,31 @@ Push-Location "C:\Users\Dell\OneDrive - \Documents\Coding\Morongwa\backend"; npm
 
 ## 📚 Documentation
 
-- **[WhatsApp & SMS Integration](docs/WHATSAPP_SMS_INTEGRATION.md)** – OTP delivery via Twilio (SMS) and WhatsApp Cloud API, plus username auto-generation.
+All project docs live under **[DOCS/](DOCS/README.md)** (plans, escrow, tracking, ops, WhatsApp, mobile, dropshipping, etc.). Package-local READMEs stay with `frontend/`, `mobile/`, and `standalone/*/`.
+
+| Area | Start here |
+|------|------------|
+| Index | [DOCS/README.md](DOCS/README.md) |
+| Production deploy | [DOCS/ops/DEPLOYMENT.md](DOCS/ops/DEPLOYMENT.md) |
+| WhatsApp & SMS | [DOCS/WHATSAPP_SMS_INTEGRATION.md](DOCS/WHATSAPP_SMS_INTEGRATION.md) |
+| Escrow | [DOCS/escrow/ESCROW_QUICKSTART.md](DOCS/escrow/ESCROW_QUICKSTART.md) |
+| Runner tracking | [DOCS/tracking/QUICKSTART_TRACKING.md](DOCS/tracking/QUICKSTART_TRACKING.md) |
+| School gallery (daily) | [DOCS/SCHOOL_GALLERY_DAILY_IMPORT.md](DOCS/SCHOOL_GALLERY_DAILY_IMPORT.md) |
+
+### Secrets & deploy config (never commit)
+
+Copy examples at the repo root, then fill locally (gitignored):
+
+```bash
+cp deploy-server.config.example deploy-server.config
+cp deploy-server.secrets.example deploy-server.secrets
+```
+
+Also keep `backend/.env` / `frontend/.env` / `mobile/.env` local-only. Large deploy tarballs and `Qwertymates-backups/` belong outside the repo (e.g. OneDrive `Documents/Qwertymates-Archives/`).
+
+### Monorepo scripts
+
+Root `scripts/` holds cross-package deploy helpers (`deploy-to-server.ps1`, `publish-frontend-test.ps1`, etc.). Backend/ops automation lives in `backend/scripts/` (deploy, remote health, security scans).
 
 ## 📚 API Documentation
 
@@ -322,7 +346,7 @@ npm test
 
 ## 📦 Deployment
 
-See [DEPLOYMENT.md](DEPLOYMENT.md) for comprehensive deployment instructions.
+See [DOCS/ops/DEPLOYMENT.md](DOCS/ops/DEPLOYMENT.md) for comprehensive deployment instructions.
 
 ### Quick Deploy
 
@@ -418,8 +442,8 @@ For support, email tshipla3@gmail.com or create an issue in the repository.
 
 ## 🔗 Links
 
-- **Production**: https://http://172.236.187.173:3001/
-- **API Docs**: https://api.morongwa.com/docs
+- **Production**: https://www.qwertymates.com/
+- **API**: https://api.qwertymates.com/
 - **Repository**: https://github.com/ArielMadisha/morongwa
 
 ---

@@ -141,6 +141,7 @@ router.put("/:id", authenticate, async (req: AuthRequest, res: Response, next) =
       cellphone?: string;
       whatsapp?: string;
       stripBackgroundPic?: string;
+      vertical?: string;
     };
     const store = await Store.findOne({ _id: id, userId: req.user!._id });
     if (!store) throw new AppError("Store not found", 404);

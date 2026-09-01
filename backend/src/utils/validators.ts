@@ -1,13 +1,40 @@
 // Joi validation schemas for request validation
 import Joi from "joi";
 
+/** Accept YYYY-MM-DD or compact YYYYMMDD (common on mobile keyboards). */
+export function normalizeDateOfBirthInput(raw: unknown): string {
+  const s = String(raw ?? "").trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  const digits = s.replace(/\D/g, "");
+  if (digits.length === 8) {
+    return `${digits.slice(0, 4)}-${digits.slice(4, 6)}-${digits.slice(6, 8)}`;
+  }
+  return s;
+}
+
 export const registerSchema = Joi.object({
   name: Joi.string().min(2).max(100).required(),
   email: Joi.string().email().optional(),
   username: Joi.string().min(2).max(30).pattern(/^[a-zA-Z0-9_]+$/).optional(),
   password: Joi.string().min(8).required(),
   dateOfBirth: Joi.string()
-    .pattern(/^\d{4}-\d{2}-\d{2}$/)
+    .custom((value, helpers) => {
+      const normalized = normalizeDateOfBirthInput(value);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
+        return helpers.error("string.pattern.base");
+      }
+      const [y, m, d] = normalized.split("-").map((n) => parseInt(n, 10));
+      const dt = new Date(Date.UTC(y, m - 1, d));
+      if (
+        Number.isNaN(dt.getTime()) ||
+        dt.getUTCFullYear() !== y ||
+        dt.getUTCMonth() !== m - 1 ||
+        dt.getUTCDate() !== d
+      ) {
+        return helpers.error("string.pattern.base");
+      }
+      return normalized;
+    })
     .required()
     .messages({
       "string.pattern.base": "Date of birth must be in YYYY-MM-DD format",
@@ -18,7 +45,18 @@ export const registerSchema = Joi.object({
   ).optional(),
   phone: Joi.string().optional(),
   otpToken: Joi.string().optional(),
+  /** Short-lived JWT proving email OTP was verified (required for email signup). */
+  emailToken: Joi.string().optional(),
 }).or("email", "otpToken");
+
+export const sendEmailOtpSchema = Joi.object({
+  email: Joi.string().email().required(),
+});
+
+export const verifyEmailOtpSchema = Joi.object({
+  email: Joi.string().email().required(),
+  otp: Joi.string().length(6).pattern(/^\d+$/).required(),
+});
 
 export const sendOtpSchema = Joi.object({
   phone: Joi.string().min(10).max(20).required(),
@@ -104,6 +142,16 @@ export const donateSchema = Joi.object({
   amount: Joi.number().min(1).max(50000).required(),
 });
 
+/** P2P wallet transfer (Send Money) — resolve recipient by id, username, email, or phone. */
+export const sendMoneySchema = Joi.object({
+  toUserId: Joi.string().optional(),
+  toUsername: Joi.string().min(2).max(30).optional(),
+  toEmail: Joi.string().email().optional(),
+  toPhone: Joi.string().min(8).max(20).optional(),
+  amount: Joi.number().min(0.01).max(50000).required(),
+  message: Joi.string().max(200).optional().allow(""),
+}).or("toUserId", "toUsername", "toEmail", "toPhone");
+
 export const qrPaymentFromScanSchema = Joi.object({
   fromUserId: Joi.string().required(),
   amount: Joi.number().min(0.01).max(50000).required(),
@@ -118,10 +166,12 @@ export const confirmQrPaymentSchema = Joi.object({
 export const requestMoneySchema = Joi.object({
   toUserId: Joi.string().optional(),
   toUsername: Joi.string().min(2).max(30).optional(),
+  toEmail: Joi.string().email().optional(),
+  toPhone: Joi.string().min(8).max(20).optional(),
   amount: Joi.number().min(0.01).max(50000).required(),
   message: Joi.string().max(200).optional(),
   notifyChannel: Joi.string().valid("sms", "whatsapp", "both").default("whatsapp"),
-}).or("toUserId", "toUsername");
+}).or("toUserId", "toUsername", "toEmail", "toPhone");
 
 /** Face-to-face: requester scanned payee QR (payeeUserId = person who will pay). */
 export const requestMoneyFromScanSchema = Joi.object({

@@ -1,0 +1,97 @@
+{
+  "marketingVersion": "1.1",
+  "steps": [
+    {
+      "name": "createVersion",
+      "ok": true,
+      "id": "7aea8ed6-8254-4b35-a3f3-b579bc3887dc",
+      "errors": null
+    },
+    {
+      "name": "findBuild",
+      "buildId": "ff4d698b-493c-4c4e-ba42-76c1d14e1575",
+      "version": "8",
+      "uploaded": "2026-08-12T18:12:51-07:00"
+    },
+    {
+      "name": "attachBuild",
+      "ok": false,
+      "buildId": "ff4d698b-493c-4c4e-ba42-76c1d14e1575",
+      "errors": [
+        {
+          "id": "70acac40-f4a7-40e9-97b3-b0ea88b2503d",
+          "status": "409",
+          "code": "ENTITY_ERROR.RELATIONSHIP.INVALID",
+          "title": "The provided entity includes a relationship with an invalid value",
+          "detail": "The specified pre-release build could not be added.",
+          "source": {
+            "pointer": "/data/relationships/build"
+          }
+        }
+      ]
+    },
+    {
+      "name": "reviewDetail",
+      "ok": true
+    },
+    {
+      "name": "attachVersion",
+      "ok": false,
+      "errors": [
+        {
+          "id": "3103a3d6-c2cc-49a1-91f8-787db0781513",
+          "status": "409",
+          "code": "STATE_ERROR.ENTITY_STATE_INVALID",
+          "title": "appStoreVersions with id '7aea8ed6-8254-4b35-a3f3-b579bc3887dc' is not in valid state.",
+          "detail": "This resource cannot be reviewed, please check associated errors to see why.",
+          "meta": {
+            "associatedErrors": {
+              "/v1/appStoreVersionLocalizations/852e1019-18f4-4be4-aaa0-964d463c688e": [
+                {
+                  "id": "057d3bf2-ad77-4299-bbca-e50640f90721",
+                  "status": "409",
+                  "code": "ENTITY_ERROR.ATTRIBUTE.REQUIRED",
+                  "title": "The provided entity is missing a required attribute",
+                  "detail": "You must provide a value for the attribute 'whatsNew' with this request",
+                  "source": {
+                    "pointer": "/data/attributes/whatsNew"
+                  }
+                }
+              ],
+              "/v1/appStoreVersions/7aea8ed6-8254-4b35-a3f3-b579bc3887dc": [
+                {
+                  "id": "fb335a1c-f24f-48a3-99b7-a056a28f37f4",
+                  "status": "409",
+                  "code": "ENTITY_ERROR.RELATIONSHIP.INVALID",
+                  "title": "The provided entity includes a relationship with an invalid value",
+                  "detail": "The build associated with appStoreVersions 7aea8ed6-8254-4b35-a3f3-b579bc3887dc was not found.",
+                  "source": {
+                    "pointer": "/data/relationships/build"
+                  }
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "submit",
+      "ok": false,
+      "errors": [
+        {
+          "id": "88b3156b-ded9-4e30-b39c-2bdb39acfa83",
+          "status": "409",
+          "code": "STATE_ERROR.ENTITY_STATE_INVALID",
+          "title": "Resource state invalid",
+          "detail": "reviewSubmissions with id 7940d686-9da7-4b95-81d0-1fda049de8e5 does not have any items."
+        }
+      ]
+    }
+  ],
+  "submitted": false,
+  "submissionId": "7940d686-9da7-4b95-81d0-1fda049de8e5",
+  "versionId": "7aea8ed6-8254-4b35-a3f3-b579bc3887dc",
+  "buildId": "ff4d698b-493c-4c4e-ba42-76c1d14e1575",
+  "finalVersionState": "PREPARE_FOR_SUBMISSION"
+}

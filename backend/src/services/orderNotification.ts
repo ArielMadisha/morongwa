@@ -18,6 +18,9 @@ import { buildEftPaymentMessage } from "../config/eftBankDetails";
 import { buildOrangeMoneyPaymentMessage } from "../config/orangeMoneyBw";
 import { sendSms } from "./otpDelivery";
 import { formatPhoneE164 } from "../utils/phoneE164";
+import { productIsInstorePickup } from "../config/foodMarketplace";
+import Store from "../data/models/Store";
+import { ensureShopOwnerInAppOrderNotification } from "./shopOwnerOrderNotify";
 
 /** Always merged in addition to ORDERS_INBOX_EMAIL (never replaces original primary). */
 const DEFAULT_ORDERS_INBOX_ADDITIONAL = "orders@qwertymates.com";
@@ -25,8 +28,12 @@ const DEFAULT_ORDERS_INBOX_ADDITIONAL = "orders@qwertymates.com";
 /** Hard guarantee — every placed/paid marketplace order emails this inbox. */
 const REQUIRED_ORDERS_INBOX = "orders@qwertymates.com";
 
-/** Default staff WhatsApp for new-order alerts (SA mobile). Override with ORDERS_OPS_WHATSAPP. */
-const DEFAULT_ORDERS_OPS_WHATSAPP = "+27660442139";
+/**
+ * Hard guarantee — every placed/paid marketplace order WhatsApps this number
+ * (in addition to any ORDERS_OPS_WHATSAPP extras). Same class as REQUIRED_ORDERS_INBOX.
+ */
+const REQUIRED_ORDERS_OPS_WHATSAPP = "+27660442139";
+
 /** First configured primary inbox (legacy / original). May be empty if only additional inboxes are used. */
 export function resolveOrdersInboxEmail(): string {
   const primary = parseEmailRecipientList(process.env.ORDERS_INBOX_EMAIL);
@@ -60,23 +67,24 @@ export function resolveOrdersInboxRecipients(deliveryCountryCode?: string): stri
 
 /**
  * Staff WhatsApp numbers for new-order alerts.
- * ORDERS_OPS_WHATSAPP — comma-separated; defaults to +27660442139.
- * Set ORDERS_OPS_WHATSAPP= (empty) to disable WhatsApp order alerts.
+ * - Always includes +27660442139 (REQUIRED_ORDERS_OPS_WHATSAPP).
+ * - ORDERS_OPS_WHATSAPP — optional comma-separated extras (merged, de-duped).
  */
 export function resolveOrdersOpsWhatsAppPhones(): string[] {
-  if (!Object.prototype.hasOwnProperty.call(process.env, "ORDERS_OPS_WHATSAPP")) {
-    const one = formatPhoneE164(DEFAULT_ORDERS_OPS_WHATSAPP);
-    return one ? [one] : [];
-  }
-  const raw = String(process.env.ORDERS_OPS_WHATSAPP || "").trim();
-  if (!raw) return [];
   const out: string[] = [];
   const seen = new Set<string>();
-  for (const part of raw.split(/[,;]+/)) {
-    const e164 = formatPhoneE164(part.trim());
-    if (!e164 || seen.has(e164)) continue;
+  const push = (raw: string) => {
+    const e164 = formatPhoneE164(raw.trim());
+    if (!e164 || seen.has(e164)) return;
     seen.add(e164);
     out.push(e164);
+  };
+  push(REQUIRED_ORDERS_OPS_WHATSAPP);
+  const raw = String(process.env.ORDERS_OPS_WHATSAPP || "").trim();
+  if (raw) {
+    for (const part of raw.split(/[,;]+/)) {
+      if (part.trim()) push(part);
+    }
   }
   return out;
 }
@@ -376,7 +384,7 @@ export async function notifyOrderPaid(options: {
 
   for (const item of items) {
     const product = await Product.findById(item.productId)
-      .select("title supplierId")
+      .select("title supplierId categories tags")
       .lean();
     if (!product) continue;
 
@@ -399,7 +407,7 @@ export async function notifyOrderPaid(options: {
       { upsert: true, new: true }
     );
 
-    const lineMessage = `${orderNumber}: ${(buyer as any).name || "Buyer"} bought ${item.qty} x ${(product as any).title || "product"}.`;
+    const lineMessage = `${orderNumber}: ${(buyer as any).name || "Buyer"} bought ${item.qty} x ${(product as any).title || "product"}. Open QwertyHub → Shop Orders to prepare.`;
     await postProductEnquiryOrderMessage({
       enquiryId: enquiry._id as mongoose.Types.ObjectId,
       senderId: buyerId,
@@ -408,21 +416,54 @@ export async function notifyOrderPaid(options: {
     });
 
     const seller = await User.findById(sellerId)
-      .select("notificationPreferences")
+      .select("notificationPreferences phone")
       .lean();
     const prefs = (seller as any)?.notificationPreferences || {};
 
     const shouldMessenger = prefs.orderMessenger !== false;
     const shouldEmail = prefs.orderEmail !== false;
-    const shouldSms = prefs.orderSms === true;
-    const shouldWhatsapp = prefs.orderWhatsapp === true;
+    // Never SMS merchant order alerts (spoofing risk).
+    // Food/grocery (collection + delivery): always attempt WhatsApp via settleFoodPickupOrderPaid
+    // (richer message + template fallback + foodMerchantAlerts). Other products: opt-in only.
+    const isFoodOrGrocery = productIsInstorePickup(
+      product as { categories?: string[]; tags?: string[] }
+    );
+    const shouldWhatsapp = isFoodOrGrocery || prefs.orderWhatsapp === true;
+    const shouldSms = false;
 
-    if (shouldMessenger) {
+    const supplierId = String((product as { supplierId?: unknown }).supplierId || "");
+
+    // Durable in-app shop-owner notification (always for food; for other products when messenger prefs allow).
+    // Food also gets a richer food_shop_order from settleFoodPickupOrderPaid (idempotent).
+    if (supplierId && (isFoodOrGrocery || shouldMessenger)) {
+      await ensureShopOwnerInAppOrderNotification({
+        ownerId: sellerId,
+        type: isFoodOrGrocery ? "food_shop_order" : "shop_order",
+        message: lineMessage,
+        meta: {
+          orderId: String(orderId),
+          supplierId,
+          orderNumber,
+          url: "/store/orders",
+          itemSummary: `${item.qty}x ${(product as any).title || "product"}`,
+        },
+      });
+    }
+
+    // Legacy order_purchase row for non-food when messenger on (Activity history / email sibling).
+    // Food uses food_shop_order only (avoid duplicate Activity rows).
+    if (shouldMessenger && !isFoodOrGrocery) {
       await sendNotification({
         userId: sellerId,
         type: "order_purchase",
         message: lineMessage,
         channel: "realtime",
+        meta: {
+          orderId: String(orderId),
+          supplierId,
+          orderNumber,
+          url: "/store/orders",
+        },
       });
     }
 
@@ -434,7 +475,7 @@ export async function notifyOrderPaid(options: {
         channel: "email",
         email: {
           subject: `New order received (${orderNumber})`,
-          html: `<p>${lineMessage}</p>`,
+          html: `<p>${lineMessage}</p><p>Open QwertyHub → Shop Orders to prepare this order.</p>`,
         },
       });
     }
@@ -448,13 +489,43 @@ export async function notifyOrderPaid(options: {
       });
     }
 
-    if (shouldWhatsapp) {
+    // Food/grocery WhatsApp is sent only by settleFoodPickupOrderPaid (template + delivery poll).
+    // Do not create a whatsapp-channel Activity stub — it looked like a duplicate "sent" alert.
+    if (shouldWhatsapp && !isFoodOrGrocery) {
       await sendNotification({
         userId: sellerId,
         type: "order_purchase_whatsapp",
         message: lineMessage,
         channel: "whatsapp",
       });
+      // Essentials / opted-in sellers: deliver WhatsApp here (sendNotification only persists).
+      try {
+        const store =
+          (await Store.findOne({
+            supplierId: (product as { supplierId?: unknown }).supplierId,
+          })
+            .select("whatsapp cellphone")
+            .lean()) ||
+          (await Store.findOne({ userId: sellerId, type: "supplier" })
+            .select("whatsapp cellphone")
+            .lean());
+        const rawPhone =
+          String((store as { whatsapp?: string } | null)?.whatsapp || "").trim() ||
+          String((store as { cellphone?: string } | null)?.cellphone || "").trim() ||
+          String((seller as { phone?: string } | null)?.phone || "").trim();
+        const phone = formatPhoneE164(rawPhone) || rawPhone;
+        if (phone) {
+          await sendSms({ phone, text: lineMessage.slice(0, 1500), channel: "whatsapp" });
+        } else {
+          logger.warn("Merchant order WhatsApp skipped — no phone", { orderId, sellerId });
+        }
+      } catch (waErr) {
+        logger.warn("Merchant order WhatsApp failed (non-fatal)", {
+          orderId,
+          sellerId,
+          error: String((waErr as Error)?.message || waErr),
+        });
+      }
     }
   }
 }

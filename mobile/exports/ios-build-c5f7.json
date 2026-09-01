@@ -1,0 +1,47 @@
+﻿{
+  "id": "c5f7e182-e7e0-4ca0-9af6-60774135fbe7",
+  "status": "FINISHED",
+  "platform": "IOS",
+  "artifacts": {
+    "buildUrl": "https://expo.dev/artifacts/eas/W4wgCB9CobwNugCBr0-2R2-NBWki_8_x1Hy_OCxkzhc.ipa",
+    "xcodeBuildLogsUrl": "https://storage.googleapis.com/eas-workflows-production/logs/686960ed-6d34-446e-9872-eeafe4dfe5f1/c5f7e182-e7e0-4ca0-9af6-60774135fbe7/2026-08-05T03%3A41%3A10Z-c5f7e182-e7e0-4ca0-9af6-60774135fbe7-xcode.txt?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=www-production%40exponentjs.iam.gserviceaccount.com%2F20260805%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20260805T063918Z&X-Goog-Expires=900&X-Goog-SignedHeaders=host&X-Goog-Signature=b2b7ca2a5c025a616b5fdf5b4768e8e2bf092b25a83d94578dd4fad1fec2d4e0758a9164afbbf713e1f5cdb83d75c317cf264489a14a2e685eb57f74db6105dd667c0d95bb77358846634603afef0263efe0db4ef4f6a4d535a1b987bea8f05b28be12d62c416dccfa4594ad2675bf01266751106ea6381f5dc52761d1a940e1677ceaa46dc789de6fb1b7803b733f5f47421f9a01ff8181fdbb3c528b336721b69f6ec0e692881b460471195e652c0ef0a5f02ebd8912c0464c1de193064f2563fbc5a8524664114a9886cc201d22a2fefbfa20fb7ed133b5ba5af8a54c6e805cae33ffd94750fd9851936c7f700e84ce750d0b804f8e8404907179200aa866",
+    "applicationArchiveUrl": "https://expo.dev/artifacts/eas/W4wgCB9CobwNugCBr0-2R2-NBWki_8_x1Hy_OCxkzhc.ipa"
+  },
+  "fingerprint": {
+    "id": "019fd002-b6bc-75ce-95fd-82129597268d",
+    "hash": "613aae05270e6c40ff9979f282d4b33189b2c392"
+  },
+  "initiatingActor": {
+    "id": "0d57be53-cc26-4f02-ae8e-ebad92f2c54e",
+    "displayName": "qwertymates"
+  },
+  "logFiles": [
+    "https://storage.googleapis.com/eas-workflows-production/logs/686960ed-6d34-446e-9872-eeafe4dfe5f1/c5f7e182-e7e0-4ca0-9af6-60774135fbe7/2026-08-05T03%3A41%3A10Z-5733ff6c-4287-4340-b873-b4aea201f1d3.txt?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=www-production%40exponentjs.iam.gserviceaccount.com%2F20260805%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20260805T063918Z&X-Goog-Expires=900&X-Goog-SignedHeaders=host&X-Goog-Signature=7dbcff7a678bfa91076146db6b70f4cbf629e6353ede740ffc9d3688d46e8e066cd768ef11a159c7e0a5fe4100abb23b572d205dafa386398366ced655a944f0b38a1c3ec7d657249738dc0526298ef9b69b74aac8b449cc414e2d441bc3342b7d207e64bfbba69f89bf50aa92bfa2fb1661d0cbfcd0f447ed9437f473936f2325c4c85530b397d8d66389d1bf3b33490916d1e72e96b2cfb37e6706ee983fab465544a8f7005322bf7cb77ed048931332a753b23bcb7d7317eed9b03cb01f3be4ac946c28129f88e0d2ff0a684cce432bfaa460db2905c12eda531e9e5eb3630a92a400b448f68a76c62b50a9445b3b76cc124f23a1a8cfde1e1a1dd7dc4a7c",
+    "https://storage.googleapis.com/eas-workflows-production/logs/686960ed-6d34-446e-9872-eeafe4dfe5f1/c5f7e182-e7e0-4ca0-9af6-60774135fbe7/2026-08-05T03%3A41%3A10Z-c5f7e182-e7e0-4ca0-9af6-60774135fbe7-xcode.txt?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=www-production%40exponentjs.iam.gserviceaccount.com%2F20260805%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20260805T063918Z&X-Goog-Expires=900&X-Goog-SignedHeaders=host&X-Goog-Signature=58f499c66f3e8fb31da68136617f0a2026ef284a093095af9486005f6e63b25dcd4de4125f97c70c2e6dc04758e1335e1270c3ad4d6f49f8e5c7179e30a264691cb69942c87bbf2eb9b54026899a65fb097fcb0fca84e59af49caed8a30758e6835d096e4b564ac0f02d5766fd1aa275a9cc79c1dd3f00acfdb7143a140d7acc07a3cc160048b284fc12aef6cd2a70ed8cac9f3fd7c8da7798e18937c2e87f911842dc8882a82d2618f624ac20f8b00b30370476e38da2865a4f6d5703197b8f03c47b067c5e554b9d870460b8f4f341329722fa68a401b5d5ec3e41c0c8e5a386c07be20d467cc0d35892f3561ee1365466a2c657a16b6a8661aa269c2719f0"
+  ],
+  "project": {
+    "id": "686960ed-6d34-446e-9872-eeafe4dfe5f1",
+    "name": "morongwa-mobile",
+    "slug": "morongwa-mobile",
+    "ownerAccount": {
+      "id": "d06775d7-38f6-4348-9dac-856633f35ee5",
+      "name": "qwertymates"
+    }
+  },
+  "distribution": "STORE",
+  "buildProfile": "production",
+  "sdkVersion": "54.0.0",
+  "appVersion": "1.3.30",
+  "appBuildVersion": "7",
+  "priority": "HIGH",
+  "createdAt": "2026-08-05T03:41:06.583Z",
+  "updatedAt": "2026-08-05T03:45:10.966Z",
+  "completedAt": "2026-08-05T03:45:10.653Z",
+  "expirationDate": "2026-09-04T03:41:06.614Z",
+  "isForIosSimulator": false,
+  "metrics": {
+    "buildWaitTime": 3538,
+    "buildQueueTime": 7451,
+    "buildDuration": 233081
+  }
+}

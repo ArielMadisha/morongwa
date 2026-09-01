@@ -51,8 +51,8 @@ const PREFIX_RULES: Array<{
     },
   },
   { prefix: "/products", match: { kind: "anyOf", sections: ["products", "product_uploads"] } },
-  { prefix: "/dropship", match: { kind: "anyOf", sections: ["dropshipping", "products", "product_uploads"] } },
-  { prefix: "/dropshipping-profit", match: { kind: "anyOf", sections: ["dropshipping", "orders", "products"] } },
+  { prefix: "/dropship", match: { kind: "anyOf", sections: ["dropshipping"] } },
+  { prefix: "/dropshipping-profit", match: { kind: "anyOf", sections: ["dropshipping", "orders"] } },
 
   { prefix: "/suppliers", match: { kind: "anyOf", sections: ["suppliers", "supplier_uploads"] } },
   /** Narrower than `/stores` — must win first for delegated store admins without `users`. */
@@ -82,6 +82,7 @@ const PREFIX_RULES: Array<{
   { prefix: "/runners", match: { kind: "anyOf", sections: ["runner_applications"] } },
 
   { prefix: "/tuckshop-cash-agents", match: { kind: "anyOf", sections: ["tuckshop_cash_agents"] } },
+  { prefix: "/onboarding-agent-applications", match: { kind: "anyOf", sections: ["fraud_registration", "tuckshop_cash_agents"] } },
   { prefix: "/fraud-onboarding-applications", match: { kind: "anyOf", sections: ["fraud_registration"] } },
   { prefix: "/fraud-registration-exceptions", match: { kind: "anyOf", sections: ["fraud_registration"] } },
 

@@ -22,7 +22,7 @@ import SiteHeader from '@/components/SiteHeader';
 import AuthBackground from '@/components/AuthBackground';
 import { authAPI } from '@/lib/api';
 
-type Step = 'phone' | 'verify' | 'profile' | 'email';
+type Step = 'phone' | 'verify' | 'profile' | 'email' | 'email_verify';
 type Mode = 'whatsapp' | 'sms' | 'email';
 
 function readReturnToFromWindow(): string | null {
@@ -36,6 +36,8 @@ function RegisterPageContent() {
   const [phone, setPhone] = useState('');
   const [otp, setOtp] = useState('');
   const [otpToken, setOtpToken] = useState<string | null>(null);
+  const [emailToken, setEmailToken] = useState<string | null>(null);
+  const [emailOtp, setEmailOtp] = useState('');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -209,15 +211,50 @@ function RegisterPageContent() {
     setLoading(true);
 
     try {
-      await register(name.trim(), email.trim().toLowerCase(), password, ['client'], ['terms-of-service', 'privacy-policy'], dateOfBirth);
+      await authAPI.sendEmailOtp(email.trim().toLowerCase());
+      toast.success('Verification code sent to your email');
+      setEmailOtp('');
+      setEmailToken(null);
+      setStep('email_verify');
+    } catch (error: any) {
+      const msg = error.response?.data?.message || error.message || 'Could not send verification email';
+      toast.error(msg);
+      if (String(msg).toLowerCase().includes('email')) setErrors({ email: msg });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleEmailVerifySubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!/^\d{6}$/.test(emailOtp.trim())) {
+      setErrors({ otp: 'Enter the 6-digit code from your email' });
+      return;
+    }
+    setErrors({});
+    setLoading(true);
+    try {
+      const verifyRes = await authAPI.verifyEmailOtp(email.trim().toLowerCase(), emailOtp.trim());
+      const token = verifyRes.data?.emailToken as string | undefined;
+      if (!token) throw new Error('Verification failed');
+      setEmailToken(token);
+      await register(
+        name.trim(),
+        email.trim().toLowerCase(),
+        password,
+        ['client'],
+        ['terms-of-service', 'privacy-policy'],
+        dateOfBirth,
+        token
+      );
       toast.success('🎉 Welcome to Qwertymates!');
       const returnTo = readReturnToFromWindow();
       const target = returnTo && returnTo.startsWith('/') && !returnTo.startsWith('//') ? returnTo : '/wall';
       router.push(target);
     } catch (error: any) {
-      const msg = error.response?.data?.message || error.message || 'Registration failed';
+      const msg = error.response?.data?.message || error.message || 'Verification failed';
       toast.error(msg);
-      if (msg.toLowerCase().includes('email')) setErrors({ email: 'Email already registered' });
+      setErrors({ otp: msg });
     } finally {
       setLoading(false);
     }
@@ -479,7 +516,7 @@ function RegisterPageContent() {
                   {errors.consent && <p className="text-sm text-red-600 flex items-center gap-1"><AlertCircle className="h-3 w-3" /> {errors.consent}</p>}
                   <button type="submit" disabled={loading} className="flex justify-center items-center gap-2 w-full py-3 px-4 rounded-lg bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-semibold disabled:opacity-60">
                     {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : null}
-                    Create Account
+                    Send verification code
                   </button>
                   <button type="button" onClick={() => { setMode('whatsapp'); setStep('phone'); }} className="w-full py-2.5 px-4 rounded-lg bg-slate-100 hover:bg-slate-200 font-semibold text-slate-900 text-center">
                     ← Register with phone (SMS/WhatsApp) instead
@@ -496,13 +533,71 @@ function RegisterPageContent() {
               </form>
             )}
 
+            {step === 'email_verify' && (
+              <form onSubmit={handleEmailVerifySubmit} className="space-y-6">
+                <div className="space-y-2">
+                  <h2 className="text-2xl font-bold text-slate-900 text-center">Verify your email</h2>
+                  <p className="text-center text-sm text-slate-600">
+                    Enter the 6-digit code sent to <span className="font-medium text-slate-800">{email}</span>
+                  </p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Verification code</label>
+                  <input
+                    value={emailOtp}
+                    onChange={(e) => {
+                      setEmailOtp(e.target.value.replace(/\D/g, '').slice(0, 6));
+                      if (errors.otp) setErrors({ ...errors, otp: '' });
+                    }}
+                    className={inputClass(!!errors.otp)}
+                    placeholder="123456"
+                    inputMode="numeric"
+                    maxLength={6}
+                  />
+                  {errors.otp && (
+                    <p className="mt-1 text-sm text-red-600 flex items-center gap-1">
+                      <AlertCircle className="h-3 w-3" /> {errors.otp}
+                    </p>
+                  )}
+                </div>
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="flex justify-center items-center gap-2 w-full py-3 px-4 rounded-lg bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-semibold disabled:opacity-60"
+                >
+                  {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : null}
+                  Verify &amp; create account
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setLoading(true);
+                    try {
+                      await authAPI.sendEmailOtp(email.trim().toLowerCase());
+                      toast.success('Code resent');
+                    } catch (err: any) {
+                      toast.error(err.response?.data?.message || 'Could not resend code');
+                    } finally {
+                      setLoading(false);
+                    }
+                  }}
+                  className="w-full text-sm text-slate-600 hover:text-blue-600"
+                >
+                  Resend code
+                </button>
+                <button type="button" onClick={() => setStep('email')} className="w-full text-sm text-slate-600 hover:text-blue-600">
+                  ← Change email
+                </button>
+              </form>
+            )}
+
             {(step === 'phone' || step === 'verify') && (
               <div className="mt-6 text-sm text-center text-slate-600">
                 Already have an account?{' '}
                 <Link href="/login" className="font-medium text-blue-600 hover:text-blue-500">Sign in</Link>
               </div>
             )}
-            {(step === 'profile' || step === 'email') && (
+            {(step === 'profile' || step === 'email' || step === 'email_verify') && (
               <div className="mt-6 text-sm text-center text-slate-600">
                 Already have an account?{' '}
                 <Link href="/login" className="font-medium text-blue-600 hover:text-blue-500">Sign in</Link>

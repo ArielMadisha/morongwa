@@ -8,11 +8,57 @@ import { authenticate, AuthRequest } from "../middleware/auth";
 import { AppError } from "../middleware/errorHandler";
 import { effectiveResellerMarkupPctFromWall } from "../config/marketplaceCategoryMarkups";
 import { getProductPriceForQty } from "../utils/productPricing";
-import { cartHasFoodMenuItem, withFoodOrderServiceFee } from "../config/foodMarketplace";
+import {
+  cartHasFoodMenuItem,
+  productIsInstorePickup,
+  withFoodOrderServiceFee,
+} from "../config/foodMarketplace";
 import { normalizeColorName } from "../utils/productColorTypes";
 import { normalizeSizeToken, resolveSelectedSize } from "../utils/productSizeTypes";
 
 const router = express.Router();
+
+/** Drop cart lines whose products were deleted/deactivated. */
+async function pruneMissingCartProductLines(cart: InstanceType<typeof Cart>): Promise<boolean> {
+  const items = Array.isArray(cart.items) ? cart.items : [];
+  if (!items.length) return false;
+  const ids = items.map((i) => i.productId).filter(Boolean);
+  const active = await Product.find({ _id: { $in: ids }, active: true }).select("_id").lean();
+  const ok = new Set(active.map((p) => String(p._id)));
+  const next = items.filter((i) => ok.has(String(i.productId)));
+  if (next.length === items.length) return false;
+  cart.items = next as typeof cart.items;
+  await cart.save();
+  return true;
+}
+
+/**
+ * Food/grocery pickup carts must not mix with courier/marketplace goods (and vice versa).
+ * Returns how many opposing lines were removed.
+ */
+async function stripConflictingCartLines(
+  cart: InstanceType<typeof Cart>,
+  incomingIsPickup: boolean
+): Promise<number> {
+  const items = Array.isArray(cart.items) ? cart.items : [];
+  if (!items.length) return 0;
+  const ids = items.map((i) => i.productId).filter(Boolean);
+  const products = await Product.find({ _id: { $in: ids }, active: true })
+    .select("_id categories tags")
+    .lean();
+  const map = new Map(products.map((p) => [String(p._id), p]));
+  const next = items.filter((i) => {
+    const p = map.get(String(i.productId));
+    if (!p) return false;
+    const isPickup = productIsInstorePickup(p as any);
+    return incomingIsPickup ? isPickup : !isPickup;
+  });
+  const removed = items.length - next.length;
+  if (removed > 0) {
+    cart.items = next as typeof cart.items;
+  }
+  return removed;
+}
 
 function resolveSelectedColor(
   raw: unknown,
@@ -73,6 +119,7 @@ router.get("/", authenticate, async (req: AuthRequest, res: Response, next) => {
     if (!cart) {
       cart = await Cart.create({ user: req.user!._id, items: [], musicItems: [] });
     }
+    await pruneMissingCartProductLines(cart);
 
     const productIds = cart.items.map((i) => i.productId);
     const products = await Product.find({ _id: { $in: productIds }, active: true })
@@ -198,19 +245,31 @@ router.post("/", authenticate, async (req: AuthRequest, res: Response, next) => 
     const product = await Product.findOne({ _id: productId, active: true });
     if (!product) throw new AppError("Product not found", 404);
     if ((product as any).outOfStock) throw new AppError("Product is out of stock", 400);
-    if (product.stock < qty) throw new AppError("Insufficient stock", 400);
-    const colorChoice = resolveSelectedColor(selectedColor, product as any, { required: false });
+    const isPickup = productIsInstorePickup(product as any);
+    // Food/grocery menus are unlimited unless marked outOfStock.
+    if (!isPickup && Number(product.stock || 0) < qty) {
+      throw new AppError("Insufficient stock", 400);
+    }
+    const colorChoice =
+      resolveSelectedColor(selectedColor, product as any, { required: false }) ||
+      (Array.isArray((product as any).colors) && (product as any).colors[0]?.name
+        ? String((product as any).colors[0].name)
+        : undefined);
     const sizeChoice = resolveSelectedSize(selectedSize, product as any, { required: false });
 
     let cart = await Cart.findOne({ user: req.user!._id });
     if (!cart) cart = await Cart.create({ user: req.user!._id, items: [], musicItems: [] });
+    await pruneMissingCartProductLines(cart);
+    await stripConflictingCartLines(cart, isPickup);
 
     const existing = cart.items.find((i) =>
       cartLineMatches(i, String(productId), resellerId || undefined, colorChoice, sizeChoice)
     );
     if (existing) {
       const newQty = existing.qty + qty;
-      if (product.stock < newQty) throw new AppError("Insufficient stock", 400);
+      if (!isPickup && Number(product.stock || 0) < newQty) {
+        throw new AppError("Insufficient stock", 400);
+      }
       existing.qty = newQty;
       if (resellerId) existing.resellerId = resellerId;
     } else {
@@ -290,7 +349,10 @@ router.put("/item/:productId", authenticate, async (req: AuthRequest, res: Respo
       if (!product) throw new AppError("Product not found", 404);
       if ((product as any).outOfStock) throw new AppError("Product is out of stock", 400);
       if (qty !== undefined) {
-        if (product.stock < qty) throw new AppError("Insufficient stock", 400);
+        const isPickup = productIsInstorePickup(product as any);
+        if (!isPickup && Number(product.stock || 0) < qty) {
+          throw new AppError("Insufficient stock", 400);
+        }
         target.qty = qty;
       }
 

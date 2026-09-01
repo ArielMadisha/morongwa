@@ -1,6 +1,7 @@
 import React from "react";
-import { Image, ImageBackground, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import { feedLight } from "../theme/socialTheme";
+import { Image, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import { feedLight, socialTheme } from "../theme/socialTheme";
 import { toAbsoluteMediaUrl } from "../lib/api";
 import { statusStripThumbUrl, type StatusStripItem } from "../lib/statusStripItem";
 
@@ -8,23 +9,26 @@ export type { StatusStripItem };
 
 type Props = {
   items: StatusStripItem[];
+  /** Current user avatar for the create control (matches web StatusesStrip). */
+  selfAvatarUrl?: string | null;
   onPressSelf?: () => void;
   onPressItem: (item: StatusStripItem) => void;
 };
 
-const CARD_W = 96;
-const CARD_H = 128;
+const RING = 52;
 
 /**
- * Facebook-style horizontal status tray: Create + vertical preview cards.
+ * Web-style horizontal status tray: circular Create (avatar + plus) then circular statuses.
  */
-export function StoriesStrip({ items, onPressSelf, onPressItem }: Props) {
+export function StoriesStrip({ items, selfAvatarUrl, onPressSelf, onPressItem }: Props) {
   const label = (item: StatusStripItem) => {
     const name = item.name?.trim();
     if (!name) return "Creator";
-    if (item.isStoreStatus) return name.slice(0, 18);
-    return name.split(/\s+/)[0]?.slice(0, 14) || "Creator";
+    if (item.isStoreStatus) return name.slice(0, 14);
+    return name.split(/\s+/).slice(0, 2).join(" ").slice(0, 16) || "Creator";
   };
+
+  const selfUri = selfAvatarUrl ? toAbsoluteMediaUrl(selfAvatarUrl) : "";
 
   return (
     <View style={styles.wrap}>
@@ -35,63 +39,50 @@ export function StoriesStrip({ items, onPressSelf, onPressItem }: Props) {
       >
         <Pressable
           onPress={() => onPressSelf?.()}
-          style={styles.createItem}
+          style={styles.item}
           accessibilityRole="button"
           accessibilityLabel="Create — new post"
         >
-          <View style={[styles.createCard, styles.createCardEmpty]}>
-            <Text style={styles.selfPlus}>＋</Text>
+          <View style={styles.createRing}>
+            {selfUri ? (
+              <Image source={{ uri: selfUri }} style={styles.createAvatar} />
+            ) : (
+              <View style={[styles.createAvatar, styles.createAvatarFallback]} />
+            )}
+            <View style={styles.createOverlay}>
+              <Ionicons name="add" size={22} color="#ffffff" />
+            </View>
           </View>
           <Text style={styles.caption} numberOfLines={1}>
-            Create
+            create
           </Text>
         </Pressable>
 
         {items.map((item) => {
           const thumb = statusStripThumbUrl(item);
           const display = label(item);
+          const avatarUri = item.avatar ? toAbsoluteMediaUrl(item.avatar) : "";
+          const ringUri = thumb || avatarUri;
           return (
             <Pressable
               key={item.id}
               onPress={() => onPressItem(item)}
-              style={styles.createItem}
+              style={styles.item}
               accessibilityRole="button"
               accessibilityLabel={`View ${item.name || "creator"} status`}
             >
-              {thumb ? (
-                <ImageBackground source={{ uri: thumb }} style={styles.card} imageStyle={styles.cardImage}>
-                  <View style={styles.cardOverlay}>
-                    <View style={styles.cardAvatarRing}>
-                      {item.avatar ? (
-                        <Image source={{ uri: toAbsoluteMediaUrl(item.avatar) }} style={styles.cardAvatar} />
-                      ) : (
-                        <View style={[styles.cardAvatar, styles.avatarFallback]}>
-                          <Text style={styles.fallbackLetter}>{display.slice(0, 1).toUpperCase()}</Text>
-                        </View>
-                      )}
-                    </View>
-                    <View style={styles.nameBar}>
-                      <Text style={styles.cardName} numberOfLines={2}>
-                        {display}
-                      </Text>
-                    </View>
-                  </View>
-                </ImageBackground>
-              ) : (
-                <View style={[styles.card, styles.cardFallback]}>
-                  <View style={styles.cardAvatarRing}>
-                    <View style={[styles.cardAvatar, styles.avatarFallback]}>
+              <View style={styles.statusGradient}>
+                <View style={styles.statusInner}>
+                  {ringUri ? (
+                    <Image source={{ uri: ringUri }} style={styles.statusImage} />
+                  ) : (
+                    <View style={[styles.statusImage, styles.avatarFallback]}>
                       <Text style={styles.fallbackLetter}>{display.slice(0, 1).toUpperCase()}</Text>
                     </View>
-                  </View>
-                  <View style={styles.nameBar}>
-                    <Text style={styles.cardName} numberOfLines={2}>
-                      {display}
-                    </Text>
-                  </View>
+                  )}
                 </View>
-              )}
-              <Text style={styles.captionHidden} numberOfLines={1}>
+              </View>
+              <Text style={styles.caption} numberOfLines={1}>
                 {display}
               </Text>
             </Pressable>
@@ -104,107 +95,80 @@ export function StoriesStrip({ items, onPressSelf, onPressItem }: Props) {
 
 const styles = StyleSheet.create({
   wrap: {
-    marginBottom: 0,
-    marginHorizontal: -2
+    marginBottom: 0
   },
   scroll: {
-    gap: 8,
-    paddingHorizontal: 2,
-    paddingVertical: 2,
+    gap: 10,
+    paddingHorizontal: 4,
+    paddingVertical: 4,
     alignItems: "flex-start"
   },
-  createItem: {
-    width: CARD_W,
-    alignItems: "center"
+  item: {
+    width: 68,
+    alignItems: "center",
+    gap: 4
   },
-  createCard: {
-    width: CARD_W,
-    height: CARD_H,
-    borderRadius: 12,
+  createRing: {
+    width: RING,
+    height: RING,
+    borderRadius: RING / 2,
     overflow: "hidden",
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: feedLight.border
-  },
-  createCardEmpty: {
-    backgroundColor: feedLight.searchBg,
+    backgroundColor: socialTheme.brandBlue,
     alignItems: "center",
     justifyContent: "center"
   },
-  selfPlus: {
-    fontSize: 28,
-    fontWeight: "300",
-    color: feedLight.textSecondary
+  createAvatar: {
+    ...StyleSheet.absoluteFillObject,
+    width: RING,
+    height: RING
   },
-  card: {
-    width: CARD_W,
-    height: CARD_H,
-    borderRadius: 12,
-    overflow: "hidden",
-    backgroundColor: feedLight.skeleton
+  createAvatarFallback: {
+    backgroundColor: socialTheme.brandBlue
   },
-  cardImage: {
-    borderRadius: 12
+  createOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(7, 89, 133, 0.42)",
+    alignItems: "center",
+    justifyContent: "center"
   },
-  cardFallback: {
-    justifyContent: "space-between",
-    padding: 8,
-    backgroundColor: feedLight.chipActiveBg
-  },
-  cardOverlay: {
-    flex: 1,
-    justifyContent: "space-between",
-    padding: 8,
-    backgroundColor: "rgba(0,0,0,0.08)"
-  },
-  cardAvatarRing: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
+  statusGradient: {
+    width: RING,
+    height: RING,
+    borderRadius: RING / 2,
     padding: 2,
-    borderWidth: 2,
-    borderColor: "#38bdf8",
-    backgroundColor: "#fff",
-    alignSelf: "flex-start"
+    backgroundColor: "#a855f7",
+    // Approximate web gradient with layered border colors
+    borderWidth: 0
   },
-  cardAvatar: {
+  statusInner: {
+    flex: 1,
+    borderRadius: (RING - 4) / 2,
+    overflow: "hidden",
+    backgroundColor: "#ffffff",
+    padding: 2
+  },
+  statusImage: {
     width: "100%",
     height: "100%",
-    borderRadius: 14
+    borderRadius: (RING - 8) / 2,
+    backgroundColor: feedLight.skeleton
   },
   avatarFallback: {
-    backgroundColor: feedLight.chipActiveBg,
     alignItems: "center",
-    justifyContent: "center"
+    justifyContent: "center",
+    backgroundColor: feedLight.chipActiveBg
   },
   fallbackLetter: {
-    fontSize: 13,
+    fontSize: 16,
     fontWeight: "700",
     color: feedLight.link
-  },
-  nameBar: {
-    backgroundColor: "rgba(0,0,0,0.45)",
-    borderRadius: 6,
-    paddingHorizontal: 6,
-    paddingVertical: 4
-  },
-  cardName: {
-    fontSize: 11,
-    fontWeight: "700",
-    color: "#fff",
-    lineHeight: 13
   },
   caption: {
     fontSize: 10,
     fontWeight: "600",
     color: feedLight.text,
-    maxWidth: CARD_W,
+    maxWidth: 68,
     textAlign: "center",
-    marginTop: 4
-  },
-  captionHidden: {
-    position: "absolute",
-    width: 1,
-    height: 1,
-    opacity: 0
+    lineHeight: 12
   }
 });

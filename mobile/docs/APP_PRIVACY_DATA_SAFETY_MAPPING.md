@@ -1,12 +1,19 @@
 # App Privacy + Data Safety Mapping
 
-Last updated: 2026-04-15
+Last updated: 2026-08-10
 
 Use this as a working sheet when completing:
 - Apple App Privacy (nutrition labels)
 - Google Play Data Safety form
 
 Validate final answers with legal/compliance before submission.
+
+### Apple Tracking / ATT (mandatory for ASC)
+
+- **Does Qwertymates track users (Apple definition)? No.**
+- No `ATTrackingManager` / `AppTrackingTransparency`, no `NSUserTrackingUsageDescription`, no IDFA/`AdSupport`, no ad/MMP SDKs (Facebook Ads, AppsFlyer, Adjust, AdMob, etc.). Binary declares `usesIdfa: false`.
+- **ASC App Privacy → Tracking must be No.** Do not mark data “Used for Tracking” or “Third-Party Advertising” unless those SDKs are added later.
+- **Do not implement ATT** unless the app starts tracking for advertising cross-app/cross-site. Incorrect Tracking=Yes labels caused Guideline 5.1.2 rejection (Aug 2026); fix labels + reply/resubmit — **no new binary required** for a privacy-only correction.
 
 ## 1) Data Inventory (Current Mobile Scope)
 
@@ -72,9 +79,25 @@ Likely declared data types:
 - App activity (if logging/telemetry applies)
 - Device or other identifiers
 
-## 7) Final Verification Checklist
+## 7) ASC UI steps (required before Submit for Review)
+
+Public App Store Connect **JWT API cannot write** `appDataUsages` (404 PATH_ERROR as of Aug 2026). Complete nutrition labels in the UI:
+
+1. Open https://appstoreconnect.apple.com/apps/6798004708/appPrivacy
+2. **Get Started** / **Edit** → answer **Yes**, the app collects data linked to the user.
+3. Declare (minimum, from §5 above): Contact Info (Name, Email, Phone); User Content (Photos/Videos, Messages); Identifiers (User ID); Financial Info if wallet/payment records are user-linked; Location if used.
+4. Purposes: **App Functionality** (+ **Fraud Prevention / Security** where relevant). Linked to user: **Yes**. Used for Tracking: **No** (required — app does not track; ATT not used).
+5. If any prior publish marked **Tracking = Yes**, third-party advertising, or “Used for Tracking” on data types: **Edit** → set Tracking = **No**, remove advertising/tracking purposes that do not apply → **Publish** again.
+6. **Publish** / save until App Privacy shows as published (not draft).
+7. Privacy policy URL (already set on listing): https://www.qwertymates.com/policies/privacy-policy
+8. Reply to App Review (Resolution Center) with the no-tracking explanation, then resubmit the same binary (or re-run from `mobile/`: `node scripts/ascFixAgeRatingSubmit.mjs` if using the script path).
+
+## 8) Final Verification Checklist
 
 - [ ] Privacy policy text matches declared collection and sharing.
 - [ ] Data Safety and App Privacy forms are internally consistent.
+- [ ] **ASC Tracking = No**; no data type marked “Used for Tracking”; no Third-Party Advertising unless ads SDKs exist.
+- [ ] ATT not implemented (correct while Tracking = No); do not add ATT solely to match a wrong label.
 - [ ] Reviewer notes mention report/block and account deletion capabilities.
 - [ ] No field claims data is "not collected" when feature clearly uses it.
+- [ ] App Privacy published in ASC (blocks review submission until done).

@@ -27,6 +27,12 @@
         "buildType": "app-bundle"
       }
     },
+    "production-apk": {
+      "extends": "production",
+      "android": {
+        "buildType": "apk"
+      }
+    },
     "production-local": {
       "extends": "production",
       "android": {
@@ -74,7 +80,13 @@
     "production": {
       "android": {
         "serviceAccountKeyPath": "./credentials/google-play-service-account.json",
-        "track": "production"
+        "track": "production",
+        "releaseStatus": "completed",
+        "changesNotSentForReview": false
+      },
+      "ios": {
+        "ascAppId": "6798004708",
+        "appleTeamId": "2VBX9WG5H9"
       }
     },
     "open-testing": {

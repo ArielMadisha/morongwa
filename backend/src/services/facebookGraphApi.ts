@@ -92,7 +92,18 @@ export type ManagedFacebookPage = {
 };
 
 /** Pages the token holder can manage — use page access_token for owned Pages. */
-export async function listManagedFacebookPages(): Promise<ManagedFacebookPage[]> {
+let managedPagesCache: { at: number; pages: ManagedFacebookPage[] } | null = null;
+const MANAGED_PAGES_TTL_MS = 10 * 60 * 1000;
+
+export function clearManagedFacebookPagesCache(): void {
+  managedPagesCache = null;
+}
+
+export async function listManagedFacebookPages(opts?: { force?: boolean }): Promise<ManagedFacebookPage[]> {
+  const now = Date.now();
+  if (!opts?.force && managedPagesCache && now - managedPagesCache.at < MANAGED_PAGES_TTL_MS) {
+    return managedPagesCache.pages;
+  }
   const token = graphToken();
   if (!token) return [];
   try {
@@ -101,8 +112,8 @@ export async function listManagedFacebookPages(): Promise<ManagedFacebookPage[]>
       timeout: 30000,
     });
     const rows = res.data?.data;
-    if (!Array.isArray(rows)) return [];
-    return rows
+    if (!Array.isArray(rows)) return managedPagesCache?.pages || [];
+    const pages = rows
       .map((row: Record<string, unknown>) => ({
         id: String(row.id || ""),
         name: row.name ? String(row.name) : undefined,
@@ -110,7 +121,11 @@ export async function listManagedFacebookPages(): Promise<ManagedFacebookPage[]>
         accessToken: String(row.access_token || ""),
       }))
       .filter((p) => p.id && p.accessToken);
-  } catch {
+    managedPagesCache = { at: now, pages };
+    return pages;
+  } catch (err) {
+    // On transient rate limits, reuse last good cache if any.
+    if (managedPagesCache?.pages?.length) return managedPagesCache.pages;
     return [];
   }
 }
@@ -249,12 +264,31 @@ async function resolvePageAccessTokenForId(pageId: string): Promise<string> {
   const pages = await listManagedFacebookPages();
   const hit = pages.find((p) => p.id === pageId);
   if (hit?.accessToken) return hit.accessToken;
-  const dedicated = (
-    process.env.FACEBOOK_QWERTYMATES_PAGE_ACCESS_TOKEN ||
-    process.env.FACEBOOK_PAGE_ACCESS_TOKEN ||
-    ""
+
+  const qwertymatesPageId = (process.env.FACEBOOK_QWERTYMATES_PAGE_ID || "427972753928205").trim();
+  const buyAfrikaPageId = (process.env.FACEBOOK_BUYAFRIKA_PAGE_ID || "104790967934453").trim();
+  const bmeidaPageId = (
+    process.env.FACEBOOK_BMEIDA_PAGE_ID ||
+    process.env.FACEBOOK_BMEDIA_PAGE_ID ||
+    "101382291537671"
   ).trim();
+
+  // Prefer page-specific tokens only for the matching page id (avoid using a stale
+  // Qwertymates page token as a fallback for every Page publish).
+  let dedicated = "";
+  if (pageId === qwertymatesPageId) {
+    dedicated = (process.env.FACEBOOK_QWERTYMATES_PAGE_ACCESS_TOKEN || "").trim();
+  } else if (pageId === buyAfrikaPageId) {
+    dedicated = (process.env.FACEBOOK_BUYAFRIKA_PAGE_ACCESS_TOKEN || "").trim();
+  } else if (pageId === bmeidaPageId) {
+    dedicated = (
+      process.env.FACEBOOK_BMEIDA_PAGE_ACCESS_TOKEN ||
+      process.env.FACEBOOK_BMEDIA_PAGE_ACCESS_TOKEN ||
+      ""
+    ).trim();
+  }
   if (dedicated) return dedicated;
+
   const token = graphToken();
   if (!token) throw new Error("FACEBOOK_PAGE_ACCESS_TOKEN not configured");
   return token;

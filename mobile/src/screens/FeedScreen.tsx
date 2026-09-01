@@ -47,10 +47,18 @@ import {
 import { currencyForCountry, detectCountryCode, formatMoney } from "../lib/geoCurrency";
 import { Advert, Product, TVComment, TVPost, User, UserProfileStats } from "../types";
 import { FeedProductMediaBlock } from "../components/FeedProductMediaBlock";
+import { FitContainImage } from "../components/FitContainImage";
+import { SponsoredProductCarousel } from "../components/SponsoredProductCarousel";
 import { useCachedProduct } from "../components/feedProductHooks";
+import { useScrollAwareScrollHandlers } from "../components/ScrollAwareChrome";
 import { WEB_TV_LEGACY_PATH_PREFIX, BRAND_DISPLAY_NAME } from "../config";
 import { SITE_ORIGIN } from "../constants/site";
 import { tvPostFromStatusStripRow, type StatusStripItem } from "../lib/statusStripItem";
+import { resolvePostDisplayTitle } from "../lib/postDisplayTitle";
+import {
+  allowTvPostOnThisPlatform,
+  iosCreatorDigitalTipsEnabled
+} from "../lib/iosStoreCompliance";
 
 type FeedListItem =
   | { kind: "post"; id: string; post: TVPost }
@@ -73,6 +81,13 @@ type FeedScreenProps = {
   onCartUpdated?: () => void;
   /** Open QwertyHub product detail (parent switches tab / modal). */
   onOpenProduct?: (productId: string) => void;
+  /** QwertyTV genre chip filter ("all" or a genre id from GET /tv/genres). */
+  genre?: string;
+  /** QwertyTV: Feed vs Saved list mode (controls shown in Post actions). */
+  tvListMode?: "feed" | "saved";
+  onTvListModeChange?: (mode: "feed" | "saved") => void;
+  savedCount?: number;
+  onClearAllSaved?: () => void;
 };
 
 type InteractionToast = {
@@ -87,8 +102,7 @@ type FeedSort = "newest" | "trending" | "random";
 const FEED_LIMIT = 12;
 const ADVERT_INTERVAL = 6;
 const LOAD_MORE_THROTTLE_MS = 900;
-const REFRESH_THROTTLE_MS = 1200;
-const FEED_HEAD_POLL_MS = 25000;
+const REFRESH_THROTTLE_MS = 8000;
 const LIKE_TAP_THROTTLE_MS = 280;
 const QUEUE_RETRY_THROTTLE_MS = 1500;
 const SAVED_POSTS_KEY = "qwertymates.mobile.savedPosts";
@@ -149,6 +163,24 @@ function decodeBlockedUsersMap(raw: string): Record<string, number> {
 function getCreatorUserId(post: TVPost): string | undefined {
   if (typeof post.creatorId === "string") return post.creatorId;
   return post.creatorId?._id || post.creatorId?.id;
+}
+
+function taggedUserNames(tagged: TVPost["taggedUserIds"] | undefined): string[] {
+  if (!tagged?.length) return [];
+  return tagged
+    .map((entry) => {
+      if (entry == null || typeof entry === "string") return "";
+      if (typeof entry !== "object") return "";
+      return String(entry.name || entry.username || "").trim();
+    })
+    .filter(Boolean);
+}
+
+function taggedUsersCaption(tagged: TVPost["taggedUserIds"] | undefined, max = 2): string {
+  const names = taggedUserNames(tagged);
+  if (!names.length) return "";
+  const shown = names.slice(0, max).join(", ");
+  return ` with ${shown}${names.length > max ? " and others" : ""}`;
 }
 
 type PendingAction =
@@ -290,7 +322,12 @@ export function FeedScreen({
   hideStoriesHeader = false,
   onPressCreateStory,
   onCartUpdated,
-  onOpenProduct
+  onOpenProduct,
+  genre,
+  tvListMode,
+  onTvListModeChange,
+  savedCount = 0,
+  onClearAllSaved
 }: FeedScreenProps) {
   const { width } = useWindowDimensions();
   const compactUI = width < 390;
@@ -406,8 +443,11 @@ export function FeedScreen({
   const queueModalOpacity = useRef(new Animated.Value(0)).current;
 
   const hasMore = !savedOnly && posts.length < total;
+  // Full-page video paging keeps its chrome — collapsing it would change the snap interval.
+  const chromeScroll = useScrollAwareScrollHandlers();
   const usePaging = variant === "tvVideo" && !savedOnly && viewportHeight > 200;
-  const showAdverts = !savedOnly && variant === "default";
+  const fullBleedWall = variant === "wall" && !savedOnly;
+  const showAdverts = !savedOnly && (variant === "default" || variant === "wall");
 
   useEffect(() => {
     onSavedCountChange?.(Object.keys(savedMap).length);
@@ -426,7 +466,7 @@ export function FeedScreen({
   }, []);
 
   useEffect(() => {
-    if (!donateRecipient) return;
+    if (!iosCreatorDigitalTipsEnabled() || !donateRecipient) return;
     setDonateBalanceLoading(true);
     walletAPI
       .getBalance()
@@ -437,7 +477,7 @@ export function FeedScreen({
 
   const startTopupAndQueueDonation = useCallback(
     async (amount: number) => {
-      if (!donateRecipient) return false;
+      if (!iosCreatorDigitalTipsEnabled() || !donateRecipient) return false;
       const current = Math.max(0, Number(donateBalance ?? 0));
       const shortfall = Math.max(0, amount - current);
       if (shortfall <= 0) return false;
@@ -472,6 +512,7 @@ export function FeedScreen({
 
   const submitDonate = useCallback(
     async (mode: "wallet" | "topup") => {
+      if (!iosCreatorDigitalTipsEnabled()) return;
       if (!donateRecipient || !currentUserId) return;
       if (donateRecipient.id === String(currentUserId)) return;
       const amount = parseFloat(donateAmount);
@@ -567,7 +608,7 @@ export function FeedScreen({
             });
       const visiblePosts = filteredPosts.filter((post) => {
         const creatorId = getCreatorUserId(post);
-        return !isCreatorHidden(creatorId);
+        return !isCreatorHidden(creatorId) && allowTvPostOnThisPlatform(post);
       });
       setPosts(visiblePosts);
       setTotal(visiblePosts.length);
@@ -599,22 +640,30 @@ export function FeedScreen({
           return;
         }
         const effectiveSort = variant === "wall" ? "newest" : sort;
-        const res = await tvAPI.getFeed({
-          page: targetPage,
-          limit: FEED_LIMIT,
-          sort: effectiveSort,
-          q: variant === "wall" ? undefined : searchQuery.trim() || undefined,
-          type: variant === "tvVideo" && !savedOnly ? "video" : undefined
-        });
-        const data = res.data?.data ?? [];
-        const feedPosts = Array.isArray(data) ? data : [];
-        const visiblePosts = feedPosts.filter((post) => {
-          const creatorId = getCreatorUserId(post);
-          return !isCreatorHidden(creatorId);
-        });
-        const nextTotal = res.data?.total ?? visiblePosts.length;
+        let pageToLoad = targetPage;
+        let visiblePosts: TVPost[] = [];
+        let nextTotal = 0;
+        for (let extra = 0; extra < 5; extra++) {
+          const res = await tvAPI.getFeed({
+            page: pageToLoad,
+            limit: FEED_LIMIT,
+            sort: effectiveSort,
+            q: variant === "wall" ? undefined : searchQuery.trim() || undefined,
+            genre: variant === "tvVideo" && genre && genre !== "all" ? genre : undefined,
+            type: variant === "tvVideo" && !savedOnly ? "video" : undefined
+          });
+          const data = res.data?.data ?? [];
+          const feedPosts = Array.isArray(data) ? data : [];
+          visiblePosts = feedPosts.filter((post) => {
+            const creatorId = getCreatorUserId(post);
+            return !isCreatorHidden(creatorId) && allowTvPostOnThisPlatform(post);
+          });
+          nextTotal = res.data?.total ?? visiblePosts.length;
+          if (visiblePosts.length > 0 || feedPosts.length === 0) break;
+          pageToLoad += 1;
+        }
         setTotal(nextTotal);
-        setPage(targetPage);
+        setPage(pageToLoad);
         setPosts((prev) => (append ? [...prev, ...visiblePosts] : visiblePosts));
       } catch (err) {
         if (!append) {
@@ -626,10 +675,10 @@ export function FeedScreen({
         setLoadingMore(false);
       }
     },
-    [isCreatorHidden, loadSavedPosts, savedOnly, sort, searchQuery, variant]
+    [isCreatorHidden, loadSavedPosts, savedOnly, sort, searchQuery, variant, genre]
   );
 
-  /** Silent poll — prepend new wall posts without pull-to-refresh or scroll reset. */
+  /** Silent head refresh only when returning to the app (no 25s polling — was causing instability). */
   const refreshFeedHead = useCallback(async () => {
     if (savedOnly || variant !== "wall") return;
     if (loading || loadingMore) return;
@@ -646,7 +695,7 @@ export function FeedScreen({
       const feedPosts = Array.isArray(data) ? data : [];
       const visiblePosts = feedPosts.filter((post) => {
         const creatorId = getCreatorUserId(post);
-        return !isCreatorHidden(creatorId);
+        return !isCreatorHidden(creatorId) && allowTvPostOnThisPlatform(post);
       });
       setPosts((prev) => {
         const seen = new Set(prev.map((p) => p._id));
@@ -664,18 +713,14 @@ export function FeedScreen({
     const sub = AppState.addEventListener("change", (state) => {
       if (state === "active") void refreshFeedHead();
     });
-    const id = setInterval(() => {
-      if (AppState.currentState === "active") void refreshFeedHead();
-    }, FEED_HEAD_POLL_MS);
     return () => {
       sub.remove();
-      clearInterval(id);
     };
   }, [refreshFeedHead, savedOnly, variant]);
 
   useEffect(() => {
     loadFeed(1, false);
-    if (!savedOnly && variant === "default") {
+    if (!savedOnly && (variant === "default" || variant === "wall")) {
       loadAdverts();
     } else {
       setAdverts([]);
@@ -703,7 +748,10 @@ export function FeedScreen({
     if (savedOnly) {
       await loadSavedPosts();
     } else {
-      await Promise.all([loadFeed(1, false), variant === "default" ? loadAdverts() : Promise.resolve()]);
+      await Promise.all([
+        loadFeed(1, false),
+        variant === "default" || variant === "wall" ? loadAdverts() : Promise.resolve()
+      ]);
     }
     setRefreshing(false);
   };
@@ -1119,6 +1167,37 @@ export function FeedScreen({
       });
     } finally {
       setSavingById((prev) => ({ ...prev, [postId]: false }));
+    }
+  };
+
+  const handleDeletePost = async (post: TVPost) => {
+    const postId = post._id;
+    const creatorId = getCreatorUserId(post);
+    if (!currentUserId || !creatorId || String(creatorId) !== String(currentUserId)) {
+      showRetryToast({ message: "Only the author can delete this post.", tone: "error" });
+      return;
+    }
+    try {
+      await tvAPI.deletePost(postId);
+      setPosts((prev) => prev.filter((p) => p._id !== postId));
+      setTotal((prev) => Math.max(0, prev - 1));
+      if (savedMap[postId]) {
+        const nextMap = { ...savedMap };
+        delete nextMap[postId];
+        setSavedMap(nextMap);
+        void persistSavedMap(nextMap);
+      }
+      void triggerHaptic("save_success");
+      showSuccessToast("Post deleted");
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { message?: string } } };
+      void triggerHaptic("save_error");
+      showRetryToast({
+        message: e?.response?.data?.message || "Could not delete post. Retry?",
+        retryLabel: "Retry",
+        onRetry: () => void handleDeletePost(post),
+        tone: "error"
+      });
     }
   };
 
@@ -1683,7 +1762,13 @@ export function FeedScreen({
         creatorId,
         creatorName: creator?.name || userName || "Unknown",
         mediaUrl: toAbsoluteMediaUrl(post.mediaUrls?.[0]),
-        title: post.heading || post.caption || post.subject || "Untitled post",
+        title: resolvePostDisplayTitle({
+          heading: post.heading,
+          caption: post.caption,
+          subject: post.subject,
+          type: post.type,
+          creatorName: creator?.name || userName
+        }),
         liked: !!likedMap[post._id],
         likeBusy: !!likingById[post._id],
         commentsBusy: !!commentsLoadingById[post._id],
@@ -1696,28 +1781,8 @@ export function FeedScreen({
 
   const renderItem = useCallback(({ item }: { item: FeedListItem }) => {
     if (item.kind === "advert") {
-      const imageUrl = toAbsoluteMediaUrl(item.advert.imageUrl);
       const inner = (
-        <Pressable
-          style={styles.card}
-          onPress={() => {
-            if (!item.advert.linkUrl) return;
-            Alert.alert(item.advert.title, "Sponsored — copy the link to open it in your browser.", [
-              { text: "Cancel", style: "cancel" },
-              {
-                text: "Copy link",
-                onPress: () => void Clipboard.setStringAsync(item.advert.linkUrl!).catch(() => null)
-              }
-            ]);
-          }}
-          accessibilityRole="button"
-          accessibilityLabel={`Sponsored post: ${item.advert.title}`}
-          accessibilityHint="Copy sponsor link"
-        >
-          <Text style={styles.adLabel}>Sponsored</Text>
-          {imageUrl ? <Image source={{ uri: imageUrl }} style={styles.heroImage} resizeMode="cover" /> : null}
-          <Text style={styles.postTitle}>{item.advert.title}</Text>
-        </Pressable>
+        <SponsoredProductCarousel advert={item.advert} onOpenProduct={onOpenProduct} />
       );
       return usePaging ? <View style={{ height: viewportHeight }}>{inner}</View> : inner;
     }
@@ -1727,7 +1792,7 @@ export function FeedScreen({
     const creator = derived?.creator;
     const creatorId = derived?.creatorId;
     const mediaUrl = derived?.mediaUrl || "";
-    const title = derived?.title || "Untitled post";
+    const title = derived?.title || resolvePostDisplayTitle({ type: post.type, creatorName: userName });
     const postType = String(post.type || "").toLowerCase();
     const liked = !!derived?.liked;
     const likeBusy = !!derived?.likeBusy;
@@ -1740,13 +1805,212 @@ export function FeedScreen({
     const isProductStylePost =
       String(post.type) === "product_tile" || (post.type === "product" && !!post.productId);
     const canDonate =
+      iosCreatorDigitalTipsEnabled() &&
       !!currentUserId &&
       !!creatorId &&
       String(creatorId) !== String(currentUserId) &&
       !isProductStylePost;
 
+    const actionChips = (
+      <>
+        <ActionChip
+          onPress={() => handleLikeToggle(post)}
+          disabled={likeBusy}
+          loading={likeBusy}
+          loadingColor={liked ? (usePaging ? "#ffffff" : "#059669") : usePaging ? "#ffffff" : "#404040"}
+          active={liked}
+          style={[
+            usePaging ? styles.floatActionBtn : styles.actionBtnIcon,
+            !usePaging && compactUI && styles.actionBtnIconCompact,
+            likeBusy && styles.actionBtnDisabled
+          ]}
+          activeStyle={usePaging ? undefined : styles.actionBtnActive}
+          pressedStyle={styles.pressDown}
+          accessibilityLabel={`${liked ? "Unlike post" : "Like post"}, ${(post.likeCount ?? 0).toLocaleString()} likes`}
+          accessibilityHint="Toggles like on this post"
+        >
+          <Ionicons
+            name={liked ? "heart" : "heart-outline"}
+            size={usePaging ? 28 : 22}
+            color={liked ? "#f43f5e" : usePaging ? "#ffffff" : "#404040"}
+          />
+        </ActionChip>
+        {usePaging ? (
+          <Text style={styles.floatActionCount}>{(post.likeCount ?? 0).toLocaleString()}</Text>
+        ) : null}
+        <ActionChip
+          onPress={() => openComments(post)}
+          disabled={commentsBusy}
+          loading={commentsBusy}
+          loadingColor={usePaging ? "#ffffff" : "#404040"}
+          style={[
+            usePaging ? styles.floatActionBtn : styles.actionBtnIcon,
+            !usePaging && compactUI && styles.actionBtnIconCompact,
+            commentsBusy && styles.actionBtnDisabled
+          ]}
+          pressedStyle={styles.pressDown}
+          accessibilityLabel={`Open comments, ${(post.commentCount ?? 0).toLocaleString()} comments`}
+          accessibilityHint="Opens comments for this post"
+        >
+          <Ionicons
+            name="chatbubble-outline"
+            size={usePaging ? 26 : 21}
+            color={usePaging ? "#ffffff" : "#404040"}
+          />
+        </ActionChip>
+        {usePaging ? (
+          <Text style={styles.floatActionCount}>{(post.commentCount ?? 0).toLocaleString()}</Text>
+        ) : null}
+        <ActionChip
+          onPress={() => void handleSharePost(post)}
+          style={[
+            usePaging ? styles.floatActionBtn : styles.actionBtnIcon,
+            !usePaging && compactUI && styles.actionBtnIconCompact
+          ]}
+          pressedStyle={styles.pressDown}
+          accessibilityLabel="Share post"
+          accessibilityHint="Share a link to this post"
+        >
+          <Ionicons name="share-outline" size={usePaging ? 26 : 22} color={usePaging ? "#ffffff" : "#404040"} />
+        </ActionChip>
+        {canDonate ? (
+          <ActionChip
+            onPress={() => {
+              if (!creatorId) return;
+              setDonateRecipient({ id: String(creatorId), name: creator?.name || "Creator" });
+              setDonateAmount("");
+            }}
+            style={[
+              usePaging ? styles.floatActionBtn : styles.actionBtnIcon,
+              !usePaging && compactUI && styles.actionBtnIconCompact
+            ]}
+            pressedStyle={styles.pressDown}
+            accessibilityLabel="Donate to creator"
+            accessibilityHint="Opens wallet donation to this post creator"
+          >
+            <Ionicons name="cafe-outline" size={usePaging ? 26 : 22} color={usePaging ? "#ffffff" : "#404040"} />
+          </ActionChip>
+        ) : null}
+        <ActionChip
+          onPress={() => setMoreActionsPost(post)}
+          style={[
+            usePaging ? styles.floatActionBtn : styles.actionBtnIcon,
+            !usePaging && compactUI && styles.actionBtnIconCompact
+          ]}
+          pressedStyle={styles.pressDown}
+          accessibilityLabel="Open post actions"
+          accessibilityHint="Shows save, share, report, and mute options"
+        >
+          <Ionicons
+            name="ellipsis-horizontal"
+            size={usePaging ? 26 : 22}
+            color={usePaging ? "#ffffff" : "#404040"}
+          />
+        </ActionChip>
+      </>
+    );
+
+    if (usePaging) {
+      const mediaH = Math.max(280, viewportHeight);
+      return (
+        <View style={{ height: viewportHeight, backgroundColor: "#0a0a0a" }}>
+          <View style={styles.cardPaging}>
+            {(postType === "product" && post.productId) || postType === "product_tile" ? (
+              <View style={styles.pagingMediaFill}>
+                <FeedProductMediaBlock
+                  post={post}
+                  compactUI={compactUI}
+                  onCartUpdated={onCartUpdated}
+                  onOpenProduct={onOpenProduct}
+                />
+                <FeedProductBelowMedia post={post} titleFallback={title} />
+              </View>
+            ) : mediaUrl ? (
+              <Pressable
+                onPress={() => handleMediaTap(post, mediaUrl)}
+                onPressIn={(e) => {
+                  const { locationX, locationY } = e.nativeEvent;
+                  lastTapPosByIdRef.current[post._id] = { x: locationX, y: locationY };
+                }}
+                style={styles.pagingMediaFill}
+                accessibilityRole="button"
+                accessibilityLabel={`Open media for post: ${title}`}
+                accessibilityHint="Double tap quickly to like this post"
+              >
+                {postType === "video" ? (
+                  <Video
+                    source={{ uri: mediaUrl }}
+                    style={{ width: "100%", height: mediaH }}
+                    useNativeControls
+                    resizeMode={ResizeMode.CONTAIN}
+                    isLooping
+                    shouldPlay={false}
+                  />
+                ) : (
+                  <Image
+                    source={{ uri: mediaUrl }}
+                    style={{ width: "100%", aspectRatio: 4 / 5, maxHeight: mediaH, alignSelf: "center" }}
+                    resizeMode="contain"
+                  />
+                )}
+                {showHeart ? (
+                  <Animated.View
+                    pointerEvents="none"
+                    style={[
+                      styles.heartOverlay,
+                      {
+                        opacity: heartOpacity,
+                        left: heartPos.x - 26,
+                        top: heartPos.y - 26,
+                        transform: [{ scale: heartScale }]
+                      }
+                    ]}
+                  >
+                    <Text style={styles.heartIcon}>❤</Text>
+                  </Animated.View>
+                ) : null}
+              </Pressable>
+            ) : (
+              <View style={[styles.pagingMediaFill, styles.pagingTextFallback]}>
+                <Text style={styles.pagingTitle}>{title}</Text>
+                {post.caption || post.subject ? (
+                  <Text style={styles.pagingCaption} numberOfLines={8}>
+                    {post.caption || post.subject}
+                  </Text>
+                ) : null}
+              </View>
+            )}
+
+            <View style={styles.pagingBottomActions} pointerEvents="box-none">
+              {actionChips}
+            </View>
+
+            <View style={styles.pagingBottomMeta} pointerEvents="box-none">
+              <Text style={styles.pagingCreator} numberOfLines={1}>
+                @{derived?.creatorName || userName || "creator"}
+                {taggedUsersCaption(post.taggedUserIds)}
+              </Text>
+              <Text style={styles.pagingTitle} numberOfLines={2}>
+                {title}
+              </Text>
+              {post.caption && post.heading ? (
+                <Text style={styles.pagingCaption} numberOfLines={3}>
+                  {post.caption}
+                </Text>
+              ) : null}
+              {post.hashtags?.length ? (
+                <Text style={styles.pagingHashes} numberOfLines={1}>
+                  #{post.hashtags.join(" #")}
+                </Text>
+              ) : null}
+            </View>
+          </View>
+        </View>
+      );
+    }
+
     const card = (
-      <View style={styles.card}>
+      <View style={[styles.card, fullBleedWall && styles.cardFullBleed]}>
         {(() => {
           if (postType === "product" && post.productId) {
             return null;
@@ -1754,7 +2018,14 @@ export function FeedScreen({
           const isTextPost = postType === "text" || (!mediaUrl && (post.subject || post.caption));
           const rawBody = post.subject || post.caption || "";
           const firstLine = rawBody ? rawBody.split("\n")[0]?.trim().slice(0, 120) || "" : "";
-          const headline = post.heading || firstLine;
+          const headline =
+            resolvePostDisplayTitle({
+              heading: post.heading,
+              caption: firstLine || post.caption,
+              subject: post.subject,
+              type: post.type,
+              creatorName: creator?.name || userName
+            }) || title;
           const body = post.heading ? rawBody : rawBody.split("\n").slice(1).join("\n").trim();
           const hasBody = body.length > 0;
           const isExpanded = expandedPostIds.has(post._id);
@@ -1765,7 +2036,7 @@ export function FeedScreen({
 
           if (isTextPost && (headline || hasBody)) {
             return (
-              <View style={styles.textPostContent}>
+              <View style={[styles.textPostContent, fullBleedWall && styles.textPostContentBleed]}>
                 {headline ? (
                   <Text style={styles.postHeadline} numberOfLines={3}>
                     {headline}
@@ -1793,10 +2064,13 @@ export function FeedScreen({
               </View>
             );
           }
+          if (mediaUrl && fullBleedWall) {
+            return null;
+          }
           if (mediaUrl && (post.heading || post.subject || post.caption)) {
             return null;
           }
-          return <Text style={styles.postTitle}>{title}</Text>;
+          return <Text style={[styles.postTitle, fullBleedWall && styles.postTitleBleed]}>{title}</Text>;
         })()}
         {(postType === "product" && post.productId) ||
         postType === "product_tile" ? (
@@ -1816,31 +2090,45 @@ export function FeedScreen({
               const { locationX, locationY } = e.nativeEvent;
               lastTapPosByIdRef.current[post._id] = { x: locationX, y: locationY };
             }}
-            style={styles.mediaWrap}
+            style={[styles.mediaWrap, fullBleedWall && styles.mediaWrapFullBleed]}
             accessibilityRole="button"
             accessibilityLabel={`Open media for post: ${title}`}
             accessibilityHint="Double tap quickly to like this post"
           >
+            {fullBleedWall && derived?.creatorName ? (
+              <View style={styles.mediaCreatorBadge} pointerEvents="none">
+                {derived?.creator?.avatar ? (
+                  <Image
+                    source={{ uri: toAbsoluteMediaUrl(derived.creator.avatar) }}
+                    style={styles.mediaCreatorAvatar}
+                  />
+                ) : null}
+                <Text style={styles.mediaCreatorName} numberOfLines={1}>
+                  {derived.creatorName}
+                </Text>
+              </View>
+            ) : null}
             {postType === "video" ? (
               <Video
                 source={{ uri: mediaUrl }}
                 style={[
                   styles.heroImage,
                   compactUI && styles.heroImageCompact,
-                  usePaging && {
-                    height: Math.round(Math.max(280, viewportHeight * 0.58)),
-                    width: "100%" as const
-                  }
+                  fullBleedWall && styles.heroImageFullBleed
                 ]}
                 useNativeControls
-                resizeMode={usePaging ? ResizeMode.COVER : ResizeMode.CONTAIN}
+                resizeMode={fullBleedWall ? ResizeMode.COVER : ResizeMode.CONTAIN}
                 isLooping
               />
             ) : (
-              <Image
-                source={{ uri: mediaUrl }}
-                style={[styles.heroImage, compactUI && styles.heroImageCompact]}
-                resizeMode="contain"
+              <FitContainImage
+                uri={mediaUrl}
+                mode="contain"
+                style={[
+                  compactUI && styles.heroImageCompact,
+                  !fullBleedWall && styles.heroImageRounded
+                ]}
+                maxHeight={fullBleedWall ? 560 : 420}
               />
             )}
             {showHeart ? (
@@ -1861,104 +2149,38 @@ export function FeedScreen({
             ) : null}
           </Pressable>
         ) : null}
-        {mediaUrl &&
-        (post.heading || post.subject || post.caption) &&
-        postType !== "product" ? (
-          <View style={styles.textPostContent}>
-            {post.heading ? (
-              <Text style={styles.postHeadline} numberOfLines={2}>
-                {post.heading}
-              </Text>
-            ) : null}
-            {(post.caption || post.subject) ? (
+        {mediaUrl && postType !== "product" ? (
+          <View style={[styles.textPostContent, fullBleedWall && styles.textPostContentBleed]}>
+            <Text style={styles.postHeadline} numberOfLines={2}>
+              {title}
+            </Text>
+            {(post.caption || post.subject) && post.heading ? (
               <Text style={styles.postBody} numberOfLines={4} selectable>
                 {post.caption || post.subject}
               </Text>
             ) : null}
           </View>
         ) : null}
-        {post.hashtags?.length ? <Text style={styles.hashes}>#{post.hashtags.join(" #")}</Text> : null}
-        <View style={styles.statsRow}>
-          <Animated.Text style={[styles.stats, { transform: [{ scale: likeScale }] }]}>
-            {(post.likeCount ?? 0).toLocaleString()} likes
-          </Animated.Text>
-          <Text style={styles.stats}> • {(post.commentCount ?? 0).toLocaleString()} comments</Text>
-        </View>
-        <View style={styles.actionsRow}>
-          <ActionChip
-            onPress={() => handleLikeToggle(post)}
-            disabled={likeBusy}
-            loading={likeBusy}
-            loadingColor={liked ? "#059669" : "#404040"}
-            active={liked}
-            style={[
-              styles.actionBtnIcon,
-              compactUI && styles.actionBtnIconCompact,
-              likeBusy && styles.actionBtnDisabled
-            ]}
-            activeStyle={styles.actionBtnActive}
-            pressedStyle={styles.pressDown}
-            accessibilityLabel={`${liked ? "Unlike post" : "Like post"}, ${(post.likeCount ?? 0).toLocaleString()} likes`}
-            accessibilityHint="Toggles like on this post"
-          >
-            <Ionicons
-              name={liked ? "heart" : "heart-outline"}
-              size={22}
-              color={liked ? "#059669" : "#404040"}
-            />
-          </ActionChip>
-          <ActionChip
-            onPress={() => openComments(post)}
-            disabled={commentsBusy}
-            loading={commentsBusy}
-            style={[
-              styles.actionBtnIcon,
-              compactUI && styles.actionBtnIconCompact,
-              commentsBusy && styles.actionBtnDisabled
-            ]}
-            pressedStyle={styles.pressDown}
-            accessibilityLabel={`Open comments, ${(post.commentCount ?? 0).toLocaleString()} comments`}
-            accessibilityHint="Opens comments for this post"
-          >
-            <Ionicons name="chatbubble-outline" size={21} color="#404040" />
-          </ActionChip>
-          <ActionChip
-            onPress={() => void handleSharePost(post)}
-            style={[styles.actionBtnIcon, compactUI && styles.actionBtnIconCompact]}
-            pressedStyle={styles.pressDown}
-            accessibilityLabel="Share post"
-            accessibilityHint="Share a link to this post"
-          >
-            <Ionicons name="share-outline" size={22} color="#404040" />
-          </ActionChip>
-          {canDonate ? (
-            <ActionChip
-              onPress={() => {
-                if (!creatorId) return;
-                setDonateRecipient({ id: String(creatorId), name: creator?.name || "Creator" });
-                setDonateAmount("");
-              }}
-              style={[styles.actionBtnIcon, compactUI && styles.actionBtnIconCompact]}
-              pressedStyle={styles.pressDown}
-              accessibilityLabel="Donate to creator"
-              accessibilityHint="Opens wallet donation to this post creator"
-            >
-              <Ionicons name="cafe-outline" size={22} color="#404040" />
-            </ActionChip>
-          ) : null}
-          <ActionChip
-            onPress={() => setMoreActionsPost(post)}
-            style={[styles.actionBtnIcon, compactUI && styles.actionBtnIconCompact]}
-            pressedStyle={styles.pressDown}
-            accessibilityLabel="Open post actions"
-            accessibilityHint="Shows save, share, report, and mute options"
-          >
-            <Ionicons name="ellipsis-horizontal" size={22} color="#404040" />
-          </ActionChip>
-        </View>
+        {post.hashtags?.length ? (
+          <Text style={[styles.hashes, fullBleedWall && styles.metaBleed]}>#{post.hashtags.join(" #")}</Text>
+        ) : null}
+        {taggedUserNames(post.taggedUserIds).length ? (
+          <Text style={[styles.hashes, fullBleedWall && styles.metaBleed]} numberOfLines={2}>
+            with {taggedUserNames(post.taggedUserIds).join(", ")}
+          </Text>
+        ) : null}
+        {!fullBleedWall ? (
+          <View style={styles.statsRow}>
+            <Animated.Text style={[styles.stats, { transform: [{ scale: likeScale }] }]}>
+              {(post.likeCount ?? 0).toLocaleString()} likes
+            </Animated.Text>
+            <Text style={styles.stats}> • {(post.commentCount ?? 0).toLocaleString()} comments</Text>
+          </View>
+        ) : null}
+        <View style={[styles.actionsRow, fullBleedWall && styles.actionsRowBleed]}>{actionChips}</View>
       </View>
     );
-    return usePaging ? <View style={{ height: viewportHeight }}>{card}</View> : card;
+    return card;
   }, [
     compactUI,
     expandedPostIds,
@@ -1976,10 +2198,11 @@ export function FeedScreen({
     setPreviewCreator,
     toggleExpandPost,
     usePaging,
+    fullBleedWall,
     viewportHeight,
     onCartUpdated,
     onOpenProduct,
-    compactUI
+    userName
   ]);
 
   const feedItemKeyExtractor = useCallback((item: FeedListItem) => item.id, []);
@@ -2023,7 +2246,11 @@ export function FeedScreen({
         data={items}
         keyExtractor={feedItemKeyExtractor}
         renderItem={renderItem}
-        contentContainerStyle={styles.listContent}
+        contentContainerStyle={[styles.listContent, fullBleedWall && styles.listContentFullBleed]}
+        scrollEventThrottle={chromeScroll.scrollEventThrottle}
+        onScroll={chromeScroll.onScroll}
+        onContentSizeChange={chromeScroll.onContentSizeChange}
+        onLayout={chromeScroll.onLayout}
         onEndReachedThreshold={0.4}
         onEndReached={loadMore}
         pagingEnabled={usePaging}
@@ -2319,8 +2546,78 @@ export function FeedScreen({
           >
             {moreActionsPost ? (
               <View style={styles.moreActionsGrid}>
+                {onTvListModeChange ? (
+                  <>
+                    <ActionChip
+                      label="Feed"
+                      onPress={() => {
+                        setMoreActionsPost(null);
+                        onTvListModeChange("feed");
+                      }}
+                      style={[styles.actionBtn, styles.moreActionItem]}
+                      textStyle={styles.actionBtnText}
+                      active={tvListMode === "feed"}
+                      activeTextStyle={styles.actionBtnTextActive}
+                      pressedStyle={styles.pressDown}
+                    />
+                    <ActionChip
+                      label={savedCount > 0 ? `Saved (${savedCount > 99 ? "99+" : savedCount})` : "Saved"}
+                      onPress={() => {
+                        setMoreActionsPost(null);
+                        onTvListModeChange("saved");
+                      }}
+                      style={[styles.actionBtn, styles.moreActionItem]}
+                      textStyle={styles.actionBtnText}
+                      active={tvListMode === "saved"}
+                      activeTextStyle={styles.actionBtnTextActive}
+                      pressedStyle={styles.pressDown}
+                    />
+                    {tvListMode === "saved" && savedCount > 0 && onClearAllSaved ? (
+                      <ActionChip
+                        label="Clear all saved"
+                        onPress={() => {
+                          setMoreActionsPost(null);
+                          onClearAllSaved();
+                        }}
+                        style={[styles.actionBtn, styles.moreActionItem]}
+                        textStyle={styles.actionBtnText}
+                        pressedStyle={styles.pressDown}
+                      />
+                    ) : null}
+                  </>
+                ) : null}
+                {currentUserId &&
+                getCreatorUserId(moreActionsPost) &&
+                String(getCreatorUserId(moreActionsPost)) === String(currentUserId) ? (
+                  <ActionChip
+                    label="Delete post"
+                    onPress={() => {
+                      const post = moreActionsPost;
+                      setMoreActionsPost(null);
+                      Alert.alert("Delete this post?", "This cannot be undone.", [
+                        { text: "Cancel", style: "cancel" },
+                        {
+                          text: "Delete",
+                          style: "destructive",
+                          onPress: () => void handleDeletePost(post)
+                        }
+                      ]);
+                    }}
+                    style={[styles.actionBtn, styles.moreActionItem, styles.moreActionDanger]}
+                    textStyle={[styles.actionBtnText, styles.moreActionDangerText]}
+                    pressedStyle={styles.pressDown}
+                  />
+                ) : null}
                 <ActionChip
-                  label={savedMap[moreActionsPost._id] ? "Saved" : "Save"}
+                  label={
+                    savedMap[moreActionsPost._id]
+                      ? Platform.OS === "ios"
+                        ? "Bookmarked"
+                        : "Saved"
+                      : Platform.OS === "ios"
+                        ? "Bookmark"
+                        : "Save"
+                  }
                   onPress={() => {
                     setMoreActionsPost(null);
                     void handleSaveToggle(moreActionsPost);
@@ -2707,7 +3004,8 @@ export function FeedScreen({
                     )}
                   </Pressable>
                 ) : null}
-                {profileId &&
+                {iosCreatorDigitalTipsEnabled() &&
+                profileId &&
                 currentUserId &&
                 profileId !== currentUserId &&
                 profileData.user?.isSchoolAccount ? (
@@ -2826,7 +3124,12 @@ export function FeedScreen({
           </ModalCard>
         </View>
       </Modal>
-      <Modal visible={!!donateRecipient} transparent animationType="fade" onRequestClose={closeDonateModal}>
+      <Modal
+        visible={iosCreatorDigitalTipsEnabled() && !!donateRecipient}
+        transparent
+        animationType="fade"
+        onRequestClose={closeDonateModal}
+      >
         <View style={styles.modalBackdrop}>
           <ModalCard
             title="Donate"
@@ -2984,6 +3287,11 @@ const styles = StyleSheet.create({
     backgroundColor: "#fafafa",
     flexGrow: 1
   },
+  listContentFullBleed: {
+    gap: 16,
+    paddingBottom: 40,
+    backgroundColor: "#ffffff"
+  },
   headerTools: {
     gap: 8,
     marginBottom: 4
@@ -3140,6 +3448,101 @@ const styles = StyleSheet.create({
     padding: 10,
     gap: 7
   },
+  cardFullBleed: {
+    borderRadius: 0,
+    borderWidth: 0,
+    padding: 0,
+    gap: 0,
+    backgroundColor: "#ffffff",
+    overflow: "hidden"
+  },
+  cardPaging: {
+    flex: 1,
+    backgroundColor: "#0a0a0a",
+    overflow: "hidden"
+  },
+  pagingMediaFill: {
+    ...StyleSheet.absoluteFillObject
+  },
+  pagingTextFallback: {
+    justifyContent: "center",
+    paddingHorizontal: 24,
+    backgroundColor: "#111827"
+  },
+  floatActionsCol: {
+    position: "absolute",
+    right: 10,
+    bottom: 120,
+    alignItems: "center",
+    gap: 10,
+    zIndex: 4
+  },
+  /** TV/video: actions under media (same as wall photos) — clear of right Home FABs */
+  pagingBottomActions: {
+    position: "absolute",
+    left: 12,
+    right: 72,
+    bottom: 88,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    zIndex: 4
+  },
+  floatActionBtn: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: "rgba(0,0,0,0.35)",
+    alignItems: "center",
+    justifyContent: "center"
+  },
+  floatActionCount: {
+    color: "#ffffff",
+    fontSize: 12,
+    fontWeight: "700",
+    marginTop: -6,
+    marginBottom: 2,
+    textShadowColor: "rgba(0,0,0,0.55)",
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3
+  },
+  pagingBottomMeta: {
+    position: "absolute",
+    left: 14,
+    right: 72,
+    bottom: 18,
+    gap: 4,
+    zIndex: 3
+  },
+  pagingCreator: {
+    color: "#ffffff",
+    fontSize: 14,
+    fontWeight: "800",
+    textShadowColor: "rgba(0,0,0,0.55)",
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 4
+  },
+  pagingTitle: {
+    color: "#ffffff",
+    fontSize: 16,
+    fontWeight: "700",
+    textShadowColor: "rgba(0,0,0,0.55)",
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 4
+  },
+  pagingCaption: {
+    color: "rgba(255,255,255,0.92)",
+    fontSize: 13,
+    lineHeight: 18,
+    textShadowColor: "rgba(0,0,0,0.45)",
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3
+  },
+  pagingHashes: {
+    color: "#93c5fd",
+    fontSize: 12,
+    fontWeight: "600"
+  },
   adLabel: {
     color: "#f59e0b",
     fontSize: 12,
@@ -3198,6 +3601,17 @@ const styles = StyleSheet.create({
     marginBottom: 4,
     paddingVertical: 2
   },
+  textPostContentBleed: {
+    marginTop: 0,
+    marginBottom: 0,
+    paddingHorizontal: 12,
+    paddingTop: 10,
+    paddingBottom: 4
+  },
+  postTitleBleed: {
+    paddingHorizontal: 12,
+    paddingTop: 10
+  },
   postHeadline: {
     color: "#262626",
     fontSize: 17,
@@ -3224,17 +3638,56 @@ const styles = StyleSheet.create({
   },
   heroImage: {
     width: "100%",
-    height: 220,
+    aspectRatio: 1,
     borderRadius: 10,
     backgroundColor: "#f3f4f6"
   },
   heroImageCompact: {
-    height: 190
+    aspectRatio: 1
+  },
+  heroImageFullBleed: {
+    width: "100%",
+    aspectRatio: 1,
+    borderRadius: 0,
+    backgroundColor: "#0f172a"
+  },
+  heroImageRounded: {
+    borderRadius: 10
   },
   mediaWrap: {
     position: "relative",
     borderRadius: 10,
     overflow: "hidden"
+  },
+  mediaWrapFullBleed: {
+    borderRadius: 0,
+    width: "100%"
+  },
+  mediaCreatorBadge: {
+    position: "absolute",
+    top: 12,
+    left: 12,
+    zIndex: 2,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "rgba(15,23,42,0.72)",
+    borderRadius: 999,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    maxWidth: "70%"
+  },
+  mediaCreatorAvatar: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: "#e2e8f0"
+  },
+  mediaCreatorName: {
+    color: "#ffffff",
+    fontSize: 12,
+    fontWeight: "700",
+    maxWidth: 160
   },
   heartOverlay: {
     position: "absolute",
@@ -3254,6 +3707,10 @@ const styles = StyleSheet.create({
     color: "#059669",
     fontSize: 12
   },
+  metaBleed: {
+    paddingHorizontal: 12,
+    paddingTop: 4
+  },
   stats: {
     color: "#525252",
     fontSize: 12
@@ -3270,6 +3727,11 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     gap: 6,
     alignItems: "center"
+  },
+  actionsRowBleed: {
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    gap: 8
   },
   actionBtn: {
     borderWidth: 1,
@@ -3333,6 +3795,13 @@ const styles = StyleSheet.create({
   },
   moreActionItem: {
     width: "48%"
+  },
+  moreActionDanger: {
+    borderColor: "#fecaca",
+    backgroundColor: "#fff1f2"
+  },
+  moreActionDangerText: {
+    color: "#e11d48"
   },
   footerLoading: {
     paddingVertical: 14

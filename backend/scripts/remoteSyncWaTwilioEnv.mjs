@@ -21,6 +21,13 @@ const WA_SYNC_KEYS = [
   "TWILIO_SUBACCOUNT_AUTH_TOKEN",
   "TWILIO_STUDIO_FLOW_SID_BW",
   "TWILIO_WHATSAPP_RSA_USE_PARENT_CREDENTIALS",
+  /** Food/grocery paid-order merchant alert template (Meta Content SID). */
+  "TWILIO_WA_ORDER_ALERT_CONTENT_SID",
+  /** Regional SMS From — ZA merchant SMS last-resort (do not invent; set after Console purchase). */
+  "TWILIO_SMS_FROM_ZA",
+  "TWILIO_SMS_FROM_BW",
+  "TWILIO_SMS_FROM_LS",
+  "TWILIO_SMS_MESSAGING_SERVICE_SID",
 ];
 
 function loadLocalPatch() {

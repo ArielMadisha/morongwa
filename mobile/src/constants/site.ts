@@ -6,6 +6,7 @@ export const SITE_NAV_ICONS = {
   acbPayWallet: "/wallet-icon.png",
   qwertyHub: "/qwertyhub-icon.png",
   qwertyTv: "/qwertytv-icon.png",
+  qwertyMedia: "/qwertymedia-icon.png",
   qwertyWorld: "/qwertyworld-icon.png",
   qwertyMusic: "/music-icon.png",
   myStore: "/mystore-icon.png",

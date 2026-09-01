@@ -56,8 +56,8 @@ export function QrScannerModal({ open, onClose, phoneVerified, onNeedPhone, onPa
     }
     setBusy(true);
     try {
-      await walletAPI.donate(amt, recipientId);
-      toast.success('Payment sent!');
+      await walletAPI.sendMoney({ amount: amt, toUserId: recipientId });
+      toast.success('Money sent!');
       onPaid?.();
       handleClose();
     } catch (e: unknown) {
@@ -89,7 +89,7 @@ export function QrScannerModal({ open, onClose, phoneVerified, onNeedPhone, onPa
   }
 
   return (
-    <FlowModal open={open} title={recipientId ? 'Pay user' : 'Scan QR'} onClose={handleClose} onBack={recipientId ? () => setRecipientId(null) : undefined}>
+    <FlowModal open={open} title={recipientId ? 'Send Money' : 'Scan QR'} onClose={handleClose} onBack={recipientId ? () => setRecipientId(null) : undefined}>
       {!recipientId ? (
         <div className="space-y-4">
           <WalletQrScanner active={open} onScan={handleScan} onClose={handleClose} title="Scan wallet QR" />

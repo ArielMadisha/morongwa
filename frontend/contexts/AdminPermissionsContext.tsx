@@ -2,7 +2,6 @@
 
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { userHasWebsiteAdminAccess } from '@/lib/adminAccess';
 import { adminAPI } from '@/lib/api';
 import type { AdminPermissionsMe } from '@/lib/adminSectionAccess';
 
@@ -25,7 +24,9 @@ export function AdminPermissionsProvider({ children }: { children: React.ReactNo
 
   const load = useCallback(async () => {
     if (authLoading) return;
-    if (!user || !userHasWebsiteAdminAccess(user)) {
+    // Approved store owners have no admin role but may hold scoped product-loading rights,
+    // so ask the API for any signed-in user (403 → no admin access).
+    if (!user) {
       setPerms(null);
       setLoading(false);
       return;

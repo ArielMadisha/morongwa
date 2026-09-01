@@ -43,6 +43,7 @@ export interface TVPost {
   heading?: string;
   subject?: string;
   hashtags?: string[];
+  taggedUserIds?: Array<{ _id?: string; name?: string; username?: string }>;
   mediaUrls?: string[];
   creatorId?: TVCreator | string;
   /** Linked marketplace product when type is product */
@@ -95,6 +96,12 @@ export interface ProductSupplierRef {
   userId?: string;
 }
 
+export interface ProductColorOption {
+  name: string;
+  hex: string;
+  imageIndex?: number;
+}
+
 export interface Product {
   _id: string;
   title: string;
@@ -106,6 +113,10 @@ export interface Product {
   currency?: string;
   stock?: number;
   outOfStock?: boolean;
+  sizes?: string[];
+  colors?: ProductColorOption[];
+  categories?: string[];
+  tags?: string[];
   /** When true, buyers may resell via reseller wall */
   allowResell?: boolean;
   /** Populated supplier storefront name (API enrich / populate). */
@@ -119,6 +130,9 @@ export interface StoreSummary {
   _id: string;
   name: string;
   slug?: string;
+  type?: "supplier" | "reseller";
+  country?: string;
+  countryCode?: string;
   address?: string;
   email?: string;
   cellphone?: string;
@@ -132,6 +146,9 @@ export interface CartItem {
   qty: number;
   lineTotal?: number;
   product?: Product;
+  selectedColor?: string;
+  selectedSize?: string;
+  resellerId?: string;
 }
 
 /** Errand/task row (GET /api/tasks/*). */

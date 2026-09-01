@@ -368,7 +368,17 @@ function RunnerDashboard() {
                       <CheckCircle className={`h-5 w-5 ${user.runnerIdDocument.verified ? 'text-emerald-600' : 'text-amber-500'}`} />
                       <span>{user.runnerIdDocument.verified ? 'Verified by admin' : 'Uploaded – pending verification'}</span>
                       {user.runnerIdDocument.path && (
-                        <a href={user.runnerIdDocument.path} target="_blank" rel="noopener noreferrer" className="text-sky-600 hover:underline">View</a>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            void usersAPI.openRunnerIdDocument(userId).catch(() =>
+                              toast.error('Could not open ID document')
+                            );
+                          }}
+                          className="text-sky-600 hover:underline"
+                        >
+                          View
+                        </button>
                       )}
                     </div>
                   ) : (
@@ -389,7 +399,17 @@ function RunnerDashboard() {
                       <CheckCircle className={`h-5 w-5 ${user.runnerProofOfResidence.verified ? 'text-emerald-600' : 'text-amber-500'}`} />
                       <span>{user.runnerProofOfResidence.verified ? 'Verified by admin' : 'Uploaded – pending verification'}</span>
                       {user.runnerProofOfResidence.path && (
-                        <a href={user.runnerProofOfResidence.path} target="_blank" rel="noopener noreferrer" className="text-sky-600 hover:underline">View</a>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            void usersAPI.openRunnerProofOfResidence(userId).catch(() =>
+                              toast.error('Could not open proof of residence')
+                            );
+                          }}
+                          className="text-sky-600 hover:underline"
+                        >
+                          View
+                        </button>
                       )}
                     </div>
                   ) : (

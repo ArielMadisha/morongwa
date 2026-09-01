@@ -1,0 +1,309 @@
+{
+  "fetchedAt": "2026-08-16T03:39:04.421Z",
+  "before": {
+    "versionState": "REJECTED",
+    "versionString": "1.0",
+    "buildId": "ff4d698b-493c-4c4e-ba42-76c1d14e1575",
+    "buildNumber": "8",
+    "buildProcessing": "VALID",
+    "submissions": [
+      {
+        "id": "5348e907-c57f-45af-9f69-c3bda9351276",
+        "state": "UNRESOLVED_ISSUES",
+        "submittedDate": "2026-08-13T01:15:57.923Z"
+      },
+      {
+        "id": "baefad44-d63e-4562-a514-a47f3ef799b3",
+        "state": "COMPLETE",
+        "submittedDate": "2026-08-09T22:32:23.322Z"
+      },
+      {
+        "id": "442e5f45-85d3-41ee-82bb-d87bf4d70108",
+        "state": "COMPLETE",
+        "submittedDate": "2026-08-05T09:28:15.187Z"
+      }
+    ],
+    "locale": "en-GB",
+    "localizationId": "99209ca8-b366-438b-902c-1126ba15e98a",
+    "screenshotSets": [
+      {
+        "setId": "331f238e-e280-4a3c-8b0c-6aa4abdb42fc",
+        "displayType": "APP_IPHONE_55",
+        "files": [
+          {
+            "id": "6ee508a4-94d5-4f9f-af89-932b7ed56516",
+            "fileName": "01-wall-feed-1242x2208.jpg",
+            "state": "COMPLETE",
+            "size": "1242x2208"
+          },
+          {
+            "id": "06ffc4f4-757b-41fc-b12f-e20c449f2919",
+            "fileName": "02-qwertyhub-1242x2208.jpg",
+            "state": "COMPLETE",
+            "size": "1242x2208"
+          },
+          {
+            "id": "e8ad3e32-1bed-45a2-98da-0609eba0ca6c",
+            "fileName": "03-qwertytv-1242x2208.jpg",
+            "state": "COMPLETE",
+            "size": "1242x2208"
+          },
+          {
+            "id": "a4485f9c-5659-4d5e-86c2-73a724d47143",
+            "fileName": "04-explore-1242x2208.jpg",
+            "state": "COMPLETE",
+            "size": "1242x2208"
+          },
+          {
+            "id": "b908bb85-163a-455e-9301-e68d0a39db3a",
+            "fileName": "05-acbpay-wallet-1242x2208.jpg",
+            "state": "COMPLETE",
+            "size": "1242x2208"
+          }
+        ]
+      },
+      {
+        "setId": "dfecebe1-a25e-476b-8a7b-96a42f0f2a57",
+        "displayType": "APP_IPHONE_67",
+        "files": [
+          {
+            "id": "bde8304c-8403-4e20-b451-6d4879ce5a10",
+            "fileName": "01-wall-feed-1290x2796.jpg",
+            "state": "COMPLETE",
+            "size": "1290x2796"
+          },
+          {
+            "id": "a398911f-1993-4601-b6e4-0c4a0eec18e2",
+            "fileName": "02-qwertyhub-1290x2796.jpg",
+            "state": "COMPLETE",
+            "size": "1290x2796"
+          },
+          {
+            "id": "1e50c7b5-2ec4-4b31-9758-2070bb947d51",
+            "fileName": "03-qwertytv-1290x2796.jpg",
+            "state": "COMPLETE",
+            "size": "1290x2796"
+          },
+          {
+            "id": "fa815c6b-8e8e-4152-a002-eede62cfb331",
+            "fileName": "04-explore-1290x2796.jpg",
+            "state": "COMPLETE",
+            "size": "1290x2796"
+          },
+          {
+            "id": "cb0ff403-cc33-4857-b681-e754323a948e",
+            "fileName": "05-acbpay-wallet-1290x2796.jpg",
+            "state": "COMPLETE",
+            "size": "1290x2796"
+          }
+        ]
+      },
+      {
+        "setId": "75d52102-c91d-4872-93e0-157732153b9c",
+        "displayType": "APP_IPHONE_65",
+        "files": [
+          {
+            "id": "1d6d77e0-dba5-4c7e-a63e-73e93520c67e",
+            "fileName": "01-wall-feed-1242x2688.jpg",
+            "state": "COMPLETE",
+            "size": "1242x2688"
+          },
+          {
+            "id": "61982bd2-e32d-4b35-ab63-935ae696689c",
+            "fileName": "02-qwertyhub-1242x2688.jpg",
+            "state": "COMPLETE",
+            "size": "1242x2688"
+          },
+          {
+            "id": "a0270c80-9a5c-468a-9b02-62d6faa84e4f",
+            "fileName": "03-qwertytv-1242x2688.jpg",
+            "state": "COMPLETE",
+            "size": "1242x2688"
+          },
+          {
+            "id": "c4d1688a-c75d-4e26-9727-fe30984f0e75",
+            "fileName": "04-explore-1242x2688.jpg",
+            "state": "COMPLETE",
+            "size": "1242x2688"
+          },
+          {
+            "id": "ee2b4c20-6a8f-4794-bae2-c5eb9c91dfc7",
+            "fileName": "05-acbpay-wallet-1242x2688.jpg",
+            "state": "COMPLETE",
+            "size": "1242x2688"
+          }
+        ]
+      },
+      {
+        "setId": "33f38ed0-12ac-47c9-a254-16d640c43679",
+        "displayType": "APP_IPAD_PRO_3GEN_129",
+        "files": [
+          {
+            "id": "c06f9b1f-2c01-493a-bef9-3b5659b33024",
+            "fileName": "01-wall-feed-2048x2732.jpg",
+            "state": "COMPLETE",
+            "size": "2048x2732"
+          },
+          {
+            "id": "36bd52c0-e669-4fc5-8499-de435fc6947d",
+            "fileName": "02-qwertyhub-2048x2732.jpg",
+            "state": "COMPLETE",
+            "size": "2048x2732"
+          },
+          {
+            "id": "c726b00b-b089-49aa-ac65-4c29957b31ac",
+            "fileName": "03-qwertytv-2048x2732.jpg",
+            "state": "COMPLETE",
+            "size": "2048x2732"
+          },
+          {
+            "id": "3d6e31c8-b978-44e7-bb74-934de3cf6711",
+            "fileName": "04-explore-2048x2732.jpg",
+            "state": "COMPLETE",
+            "size": "2048x2732"
+          },
+          {
+            "id": "10a76418-aacd-47c6-89ff-485e21b34643",
+            "fileName": "05-acbpay-wallet-2048x2732.jpg",
+            "state": "COMPLETE",
+            "size": "2048x2732"
+          }
+        ]
+      }
+    ]
+  },
+  "screenshotsUploaded": [
+    {
+      "displayType": "APP_IPHONE_67",
+      "file": "01-wall-feed-1290x2796.jpg",
+      "ok": true
+    },
+    {
+      "displayType": "APP_IPHONE_67",
+      "file": "02-qwertyhub-1290x2796.jpg",
+      "ok": true
+    },
+    {
+      "displayType": "APP_IPHONE_67",
+      "file": "03-qwertytv-1290x2796.jpg",
+      "ok": true
+    },
+    {
+      "displayType": "APP_IPHONE_67",
+      "file": "04-explore-1290x2796.jpg",
+      "ok": true
+    },
+    {
+      "displayType": "APP_IPHONE_67",
+      "file": "05-acbpay-wallet-1290x2796.jpg",
+      "ok": true
+    },
+    {
+      "displayType": "APP_IPHONE_65",
+      "file": "01-wall-feed-1242x2688.jpg",
+      "ok": true
+    },
+    {
+      "displayType": "APP_IPHONE_65",
+      "file": "02-qwertyhub-1242x2688.jpg",
+      "ok": true
+    },
+    {
+      "displayType": "APP_IPHONE_65",
+      "file": "03-qwertytv-1242x2688.jpg",
+      "ok": true
+    },
+    {
+      "displayType": "APP_IPHONE_65",
+      "file": "04-explore-1242x2688.jpg",
+      "ok": true
+    },
+    {
+      "displayType": "APP_IPHONE_65",
+      "file": "05-acbpay-wallet-1242x2688.jpg",
+      "ok": true
+    },
+    {
+      "displayType": "APP_IPHONE_55",
+      "file": "01-wall-feed-1242x2208.jpg",
+      "ok": true
+    },
+    {
+      "displayType": "APP_IPHONE_55",
+      "file": "02-qwertyhub-1242x2208.jpg",
+      "ok": true
+    },
+    {
+      "displayType": "APP_IPHONE_55",
+      "file": "03-qwertytv-1242x2208.jpg",
+      "ok": true
+    },
+    {
+      "displayType": "APP_IPHONE_55",
+      "file": "04-explore-1242x2208.jpg",
+      "ok": true
+    },
+    {
+      "displayType": "APP_IPHONE_55",
+      "file": "05-acbpay-wallet-1242x2208.jpg",
+      "ok": true
+    },
+    {
+      "displayType": "APP_IPAD_PRO_3GEN_129",
+      "file": "01-wall-feed-2048x2732.jpg",
+      "ok": true
+    },
+    {
+      "displayType": "APP_IPAD_PRO_3GEN_129",
+      "file": "02-qwertyhub-2048x2732.jpg",
+      "ok": true
+    },
+    {
+      "displayType": "APP_IPAD_PRO_3GEN_129",
+      "file": "03-qwertytv-2048x2732.jpg",
+      "ok": true
+    },
+    {
+      "displayType": "APP_IPAD_PRO_3GEN_129",
+      "file": "04-explore-2048x2732.jpg",
+      "ok": true
+    },
+    {
+      "displayType": "APP_IPAD_PRO_3GEN_129",
+      "file": "05-acbpay-wallet-2048x2732.jpg",
+      "ok": true
+    }
+  ],
+  "listingUpdated": true,
+  "notesUpdated": true,
+  "submitted": false,
+  "submissionId": "7940d686-9da7-4b95-81d0-1fda049de8e5",
+  "after": {
+    "versionState": "REJECTED",
+    "submissions": [
+      {
+        "id": "7940d686-9da7-4b95-81d0-1fda049de8e5",
+        "state": "READY_FOR_REVIEW",
+        "submittedDate": null
+      },
+      {
+        "id": "5348e907-c57f-45af-9f69-c3bda9351276",
+        "state": "UNRESOLVED_ISSUES",
+        "submittedDate": "2026-08-13T01:15:57.923Z"
+      },
+      {
+        "id": "baefad44-d63e-4562-a514-a47f3ef799b3",
+        "state": "COMPLETE",
+        "submittedDate": "2026-08-09T22:32:23.322Z"
+      },
+      {
+        "id": "442e5f45-85d3-41ee-82bb-d87bf4d70108",
+        "state": "COMPLETE",
+        "submittedDate": "2026-08-05T09:28:15.187Z"
+      }
+    ]
+  },
+  "gaps": [
+    "Submit failed: 409 {\"errors\":[{\"id\":\"4be54a6d-5085-4aac-9d7a-5464c31b7d7d\",\"status\":\"409\",\"code\":\"ENTITY_ERROR.RELATIONSHIP.REQUIRED\",\"title\":\"Relationship is required\",\"detail\":\"App 6798004708 must have an approved appStoreVersions for platform IOS, or an appStoreVersions must be included in this review submission.\","
+  ]
+}

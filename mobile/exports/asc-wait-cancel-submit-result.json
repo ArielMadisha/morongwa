@@ -1,0 +1,23 @@
+{
+  "unresolvedState": "COMPLETE",
+  "addOk": true,
+  "submitOk": true,
+  "versionState": "WAITING_FOR_REVIEW",
+  "submissions": [
+    {
+      "id": "5348e907-c57f-45af-9f69-c3bda9351276",
+      "state": "WAITING_FOR_REVIEW",
+      "submittedDate": "2026-08-13T01:15:57.923Z"
+    },
+    {
+      "id": "baefad44-d63e-4562-a514-a47f3ef799b3",
+      "state": "COMPLETE",
+      "submittedDate": "2026-08-09T22:32:23.322Z"
+    },
+    {
+      "id": "442e5f45-85d3-41ee-82bb-d87bf4d70108",
+      "state": "COMPLETE",
+      "submittedDate": "2026-08-05T09:28:15.187Z"
+    }
+  ]
+}

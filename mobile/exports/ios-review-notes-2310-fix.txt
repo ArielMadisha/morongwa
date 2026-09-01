@@ -1,0 +1,17 @@
+Hello App Review Team,
+
+Thank you for the Guideline 2.3.10 feedback on Qwertymates 1.0 (8) (Submission 5348e907-c57f-45af-9f69-c3bda9351276).
+
+GUIDELINE 2.3.10 — Accurate Metadata (screenshots)
+We revised App Store screenshots across iPhone 6.7", 6.5", 5.5" and iPad sizes:
+
+• Removed non-iOS / Android status bar images (time, dual signal, circular battery %) that previously appeared inside marketing screenshots (including under “Statuses, posts & creators”).
+• Revised screenshots now show product UI without Android OS chrome, so they accurately reflect the app on supported iOS devices and highlight main features: Your Wall, QwertyHub, QwertyTV, Explore, and ACBPay Wallet.
+• Wallet caption uses spaced “ACBPay Wallet” (not a compound / garbled third-party-looking label).
+
+This is a metadata-only fix. The same binary build 8 remains attached.
+
+App access: Reviewers can register with any email on Sign Up. Production API: https://api.qwertymates.com. Support: administrator@qwertymates.com.
+
+Thank you,
+Qwertymates Team

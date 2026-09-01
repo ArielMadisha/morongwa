@@ -1,0 +1,35 @@
+Hello App Review Team,
+
+Thank you for the 12 Aug 2026 review (Submission ID baefad44-d63e-4562-a514-a47f3ef799b3) of Qwertymates 1.0 on iPad Air 11-inch (M3). This new binary addresses both issues.
+
+GUIDELINE 3.1.1 — Payments / In-App Purchase (tips)
+Optional tips associated with digital content have been REMOVED from the iOS app:
+• Creator Donate / coffee-cup control on QwertyTV and Wall posts
+• “Buy me Coffee” and wallet-donate modal for creators
+• School-account Donate button
+
+Digital content and creator services are not sold via wallet on iOS. We did not implement StoreKit IAP in this pass; we removed the non-IAP tip flows instead.
+
+Wallet Scan QR “Send money” is person-to-person funds transfer (Guideline 3.1.1(b)), not a tip for digital content. QwertyHub checkout is for physical goods (marketplace products, food, groceries) with prepaid delivery — real-world goods, not digital content.
+
+GUIDELINE 5.2.3 — Intellectual Property / audio-video
+QwertyTV and QwertyMusic on iOS are first-party user-generated content. Users upload their own photos, videos, and audio in-app and grant Qwertymates a license under our Terms of Service. They warrant they own or have rights to that content.
+
+This iOS binary:
+• Does not embed YouTube, Spotify, SoundCloud, or Facebook video catalogs
+• Does not download other people’s audio/video to Photos or Files
+• “Bookmark” stores a post id in the app only (not a media file download)
+• Does not surface Facebook-ingested editorial catalog posts (those remain web/Android only)
+
+Documentary evidence of rights and policies:
+• Terms of Service: https://www.qwertymates.com/policies/terms-of-service
+• Privacy Policy: https://www.qwertymates.com/policies/privacy-policy
+• Intellectual Property / copyright & DMCA: https://www.qwertymates.com/policies/intellectual-property
+• Acceptable Use: https://www.qwertymates.com/policies/acceptable-use
+
+Takedown / DMCA: administrator@qwertymates.com. In-app Report is available on every post.
+
+App access: Reviewers can register a new account with any email on Sign Up. Production API: https://api.qwertymates.com. Support: administrator@qwertymates.com.
+
+Thank you,
+Qwertymates Team

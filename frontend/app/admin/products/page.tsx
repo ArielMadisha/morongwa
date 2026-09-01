@@ -1,12 +1,13 @@
 'use client';
 
 import { useState, useEffect, useRef, useMemo } from 'react';
-import { ProtectedRoute } from '@/components/ProtectedRoute';
+import { AdminSectionRoute } from '@/components/AdminSectionRoute';
 import { adminAPI } from '@/lib/api';
 import { formatCurrencyAmount } from '@/lib/formatCurrency';
 import Link from 'next/link';
 import { ArrowLeft, Package, Loader2, Plus, Trash2, ImagePlus, X, Layers, Wand2 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { useAdminPermissions } from '@/contexts/AdminPermissionsContext';
 
 import {
   adminMarkupPctForCategory,
@@ -91,6 +92,10 @@ function supplierOptionLabel(s: SupplierOption): string {
 }
 
 export default function AdminProductsPage() {
+  const { perms } = useAdminPermissions();
+  const catalogUnrestricted = Boolean(perms?.isSuperAdmin || perms?.productCatalogUnrestricted);
+  const scopedSupplierId = perms?.scopedSupplierId ? String(perms.scopedSupplierId) : '';
+  const scopedSupplierIds = (perms?.scopedSupplierIds || []).map(String).filter(Boolean);
   const PAGE_SIZE = 100;
   const [products, setProducts] = useState<ProductRow[]>([]);
   const [suppliers, setSuppliers] = useState<SupplierOption[]>([]);
@@ -239,8 +244,19 @@ export default function AdminProductsPage() {
         list = Array.isArray(fallbackList) ? fallbackList : [];
       }
       setSuppliers(list);
+      if (list.length === 1) {
+        setForm((f) => ({ ...f, supplierId: list[0]._id }));
+      } else if (scopedSupplierId && list.some((s: SupplierOption) => s._id === scopedSupplierId)) {
+        setForm((f) => ({ ...f, supplierId: scopedSupplierId }));
+      } else if (scopedSupplierIds.length === 1 && list.some((s: SupplierOption) => s._id === scopedSupplierIds[0])) {
+        setForm((f) => ({ ...f, supplierId: scopedSupplierIds[0] }));
+      }
       if (list.length === 0) {
-        toast.error('No approved suppliers found — check Admin → Suppliers');
+        toast.error(
+          catalogUnrestricted
+            ? 'No approved suppliers found — check Admin → Suppliers'
+            : 'No store assigned for product loading'
+        );
       }
     } catch {
       setSuppliers([]);
@@ -398,28 +414,34 @@ export default function AdminProductsPage() {
   };
 
   return (
-    <ProtectedRoute allowedRoles={['admin', 'superadmin']}>
+    <AdminSectionRoute sections={['products', 'product_uploads']}>
       <div className="min-h-screen bg-gradient-to-br from-sky-50 via-white to-sky-100 text-slate-800">
         <header className="border-b border-white/60 bg-white/70 backdrop-blur">
           <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-6">
             <div>
               <p className="text-xs uppercase tracking-widest text-sky-600">Morongwa</p>
               <h1 className="mt-1 text-3xl font-semibold text-slate-900">Load Products</h1>
-              <p className="mt-1 text-sm text-slate-600">Load and manage products for sale. Assign to an approved supplier.</p>
+              <p className="mt-1 text-sm text-slate-600">
+                {catalogUnrestricted
+                  ? 'Load and manage products for sale. Assign to an approved supplier.'
+                  : 'Load products into one of your stores. Use the store dropdown to switch.'}
+              </p>
               <p className="mt-2 text-xs text-slate-500">
                 Showing {products.length} of {totalProducts} products (page {page} of {totalPages}, {PAGE_SIZE} per page)
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={handleNormalizeCategories}
-                disabled={normalizingCategories}
-                className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700 hover:bg-emerald-100 disabled:opacity-50"
-              >
-                {normalizingCategories ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />}
-                Auto-categorize products
-              </button>
+              {catalogUnrestricted ? (
+                <button
+                  type="button"
+                  onClick={handleNormalizeCategories}
+                  disabled={normalizingCategories}
+                  className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700 hover:bg-emerald-100 disabled:opacity-50"
+                >
+                  {normalizingCategories ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />}
+                  Auto-categorize products
+                </button>
+              ) : null}
               <button
                 type="button"
                 onClick={() => setShowForm(!showForm)}
@@ -440,18 +462,30 @@ export default function AdminProductsPage() {
               <h2 className="text-lg font-semibold text-slate-900 mb-4">Create product</h2>
               <form onSubmit={handleCreate} className="grid gap-4 sm:grid-cols-2">
                 <div className="sm:col-span-2">
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Supplier *</label>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">
+                    {catalogUnrestricted ? 'Supplier *' : 'Store *'}
+                  </label>
                   <select
                     required
                     value={form.supplierId}
                     onChange={(e) => setForm((f) => ({ ...f, supplierId: e.target.value }))}
-                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-slate-900 focus:border-sky-300 focus:outline-none focus:ring-2 focus:ring-sky-100"
+                    disabled={suppliers.length <= 1}
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-slate-900 focus:border-sky-300 focus:outline-none focus:ring-2 focus:ring-sky-100 disabled:bg-slate-50 disabled:text-slate-700"
                   >
-                    <option value="">Select approved supplier</option>
+                    {suppliers.length !== 1 ? (
+                      <option value="">{catalogUnrestricted ? 'Select approved supplier' : 'Select store'}</option>
+                    ) : null}
                     {suppliers.map((s) => (
                       <option key={s._id} value={s._id}>{supplierOptionLabel(s)}</option>
                     ))}
                   </select>
+                  {!catalogUnrestricted ? (
+                    <p className="mt-1 text-xs text-slate-500">
+                      {suppliers.length > 1
+                        ? 'Pick which of your stores to load this product into.'
+                        : 'Products are loaded into your store only.'}
+                    </p>
+                  ) : null}
                 </div>
                 <div className="sm:col-span-2">
                   <label className="block text-sm font-medium text-slate-700 mb-1">Category *</label>
@@ -870,6 +904,6 @@ export default function AdminProductsPage() {
           </div>
         </main>
       </div>
-    </ProtectedRoute>
+    </AdminSectionRoute>
   );
 }

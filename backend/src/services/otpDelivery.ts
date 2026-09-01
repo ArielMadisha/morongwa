@@ -13,21 +13,52 @@ function getTwilioClient() {
   return twilio(sid, token);
 }
 
-function resolveSmsFromForDigits(digits: string): string {
+/**
+ * Country-specific SMS From numbers (E.164). Checked before the global Messaging Service /
+ * TWILIO_SMS_FROM so ZA merchants are not stuck on a US long code (Twilio 30003).
+ * Order matters: BW (+267) / LS (+266) before ZA (+27).
+ */
+function resolveRegionalSmsFromForDigits(digits: string): string {
   const d = String(digits || "").replace(/\D/g, "");
   if (d.startsWith("267")) {
-    const bw = String(process.env.TWILIO_SMS_FROM_BW || "").trim();
-    if (bw) return bw;
+    return String(process.env.TWILIO_SMS_FROM_BW || "").trim();
   }
   if (d.startsWith("266")) {
-    const ls = String(process.env.TWILIO_SMS_FROM_LS || "").trim();
-    if (ls) return ls;
+    return String(process.env.TWILIO_SMS_FROM_LS || "").trim();
   }
-  return String(process.env.TWILIO_SMS_FROM || "").trim();
+  if (d.startsWith("27")) {
+    return String(process.env.TWILIO_SMS_FROM_ZA || "").trim();
+  }
+  return "";
 }
 
 function messagingServiceSid(): string {
   return String(process.env.TWILIO_SMS_MESSAGING_SERVICE_SID || "").trim();
+}
+
+/**
+ * Prefer regional From when set; otherwise Messaging Service; else global TWILIO_SMS_FROM.
+ * Regional From must win so a US-only Messaging Service cannot override TWILIO_SMS_FROM_ZA.
+ */
+export function resolveSmsSendParams(digits: string): {
+  from?: string;
+  messagingServiceSid?: string;
+  source: "regional" | "messaging_service" | "global_from" | "none";
+} {
+  const regional = resolveRegionalSmsFromForDigits(digits);
+  if (regional) return { from: regional, source: "regional" };
+  const msgService = messagingServiceSid();
+  if (msgService) return { messagingServiceSid: msgService, source: "messaging_service" };
+  const globalFrom = String(process.env.TWILIO_SMS_FROM || "").trim();
+  if (globalFrom) return { from: globalFrom, source: "global_from" };
+  return { source: "none" };
+}
+
+/** True when destination is ZA (+27) but no dedicated ZA SMS sender is configured. */
+export function zaSmsSenderMissingForDigits(digits: string): boolean {
+  const d = String(digits || "").replace(/\D/g, "");
+  if (!d.startsWith("27") || d.startsWith("267") || d.startsWith("266")) return false;
+  return !String(process.env.TWILIO_SMS_FROM_ZA || "").trim();
 }
 
 export function mapTwilioDeliveryError(err: unknown, channel: OtpChannel = "sms"): AppError {
@@ -125,20 +156,28 @@ export async function sendOtpCode(params: {
     throw new AppError("Twilio is not configured. Set TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN.", 503);
   }
 
-  const smsFrom = resolveSmsFromForDigits(digits);
-  const msgService = messagingServiceSid();
+  const sender = resolveSmsSendParams(digits);
 
   try {
-    if (!smsFrom && !msgService) {
+    if (sender.source === "none") {
       throw new AppError("SMS sender is not configured. Try WhatsApp verification instead.", 503);
+    }
+    if (zaSmsSenderMissingForDigits(digits)) {
+      logger.warn("SMS to ZA without TWILIO_SMS_FROM_ZA — US/global From often fails (Twilio 30003)", {
+        to,
+        senderSource: sender.source,
+        from: sender.from || null,
+      });
     }
     const payload: Parameters<typeof client.messages.create>[0] = {
       to,
       body: text,
-      ...(msgService ? { messagingServiceSid: msgService } : { from: smsFrom }),
+      ...(sender.messagingServiceSid
+        ? { messagingServiceSid: sender.messagingServiceSid }
+        : { from: sender.from }),
     };
     const msg = await client.messages.create(payload);
-    return { sent: true, provider: "twilio" as const, sid: msg.sid };
+    return { sent: true, provider: "twilio" as const, sid: msg.sid, from: sender.from || null };
   } catch (err) {
     if (err instanceof AppError) throw err;
     throw mapTwilioDeliveryError(err, "sms");
@@ -161,9 +200,6 @@ export async function sendSms(params: { phone: string; text: string; channel?: "
     throw new AppError("Twilio is not configured.", 503);
   }
 
-  const smsFrom = resolveSmsFromForDigits(digits);
-  const msgService = messagingServiceSid();
-
   try {
     if (channel === "whatsapp") {
       const profile = resolveWhatsappSendProfile(null, to, null);
@@ -176,15 +212,31 @@ export async function sendSms(params: { phone: string; text: string; channel?: "
       });
       return { sent: true, provider: "twilio" as const, sid: msg.sid };
     }
-    if (smsFrom || msgService) {
-      const msg = await client.messages.create({
-        to,
-        body: text,
-        ...(msgService ? { messagingServiceSid: msgService } : { from: smsFrom }),
-      });
-      return { sent: true, provider: "twilio" as const, sid: msg.sid };
+    const sender = resolveSmsSendParams(digits);
+    if (sender.source === "none") {
+      throw new AppError("TWILIO_SMS_FROM or TWILIO_WHATSAPP_FROM required.", 503);
     }
-    throw new AppError("TWILIO_SMS_FROM or TWILIO_WHATSAPP_FROM required.", 503);
+    if (zaSmsSenderMissingForDigits(digits)) {
+      logger.warn("SMS to ZA without TWILIO_SMS_FROM_ZA — US/global From often fails (Twilio 30003)", {
+        to,
+        senderSource: sender.source,
+        from: sender.from || null,
+      });
+    }
+    const msg = await client.messages.create({
+      to,
+      body: text,
+      ...(sender.messagingServiceSid
+        ? { messagingServiceSid: sender.messagingServiceSid }
+        : { from: sender.from }),
+    });
+    return {
+      sent: true,
+      provider: "twilio" as const,
+      sid: msg.sid,
+      from: sender.from || null,
+      senderSource: sender.source,
+    };
   } catch (err) {
     if (err instanceof AppError) throw err;
     throw mapTwilioDeliveryError(err, channel);
@@ -202,6 +254,8 @@ export function otpSmsReadyForCountry(iso: string | null): boolean {
   if (!iso) return true;
   if (iso === "BW") return !!(process.env.TWILIO_SMS_FROM_BW || messagingServiceSid() || process.env.TWILIO_SMS_FROM);
   if (iso === "LS") return !!(process.env.TWILIO_SMS_FROM_LS || messagingServiceSid() || process.env.TWILIO_SMS_FROM);
+  // ZA OTP can still attempt via US From, but merchant SMS last-resort needs TWILIO_SMS_FROM_ZA for reliable delivery.
+  if (iso === "ZA") return !!(process.env.TWILIO_SMS_FROM_ZA || messagingServiceSid() || process.env.TWILIO_SMS_FROM);
   return true;
 }
 

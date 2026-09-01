@@ -1,0 +1,228 @@
+﻿[
+  {
+    "id": "5332506a-2fc4-4f06-a859-d742495acf64",
+    "status": "ERRORED",
+    "platform": "ANDROID",
+    "error": {
+      "errorCode": "EAS_BUILD_UNKNOWN_GRADLE_ERROR",
+      "message": "Gradle build failed with unknown error. See logs for the \"Run gradlew\" phase for more information."
+    },
+    "artifacts": {},
+    "fingerprint": {
+      "id": "019fc6e5-4f81-7d27-9573-ac5651a4e0b2",
+      "hash": "f3c4ae3ff00309be4f9f66b1774ffbd42b6b8979"
+    },
+    "initiatingActor": {
+      "id": "0d57be53-cc26-4f02-ae8e-ebad92f2c54e",
+      "displayName": "qwertymates"
+    },
+    "logFiles": [
+      "https://storage.googleapis.com/eas-workflows-production/logs/686960ed-6d34-446e-9872-eeafe4dfe5f1/5332506a-2fc4-4f06-a859-d742495acf64/2026-08-03T09%3A21%3A45Z-9d4b6a06-7635-4849-b02b-5c5e0db3cbf8.txt?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=www-production%40exponentjs.iam.gserviceaccount.com%2F20260803%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20260803T153556Z&X-Goog-Expires=900&X-Goog-SignedHeaders=host&X-Goog-Signature=41481e3cfb2ddbf8e256e362beaa7a39f45470dcc981668e3d8c7bf7ad6e03fc7399344f3c8505b78eb07f647944613496a33a6f80df9e9149882e1a019a11fdb028d50334e90258f140aa6496cc99b3773e46cf19717b1f008b2b88019192d1abc45715a1e129c56a87179db133b8fb6b3c924ec16817c06b71b3893c09d075e20b51a6ff4dae3cbd7c23c910b2ada6646a1e93be5c32670241bb44cb52c092028a92cb147f378438869d9f55f2d3e01bba6c78b76f07477ed9e999d684558ef13df12daa92647ff56d62ef692826f39fb8ee86d46091210c7cdde1b7532baac23ee8038c67fc08980ee238a454bcf893932144d3896912994a4bc80b550ba7"
+    ],
+    "project": {
+      "id": "686960ed-6d34-446e-9872-eeafe4dfe5f1",
+      "name": "morongwa-mobile",
+      "slug": "morongwa-mobile",
+      "ownerAccount": {
+        "id": "d06775d7-38f6-4348-9dac-856633f35ee5",
+        "name": "qwertymates"
+      }
+    },
+    "distribution": "STORE",
+    "buildProfile": "production",
+    "sdkVersion": "54.0.0",
+    "appVersion": "1.3.21",
+    "appBuildVersion": "71",
+    "priority": "HIGH",
+    "createdAt": "2026-08-03T09:21:39.621Z",
+    "updatedAt": "2026-08-03T13:00:34.329Z",
+    "completedAt": "2026-08-03T09:25:54.946Z",
+    "expirationDate": "2026-09-02T09:21:39.648Z",
+    "isForIosSimulator": false,
+    "metrics": {
+      "buildWaitTime": 2602,
+      "buildQueueTime": 7649,
+      "buildDuration": 245074
+    }
+  },
+  {
+    "id": "8a7a5dce-54fa-445a-88ad-80e46dd7ce91",
+    "status": "FINISHED",
+    "platform": "ANDROID",
+    "artifacts": {
+      "buildUrl": "https://expo.dev/artifacts/eas/EKQSxctYQyRIFgUD5om_67gOXNrErtyRTAQJBryhraw.aab",
+      "applicationArchiveUrl": "https://expo.dev/artifacts/eas/EKQSxctYQyRIFgUD5om_67gOXNrErtyRTAQJBryhraw.aab"
+    },
+    "fingerprint": {
+      "id": "019fc6e5-4f81-7d27-9573-ac5651a4e0b2",
+      "hash": "f3c4ae3ff00309be4f9f66b1774ffbd42b6b8979"
+    },
+    "initiatingActor": {
+      "id": "0d57be53-cc26-4f02-ae8e-ebad92f2c54e",
+      "displayName": "qwertymates"
+    },
+    "logFiles": [
+      "https://storage.googleapis.com/eas-workflows-production/logs/686960ed-6d34-446e-9872-eeafe4dfe5f1/8a7a5dce-54fa-445a-88ad-80e46dd7ce91/2026-08-03T09%3A12%3A28Z-204bc224-9691-4e64-b362-64963384d498.txt?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=www-production%40exponentjs.iam.gserviceaccount.com%2F20260803%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20260803T153556Z&X-Goog-Expires=900&X-Goog-SignedHeaders=host&X-Goog-Signature=ad2e83a423d24af4a37906f0e8313deb3f1e59468b559dca1b5190846bd99662a80f6d685d87873821aeba1cb5e223c22922c0eb43240a6d2a80bdd1fa9d30de2d561fc80d2a86e2c4e5a24b24eed78d875a12c84b5caf4eb62c264ce149a7e05e651ded233e0cafa564a9f163b24265fd0ece2cfc4b75cbc4a3406a1aacc6569bfda5ce53da7254aa55a37a5dc65f1463b4ae1b83689a64214502a49b522a4d96e15b924f69a6ab7418fb8b3643130d90f6fb3adc40f5c914260f9a30f92b20042ee6d7fba647600c67507f9984806bdc5004b0a0df98ebb74c93d237eae86d3fa74615d86a51ce3bd2eb8bb1e030e7d7007c41115b86c638458be771af21bb"
+    ],
+    "project": {
+      "id": "686960ed-6d34-446e-9872-eeafe4dfe5f1",
+      "name": "morongwa-mobile",
+      "slug": "morongwa-mobile",
+      "ownerAccount": {
+        "id": "d06775d7-38f6-4348-9dac-856633f35ee5",
+        "name": "qwertymates"
+      }
+    },
+    "distribution": "STORE",
+    "buildProfile": "production",
+    "sdkVersion": "54.0.0",
+    "appVersion": "1.3.22",
+    "appBuildVersion": "73",
+    "priority": "HIGH",
+    "createdAt": "2026-08-03T09:12:24.661Z",
+    "updatedAt": "2026-08-03T13:00:28.534Z",
+    "completedAt": "2026-08-03T09:20:45.538Z",
+    "expirationDate": "2026-09-02T09:12:24.696Z",
+    "isForIosSimulator": false,
+    "metrics": {
+      "buildWaitTime": 2522,
+      "buildQueueTime": 5376,
+      "buildDuration": 492979
+    }
+  },
+  {
+    "id": "3179139d-6926-42ea-b91a-9b3870c5fb10",
+    "status": "FINISHED",
+    "platform": "ANDROID",
+    "artifacts": {
+      "buildUrl": "https://expo.dev/artifacts/eas/kLSI-VLIS_41J1ERWLProaX13D34ufJKaGBLQ8DTVZM.aab",
+      "applicationArchiveUrl": "https://expo.dev/artifacts/eas/kLSI-VLIS_41J1ERWLProaX13D34ufJKaGBLQ8DTVZM.aab"
+    },
+    "fingerprint": {
+      "id": "019fc69e-5e1e-7270-8014-9676c945b82c",
+      "hash": "dfe88d72df941854be7ccaf30d5a7d9f77a4a787"
+    },
+    "initiatingActor": {
+      "id": "0d57be53-cc26-4f02-ae8e-ebad92f2c54e",
+      "displayName": "qwertymates"
+    },
+    "logFiles": [
+      "https://storage.googleapis.com/eas-workflows-production/logs/686960ed-6d34-446e-9872-eeafe4dfe5f1/3179139d-6926-42ea-b91a-9b3870c5fb10/2026-08-03T07%3A54%3A57Z-fdb1528a-cd09-47c0-abf1-9624f1aaec86.txt?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=www-production%40exponentjs.iam.gserviceaccount.com%2F20260803%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20260803T153556Z&X-Goog-Expires=900&X-Goog-SignedHeaders=host&X-Goog-Signature=1a6b65985693ccb62563bec8fd89ecbd37d13fa35504c2106b8a16a1c4484777dbccefdd47ffe4ab6115d68f9c3037af155d2f1d17f6d3cd93ef799af628250a6094ddbbc61db77abc4bf8ab18f95d6643f07f04a4938a8a797852f9b345cc3820fbf7d71d3af89c33d4ff197bf15c55dae25dc36bd1db96e0838695557b12ec625b0ee2e45cd9b6df4acc24ad574c17f77ec3879bb70a0d7f856a6d5a71207d671b32a6c8916a34834a5f4c34de866f3e75ff9acced3ec96bbeae5c9e09603b44131273bccb6f7816915a518f4985925a8762fc75f9f07ed4f98939b23c2733a89cadf4e57bf6f1cae5724bf3dc59d1112ff7c583eec490dc17b41ae2be0031"
+    ],
+    "project": {
+      "id": "686960ed-6d34-446e-9872-eeafe4dfe5f1",
+      "name": "morongwa-mobile",
+      "slug": "morongwa-mobile",
+      "ownerAccount": {
+        "id": "d06775d7-38f6-4348-9dac-856633f35ee5",
+        "name": "qwertymates"
+      }
+    },
+    "distribution": "STORE",
+    "buildProfile": "production",
+    "sdkVersion": "54.0.0",
+    "appVersion": "1.3.21",
+    "appBuildVersion": "72",
+    "priority": "HIGH",
+    "createdAt": "2026-08-03T07:54:55.363Z",
+    "updatedAt": "2026-08-03T12:00:06.184Z",
+    "completedAt": "2026-08-03T08:04:02.672Z",
+    "expirationDate": "2026-09-02T07:54:55.384Z",
+    "isForIosSimulator": false,
+    "metrics": {
+      "buildWaitTime": 1794,
+      "buildQueueTime": 4640,
+      "buildDuration": 540875
+    }
+  },
+  {
+    "id": "fc6d1aec-cc2f-4573-a49b-1a0bfc637193",
+    "status": "FINISHED",
+    "platform": "ANDROID",
+    "artifacts": {
+      "buildUrl": "https://expo.dev/artifacts/eas/nE5dfZ3hUkkArTeE1a2aWyUKUwJ5Zme92o_ws4gXymM.aab",
+      "applicationArchiveUrl": "https://expo.dev/artifacts/eas/nE5dfZ3hUkkArTeE1a2aWyUKUwJ5Zme92o_ws4gXymM.aab"
+    },
+    "fingerprint": {
+      "id": "019fc3a0-854d-7a3d-8e44-9904d4f49248",
+      "hash": "94618c4841880f62524d3ea55029614278a83be6"
+    },
+    "initiatingActor": {
+      "id": "0d57be53-cc26-4f02-ae8e-ebad92f2c54e",
+      "displayName": "qwertymates"
+    },
+    "logFiles": [
+      "https://storage.googleapis.com/eas-workflows-production/logs/686960ed-6d34-446e-9872-eeafe4dfe5f1/fc6d1aec-cc2f-4573-a49b-1a0bfc637193/2026-08-02T17%3A58%3A27Z-63a7d1dd-5569-47e1-a7b8-51e18dc6916a.txt?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=www-production%40exponentjs.iam.gserviceaccount.com%2F20260803%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20260803T153556Z&X-Goog-Expires=900&X-Goog-SignedHeaders=host&X-Goog-Signature=b5ae99b14ed4e8076e8c555809d868a110360df147559488bc6ec6fdb6d20705190413d5300825108d348443575a82a762a243eb91d7c5cd75e2899f5eed35a8907a41e189ea8e228c62c7b5ed190ba0aecd839afc9237fa7e69294ba30aab41738dda7656dc9759d158317ae2c5897c313cef76f249cc69631e357cc8739abab9443b85422cf12f1c03112a99d70b88e6998ed7abe91d84878c9950b41192778852e52c5acdb72ab6648322fc2e70ba03c88353dcf5c9e7c39c4c4e736dccaf906db40bd359ac87a3f9bb6a3d796f7d7df4d31eeaab13370ca1c87766f95998377777fa4381ef73ab1eebb09fad6ef426decf22648f4aedc6d7183866a57e53"
+    ],
+    "project": {
+      "id": "686960ed-6d34-446e-9872-eeafe4dfe5f1",
+      "name": "morongwa-mobile",
+      "slug": "morongwa-mobile",
+      "ownerAccount": {
+        "id": "d06775d7-38f6-4348-9dac-856633f35ee5",
+        "name": "qwertymates"
+      }
+    },
+    "distribution": "STORE",
+    "buildProfile": "production",
+    "sdkVersion": "54.0.0",
+    "appVersion": "1.3.20",
+    "appBuildVersion": "70",
+    "priority": "HIGH",
+    "createdAt": "2026-08-02T17:58:24.816Z",
+    "updatedAt": "2026-08-02T22:00:13.788Z",
+    "completedAt": "2026-08-02T18:06:21.460Z",
+    "expirationDate": "2026-09-01T17:58:24.836Z",
+    "isForIosSimulator": false,
+    "metrics": {
+      "buildWaitTime": 2350,
+      "buildQueueTime": 5007,
+      "buildDuration": 469287
+    }
+  },
+  {
+    "id": "7cac3219-c3c3-4d62-8381-4cad3099f67b",
+    "status": "FINISHED",
+    "platform": "ANDROID",
+    "artifacts": {
+      "buildUrl": "https://expo.dev/artifacts/eas/fsUmTmYa-1Jgpd-bAyKaOe9XftTyVE7Mx_x_hhbBTHc.apk",
+      "applicationArchiveUrl": "https://expo.dev/artifacts/eas/fsUmTmYa-1Jgpd-bAyKaOe9XftTyVE7Mx_x_hhbBTHc.apk"
+    },
+    "fingerprint": {
+      "id": "019fc151-6d8b-7978-bd55-a2078a205818",
+      "hash": "a885bf2b47e78249ca08193670527dd56ba935c0"
+    },
+    "initiatingActor": {
+      "id": "0d57be53-cc26-4f02-ae8e-ebad92f2c54e",
+      "displayName": "qwertymates"
+    },
+    "logFiles": [
+      "https://storage.googleapis.com/eas-workflows-production/logs/686960ed-6d34-446e-9872-eeafe4dfe5f1/7cac3219-c3c3-4d62-8381-4cad3099f67b/2026-08-02T07%3A23%3A17Z-e184e9b3-70b9-4292-a34a-cd002c9533a1.txt?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=www-production%40exponentjs.iam.gserviceaccount.com%2F20260803%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20260803T153556Z&X-Goog-Expires=900&X-Goog-SignedHeaders=host&X-Goog-Signature=43d9a3835ac1ed49b240500b97488f6216553fcbd885cf85efbf2d585120cac4b308f87183101d59dc91ad1284e556291c5d8d793de1dceb360cbf1c093c5389ed7297e2e42bc558e3f9d1eebd8f67173523a48c19eb6ac0c657699f6b8191df7db9598547a1683e8496a73adaa67310dae96a154869545c8f4156bd46d8bcd8970097ff52513613b3d597eee0a7d1e7e1940c84bdc150a88f8ccafe4dace7900e8bf67e55f3c46b3984198f3252b7498b29eeb5b0ad6f65d7f664583bb085d4e06b8c6b71a17f896bc8dd1ec1254474b1b83a637e0117ff7cbc8aeef71c601cf58d2dd5b41c0b7edeb31767aff856bf89d689658895845aa06270bbd7a3ce18"
+    ],
+    "project": {
+      "id": "686960ed-6d34-446e-9872-eeafe4dfe5f1",
+      "name": "morongwa-mobile",
+      "slug": "morongwa-mobile",
+      "ownerAccount": {
+        "id": "d06775d7-38f6-4348-9dac-856633f35ee5",
+        "name": "qwertymates"
+      }
+    },
+    "distribution": "STORE",
+    "buildProfile": "production-apk",
+    "sdkVersion": "54.0.0",
+    "appVersion": "1.3.19",
+    "appBuildVersion": "67",
+    "priority": "HIGH",
+    "createdAt": "2026-08-02T07:23:13.567Z",
+    "updatedAt": "2026-08-02T11:00:25.713Z",
+    "completedAt": "2026-08-02T07:31:48.139Z",
+    "expirationDate": "2026-09-01T07:23:13.587Z",
+    "isForIosSimulator": false,
+    "metrics": {
+      "buildWaitTime": 3526,
+      "buildQueueTime": 4655,
+      "buildDuration": 506391
+    }
+  }
+]

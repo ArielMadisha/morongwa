@@ -68,9 +68,20 @@ interface StatusesStripProps {
   } | null;
   /** Current user's name (for optimistic status display) */
   currentUserName?: string;
+  /** Pause interval/focus refresh while create modal is open (avoids mid-compose jank on mobile). */
+  autoRefreshEnabled?: boolean;
 }
 
-export function StatusesStrip({ currentUserId, userAvatar, stripBackgroundPic, onAddStatus, refreshTrigger, currentUserLatestPost, currentUserName }: StatusesStripProps) {
+export function StatusesStrip({
+  currentUserId,
+  userAvatar,
+  stripBackgroundPic,
+  onAddStatus,
+  refreshTrigger,
+  currentUserLatestPost,
+  currentUserName,
+  autoRefreshEnabled = true,
+}: StatusesStripProps) {
   const [statuses, setStatuses] = useState<StatusItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [viewerOpen, setViewerOpen] = useState(false);
@@ -119,7 +130,7 @@ export function StatusesStrip({ currentUserId, userAvatar, stripBackgroundPic, o
   }, [currentUserId, userAvatar]);
 
   useFeedAutoRefresh({
-    enabled: true,
+    enabled: autoRefreshEnabled,
     onRefresh: fetchStatuses,
   });
 

@@ -115,7 +115,7 @@ export default function AboutPage() {
             href="/policies"
             className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-sky-600 text-white font-medium hover:bg-sky-700 transition-colors"
           >
-            Community Guidelines & Policies
+            Community Rules & Policies
             <ArrowRight className="h-4 w-4" />
           </Link>
           <Link

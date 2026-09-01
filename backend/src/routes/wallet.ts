@@ -20,6 +20,7 @@ import {
   topupSchema,
   payoutSchema,
   donateSchema,
+  sendMoneySchema,
   qrPaymentFromScanSchema,
   confirmQrPaymentSchema,
   requestMoneySchema,
@@ -56,6 +57,47 @@ import {
 import { notifyWaPayAtStorePaymentRequest } from "../services/waPayAtStoreNotify";
 import { walletPaymentLimiter } from "../middleware/rateLimit";
 import { getOtpSecret } from "../utils/secrets";
+import { normalizePhone } from "../utils/phoneValidation";
+import { resolveCanonicalUserByPhoneDigits } from "../utils/resolveCanonicalUserByPhone";
+
+async function resolveWalletPeerUser(params: {
+  toUserId?: string;
+  toUsername?: string;
+  toEmail?: string;
+  toPhone?: string;
+}): Promise<{ _id: unknown; phone?: string; name?: string; username?: string; email?: string }> {
+  const { toUserId, toUsername, toEmail, toPhone } = params;
+  if (toUserId) {
+    const mongoose = await import("mongoose");
+    if (!mongoose.default.Types.ObjectId.isValid(String(toUserId))) {
+      throw new AppError("Invalid recipient", 400);
+    }
+    const u = await User.findById(toUserId).select("_id phone name username email").lean();
+    if (!u) throw new AppError("User not found", 404);
+    return u as any;
+  }
+  if (toUsername) {
+    const u = await User.findOne({ username: String(toUsername).toLowerCase().trim() })
+      .select("_id phone name username email")
+      .lean();
+    if (!u) throw new AppError("User not found", 404);
+    return u as any;
+  }
+  if (toEmail) {
+    const u = await User.findOne({ email: String(toEmail).toLowerCase().trim() })
+      .select("_id phone name username email")
+      .lean();
+    if (!u) throw new AppError("User not found", 404);
+    return u as any;
+  }
+  if (toPhone) {
+    const digits = normalizePhone(String(toPhone));
+    const u = await resolveCanonicalUserByPhoneDigits(digits);
+    if (!u) throw new AppError("User not found", 404);
+    return u as any;
+  }
+  throw new AppError("Recipient required", 400);
+}
 
 const router = express.Router();
 router.use(walletPaymentLimiter);
@@ -295,6 +337,7 @@ router.post("/topup", authenticate, async (req: AuthRequest, res: Response, next
       status: "pending",
     });
 
+    // Wallet top-up: PayGate flat fee (default R5) applies here — not on food/marketplace checkout.
     const paymentResult = await initiatePayment({
       amount,
       reference,
@@ -458,6 +501,128 @@ router.post("/donate", authenticate, async (req: AuthRequest, res: Response, nex
     res.json({
       message: "Donation sent successfully",
       balance: senderWallet.balance,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Send money (P2P transfer by username / email / phone / user id)
+router.post("/send-money", authenticate, async (req: AuthRequest, res: Response, next) => {
+  try {
+    const { error } = sendMoneySchema.validate(req.body);
+    if (error) throw new AppError(error.details[0].message, 400);
+
+    const { toUserId, toUsername, toEmail, toPhone, amount, message } = req.body;
+    const senderId = req.user!._id;
+    const recipient = await resolveWalletPeerUser({ toUserId, toUsername, toEmail, toPhone });
+    const recipientId = String((recipient as any)._id);
+
+    if (recipientId === String(senderId)) {
+      throw new AppError("Cannot send money to yourself", 400);
+    }
+
+    const senderWallet = await Wallet.findOne({ user: senderId });
+    if (!senderWallet) throw new AppError("Wallet not found", 404);
+
+    const normalizedAmount = Math.round(Number(amount) * 100) / 100;
+    if (senderWallet.balance < normalizedAmount) {
+      throw new AppError("Insufficient balance", 400);
+    }
+
+    let recipientWallet = await Wallet.findOne({ user: recipientId });
+    if (!recipientWallet) {
+      recipientWallet = await Wallet.create({ user: recipientId });
+    }
+
+    const note = String(message || "").trim();
+    const ref = `SEND-${recipientId.slice(-6)}-${Date.now()}`;
+
+    senderWallet.balance = Math.round((senderWallet.balance - normalizedAmount) * 100) / 100;
+    senderWallet.transactions.push({
+      type: "debit",
+      amount: -normalizedAmount,
+      reference: ref,
+      createdAt: new Date(),
+    });
+    await senderWallet.save();
+
+    recipientWallet.balance = Math.round((recipientWallet.balance + normalizedAmount) * 100) / 100;
+    recipientWallet.transactions.push({
+      type: "credit",
+      amount: normalizedAmount,
+      reference: ref,
+      createdAt: new Date(),
+    });
+    await recipientWallet.save();
+
+    await Transaction.create({
+      wallet: senderWallet._id,
+      user: senderId,
+      type: "debit",
+      amount: normalizedAmount,
+      reference: ref,
+      status: "successful",
+      meta: { directWalletSend: true, recipientId, note: note || undefined },
+    });
+
+    await Transaction.create({
+      wallet: recipientWallet._id,
+      user: recipientId,
+      type: "credit",
+      amount: normalizedAmount,
+      reference: ref,
+      status: "successful",
+      meta: { directWalletSend: true, senderId: String(senderId), note: note || undefined },
+    });
+
+    await AuditLog.create({
+      action: "WALLET_SEND_MONEY",
+      user: senderId,
+      meta: { amount: normalizedAmount, recipientId, note: note || undefined },
+    });
+
+    const sender = await User.findById(senderId).select("name username").lean();
+    const senderName = (sender as any)?.name || (sender as any)?.username || "Someone";
+
+    try {
+      await sendNotification({
+        userId: recipientId,
+        type: "wallet",
+        message: note
+          ? `${senderName} sent you R${normalizedAmount.toFixed(2)}. ${note}`
+          : `${senderName} sent you R${normalizedAmount.toFixed(2)}.`,
+        meta: { reference: ref, amount: normalizedAmount, senderId: String(senderId) },
+      });
+    } catch {
+      // non-fatal
+    }
+
+    const recipientPhone = String((recipient as any)?.phone || "").trim();
+    if (recipientPhone) {
+      try {
+        await sendSms({
+          phone: recipientPhone,
+          channel: "whatsapp",
+          text: note
+            ? `You received R${normalizedAmount.toFixed(2)} in your ACBPayWallet from ${senderName}. ${note} Ref: ${ref}`
+            : `You received R${normalizedAmount.toFixed(2)} in your ACBPayWallet from ${senderName}. Ref: ${ref}`,
+        });
+      } catch {
+        // non-fatal
+      }
+    }
+
+    res.json({
+      message: "Money sent successfully",
+      amount: normalizedAmount,
+      balance: senderWallet.balance,
+      reference: ref,
+      recipient: {
+        id: recipientId,
+        name: (recipient as any)?.name || (recipient as any)?.username || undefined,
+        username: (recipient as any)?.username || undefined,
+      },
     });
   } catch (err) {
     next(err);
@@ -707,11 +872,6 @@ router.get("/payment-request/:id/status", authenticate, async (req: AuthRequest,
 // Initiate add-card flow: redirect to PayGate with VAULT=1 (R1 charge to tokenize)
 router.post("/add-card", authenticate, async (req: AuthRequest, res: Response, next) => {
   try {
-    const configIssues = (await import("../services/payment")).getCardPaymentConfigIssues();
-    if (configIssues.length > 0) {
-      throw new AppError(`Card storage unavailable: ${configIssues.join(", ")}`, 400);
-    }
-
     const userId = req.user!._id.toString();
     const reference = `ADDCARD-${userId}-${Date.now()}`;
 
@@ -1162,22 +1322,15 @@ router.post("/request-money", authenticate, async (req: AuthRequest, res: Respon
     const { error } = requestMoneySchema.validate(req.body);
     if (error) throw new AppError(error.details[0].message, 400);
 
-    const { toUserId, toUsername, amount, message, notifyChannel = "whatsapp" } = req.body;
+    const { toUserId, toUsername, toEmail, toPhone, amount, message, notifyChannel = "whatsapp" } = req.body;
     const fromUser = req.user!._id;
 
-    let toUserIdResolved = toUserId;
-    if (toUsername && !toUserId) {
-      const u = await User.findOne({ username: String(toUsername).toLowerCase().trim() }).select("_id").lean();
-      if (!u) throw new AppError("User not found", 404);
-      toUserIdResolved = u._id.toString();
-    }
+    const payeeUser = await resolveWalletPeerUser({ toUserId, toUsername, toEmail, toPhone });
+    const toUserIdResolved = String((payeeUser as any)._id);
 
-    if (String(toUserIdResolved) === String(fromUser)) {
+    if (toUserIdResolved === String(fromUser)) {
       throw new AppError("Cannot request money from yourself", 400);
     }
-
-    const payee = await User.findById(toUserIdResolved).select("phone name").lean();
-    if (!payee) throw new AppError("User not found", 404);
 
     const requester = await User.findById(fromUser).select("name username").lean();
     const requesterName = (requester as any)?.name || (requester as any)?.username || "Someone";
@@ -1197,13 +1350,13 @@ router.post("/request-money", authenticate, async (req: AuthRequest, res: Respon
     });
 
     await notifyMoneyRequestToPayee({
-      payeeId: String(toUserIdResolved),
+      payeeId: toUserIdResolved,
       requestId: String(moneyRequest._id),
       amount,
       requesterName,
       actionToken,
       message,
-      payeePhone: (payee as any).phone,
+      payeePhone: (payeeUser as any).phone,
       notifyChannel,
     });
 

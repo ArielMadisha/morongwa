@@ -160,7 +160,7 @@ export default function PostPage() {
             belowHeader
           />
           <div className="flex-1 flex flex-col lg:flex-row gap-0 min-h-0 min-w-0 overflow-hidden max-w-[1920px] mx-auto w-full lg:items-stretch">
-            <main className="flex-1 min-w-0 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain [scrollbar-width:thin] px-4 sm:px-6 lg:px-8 py-4 pb-24 lg:pb-6">
+            <main className="flex-1 min-w-0 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden px-4 sm:px-6 lg:px-8 py-4 pb-24 lg:pb-6">
               <div className="max-w-full">
                 {loading ? (
                   <div className="flex justify-center py-24">

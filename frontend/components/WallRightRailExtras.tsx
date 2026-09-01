@@ -6,7 +6,15 @@ import { followsAPI, getImageUrl, getImageUrlFull, productsAPI } from '@/lib/api
 import { useAuth } from '@/contexts/AuthContext';
 import { toAppealingDisplayName, userPublicDisplayName } from '@/lib/userDisplayLabel';
 
-type BirthdayUser = { _id: string; name?: string; avatar?: string; username?: string };
+type BirthdayUser = {
+  _id: string;
+  name?: string;
+  avatar?: string;
+  username?: string;
+  birthdayOn?: string;
+};
+
+type BirthdayMode = "today" | "upcoming" | "empty";
 
 type SponsoredCard = {
   key: string;
@@ -104,22 +112,39 @@ function productCardFromProduct(p: ProductRow): SponsoredCard | null {
 
 /** Pick up to `count` unique random QwertyHub products. */
 async function pickRandomProductCards(count: number): Promise<SponsoredCard[]> {
-  const res = await productsAPI.list({ random: true, limit: Math.max(40, count * 12) });
-  const rows = res.data?.data ?? res.data ?? [];
-  const list = Array.isArray(rows) ? (rows as ProductRow[]) : [];
-  shuffleInPlace(list);
+  const collect = (rows: ProductRow[]) => {
+    shuffleInPlace(rows);
+    const seen = new Set<string>();
+    const out: SponsoredCard[] = [];
+    for (const p of rows) {
+      const card = productCardFromProduct(p);
+      if (!card) continue;
+      if (seen.has(card.key)) continue;
+      seen.add(card.key);
+      out.push(card);
+      if (out.length >= count) break;
+    }
+    return out;
+  };
 
-  const seen = new Set<string>();
-  const out: SponsoredCard[] = [];
-  for (const p of list) {
-    const card = productCardFromProduct(p);
-    if (!card) continue;
-    if (seen.has(card.key)) continue;
-    seen.add(card.key);
-    out.push(card);
-    if (out.length >= count) break;
+  try {
+    const res = await productsAPI.list({ random: true, limit: Math.max(80, count * 16) });
+    const rows = res.data?.data ?? res.data ?? [];
+    const list = Array.isArray(rows) ? (rows as ProductRow[]) : [];
+    const fromRandom = collect(list);
+    if (fromRandom.length >= count) return fromRandom;
+  } catch {
+    /* fall through */
   }
-  return out;
+
+  try {
+    const res = await productsAPI.list({ limit: Math.max(80, count * 16) });
+    const rows = res.data?.data ?? res.data ?? [];
+    const list = Array.isArray(rows) ? (rows as ProductRow[]) : [];
+    return collect(list);
+  } catch {
+    return [];
+  }
 }
 
 function SponsoredThumb({
@@ -211,17 +236,31 @@ type Props = {
   refreshKey?: number;
 };
 
-/** Sponsored product rows + Birthdays (today) for wall right rail. */
+function formatUpcomingBirthdayOn(iso?: string): string {
+  if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return "";
+  const [y, m, d] = iso.split("-").map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d, 12, 0, 0));
+  return dt.toLocaleDateString("en-ZA", {
+    timeZone: "UTC",
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+  });
+}
+
+/** Sponsored product rows (single heading) then Birthdays for wall right rail. */
 export function WallRightRailExtras({ refreshKey = 0 }: Props) {
   const { user } = useAuth();
   const uid = user?._id || (user as { id?: string } | undefined)?.id;
   const [birthdays, setBirthdays] = useState<BirthdayUser[]>([]);
+  const [birthdayMode, setBirthdayMode] = useState<BirthdayMode>("empty");
   const [sponsoredAdvert, setSponsoredAdvert] = useState<SponsoredCard | null>(null);
   const [sponsoredImage, setSponsoredImage] = useState<SponsoredCard | null>(null);
 
   useEffect(() => {
     if (!uid) {
       setBirthdays([]);
+      setBirthdayMode("empty");
       return;
     }
     let cancelled = false;
@@ -229,11 +268,17 @@ export function WallRightRailExtras({ refreshKey = 0 }: Props) {
       .getBirthdaysToday({ limit: 12 })
       .then((res) => {
         if (cancelled) return;
-        const users = res.data?.data?.users ?? [];
+        const payload = res.data?.data;
+        const users = payload?.users ?? [];
+        const mode = payload?.mode;
         setBirthdays(Array.isArray(users) ? users : []);
+        setBirthdayMode(mode === "today" || mode === "upcoming" || mode === "empty" ? mode : users.length ? "today" : "empty");
       })
       .catch(() => {
-        if (!cancelled) setBirthdays([]);
+        if (!cancelled) {
+          setBirthdays([]);
+          setBirthdayMode("empty");
+        }
       });
     return () => {
       cancelled = true;
@@ -268,54 +313,94 @@ export function WallRightRailExtras({ refreshKey = 0 }: Props) {
           name: birthdayLead.name,
           username: birthdayLead.username,
         })
-      ) || 'Someone'
-    : '';
+      ) || "Someone"
+    : "";
+  const upcomingLabel = formatUpcomingBirthdayOn(birthdayLead?.birthdayOn);
 
   const hasSponsored = !!(sponsoredAdvert || sponsoredImage);
-  const hasBirthdays = !!birthdayLead;
+  const showBirthdays = !!uid;
 
-  if (!hasSponsored && !hasBirthdays) return null;
+  if (!hasSponsored && !showBirthdays) return null;
+
+  const birthdayBody = (() => {
+    if (!birthdayLead) {
+      return <p className="min-w-0 text-[13px] leading-snug text-slate-600 pt-1">No birthdays today.</p>;
+    }
+    if (birthdayMode === "upcoming") {
+      return (
+        <p className="min-w-0 text-[13px] leading-snug text-slate-800 pt-1">
+          <span className="font-semibold text-slate-900">{birthdayLabel}</span>
+          {birthdayOthers > 0 ? (
+            <>
+              {" "}
+              and{" "}
+              <span className="font-semibold text-slate-900">
+                {birthdayOthers} other{birthdayOthers === 1 ? "" : "s"}
+              </span>
+            </>
+          ) : null}{" "}
+          {birthdayOthers > 0 ? "have birthdays coming up" : "has a birthday coming up"}
+          {upcomingLabel ? (
+            <>
+              {" "}
+              <span className="text-slate-600">({upcomingLabel})</span>
+            </>
+          ) : null}
+          .
+        </p>
+      );
+    }
+    return (
+      <p className="min-w-0 text-[13px] leading-snug text-slate-800 pt-1">
+        <span className="font-semibold text-slate-900">{birthdayLabel}</span>
+        {birthdayOthers > 0 ? (
+          <>
+            {" "}
+            and{" "}
+            <span className="font-semibold text-slate-900">
+              {birthdayOthers} other{birthdayOthers === 1 ? "" : "s"}
+            </span>
+          </>
+        ) : null}{" "}
+        {birthdayOthers > 0 ? "have birthdays today." : "has a birthday today."}
+      </p>
+    );
+  })();
 
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
-      {sponsoredAdvert ? (
-        <div>
+    <>
+      {/* Order: Sponsored (single heading) → Birthdays at bottom of rail extras */}
+      {hasSponsored ? (
+        <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
           <p className="mb-2.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">Sponsored</p>
-          <SponsoredRow card={sponsoredAdvert} />
+          {sponsoredAdvert ? <SponsoredRow card={sponsoredAdvert} /> : null}
+          {sponsoredImage ? (
+            <div className={sponsoredAdvert ? "mt-3 border-t border-slate-100 pt-3" : ""}>
+              <SponsoredRow card={sponsoredImage} />
+            </div>
+          ) : null}
         </div>
       ) : null}
 
-      {sponsoredImage ? (
-        <div className={sponsoredAdvert ? 'mt-3 border-t border-slate-100 pt-3' : ''}>
-          <p className="mb-2.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">Sponsored</p>
-          <SponsoredRow card={sponsoredImage} />
-        </div>
-      ) : null}
-
-      {hasBirthdays ? (
-        <div className={hasSponsored ? 'mt-3 border-t border-slate-200 pt-3' : ''}>
+      {showBirthdays ? (
+        <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
           <p className="mb-2 text-[13px] font-semibold text-slate-600">Birthdays</p>
-          <Link
-            href={`/user/${birthdayLead!._id}`}
-            className="flex cursor-pointer items-start gap-2.5 rounded-lg hover:bg-slate-50 transition-colors p-0.5 -m-0.5"
-          >
-            <GiftIcon className="h-9 w-9 shrink-0" />
-            <p className="min-w-0 text-[13px] leading-snug text-slate-800 pt-1">
-              <span className="font-semibold text-slate-900">{birthdayLabel}</span>
-              {birthdayOthers > 0 ? (
-                <>
-                  {' '}
-                  and{' '}
-                  <span className="font-semibold text-slate-900">
-                    {birthdayOthers} other{birthdayOthers === 1 ? '' : 's'}
-                  </span>
-                </>
-              ) : null}{' '}
-              {birthdayOthers > 0 ? 'have birthdays today.' : 'has a birthday today.'}
-            </p>
-          </Link>
+          {birthdayLead ? (
+            <Link
+              href={`/user/${birthdayLead._id}`}
+              className="flex cursor-pointer items-start gap-2.5 rounded-lg hover:bg-slate-50 transition-colors p-0.5 -m-0.5"
+            >
+              <GiftIcon className="h-9 w-9 shrink-0" />
+              {birthdayBody}
+            </Link>
+          ) : (
+            <div className="flex items-start gap-2.5 p-0.5 -m-0.5">
+              <GiftIcon className="h-9 w-9 shrink-0" />
+              {birthdayBody}
+            </div>
+          )}
         </div>
       ) : null}
-    </div>
+    </>
   );
 }

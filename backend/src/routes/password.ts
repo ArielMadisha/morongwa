@@ -149,7 +149,7 @@ router.post("/forgot", passwordResetLimiter, async (req: Request, res: Response,
 });
 
 // Reset password with token
-router.post("/reset", async (req: Request, res: Response, next) => {
+router.post("/reset", passwordResetLimiter, async (req: Request, res: Response, next) => {
   try {
     const { error } = passwordResetSchema.validate(req.body);
     if (error) throw new AppError(error.details[0].message, 400);

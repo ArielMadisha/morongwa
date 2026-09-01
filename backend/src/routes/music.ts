@@ -16,11 +16,37 @@ import fs from "fs";
 
 const docUploadDir = path.join(__dirname, "../../uploads/artist-docs");
 if (!fs.existsSync(docUploadDir)) fs.mkdirSync(docUploadDir, { recursive: true });
+const ARTIST_DOC_MIMES: Record<string, Set<string>> = {
+  "image/jpeg": new Set([".jpg", ".jpeg"]),
+  "image/png": new Set([".png"]),
+  "image/webp": new Set([".webp"]),
+  "application/pdf": new Set([".pdf"]),
+};
 const docStorage = multer.diskStorage({
   destination: (_req, _file, cb) => cb(null, docUploadDir),
-  filename: (_req, file, cb) => cb(null, `artist-${Date.now()}-${file.originalname}`),
+  filename: (_req, file, cb) => {
+    const ext = path.extname(String(file.originalname || "")).toLowerCase() || ".bin";
+    const safeExt = /^\.(jpe?g|png|webp|pdf)$/i.test(ext) ? ext : ".bin";
+    cb(null, `artist-${Date.now()}-${Math.round(Math.random() * 1e9)}${safeExt}`);
+  },
 });
-const docUpload = multer({ storage: docStorage, limits: { fileSize: 10 * 1024 * 1024 } });
+const docUpload = multer({
+  storage: docStorage,
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const allowed = ARTIST_DOC_MIMES[file.mimetype];
+    if (!allowed) {
+      cb(new Error("Invalid file type. Only images and PDF are allowed."));
+      return;
+    }
+    const ext = path.extname(String(file.originalname || "")).toLowerCase();
+    if (!ext || !allowed.has(ext)) {
+      cb(new Error("Invalid file extension for the declared content type."));
+      return;
+    }
+    cb(null, true);
+  },
+});
 
 const router = Router();
 const PLATFORM_COMMISSION_PCT = 30;
@@ -47,7 +73,24 @@ router.get("/genres", (_req, res: Response) => {
   res.json({ data: MUSIC_GENRES });
 });
 
-/** GET /api/music/songs - list songs and albums (public). Query: type=song|album, page, limit, random=1 */
+/** GET /api/music/artists — distinct artist names for browse filters (public). */
+router.get("/artists", async (_req, res: Response, next) => {
+  try {
+    const artists = await Song.distinct("artist", {
+      type: "song",
+      artist: { $exists: true, $nin: [null, ""] },
+    });
+    const sorted = (artists as string[])
+      .map((a) => String(a).trim())
+      .filter(Boolean)
+      .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
+    res.json({ data: sorted.slice(0, 300) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** GET /api/music/songs - list songs and albums (public). Query: type=song|album, page, limit, random=1, genre, artist */
 router.get("/songs", async (req, res: Response, next) => {
   try {
     const type = req.query.type as string | undefined;
@@ -55,7 +98,19 @@ router.get("/songs", async (req, res: Response, next) => {
     const limit = Math.min(Math.max(parseInt((req.query.limit as string) || "20", 10) || 20, 1), 100);
     const random = req.query.random === "1" || req.query.random === "true";
     const skip = (page - 1) * limit;
-    const filter = type === "song" || type === "album" ? { type } : {};
+    const genre = String(req.query.genre || "").trim().toLowerCase();
+    const artist = String(req.query.artist || "").trim();
+    const filter: Record<string, unknown> = type === "song" || type === "album" ? { type } : {};
+    const genreDef = MUSIC_GENRES.find((g) => g.id === genre);
+    if (genre && genre !== "all" && genreDef) {
+      // Stored song.genre is inconsistent: some rows hold the id ("gospel"), others the label ("Gospel").
+      const escaped = genreDef.label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      filter.genre = { $in: [new RegExp(`^${genreDef.id}$`, "i"), new RegExp(`^${escaped}$`, "i")] };
+    }
+    if (artist && artist !== "all") {
+      const escapedArtist = artist.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      filter.artist = { $regex: new RegExp(`^${escapedArtist}$`, "i") };
+    }
     const total = await Song.countDocuments(filter);
 
     let songs: any[] = [];

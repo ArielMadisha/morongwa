@@ -15,7 +15,8 @@ interface PaymentRequest {
   vault?: boolean;
   /** PayVault: use existing token for payment (user enters CVV only) */
   vaultId?: string;
-  /** When true, do not add PAYGATE_FLAT_FEE_ZAR (rare / tests only). */
+  /** When true, do not add PAYGATE_FLAT_FEE_ZAR.
+   * Use for marketplace / food / grocery / store card checkout (fee is wallet top-up only). */
   skipPayGateFee?: boolean;
 }
 
@@ -45,7 +46,9 @@ let paymentFeeCache:
   | null = null;
 const PAYMENT_FEE_CACHE_TTL_MS = 15_000;
 
-/** Flat ZAR fee for wallet top-up card flows (default R5). Set PAYGATE_FLAT_FEE_ZAR=0 to disable. */
+/** Flat ZAR fee for wallet top-up card flows only (default R5). Set PAYGATE_FLAT_FEE_ZAR=0 to disable.
+ * Do NOT apply to marketplace / food / grocery checkout — those use `skipPayGateFee: true`.
+ * Cash-agent commission on bank/EFT top-ups is separate; this flat fee is the PayGate card top-up surcharge. */
 export function getPayGateFlatFeeZar(): number {
   const raw = process.env.PAYGATE_FLAT_FEE_ZAR;
   if (raw !== undefined && raw !== "") {

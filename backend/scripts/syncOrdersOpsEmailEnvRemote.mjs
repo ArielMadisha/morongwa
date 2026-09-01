@@ -85,9 +85,16 @@ async function main() {
   const ordersZm = (
     local.ORDERS_INBOX_ZAMBIA || process.env.ORDERS_INBOX_ZAMBIA || "zambia@qwertymates.com"
   ).trim();
-  const ordersOpsWhatsapp = (
-    local.ORDERS_OPS_WHATSAPP || process.env.ORDERS_OPS_WHATSAPP || "+27660442139"
-  ).trim();
+  // Always keep +27660442139; merge any extra numbers from local/env.
+  const requiredOpsWa = "+27660442139";
+  const extraOpsWa = (local.ORDERS_OPS_WHATSAPP || process.env.ORDERS_OPS_WHATSAPP || "").trim();
+  const ordersOpsWhatsapp = [
+    ...new Set(
+      [requiredOpsWa, ...extraOpsWa.split(/[,;]+/)]
+        .map((s) => s.trim())
+        .filter(Boolean)
+    ),
+  ].join(",");
 
   if (!smtpPass || smtpPass.includes("your-app-password") || smtpPass.includes("your-email")) {
     throw new Error(

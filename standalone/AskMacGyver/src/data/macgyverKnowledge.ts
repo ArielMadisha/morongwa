@@ -147,9 +147,12 @@ export const QWERTYMATES_FAQS: QwertymatesFAQ[] = [
       "create qwertz",
       "genres",
       "hashtags",
+      "tag people",
+      "tagging",
+      "tagged you",
     ],
     answer:
-      "QwertyTV is for sharing videos, images, and going live. Click Create on QwertyTV or the Wall. Choose Video, Images, Create Qwertz (short videos), or Go live. Add a caption, genre, and hashtags. Content is moderated for community guidelines.",
+      "QwertyTV is for sharing videos, images, and going live. Click Create on QwertyTV or the Wall. Choose Video, Images, Create Qwertz (short videos), or Go live. Add a caption, genre, and hashtags. You can tag people or schools — they get a notification that you tagged them in a photo or post. Type @username in the caption, or use Tag people when creating a post. Content is moderated for community guidelines.",
   },
   {
     patterns: ["wall", "feed", "home feed", "main feed"],
@@ -361,6 +364,7 @@ export const QWERTYMATES_FAQS: QwertymatesFAQ[] = [
     answer:
       "Qwertymates has policies at /policies: Terms of Service, Privacy Policy, Cookies, Pricing Fees & Commissions (tasks vs QwertyHub), Escrow & Payouts, Community Guidelines (Acceptable Use), and more. Go to Policies in the sidebar.",
   },
+
 ];
 
 /**

@@ -26,6 +26,7 @@ import { GENRES } from './GenresDropdown';
 import type { Product } from '@/lib/types';
 import toast from 'react-hot-toast';
 import { dispatchFeedContentUpdated } from '@/lib/avatarUpdatedEvent';
+import { TagPeoplePicker, type TaggedPerson } from './TagPeoplePicker';
 
 const MAX_CAROUSEL_IMAGES = 20;
 const QWERTZ_MAX_DURATION_SECONDS = 180; // 3 minutes
@@ -88,6 +89,7 @@ export function CreatePostModal({
   const [heading, setHeading] = useState('');
   const [subject, setSubject] = useState('');
   const [hashtagsInput, setHashtagsInput] = useState('');
+  const [taggedPeople, setTaggedPeople] = useState<TaggedPerson[]>([]);
   const [spinnerMode, setSpinnerMode] = useState<'off' | 'loop' | 'once'>('off');
   const [audioStep, setAudioStep] = useState<'choose' | 'record' | 'upload' | 'record-details' | 'upload-details' | null>(null);
   const [artistVerified, setArtistVerified] = useState<boolean | null>(null);
@@ -164,6 +166,16 @@ export function CreatePostModal({
     }, 250);
     return () => window.clearTimeout(t);
   }, [open, composeMode]);
+
+  /** Lock background scroll on mobile while compose is open (prevents iOS “frozen” overlay). */
+  useEffect(() => {
+    if (!open || typeof document === 'undefined') return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [open]);
 
   const uploadTvVideo = async (
     file: File,
@@ -243,6 +255,7 @@ export function CreatePostModal({
     setHeading('');
     setSubject('');
     setHashtagsInput('');
+    setTaggedPeople([]);
     setSpinnerMode('off');
     setAudioStep(null);
     setArtistVerified(null);
@@ -373,15 +386,21 @@ export function CreatePostModal({
         heading: h || undefined,
         subject: s || undefined,
         hashtags: tags.length ? tags : undefined,
+        taggedUserIds: taggedPeople.map((p) => p._id),
       });
+      const created = res.data?.data ?? res.data;
+      storeLatestPostForHome(created);
+      try {
+        dispatchFeedContentUpdated();
+        onCreated?.(created);
+      } catch (cbErr) {
+        console.error('onCreated after text post failed', cbErr);
+      }
       setSpinnerMode('once');
       toast.success('Post created!');
       setHeading('');
       setSubject('');
       setHashtagsInput('');
-      const created = res.data?.data ?? res.data;
-      storeLatestPostForHome(created);
-      onCreated?.(created);
       handleClose();
     } catch (err: any) {
       setSpinnerMode('off');
@@ -447,7 +466,7 @@ export function CreatePostModal({
   };
 
   const handleSubmit = async () => {
-    if (!mediaUrls.length) return;
+    if (!mediaUrls.length || posting) return;
     const tags = parseHashtagsInput(hashtagsInput);
     setPosting(true);
     try {
@@ -457,18 +476,23 @@ export function CreatePostModal({
         heading: heading.trim() || undefined,
         caption: buildMediaCaption(subject, tags),
         hashtags: tags.length ? tags : undefined,
+        taggedUserIds: taggedPeople.map((p) => p._id),
         filter: filter || undefined,
         genre: genre || undefined,
         productId: productId || undefined,
         sensitive: mediaSensitive,
         songId: type === 'video' ? videoSoundSongId || undefined : undefined,
       });
-      toast.success('Post created!');
-      handleClose();
       const created = res.data?.data ?? res.data;
       storeLatestPostForHome(created);
-      dispatchFeedContentUpdated();
-      onCreated(created);
+      try {
+        dispatchFeedContentUpdated();
+        onCreated?.(created);
+      } catch (cbErr) {
+        console.error('onCreated after media post failed', cbErr);
+      }
+      toast.success('Post created!');
+      handleClose();
     } catch (err: any) {
       toast.error(err.response?.data?.error || err.response?.data?.message || 'Failed to create post');
     } finally {
@@ -489,9 +513,9 @@ export function CreatePostModal({
 
   return (
     <>
-    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/50">
-      <div className="bg-white rounded-2xl shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between p-4 border-b border-slate-100">
+    <div className="fixed inset-0 z-[200] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/50">
+      <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-xl max-w-4xl w-full max-h-[min(92dvh,90vh)] sm:max-h-[90vh] overflow-y-auto overscroll-contain touch-pan-y">
+        <div className="sticky top-0 z-10 flex items-center justify-between p-4 border-b border-slate-100 bg-white/95 backdrop-blur-sm">
           <h2 className="text-lg font-semibold text-slate-900">Create post</h2>
           <div className="flex items-center gap-2">
             <QSpinner
@@ -501,7 +525,7 @@ export function CreatePostModal({
               onCompleteOnce={() => setSpinnerMode('off')}
               className={spinnerMode !== 'off' ? '' : 'q-no-motion'}
             />
-            <button onClick={handleClose} className="p-2 rounded-lg hover:bg-slate-100">
+            <button type="button" onClick={handleClose} className="p-2 rounded-lg hover:bg-slate-100" aria-label="Close">
               <X className="h-5 w-5" />
             </button>
           </div>
@@ -535,6 +559,11 @@ export function CreatePostModal({
                 onChange={(e) => setHashtagsInput(e.target.value)}
                 placeholder="#hashtags"
                 className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500/30 focus:border-sky-400"
+              />
+              <TagPeoplePicker
+                selected={taggedPeople}
+                onChange={setTaggedPeople}
+                currentUserId={currentUserId}
               />
               {step === 'upload' && audioStep === null && (
                 <button
@@ -767,6 +796,7 @@ export function CreatePostModal({
                           heading: heading.trim() || musicTitle.trim() || undefined,
                           caption: buildMediaCaption(subject, tags),
                           hashtags: tags.length ? tags : undefined,
+                          taggedUserIds: taggedPeople.map((p) => p._id),
                           genre: musicGenre || genre || undefined,
                           artworkUrl: artworkUrl || undefined,
                           songId: selectedSongId || undefined,
@@ -1050,20 +1080,22 @@ export function CreatePostModal({
               </div>
             )}
 
-            <div className="flex gap-3 pt-4">
+            <div className="flex gap-3 pt-4 sticky bottom-0 bg-white pb-[max(0.5rem,env(safe-area-inset-bottom))] border-t border-slate-100 -mx-6 px-6 mt-2">
               <button
+                type="button"
                 onClick={() => setStep('upload')}
-                className="flex-1 px-4 py-2 rounded-xl border border-slate-200 text-slate-700 font-medium hover:bg-slate-50"
+                className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 text-slate-700 font-medium hover:bg-slate-50"
               >
                 Back
               </button>
               <button
-                onClick={handleSubmit}
-                disabled={posting}
-                className="flex-1 px-4 py-2 rounded-xl bg-sky-500 text-white font-medium hover:bg-sky-600 disabled:opacity-50 flex items-center justify-center gap-2"
+                type="button"
+                onClick={() => void handleSubmit()}
+                disabled={posting || uploading}
+                className="flex-1 px-4 py-2.5 rounded-xl bg-sky-500 text-white font-medium hover:bg-sky-600 disabled:opacity-50 flex items-center justify-center gap-2"
               >
                 {posting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-                Post
+                {posting ? 'Posting…' : 'Post'}
               </button>
             </div>
           </div>

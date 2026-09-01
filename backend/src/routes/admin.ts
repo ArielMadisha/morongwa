@@ -47,7 +47,13 @@ import AdminPermission, {
 } from "../data/models/AdminPermission";
 import TuckshopCashAgentRegistration from "../data/models/TuckshopCashAgentRegistration";
 import { musicUploadSong, musicUploadAlbum } from "../middleware/musicUpload";
-import { authenticate, AuthRequest, authorize } from "../middleware/auth";
+import { authenticate, AuthRequest } from "../middleware/auth";
+import {
+  PRODUCT_LOADER_SECTION,
+  resolveProductLoaderGrant,
+  scopedProductLoaderPathAllowed,
+  userHasExplicitAdminRole,
+} from "../services/scopedProductLoaderAccess";
 import { AppError } from "../middleware/errorHandler";
 import { getPaginationParams, slugify } from "../utils/helpers";
 import {
@@ -360,6 +366,16 @@ function syncQwertymatesMarkupAndResellerHintsFromProductState(product: {
 const isSuperAdmin = (req: AuthRequest) =>
   req.user?.role?.includes("superadmin") ?? false;
 
+/** Set by the admin entry gate for approved store owners with product-loading-only rights. */
+type ScopedProductLoaderRequest = AuthRequest & { scopedProductLoaderOnly?: boolean };
+
+const isScopedProductLoader = (req: AuthRequest) =>
+  Boolean((req as ScopedProductLoaderRequest).scopedProductLoaderOnly);
+
+/** Scoped product loaders implicitly hold only the product-upload section. */
+const scopedProductLoaderHasSection = (req: AuthRequest, sections: readonly AdminSection[]) =>
+  isScopedProductLoader(req) && sections.includes(PRODUCT_LOADER_SECTION);
+
 /** Require super-admin only */
 const requireSuperAdmin = (_req: AuthRequest, res: Response, next: express.NextFunction) => {
   if (isSuperAdmin(_req)) return next();
@@ -370,6 +386,11 @@ const requireSuperAdmin = (_req: AuthRequest, res: Response, next: express.NextF
 const requireSection = (section: AdminSection) => {
   return async (req: AuthRequest, res: Response, next: express.NextFunction) => {
     if (isSuperAdmin(req)) return next();
+    if (isScopedProductLoader(req)) {
+      if (scopedProductLoaderHasSection(req, [section])) return next();
+      res.status(403).json({ error: "Your admin access is limited to loading your own products" });
+      return;
+    }
     const perm = await AdminPermission.findOne({ userId: req.user!._id }).lean();
     if (perm?.sections?.includes(section)) return next();
     res.status(403).json({ error: "Insufficient permissions for this section" });
@@ -401,6 +422,11 @@ function isProbableEmailLookup(raw: string): boolean {
 const requireAnySection = (sections: AdminSection[]) => {
   return async (req: AuthRequest, res: Response, next: express.NextFunction) => {
     if (isSuperAdmin(req)) return next();
+    if (isScopedProductLoader(req)) {
+      if (scopedProductLoaderHasSection(req, sections)) return next();
+      res.status(403).json({ error: "Your admin access is limited to loading your own products" });
+      return;
+    }
     const perm = await AdminPermission.findOne({ userId: req.user!._id }).lean();
     const have = perm?.sections || [];
     if (sections.some((s) => have.includes(s))) return next();
@@ -411,6 +437,11 @@ const requireAnySection = (sections: AdminSection[]) => {
 function requireSuperAdminOrSections(sections: AdminSection[]) {
   return async (req: AuthRequest, res: Response, next: express.NextFunction) => {
     if (isSuperAdmin(req)) return next();
+    if (isScopedProductLoader(req)) {
+      if (scopedProductLoaderHasSection(req, sections)) return next();
+      res.status(403).json({ error: "Your admin access is limited to loading your own products" });
+      return;
+    }
     const perm = await AdminPermission.findOne({ userId: req.user!._id }).lean();
     const have = perm?.sections || [];
     if (sections.some((s) => have.includes(s))) return next();
@@ -418,12 +449,75 @@ function requireSuperAdminOrSections(sections: AdminSection[]) {
   };
 }
 
-/** Super-admin, or delegated admin with dropship / product scope (imports & stock sync) */
+/** Super-admin, or delegated admin with explicit dropshipping section (not product-only). */
 const requireSuperAdminOrDropshipSections = requireSuperAdminOrSections([
   "dropshipping",
-  "product_uploads",
-  "products",
 ] as AdminSection[]);
+
+/**
+ * Product catalog scope for Load Products.
+ * - Super-admin: unrestricted (all stores)
+ * - Explicit `admin` role without a single-store lock: unrestricted (existing delegated admins keep
+ *   the catalog they already manage — explicit grants always win over scoped rules)
+ * - Delegated admin with `scopedSupplierId`, or scoped product loader (approved supplier /
+ *   manufacturer / grocery / restaurant owner): only that store and stores they own
+ */
+type AdminProductSupplierScope =
+  | { unrestricted: true }
+  | { unrestricted: false; supplierIds: string[] };
+
+async function resolveAdminProductSupplierScope(req: AuthRequest): Promise<AdminProductSupplierScope> {
+  if (isSuperAdmin(req)) return { unrestricted: true };
+
+  const userId = req.user!._id;
+  const ids = new Set<string>();
+
+  const perm = await AdminPermission.findOne({ userId }).select("scopedSupplierId").lean();
+  const scoped = (perm as { scopedSupplierId?: unknown } | null)?.scopedSupplierId;
+  if (scoped) ids.add(String(scoped));
+  else if (userHasExplicitAdminRole(req.user)) return { unrestricted: true };
+
+  const owned = await Supplier.find({ userId, status: "approved" }).select("_id").lean();
+  for (const s of owned) ids.add(String(s._id));
+
+  return { unrestricted: false, supplierIds: [...ids] };
+}
+
+/** @deprecated prefer resolveAdminProductSupplierScope — returns primary scoped id or null if unrestricted. */
+async function getDelegatedScopedSupplierId(req: AuthRequest): Promise<string | null> {
+  const scope = await resolveAdminProductSupplierScope(req);
+  if (scope.unrestricted) return null;
+  return scope.supplierIds[0] || null;
+}
+
+function assertSupplierInProductScope(
+  scope: AdminProductSupplierScope | string | null,
+  supplierId: string
+) {
+  // Legacy: string | null from getDelegatedScopedSupplierId
+  if (scope === null) return;
+  if (typeof scope === "string") {
+    if (String(supplierId) !== String(scope)) {
+      throw new AppError("You can only manage products for your own store", 403);
+    }
+    return;
+  }
+  if (scope.unrestricted) return;
+  if (!scope.supplierIds.includes(String(supplierId))) {
+    throw new AppError("You can only manage products for your own store", 403);
+  }
+}
+
+function productQueryForScope(scope: AdminProductSupplierScope): Record<string, unknown> {
+  if (scope.unrestricted) return {};
+  if (!scope.supplierIds.length) return { _id: null }; // match nothing
+  const oids = scope.supplierIds
+    .filter((id) => mongoose.Types.ObjectId.isValid(id))
+    .map((id) => new mongoose.Types.ObjectId(id));
+  if (!oids.length) return { _id: null };
+  if (oids.length === 1) return { supplierId: oids[0] };
+  return { supplierId: { $in: oids } };
+}
 
 async function isDelegatedAdminUser(userId: mongoose.Types.ObjectId): Promise<boolean> {
   const row = await AdminPermission.findOne({ userId }).select("_id").lean();
@@ -592,32 +686,100 @@ async function executeStorePermanentDelete(params: {
   return { productsDeleted, myStoreListingsCleared };
 }
 
-// All routes require admin or superadmin role (role-based access control)
-router.use(authenticate, authorize("admin", "superadmin"));
+/**
+ * Admin API entry gate.
+ * - role `admin` / `superadmin`: unchanged (explicit grants always win)
+ * - approved supplier / manufacturer / grocery + restaurant owner: scoped product-loader only
+ * - everyone else (including resellers): 403
+ */
+const allowAdminRoleOrScopedProductLoader = async (
+  req: AuthRequest,
+  res: Response,
+  next: express.NextFunction
+) => {
+  if (!req.user) {
+    res.status(401).json({ error: "Authentication required" });
+    return;
+  }
+  if (userHasExplicitAdminRole(req.user)) return next();
+
+  const grant = await resolveProductLoaderGrant(req.user._id);
+  if (!grant.granted) {
+    res.status(403).json({ error: "Insufficient permissions" });
+    return;
+  }
+  (req as ScopedProductLoaderRequest).scopedProductLoaderOnly = true;
+  next();
+};
+
+/** Scoped product loaders may only reach Load Products endpoints, never other admin areas. */
+const enforceScopedProductLoaderSurface = (
+  req: AuthRequest,
+  res: Response,
+  next: express.NextFunction
+) => {
+  if (!(req as ScopedProductLoaderRequest).scopedProductLoaderOnly) return next();
+  const path = String((req as { path?: string }).path || req.url?.split("?")[0] || "/");
+  if (scopedProductLoaderPathAllowed(path)) return next();
+  res.status(403).json({ error: "Your admin access is limited to loading your own products" });
+};
+
+// All routes require admin/superadmin role or the scoped product-loader capability
+router.use(authenticate, allowAdminRoleOrScopedProductLoader, enforceScopedProductLoaderSurface);
 
 /** Current user's delegated section permissions (for admin UI). Super-admin = all sections. */
 router.get("/permissions/me", async (req: AuthRequest, res: Response, next) => {
   try {
     if (!req.user) throw new AppError("Unauthorized", 401);
+    if ((req as ScopedProductLoaderRequest).scopedProductLoaderOnly) {
+      const scope = await resolveAdminProductSupplierScope(req);
+      const scopedSupplierIds = scope.unrestricted ? [] : scope.supplierIds;
+      return res.json({
+        isSuperAdmin: false,
+        sections: [PRODUCT_LOADER_SECTION],
+        supportCategories: [],
+        scopedSupplierId: scopedSupplierIds.length === 1 ? scopedSupplierIds[0] : null,
+        scopedSupplierIds,
+        productCatalogUnrestricted: false,
+        productLoaderOnly: true,
+      });
+    }
     if (isSuperAdmin(req)) {
       return res.json({
         isSuperAdmin: true,
         sections: [...ADMIN_SECTION_SLUGS],
         supportCategories: [...SUPPORT_CATEGORY_MAIN],
+        scopedSupplierId: null,
+        scopedSupplierIds: [],
+        productCatalogUnrestricted: true,
       });
     }
     const perm = await AdminPermission.findOne({ userId: req.user._id }).lean();
+    const scope = await resolveAdminProductSupplierScope(req);
+    const scopedSupplierIds = scope.unrestricted ? [] : scope.supplierIds;
     if (!perm) {
+      // Legacy admin without AdminPermission row keeps full admin (explicit role grant).
       return res.json({
         isSuperAdmin: false,
         sections: [...ADMIN_SECTION_SLUGS],
         supportCategories: [...SUPPORT_CATEGORY_MAIN],
+        scopedSupplierId: scope.unrestricted ? null : scopedSupplierIds[0] || null,
+        scopedSupplierIds,
+        productCatalogUnrestricted: scope.unrestricted,
       });
     }
     return res.json({
       isSuperAdmin: false,
       sections: perm.sections || [],
       supportCategories: perm.supportCategories || [],
+      // Only surface a single scoped id when the catalog is truly single-store (or explicitly set).
+      scopedSupplierId: perm.scopedSupplierId
+        ? String(perm.scopedSupplierId)
+        : scopedSupplierIds.length === 1
+          ? scopedSupplierIds[0]
+          : null,
+      scopedSupplierIds,
+      productCatalogUnrestricted: scope.unrestricted,
     });
   } catch (err) {
     next(err);
@@ -1362,6 +1524,53 @@ router.get("/users", async (req: AuthRequest, res: Response, next) => {
           walletActiveUsers: waWalletActiveUsers,
           loginsLast7d: waLoginsLast7d,
         },
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** Registration IP / geo intel for admins (users section). */
+router.get("/registration-intel", requireAnySection(["users"]), async (req: AuthRequest, res: Response, next) => {
+  try {
+    const { page, limit, q } = req.query;
+    const { skip, limit: limitNum } = getPaginationParams(
+      page ? parseInt(page as string) : undefined,
+      limit ? parseInt(limit as string) : undefined
+    );
+    const query: Record<string, unknown> = {};
+    const qStr = String(q || "").trim();
+    if (qStr) {
+      const re = new RegExp(qStr.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+      query.$or = [
+        { name: re },
+        { email: re },
+        { username: re },
+        { registrationIp: re },
+        { "registrationGeo.country": re },
+        { "registrationGeo.city": re },
+        { "registrationGeo.isp": re },
+      ];
+    }
+    const [users, total] = await Promise.all([
+      User.find(query)
+        .select(
+          "name username email phone countryCode emailVerified emailVerifiedAt registrationIp registrationGeo createdAt role active suspended"
+        )
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limitNum)
+        .lean(),
+      User.countDocuments(query),
+    ]);
+    res.json({
+      users,
+      pagination: {
+        total,
+        page: Math.floor(skip / limitNum) + 1,
+        limit: limitNum,
+        pages: Math.ceil(total / limitNum) || 1,
       },
     });
   } catch (err) {
@@ -3365,8 +3574,15 @@ router.get("/products", async (req: AuthRequest, res: Response, next) => {
       page ? parseInt(page as string) : undefined,
       limit ? parseInt(limit as string) : undefined
     );
-    const query: any = {};
-    if (supplierId) query.supplierId = supplierId;
+    const scope = await resolveAdminProductSupplierScope(req);
+    const query: any = { ...productQueryForScope(scope) };
+    // Non-superadmin cannot widen scope via query; may only narrow within allowed suppliers.
+    if (scope.unrestricted) {
+      if (supplierId) query.supplierId = supplierId;
+    } else if (supplierId) {
+      assertSupplierInProductScope(scope, String(supplierId));
+      query.supplierId = String(supplierId);
+    }
     if (active !== undefined) query.active = active === "true";
     if (supplierSource) query.supplierSource = supplierSource;
     const [products, total] = await Promise.all([
@@ -3380,6 +3596,9 @@ router.get("/products", async (req: AuthRequest, res: Response, next) => {
     res.json({
       products: mapped.map((p) => ({ ...p, images: normalizeProductImageUrls(p.images) })),
       pagination: { total, page: Math.floor(skip / limitNum) + 1, limit: limitNum, pages: Math.ceil(total / limitNum) },
+      scopedSupplierId: scope.unrestricted ? null : scope.supplierIds[0] || null,
+      scopedSupplierIds: scope.unrestricted ? [] : scope.supplierIds,
+      productCatalogUnrestricted: scope.unrestricted,
     });
   } catch (err) {
     next(err);
@@ -3399,17 +3618,36 @@ router.get("/products/supplier-options", async (req: AuthRequest, res: Response,
       req.query.hasActiveStore === "1" ||
       req.query.hasActiveStore === "true" ||
       req.query.hasActiveStore === "yes";
-    const rawSuppliers = await Supplier.find({ status: "approved" })
+    const scope = await resolveAdminProductSupplierScope(req);
+    const match: Record<string, unknown> = { status: "approved" };
+    if (!scope.unrestricted) {
+      const validIds = scope.supplierIds.filter((id) => mongoose.Types.ObjectId.isValid(id));
+      if (!validIds.length) {
+        return res.json({
+          suppliers: [],
+          scopedSupplierId: null,
+          scopedSupplierIds: [],
+          productCatalogUnrestricted: false,
+        });
+      }
+      match._id = { $in: validIds.map((id) => new mongoose.Types.ObjectId(id)) };
+    }
+    const rawSuppliers = await Supplier.find(match)
       .populate("userId", "name email phone countryCode")
       .sort({ storeName: 1, appliedAt: -1 })
-      .limit(activeStoreOnly ? 500 : limitNum)
+      .limit(scope.unrestricted ? (activeStoreOnly ? 500 : limitNum) : 20)
       .lean();
     let list = rawSuppliers;
-    if (activeStoreOnly) {
+    if (activeStoreOnly && scope.unrestricted) {
       list = (await filterSuppliersWithLiveStore(rawSuppliers)).slice(0, limitNum);
     }
     const suppliers = await enrichSuppliersWithStoreCountry(list);
-    res.json({ suppliers });
+    res.json({
+      suppliers,
+      scopedSupplierId: scope.unrestricted ? null : scope.supplierIds[0] || null,
+      scopedSupplierIds: scope.unrestricted ? [] : scope.supplierIds,
+      productCatalogUnrestricted: scope.unrestricted,
+    });
   } catch (err) {
     next(err);
   }
@@ -3420,6 +3658,10 @@ router.post(
   requireAnySection(["products", "product_uploads"]),
   async (req: AuthRequest, res: Response, next) => {
   try {
+    const scope = await resolveAdminProductSupplierScope(req);
+    if (!scope.unrestricted) {
+      throw new AppError("Bulk category normalize is only available to super-admins", 403);
+    }
     const fallbackCategoryRaw = String(req.body?.fallbackCategory || "").trim();
     const fallbackCategory =
       MARKETPLACE_TOP_CATEGORIES.find((c) => c.toLowerCase() === fallbackCategoryRaw.toLowerCase()) ||
@@ -3484,6 +3726,8 @@ router.post("/products", requireAnySection(["products", "product_uploads"]), asy
     };
     const { supplierId, title, price } = body;
     if (!supplierId || !title || price == null) throw new AppError("supplierId, title, and price are required", 400);
+    const scope = await resolveAdminProductSupplierScope(req);
+    assertSupplierInProductScope(scope, supplierId);
     const images = Array.isArray(body.images) ? body.images : [];
     if (images.length < 1) throw new AppError("At least one product image is required (max 10).", 400);
     if (images.length > 10) throw new AppError("Maximum 10 product images allowed.", 400);
@@ -3836,6 +4080,12 @@ router.get("/products/:id", async (req: AuthRequest, res: Response, next) => {
   try {
     const product = await Product.findById(req.params.id).populate("supplierId", "storeName status").lean();
     if (!product) throw new AppError("Product not found", 404);
+    const scope = await resolveAdminProductSupplierScope(req);
+    const productSupplierId =
+      (product as any).supplierId?._id != null
+        ? String((product as any).supplierId._id)
+        : String((product as any).supplierId || "");
+    assertSupplierInProductScope(scope, productSupplierId);
     res.json({ data: normalizeProductCurrencyInrToZarForApi(product as Record<string, unknown>) });
   } catch (err) {
     next(err);
@@ -3846,6 +4096,8 @@ router.put("/products/:id", requireAnySection(["products", "product_uploads"]), 
   try {
     const product = await Product.findById(req.params.id);
     if (!product) throw new AppError("Product not found", 404);
+    const scope = await resolveAdminProductSupplierScope(req);
+    assertSupplierInProductScope(scope, String(product.supplierId || ""));
     const wasActive = !!product.active;
     const body = req.body as Record<string, unknown>;
     const allowed = ["title", "description", "images", "price", "discountPrice", "bulkTiers", "currency", "stock", "outOfStock", "sku", "sizes", "allowResell", "categories", "tags", "active", "colors", "colorsManual"];
@@ -3954,6 +4206,8 @@ router.delete("/products/:id", requireAnySection(["products", "product_uploads"]
   try {
     const product = await Product.findById(req.params.id);
     if (!product) throw new AppError("Product not found", 404);
+    const scope = await resolveAdminProductSupplierScope(req);
+    assertSupplierInProductScope(scope, String(product.supplierId || ""));
     await product.deleteOne();
     await AuditLog.create({ action: "PRODUCT_DELETED_BY_ADMIN", user: req.user!._id, target: product._id, meta: {} });
     res.json({ message: "Product deleted" });
@@ -5155,6 +5409,25 @@ router.get("/fraud-registration-exceptions", async (req: AuthRequest, res: Respo
       incentiveReference: listAgentRegistrationIncentiveReference(),
       tuckshopFlags,
       onboardingFlags,
+      generatedAt: new Date().toISOString(),
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** All WhatsApp Jobs → Onboarding Agent applications (AuditLog), newest first. */
+router.get("/onboarding-agent-applications", async (req: AuthRequest, res: Response, next) => {
+  try {
+    const lim = Number((req.query as any)?.limit);
+    const limit = Math.min(500, Math.max(20, Number.isFinite(lim) ? lim : 200));
+    const rows = await AuditLog.find({ action: "WA_ONBOARDING_AGENT_APPLICATION" })
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .populate("user", "name username phone email")
+      .lean();
+    res.json({
+      data: rows,
       generatedAt: new Date().toISOString(),
     });
   } catch (err) {

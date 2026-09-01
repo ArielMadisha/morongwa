@@ -1,0 +1,540 @@
+{
+  "fetchedAt": "2026-08-16T03:40:05.952Z",
+  "version": {
+    "id": "b1ec529b-acc3-4935-b109-8ae6cb94d645",
+    "state": "REJECTED",
+    "versionString": "1.0"
+  },
+  "localizationId": "99209ca8-b366-438b-902c-1126ba15e98a",
+  "locale": "en-GB",
+  "inventoryBefore": [
+    {
+      "setId": "331f238e-e280-4a3c-8b0c-6aa4abdb42fc",
+      "displayType": "APP_IPHONE_55",
+      "count": 5,
+      "screenshots": [
+        {
+          "id": "6ee508a4-94d5-4f9f-af89-932b7ed56516",
+          "fileName": "01-wall-feed-1242x2208.jpg",
+          "fileSize": 210179,
+          "state": "COMPLETE",
+          "width": 1242,
+          "height": 2208
+        },
+        {
+          "id": "06ffc4f4-757b-41fc-b12f-e20c449f2919",
+          "fileName": "02-qwertyhub-1242x2208.jpg",
+          "fileSize": 203883,
+          "state": "COMPLETE",
+          "width": 1242,
+          "height": 2208
+        },
+        {
+          "id": "e8ad3e32-1bed-45a2-98da-0609eba0ca6c",
+          "fileName": "03-qwertytv-1242x2208.jpg",
+          "fileSize": 209991,
+          "state": "COMPLETE",
+          "width": 1242,
+          "height": 2208
+        },
+        {
+          "id": "a4485f9c-5659-4d5e-86c2-73a724d47143",
+          "fileName": "04-explore-1242x2208.jpg",
+          "fileSize": 213333,
+          "state": "COMPLETE",
+          "width": 1242,
+          "height": 2208
+        },
+        {
+          "id": "b908bb85-163a-455e-9301-e68d0a39db3a",
+          "fileName": "05-acbpay-wallet-1242x2208.jpg",
+          "fileSize": 147745,
+          "state": "COMPLETE",
+          "width": 1242,
+          "height": 2208
+        }
+      ]
+    },
+    {
+      "setId": "dfecebe1-a25e-476b-8a7b-96a42f0f2a57",
+      "displayType": "APP_IPHONE_67",
+      "count": 5,
+      "screenshots": [
+        {
+          "id": "f6723ece-1536-4b1d-a676-83e1a4b3dce2",
+          "fileName": "01-wall-feed-1290x2796.jpg",
+          "fileSize": 275952,
+          "state": "COMPLETE",
+          "width": 1290,
+          "height": 2796
+        },
+        {
+          "id": "96231ff1-e1d8-443f-9326-d850a590cfdd",
+          "fileName": "02-qwertyhub-1290x2796.jpg",
+          "fileSize": 256288,
+          "state": "COMPLETE",
+          "width": 1290,
+          "height": 2796
+        },
+        {
+          "id": "d5459839-798f-47b7-b091-60c9c2971036",
+          "fileName": "03-qwertytv-1290x2796.jpg",
+          "fileSize": 270200,
+          "state": "COMPLETE",
+          "width": 1290,
+          "height": 2796
+        },
+        {
+          "id": "18b4ffd9-4c3b-42e9-ae98-8ee3381151f7",
+          "fileName": "04-explore-1290x2796.jpg",
+          "fileSize": 280653,
+          "state": "COMPLETE",
+          "width": 1290,
+          "height": 2796
+        },
+        {
+          "id": "35e5418b-2b32-41ab-8bdc-50a72bee8c70",
+          "fileName": "05-acbpay-wallet-1290x2796.jpg",
+          "fileSize": 190628,
+          "state": "COMPLETE",
+          "width": 1290,
+          "height": 2796
+        }
+      ]
+    },
+    {
+      "setId": "33f38ed0-12ac-47c9-a254-16d640c43679",
+      "displayType": "APP_IPAD_PRO_3GEN_129",
+      "count": 5,
+      "screenshots": [
+        {
+          "id": "c06f9b1f-2c01-493a-bef9-3b5659b33024",
+          "fileName": "01-wall-feed-2048x2732.jpg",
+          "fileSize": 323175,
+          "state": "COMPLETE",
+          "width": 2048,
+          "height": 2732
+        },
+        {
+          "id": "36bd52c0-e669-4fc5-8499-de435fc6947d",
+          "fileName": "02-qwertyhub-2048x2732.jpg",
+          "fileSize": 307546,
+          "state": "COMPLETE",
+          "width": 2048,
+          "height": 2732
+        },
+        {
+          "id": "c726b00b-b089-49aa-ac65-4c29957b31ac",
+          "fileName": "03-qwertytv-2048x2732.jpg",
+          "fileSize": 287338,
+          "state": "COMPLETE",
+          "width": 2048,
+          "height": 2732
+        },
+        {
+          "id": "3d6e31c8-b978-44e7-bb74-934de3cf6711",
+          "fileName": "04-explore-2048x2732.jpg",
+          "fileSize": 321185,
+          "state": "COMPLETE",
+          "width": 2048,
+          "height": 2732
+        },
+        {
+          "id": "10a76418-aacd-47c6-89ff-485e21b34643",
+          "fileName": "05-acbpay-wallet-2048x2732.jpg",
+          "fileSize": 325167,
+          "state": "COMPLETE",
+          "width": 2048,
+          "height": 2732
+        }
+      ]
+    },
+    {
+      "setId": "75d52102-c91d-4872-93e0-157732153b9c",
+      "displayType": "APP_IPHONE_65",
+      "count": 2,
+      "screenshots": [
+        {
+          "id": "3ab5ae55-446f-43ec-b0a0-c2b449999b41",
+          "fileName": "01-wall-feed-1242x2688.jpg",
+          "fileSize": 262549,
+          "state": "COMPLETE",
+          "width": 1242,
+          "height": 2688
+        },
+        {
+          "id": "86619e0e-6dc3-4950-8e38-d343d764b130",
+          "fileName": "02-qwertyhub-1242x2688.jpg",
+          "fileSize": 245005,
+          "state": "AWAITING_UPLOAD"
+        }
+      ]
+    }
+  ],
+  "replaced": [
+    {
+      "displayType": "APP_IPHONE_67",
+      "id": "5c659492-d1ce-43d2-ac0d-8a518e06daa6",
+      "fileName": "01-wall-feed-1290x2796.jpg",
+      "state": "COMPLETE"
+    },
+    {
+      "displayType": "APP_IPHONE_67",
+      "id": "8ba0a187-0a99-4eb2-b9b8-2175a108c283",
+      "fileName": "02-qwertyhub-1290x2796.jpg",
+      "state": "COMPLETE"
+    },
+    {
+      "displayType": "APP_IPHONE_67",
+      "id": "5d2e6833-52d4-48b1-9242-cdd8e39e9dfc",
+      "fileName": "03-qwertytv-1290x2796.jpg",
+      "state": "COMPLETE"
+    },
+    {
+      "displayType": "APP_IPHONE_67",
+      "id": "8ecc2203-45e1-4450-9e1f-d73aacffc9ec",
+      "fileName": "04-explore-1290x2796.jpg",
+      "state": "COMPLETE"
+    },
+    {
+      "displayType": "APP_IPHONE_67",
+      "id": "e61ea70a-84f7-4af3-8a22-95d01255a8cb",
+      "fileName": "05-acbpay-wallet-1290x2796.jpg",
+      "state": "COMPLETE"
+    },
+    {
+      "displayType": "APP_IPHONE_65",
+      "id": "7c318b5b-08b4-41ea-ba26-2c5f287d032f",
+      "fileName": "01-wall-feed-1242x2688.jpg",
+      "state": "COMPLETE"
+    },
+    {
+      "displayType": "APP_IPHONE_65",
+      "id": "9ba31209-a4ad-44a1-8398-a4c95d51e0da",
+      "fileName": "02-qwertyhub-1242x2688.jpg",
+      "state": "COMPLETE"
+    },
+    {
+      "displayType": "APP_IPHONE_65",
+      "id": "ba5dec72-3955-4735-a146-1bdc43adcdb1",
+      "fileName": "03-qwertytv-1242x2688.jpg",
+      "state": "COMPLETE"
+    },
+    {
+      "displayType": "APP_IPHONE_65",
+      "id": "1bf3e811-dad3-4c6f-becf-2a0eb74e0883",
+      "fileName": "04-explore-1242x2688.jpg",
+      "state": "COMPLETE"
+    },
+    {
+      "displayType": "APP_IPHONE_65",
+      "id": "9f6b46b3-cc5c-4b63-9dd4-6af8a37234a8",
+      "fileName": "05-acbpay-wallet-1242x2688.jpg",
+      "state": "COMPLETE"
+    },
+    {
+      "displayType": "APP_IPHONE_55",
+      "id": "de89b4dc-4511-4ec0-99f4-daa9d653e946",
+      "fileName": "01-wall-feed-1242x2208.jpg",
+      "state": "COMPLETE"
+    },
+    {
+      "displayType": "APP_IPHONE_55",
+      "id": "b79ce280-b758-488d-9ef6-2c576568adec",
+      "fileName": "02-qwertyhub-1242x2208.jpg",
+      "state": "COMPLETE"
+    },
+    {
+      "displayType": "APP_IPHONE_55",
+      "id": "0ec204b7-4222-429f-9680-d44ebf87453a",
+      "fileName": "03-qwertytv-1242x2208.jpg",
+      "state": "COMPLETE"
+    },
+    {
+      "displayType": "APP_IPHONE_55",
+      "id": "e700f3f4-5c2a-450d-955a-5a43bd8240b8",
+      "fileName": "04-explore-1242x2208.jpg",
+      "state": "COMPLETE"
+    },
+    {
+      "displayType": "APP_IPHONE_55",
+      "id": "5d4c4164-644f-47fa-ac60-b342d98f3117",
+      "fileName": "05-acbpay-wallet-1242x2208.jpg",
+      "state": "COMPLETE"
+    },
+    {
+      "displayType": "APP_IPAD_PRO_3GEN_129",
+      "id": "5ffe8e40-cb66-4caa-8a17-95ed14ab633f",
+      "fileName": "01-wall-feed-2048x2732.jpg",
+      "state": "COMPLETE"
+    },
+    {
+      "displayType": "APP_IPAD_PRO_3GEN_129",
+      "id": "333fef95-0c00-409e-a0f2-6af861e0f133",
+      "fileName": "02-qwertyhub-2048x2732.jpg",
+      "state": "COMPLETE"
+    },
+    {
+      "displayType": "APP_IPAD_PRO_3GEN_129",
+      "id": "04007b89-c457-47e6-8768-fc8597c16058",
+      "fileName": "03-qwertytv-2048x2732.jpg",
+      "state": "COMPLETE"
+    },
+    {
+      "displayType": "APP_IPAD_PRO_3GEN_129",
+      "id": "bbe15e3b-bf0e-46f8-8313-b39c4f38ff74",
+      "fileName": "04-explore-2048x2732.jpg",
+      "state": "COMPLETE"
+    },
+    {
+      "displayType": "APP_IPAD_PRO_3GEN_129",
+      "id": "8c3e5cb7-2f91-4330-b16b-d1e6a4bf7c90",
+      "fileName": "05-acbpay-wallet-2048x2732.jpg",
+      "state": "COMPLETE"
+    }
+  ],
+  "replacedCount": 20,
+  "reviewNotes": {
+    "action": "patched",
+    "id": "f8ef6338-4f42-4e47-848a-dbd000330639",
+    "chars": 1060
+  },
+  "submit": {
+    "cancelled": [
+      {
+        "id": "5348e907-c57f-45af-9f69-c3bda9351276",
+        "state": "UNRESOLVED_ISSUES",
+        "ok": true
+      }
+    ],
+    "created": "ebae8855-6258-45f3-829d-c010478415eb",
+    "submitted": false,
+    "errors": [
+      {
+        "step": "addItem",
+        "ok": false,
+        "status": 409,
+        "body": {
+          "errors": [
+            {
+              "id": "123649df-40e6-47ff-956d-d0cb36d74eda",
+              "status": "409",
+              "code": "STATE_ERROR.ENTITY_STATE_INVALID",
+              "title": "appStoreVersions with id '889309084' is not in valid state.",
+              "detail": "This resource cannot be reviewed, please check associated errors to see why.",
+              "meta": {
+                "associatedErrors": {
+                  "/appStoreVersions/889309084": [
+                    {
+                      "id": "6e82bf80-bc7a-4bc5-8394-6032510e5f32",
+                      "status": "409",
+                      "code": "STATE_ERROR.ITEM_PART_OF_ANOTHER_SUBMISSION",
+                      "title": "Item is already present in another reviewSubmission",
+                      "detail": "appStoreVersions with id 889309084 was already added to another reviewSubmission with id 5348e907-c57f-45af-9f69-c3bda9351276"
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "message": "POST /v1/reviewSubmissionItems 409"
+      }
+    ]
+  },
+  "inventoryAfter": [
+    {
+      "setId": "331f238e-e280-4a3c-8b0c-6aa4abdb42fc",
+      "displayType": "APP_IPHONE_55",
+      "count": 5,
+      "screenshots": [
+        {
+          "id": "de89b4dc-4511-4ec0-99f4-daa9d653e946",
+          "fileName": "01-wall-feed-1242x2208.jpg",
+          "fileSize": 222534,
+          "state": "COMPLETE",
+          "width": 1242,
+          "height": 2208
+        },
+        {
+          "id": "b79ce280-b758-488d-9ef6-2c576568adec",
+          "fileName": "02-qwertyhub-1242x2208.jpg",
+          "fileSize": 206292,
+          "state": "COMPLETE",
+          "width": 1242,
+          "height": 2208
+        },
+        {
+          "id": "0ec204b7-4222-429f-9680-d44ebf87453a",
+          "fileName": "03-qwertytv-1242x2208.jpg",
+          "fileSize": 217486,
+          "state": "COMPLETE",
+          "width": 1242,
+          "height": 2208
+        },
+        {
+          "id": "e700f3f4-5c2a-450d-955a-5a43bd8240b8",
+          "fileName": "04-explore-1242x2208.jpg",
+          "fileSize": 213333,
+          "state": "COMPLETE",
+          "width": 1242,
+          "height": 2208
+        },
+        {
+          "id": "5d4c4164-644f-47fa-ac60-b342d98f3117",
+          "fileName": "05-acbpay-wallet-1242x2208.jpg",
+          "fileSize": 141802,
+          "state": "COMPLETE",
+          "width": 1242,
+          "height": 2208
+        }
+      ]
+    },
+    {
+      "setId": "dfecebe1-a25e-476b-8a7b-96a42f0f2a57",
+      "displayType": "APP_IPHONE_67",
+      "count": 5,
+      "screenshots": [
+        {
+          "id": "5c659492-d1ce-43d2-ac0d-8a518e06daa6",
+          "fileName": "01-wall-feed-1290x2796.jpg",
+          "fileSize": 275952,
+          "state": "COMPLETE",
+          "width": 1290,
+          "height": 2796
+        },
+        {
+          "id": "8ba0a187-0a99-4eb2-b9b8-2175a108c283",
+          "fileName": "02-qwertyhub-1290x2796.jpg",
+          "fileSize": 256288,
+          "state": "COMPLETE",
+          "width": 1290,
+          "height": 2796
+        },
+        {
+          "id": "5d2e6833-52d4-48b1-9242-cdd8e39e9dfc",
+          "fileName": "03-qwertytv-1290x2796.jpg",
+          "fileSize": 270200,
+          "state": "COMPLETE",
+          "width": 1290,
+          "height": 2796
+        },
+        {
+          "id": "8ecc2203-45e1-4450-9e1f-d73aacffc9ec",
+          "fileName": "04-explore-1290x2796.jpg",
+          "fileSize": 280653,
+          "state": "COMPLETE",
+          "width": 1290,
+          "height": 2796
+        },
+        {
+          "id": "e61ea70a-84f7-4af3-8a22-95d01255a8cb",
+          "fileName": "05-acbpay-wallet-1290x2796.jpg",
+          "fileSize": 190628,
+          "state": "COMPLETE",
+          "width": 1290,
+          "height": 2796
+        }
+      ]
+    },
+    {
+      "setId": "33f38ed0-12ac-47c9-a254-16d640c43679",
+      "displayType": "APP_IPAD_PRO_3GEN_129",
+      "count": 5,
+      "screenshots": [
+        {
+          "id": "5ffe8e40-cb66-4caa-8a17-95ed14ab633f",
+          "fileName": "01-wall-feed-2048x2732.jpg",
+          "fileSize": 341381,
+          "state": "COMPLETE",
+          "width": 2048,
+          "height": 2732
+        },
+        {
+          "id": "333fef95-0c00-409e-a0f2-6af861e0f133",
+          "fileName": "02-qwertyhub-2048x2732.jpg",
+          "fileSize": 324613,
+          "state": "COMPLETE",
+          "width": 2048,
+          "height": 2732
+        },
+        {
+          "id": "04007b89-c457-47e6-8768-fc8597c16058",
+          "fileName": "03-qwertytv-2048x2732.jpg",
+          "fileSize": 303312,
+          "state": "COMPLETE",
+          "width": 2048,
+          "height": 2732
+        },
+        {
+          "id": "bbe15e3b-bf0e-46f8-8313-b39c4f38ff74",
+          "fileName": "04-explore-2048x2732.jpg",
+          "fileSize": 321185,
+          "state": "COMPLETE",
+          "width": 2048,
+          "height": 2732
+        },
+        {
+          "id": "8c3e5cb7-2f91-4330-b16b-d1e6a4bf7c90",
+          "fileName": "05-acbpay-wallet-2048x2732.jpg",
+          "fileSize": 342869,
+          "state": "COMPLETE",
+          "width": 2048,
+          "height": 2732
+        }
+      ]
+    },
+    {
+      "setId": "75d52102-c91d-4872-93e0-157732153b9c",
+      "displayType": "APP_IPHONE_65",
+      "count": 5,
+      "screenshots": [
+        {
+          "id": "7c318b5b-08b4-41ea-ba26-2c5f287d032f",
+          "fileName": "01-wall-feed-1242x2688.jpg",
+          "fileSize": 262549,
+          "state": "COMPLETE",
+          "width": 1242,
+          "height": 2688
+        },
+        {
+          "id": "9ba31209-a4ad-44a1-8398-a4c95d51e0da",
+          "fileName": "02-qwertyhub-1242x2688.jpg",
+          "fileSize": 245005,
+          "state": "COMPLETE",
+          "width": 1242,
+          "height": 2688
+        },
+        {
+          "id": "ba5dec72-3955-4735-a146-1bdc43adcdb1",
+          "fileName": "03-qwertytv-1242x2688.jpg",
+          "fileSize": 256405,
+          "state": "COMPLETE",
+          "width": 1242,
+          "height": 2688
+        },
+        {
+          "id": "1bf3e811-dad3-4c6f-becf-2a0eb74e0883",
+          "fileName": "04-explore-1242x2688.jpg",
+          "fileSize": 262649,
+          "state": "COMPLETE",
+          "width": 1242,
+          "height": 2688
+        },
+        {
+          "id": "9f6b46b3-cc5c-4b63-9dd4-6af8a37234a8",
+          "fileName": "05-acbpay-wallet-1242x2688.jpg",
+          "fileSize": 180582,
+          "state": "COMPLETE",
+          "width": 1242,
+          "height": 2688
+        }
+      ]
+    }
+  ],
+  "versionAfter": {
+    "id": "b1ec529b-acc3-4935-b109-8ae6cb94d645",
+    "state": "REJECTED",
+    "versionString": "1.0"
+  }
+}

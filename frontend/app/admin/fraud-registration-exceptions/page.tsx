@@ -212,7 +212,12 @@ export default function FraudRegistrationExceptionsPage() {
                 </h2>
                 {onboarding.length === 0 ? (
                   <p className="rounded-xl border border-slate-100 bg-white/80 p-6 text-sm text-slate-600">
-                    No onboarding applications with fraud flags or elevated risk yet.
+                    No onboarding applications with fraud flags or elevated risk yet. All applications (name, ID, bank)
+                    are listed under{' '}
+                    <Link href="/admin/onboarding-agents" className="font-medium text-sky-700 hover:underline">
+                      Onboarding agents
+                    </Link>
+                    .
                   </p>
                 ) : (
                   <ul className="space-y-3">

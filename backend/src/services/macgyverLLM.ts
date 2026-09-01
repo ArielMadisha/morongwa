@@ -25,6 +25,7 @@ Guidelines:
 - For Qwertymates questions, include relevant links or next steps when helpful (e.g. "Go to Marketplace", "Open your Wallet").
 - When you receive platform context (mentions on Qwertymates), briefly note if the topic was discussed by users (e.g. "It was also mentioned by @username on QwertyTV who spoke about X as the former president..."). Weave it naturally into your answer.
 - When you receive **open web** context (Tavily, Wikipedia, DuckDuckGo, or other snippets), treat it as real-world material from outside Qwertymates. Synthesize a clear answer; name or link sources when you use them. Prefer recent facts from snippets over guesswork.
+- When there are **no Qwertymates mentions** but open-web or general knowledge applies, write a helpful substantive answer anyway. Never reply with only "no results", "nothing found", or an empty dead end — explain the topic from web snippets and/or well-established knowledge.
 - For sensitive topics (conflict, politics, etc.), provide balanced, factual information without promoting harm.
 - Stay helpful, respectful, and constructive.`;
 
@@ -81,4 +82,60 @@ export async function askMacGyver(
 
 export function isMacGyverConfigured(): boolean {
   return !!OPENAI_API_KEY;
+}
+
+/** Vision: describe an uploaded image for reverse-search / MacGyver ask. */
+export async function describeImageForMacGyver(
+  imageBase64: string,
+  mimeType: string
+): Promise<string> {
+  if (!OPENAI_API_KEY) {
+    throw new Error("OPENAI_API_KEY is not configured");
+  }
+  const safeMime = /^image\/(jpeg|png|gif|webp)$/i.test(mimeType) ? mimeType : "image/jpeg";
+  const dataUrl = `data:${safeMime};base64,${imageBase64}`;
+
+  const response = await axios.post(
+    "https://api.openai.com/v1/chat/completions",
+    {
+      model: OPENAI_MODEL,
+      messages: [
+        {
+          role: "system",
+          content:
+            "You identify photos for a shopping and web-search assistant (Google Lens style). Name the object/product, brand, model, color, material, and category when you can. Transcribe visible text. Be concise (2–6 sentences). End with a line: Search terms: comma-separated keywords useful for shopping and web search.",
+        },
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "Describe this image for product and web search." },
+            { type: "image_url", image_url: { url: dataUrl, detail: "low" } },
+          ],
+        },
+      ],
+      max_tokens: 400,
+      temperature: 0.3,
+    },
+    {
+      headers: {
+        Authorization: `Bearer ${OPENAI_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      timeout: OPENAI_TIMEOUT_MS,
+    }
+  );
+
+  const content = response.data?.choices?.[0]?.message?.content;
+  if (!content) {
+    throw new Error("No vision response from OpenAI");
+  }
+  return content.trim();
+}
+
+/** Pull "Search terms: …" from vision caption or use first sentence. */
+export function extractSearchTermsFromImageDescription(description: string): string {
+  const match = description.match(/Search terms:\s*(.+)/i);
+  if (match?.[1]) return match[1].trim().slice(0, 200);
+  const first = description.split(/[.\n]/).find((s) => s.trim().length >= 3);
+  return (first || description).trim().slice(0, 200);
 }

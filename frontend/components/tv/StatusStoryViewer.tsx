@@ -507,7 +507,7 @@ export function StatusStoryViewer({ open, onClose, statuses, startIndex = 0 }: P
               {!loading && post?.caption ? (
                 <div className="absolute inset-x-0 bottom-0 z-20 max-h-[min(44%,300px)] pointer-events-none">
                   <div className="bg-gradient-to-t from-black via-black/90 to-transparent pt-10 pb-4 px-4 sm:px-5 pointer-events-auto">
-                    <div className="max-h-[min(38vh,260px)] overflow-y-auto overscroll-contain [scrollbar-width:thin]">
+                    <div className="max-h-[min(38vh,260px)] overflow-y-auto overscroll-contain [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
                       <p className={`text-white text-left ${statusCaptionTextClass(post.caption.length)}`}>
                         <LinkifiedText
                           text={post.caption}

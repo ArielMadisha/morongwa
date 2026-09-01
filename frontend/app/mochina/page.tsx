@@ -20,10 +20,10 @@ export default function MochinaPage() {
               Open Mochina Game
             </a>
             <Link
-              href="/qwerty-world"
+              href="/qwerty-media"
               className="inline-flex w-full items-center justify-center rounded-xl border border-slate-200 bg-white px-5 py-3 text-base font-semibold text-slate-700 hover:bg-slate-50"
             >
-              Open QwertyWorld
+              Open QwertyMedia
             </Link>
           </div>
 

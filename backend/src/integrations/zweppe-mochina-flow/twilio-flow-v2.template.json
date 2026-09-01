@@ -671,7 +671,7 @@
     {
       "name": "main_menu_rest_wait",
       "properties": {
-        "body": "\u200b",
+        "body": "​",
         "channel": "{{trigger.message.ChannelSid}}",
         "from": "{{flow.channel.address}}",
         "message_type": "custom",

@@ -11,6 +11,12 @@ ios/
 # Google Play API key for eas submit (local only; never commit)
 credentials/google-play-service-account.json
 
+# Firebase / FCM (local only; never commit admin keys — google-services.json is client config but keep local until intentional commit)
+google-services.json
+google-services*.json
+*-firebase-adminsdk*.json
+credentials/*firebase*.json
+
 # Local Android signing for EAS (never commit real files)
 credentials.json
 credentials/play-upload.jks

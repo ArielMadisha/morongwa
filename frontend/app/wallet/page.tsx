@@ -44,7 +44,9 @@ import { QrScannerModal } from '@/components/wallet/QrScannerModal';
 import { PhoneVerifyModal } from '@/components/wallet/PhoneVerifyModal';
 import { PayAtShopFlow } from '@/components/wallet/PayAtShopFlow';
 import { PayMoneyFlow } from '@/components/wallet/PayMoneyFlow';
+import { SendMoneyFlow } from '@/components/wallet/SendMoneyFlow';
 import { CashAgentsFlow } from '@/components/wallet/CashAgentsFlow';
+import { resolveWalletPeerTarget } from '@/lib/walletPeerTarget';
 
 function WalletDashboard() {
   const { user, logout, refreshUser } = useAuth();
@@ -122,11 +124,11 @@ function WalletDashboard() {
   const [showScanQr, setShowScanQr] = useState(false);
   const [showPayAtShop, setShowPayAtShop] = useState(false);
   const [showPayMoney, setShowPayMoney] = useState(false);
+  const [showSendMoney, setShowSendMoney] = useState(false);
   const [showCashAgents, setShowCashAgents] = useState(false);
   const [showCardsModal, setShowCardsModal] = useState(false);
   const [showAddFunds, setShowAddFunds] = useState(false);
   const [showWithdraw, setShowWithdraw] = useState(false);
-  const [showReceive, setShowReceive] = useState(false);
   const [payingRequestId, setPayingRequestId] = useState<string | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const acceptPaymentRequestIdRef = useRef<string | null>(null);
@@ -436,8 +438,11 @@ function WalletDashboard() {
   useWalletPaymentSocket(walletUserId || undefined, {
     onPendingPayment: (payload) => applyPendingPayment(payload, true),
     onMoneyRequest: (payload) => {
-      toast(`Send R${payload.amount.toFixed(2)} to ${payload.requesterName}? See Request & Receive.`, { duration: 6000 });
+      toast(`Send R${payload.amount.toFixed(2)} to ${payload.requesterName}? Open pending requests to pay.`, {
+        duration: 6000,
+      });
       void fetchWalletData();
+      setShowPayMoney(true);
     },
     onPaymentCompleted: (payload) => {
       if (acceptPaymentRequestIdRef.current && payload.paymentRequestId === acceptPaymentRequestIdRef.current) {
@@ -456,14 +461,18 @@ function WalletDashboard() {
       return;
     }
     if (!reqToUsername.trim()) {
-      toast.error('Enter username or user ID');
+      toast.error('Enter username, email, phone, or user ID');
+      return;
+    }
+    const target = resolveWalletPeerTarget(reqToUsername);
+    if (!target.toUserId && !target.toUsername && !target.toEmail && !target.toPhone) {
+      toast.error('Enter a valid recipient');
       return;
     }
     setReqSubmitting(true);
     try {
-      const isId = /^[a-f0-9]{24}$/i.test(reqToUsername.trim());
       await walletAPI.requestMoney({
-        ...(isId ? { toUserId: reqToUsername.trim() } : { toUsername: reqToUsername.trim() }),
+        ...target,
         amount,
         message: reqMessage.trim() || undefined,
       });
@@ -949,8 +958,8 @@ function WalletDashboard() {
                 <p className="mb-2 text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Quick actions</p>
                 <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                   {[
-                    { label: 'Pay', icon: Send, onClick: () => setShowPayMoney(true) },
-                    { label: 'Receive', icon: Inbox, onClick: () => setShowReceive(true) },
+                    { label: 'Send Money', icon: Send, onClick: () => setShowSendMoney(true) },
+                    { label: 'Request Money', icon: Inbox, onClick: () => setShowRequestMoney(true) },
                     {
                       label: 'Scan QR',
                       icon: ScanLine,
@@ -996,6 +1005,22 @@ function WalletDashboard() {
                       <p className="mt-0.5 text-xs text-slate-500">Deposit / withdraw cash</p>
                     </div>
                   </button>
+                  {isMerchantWallet ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowAcceptPayment(true);
+                        setAcceptStep('scan');
+                      }}
+                      className="flex items-start gap-3 rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm hover:border-sky-200 sm:col-span-2"
+                    >
+                      <ScanLine className="mt-0.5 h-5 w-5 shrink-0 text-sky-600" />
+                      <div>
+                        <p className="font-semibold text-slate-900">Accept in-store payment</p>
+                        <p className="mt-0.5 text-xs text-slate-500">Scan customer wallet QR and charge</p>
+                      </div>
+                    </button>
+                  ) : null}
                 </div>
               </section>
 
@@ -1140,15 +1165,17 @@ function WalletDashboard() {
       {showRequestMoney && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
-            <h3 className="text-xl font-bold text-slate-900 mb-4">Request money</h3>
-            <p className="text-sm text-slate-600 mb-4">Enter their username or user ID. They will receive a WhatsApp/SMS with a pay link.</p>
+            <h3 className="text-xl font-bold text-slate-900 mb-4">Request Money</h3>
+            <p className="text-sm text-slate-600 mb-4">
+              Ask another user to pay you. Enter their username, email, phone, or user ID — they get a WhatsApp/SMS pay link.
+            </p>
             <div className="space-y-3">
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Username or User ID</label>
+                <label className="block text-sm font-medium text-slate-700 mb-1">From (who should pay)</label>
                 <input
                   value={reqToUsername}
                   onChange={(e) => setReqToUsername(e.target.value)}
-                  placeholder="e.g. johndoe or 64abc..."
+                  placeholder="username, email, phone, or user ID"
                   className="w-full rounded-lg border border-slate-200 px-3 py-2"
                 />
               </div>
@@ -1209,6 +1236,14 @@ function WalletDashboard() {
           setPendingPaymentId(null);
           clearWalletQueryParams();
         }}
+      />
+      <SendMoneyFlow
+        open={showSendMoney}
+        onClose={() => setShowSendMoney(false)}
+        balance={balance}
+        pendingRequestCount={moneyRequests.length}
+        onOpenPendingRequests={() => setShowPayMoney(true)}
+        onSent={() => void fetchWalletData()}
       />
       <PayMoneyFlow
         open={showPayMoney}
@@ -1274,40 +1309,6 @@ function WalletDashboard() {
         >
           {isWithdrawing ? <Loader2 className="inline h-4 w-4 animate-spin" /> : 'Request withdrawal'}
         </button>
-      </FlowModal>
-
-      <FlowModal open={showReceive} title="Receive" onClose={() => setShowReceive(false)} maxWidthClass="max-w-md">
-        <button
-          type="button"
-          onClick={() => {
-            setShowReceive(false);
-            setShowRequestMoney(true);
-          }}
-          className="mb-6 text-sm font-semibold text-sky-600 hover:text-sky-700"
-        >
-          Request money from someone →
-        </button>
-        {isMerchantWallet ? (
-          <button
-            type="button"
-            onClick={() => {
-              setShowReceive(false);
-              setShowAcceptPayment(true);
-              setAcceptStep('scan');
-            }}
-            className="w-full rounded-full bg-sky-600 py-3.5 text-sm font-semibold text-white hover:bg-sky-700"
-          >
-            Accept in-store payment
-          </button>
-        ) : (
-          <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-            <p className="font-semibold">Store owner?</p>
-            <p className="mt-1">Apply as an approved supplier to accept in-store QR payments.</p>
-            <Link href="/supplier/apply" className="mt-2 inline-block font-semibold text-sky-700 hover:underline">
-              Apply as supplier →
-            </Link>
-          </div>
-        )}
       </FlowModal>
 
       {showAcceptPayment && (

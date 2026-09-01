@@ -1,0 +1,54 @@
+{
+  "steps": [
+    {
+      "name": "pricing",
+      "ok": true,
+      "scheduleId": "6800961337"
+    },
+    {
+      "name": "attachVersion",
+      "ok": false,
+      "message": "POST /v1/reviewSubmissionItems 409",
+      "errors": [
+        {
+          "id": "21a93865-b9a5-4ec3-8ef4-1ba7cc8882ec",
+          "status": "409",
+          "code": "STATE_ERROR.ENTITY_STATE_INVALID",
+          "title": "appStoreVersions with id '6a5b3427-9834-4f81-aa42-ae3e452a1e02' is not in valid state.",
+          "detail": "This resource cannot be reviewed, please check associated errors to see why.",
+          "meta": {
+            "associatedErrors": {
+              "/v1/appDataUsages/": [
+                {
+                  "id": "ad7503b8-c327-4871-866e-0f951abec918",
+                  "status": "409",
+                  "code": "STATE_ERROR.APP_DATA_USAGES_REQUIRED",
+                  "title": "Answers to what data your app collects and how it's used are needed.",
+                  "detail": "You must have published answers to your app's data usages."
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "submit",
+      "ok": false,
+      "message": "PATCH /v1/reviewSubmissions/111d9ef5-3c4a-40d9-8498-33e5b5c74dba 409",
+      "errors": [
+        {
+          "id": "0b478d3a-0e6c-47d4-a804-1e73cb6a8e1d",
+          "status": "409",
+          "code": "ENTITY_ERROR.RELATIONSHIP.REQUIRED",
+          "title": "Relationship is required",
+          "detail": "App 6800961337 must have an approved appStoreVersions for platform IOS, or an appStoreVersions must be included in this review submission.",
+          "source": {
+            "pointer": "/data/relationships/appStoreVersionForReview"
+          }
+        }
+      ]
+    }
+  ],
+  "finalVersionState": "PREPARE_FOR_SUBMISSION"
+}

@@ -128,6 +128,7 @@ function CheckoutPageContent() {
   const [initialLoad, setInitialLoad] = useState(true);
   const [quoteRefreshing, setQuoteRefreshing] = useState(false);
   const [paying, setPaying] = useState(false);
+  const [quoteLoadError, setQuoteLoadError] = useState<string | null>(null);
   const hasLoadedQuoteRef = useRef(false);
 
   const handleLogout = () => {
@@ -153,6 +154,7 @@ function CheckoutPageContent() {
         if (cancelled) return;
         const d = res.data?.data ?? res.data;
         setQuote(d ?? null);
+        setQuoteLoadError(null);
         if (d?.quoteInNativeCurrency && d?.currency === 'BWP') {
           setDeliveryCountry('BW');
           setDeliveryScope('local');
@@ -172,8 +174,15 @@ function CheckoutPageContent() {
           setCourierTariffId(d.selectedCourier.tariffId);
         }
       })
-      .catch(() => {
-        if (!cancelled) setQuote(null);
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        const e = err as { response?: { data?: { error?: string; message?: string } } };
+        setQuote(null);
+        setQuoteLoadError(
+          e?.response?.data?.error ||
+            e?.response?.data?.message ||
+            'Could not load checkout. Open your cart and try again.'
+        );
       })
       .finally(() => {
         if (cancelled) return;
@@ -418,8 +427,10 @@ function CheckoutPageContent() {
     return (
       <ProtectedRoute>
         <div className="min-h-screen bg-gradient-to-br from-sky-50 to-white flex items-center justify-center">
-          <div className="text-center">
-            <p className="text-slate-600 mb-4">Cart empty or invalid.</p>
+          <div className="text-center max-w-md px-4">
+            <p className="text-slate-600 mb-4">
+              {quoteLoadError || 'Cart empty or invalid.'}
+            </p>
             <Link href="/cart" className="text-sky-600 hover:text-sky-700 font-medium">
               Back to cart
             </Link>

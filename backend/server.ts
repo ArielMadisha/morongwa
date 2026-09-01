@@ -61,6 +61,9 @@ import webrtcRoutes from "./src/routes/webrtc";
 import livekitRoutes from "./src/routes/livekit";
 import voiceRoutes from "./src/routes/voice";
 import morongwaHubRoutes from "./src/routes/morongwaHub";
+import mobileAppRoutes from "./src/routes/mobileApp";
+import qwertzRoutes from "./src/routes/qwertz";
+import podcastRoutes from "./src/routes/podcasts";
 import { getCardPaymentConfigIssues } from "./src/services/payment";
 import { ensureDefaultPolicies } from "./src/services/policyService";
 import { seedPricingConfig } from "./src/services/pricingConfig";
@@ -255,6 +258,9 @@ const routePairs: [string, express.RequestHandler | undefined][] = [
   ["/api/livekit", livekitRoutes],
   ["/api/voice", voiceRoutes],
   ["/api/morongwa", morongwaHubRoutes],
+  ["/api/mobile", mobileAppRoutes],
+  ["/api/qwertz", qwertzRoutes],
+  ["/api/podcasts", podcastRoutes],
   ["/api/wa/flow", waFlowRoutes],
 ];
 for (const [path, handler] of routePairs) {

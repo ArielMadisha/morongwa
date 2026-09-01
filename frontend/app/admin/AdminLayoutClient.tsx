@@ -13,7 +13,8 @@ function AdminModulesMenu() {
   const { user, loading: authLoading } = useAuth();
   const { perms, loading: permLoading } = useAdminPermissions();
 
-  const show = !authLoading && user && userHasWebsiteAdminAccess(user);
+  const show =
+    !authLoading && user && (userHasWebsiteAdminAccess(user) || Boolean(perms));
   if (!show) return null;
 
   const grouped = groupedAdminNavModules(permLoading ? null : perms);

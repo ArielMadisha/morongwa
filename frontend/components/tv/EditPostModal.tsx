@@ -6,6 +6,8 @@ import toast from 'react-hot-toast';
 import { tvAPI, getImageUrl } from '@/lib/api';
 import type { TVGridItem } from './TVGridTile';
 import { GENRES } from './GenresDropdown';
+import { TagPeoplePicker, type TaggedPerson } from './TagPeoplePicker';
+import { useAuth } from '@/contexts/AuthContext';
 
 const FILTERS = [
   { id: 'none', label: 'None' },
@@ -23,10 +25,12 @@ type Props = {
 };
 
 export function EditPostModal({ post, open, onClose, onUpdated }: Props) {
+  const { user } = useAuth();
   const [caption, setCaption] = useState('');
   const [heading, setHeading] = useState('');
   const [subject, setSubject] = useState('');
   const [hashtagsInput, setHashtagsInput] = useState('');
+  const [taggedPeople, setTaggedPeople] = useState<TaggedPerson[]>([]);
   const [filter, setFilter] = useState('');
   const [genre, setGenre] = useState('');
   const [saving, setSaving] = useState(false);
@@ -37,6 +41,14 @@ export function EditPostModal({ post, open, onClose, onUpdated }: Props) {
     setHeading(post.heading || '');
     setSubject(post.subject || '');
     setHashtagsInput((post.hashtags || []).join(', '));
+    setTaggedPeople(
+      (post.taggedUserIds || []).map((u) => ({
+        _id: u._id,
+        name: u.name,
+        username: u.username,
+        avatar: u.avatar,
+      }))
+    );
     setFilter(post.filter || '');
     setGenre((post as { genre?: string }).genre || '');
   }, [open, post]);
@@ -53,15 +65,18 @@ export function EditPostModal({ post, open, onClose, onUpdated }: Props) {
         .split(/[\s,]+/)
         .map((t) => t.trim().replace(/^#/, ''))
         .filter(Boolean);
+      const taggedUserIds = taggedPeople.map((p) => p._id);
       const payload = isText
         ? {
             heading: heading.trim() || undefined,
             subject: subject.trim() || undefined,
             hashtags: tags.length ? tags : [],
+            taggedUserIds,
           }
         : {
             caption: caption.trim() || undefined,
             heading: heading.trim() || undefined,
+            taggedUserIds,
             filter: filter || undefined,
             genre: genre || undefined,
           };
@@ -126,6 +141,11 @@ export function EditPostModal({ post, open, onClose, onUpdated }: Props) {
                   className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm"
                 />
               </div>
+              <TagPeoplePicker
+                selected={taggedPeople}
+                onChange={setTaggedPeople}
+                currentUserId={user?._id || user?.id}
+              />
             </>
           ) : (
             <>
@@ -176,6 +196,11 @@ export function EditPostModal({ post, open, onClose, onUpdated }: Props) {
                   </div>
                 </div>
               )}
+              <TagPeoplePicker
+                selected={taggedPeople}
+                onChange={setTaggedPeople}
+                currentUserId={user?._id || user?.id}
+              />
             </>
           )}
 

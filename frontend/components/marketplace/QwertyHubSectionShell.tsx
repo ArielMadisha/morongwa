@@ -1,12 +1,18 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { AppSidebar } from '@/components/AppSidebar';
 import { AppShellHeader } from '@/components/AppShellHeader';
 import { ProfileHeaderButton } from '@/components/ProfileHeaderButton';
 import { AdvertSlot } from '@/components/AdvertSlot';
 import { MobileBottomNav } from '@/components/MobileBottomNav';
+import {
+  CollapsibleBottomChrome,
+  CollapsibleChrome,
+  ScrollAwareChromeRoot,
+} from '@/components/ScrollAwareAppShell';
+import { mergeScrollAwareRef } from '@/hooks/useScrollAwareChrome';
 import { useAuth } from '@/contexts/AuthContext';
 import { useCartAndStores } from '@/lib/useCartAndStores';
 import {
@@ -31,6 +37,7 @@ export function QwertyHubSectionShell({ section, title, description, children }:
   const { user, logout } = useAuth();
   const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const { cartCount, hasStore } = useCartAndStores(!!user);
   const isGuest = !user;
   const homeLink = isGuest ? '/' : '/wall';
@@ -41,7 +48,10 @@ export function QwertyHubSectionShell({ section, title, description, children }:
   };
 
   return (
+    <ScrollAwareChromeRoot>
+      {(attachScroll) => (
     <div className="h-screen flex flex-col overflow-hidden bg-gradient-to-br from-sky-50 via-blue-50 to-white text-slate-900">
+      <CollapsibleChrome edge="top">
       <AppShellHeader
         homeHref={homeLink}
         showMenuButton={!isGuest}
@@ -82,6 +92,7 @@ export function QwertyHubSectionShell({ section, title, description, children }:
         }
         bottom={<QwertyHubSectionNav active={section} />}
       />
+      </CollapsibleChrome>
       <div className="flex min-h-0 min-w-0 w-full flex-1 overflow-hidden">
         {!isGuest && (
           <AppSidebar
@@ -98,7 +109,10 @@ export function QwertyHubSectionShell({ section, title, description, children }:
             belowHeader
           />
         )}
-        <div className="flex min-h-0 min-w-0 w-full flex-1 flex-col gap-0 overflow-y-auto overflow-x-hidden overscroll-contain lg:flex-row">
+        <div
+          ref={mergeScrollAwareRef(attachScroll, scrollContainerRef)}
+          className="flex min-h-0 min-w-0 w-full flex-1 flex-col gap-0 overflow-y-auto overflow-x-hidden overscroll-contain lg:flex-row"
+        >
           <main className="order-2 box-border min-h-0 w-full min-w-0 max-w-full flex-1 px-3 sm:px-6 lg:px-8 py-5 sm:py-6 pb-24 md:pb-6 lg:order-none">
             <BackToQwertyHubLink className="mb-4" />
             {isGuest && (
@@ -123,7 +137,13 @@ export function QwertyHubSectionShell({ section, title, description, children }:
           <AdvertSlot belowHeader />
         </div>
       </div>
-      {!isGuest && <MobileBottomNav cartCount={cartCount} hasStore={hasStore} />}
+      {!isGuest && (
+        <CollapsibleBottomChrome>
+          <MobileBottomNav cartCount={cartCount} hasStore={hasStore} embedded />
+        </CollapsibleBottomChrome>
+      )}
     </div>
+      )}
+    </ScrollAwareChromeRoot>
   );
 }

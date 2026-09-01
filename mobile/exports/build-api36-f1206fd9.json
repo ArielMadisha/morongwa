@@ -1,0 +1,45 @@
+﻿{
+  "id": "f1206fd9-bedd-44f4-9a56-a3f136ea51b7",
+  "status": "FINISHED",
+  "platform": "ANDROID",
+  "artifacts": {
+    "buildUrl": "https://expo.dev/artifacts/eas/uojbbMhPOlkkoVqKfP96TEoSerniF9bArUgxsZ_iEN4.aab",
+    "applicationArchiveUrl": "https://expo.dev/artifacts/eas/uojbbMhPOlkkoVqKfP96TEoSerniF9bArUgxsZ_iEN4.aab"
+  },
+  "fingerprint": {
+    "id": "019fd165-b917-71c8-b70b-502e2028d42e",
+    "hash": "1338609f2bd9863262f9d2481483dca491cf91ec"
+  },
+  "initiatingActor": {
+    "id": "0d57be53-cc26-4f02-ae8e-ebad92f2c54e",
+    "displayName": "qwertymates"
+  },
+  "logFiles": [
+    "https://storage.googleapis.com/eas-workflows-production/logs/686960ed-6d34-446e-9872-eeafe4dfe5f1/f1206fd9-bedd-44f4-9a56-a3f136ea51b7/2026-08-05T10%3A08%3A57Z-39977a9d-49a8-4066-b69c-295250150ce2.txt?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=www-production%40exponentjs.iam.gserviceaccount.com%2F20260805%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20260805T101439Z&X-Goog-Expires=900&X-Goog-SignedHeaders=host&X-Goog-Signature=8ea128dc1a261db0e4d55343753a25431aa4ce74195c7f97fb8be809c311cb71fc53a23ad97c5fd7fac0cb4d08fce756258361d0bb30d574729d1fd276d63a93d9d302aa35353248fbd9af1b040b303799bc995dc39251d2cd4c18e714d8e6d8cbb18371041666e625336778fbb8f5e5b87f47e9dbe615a8e60f2f36d18b8ca0e941d44798e0ea3e45edd2a26a2023c4bf1fed3a87bb0ee9dcf1c2555868daed1eee1ba76a7e0ee0d54ac02956228135f34120f75b3e50809fb5da1f3f6f368605c1f11dfe060c7d3eb3277c54c8c1ed42cf86d3d145f537050f7ca06aebbd1e56f0a67509888157623d3aa55682bdb55f71a2088ceb304b359496f13e5244dd"
+  ],
+  "project": {
+    "id": "686960ed-6d34-446e-9872-eeafe4dfe5f1",
+    "name": "morongwa-mobile",
+    "slug": "morongwa-mobile",
+    "ownerAccount": {
+      "id": "d06775d7-38f6-4348-9dac-856633f35ee5",
+      "name": "qwertymates"
+    }
+  },
+  "distribution": "STORE",
+  "buildProfile": "production",
+  "sdkVersion": "54.0.0",
+  "appVersion": "1.3.31",
+  "appBuildVersion": "86",
+  "priority": "HIGH",
+  "createdAt": "2026-08-05T10:08:52.468Z",
+  "updatedAt": "2026-08-05T10:18:28.818Z",
+  "completedAt": "2026-08-05T10:18:28.658Z",
+  "expirationDate": "2026-09-04T10:08:52.494Z",
+  "isForIosSimulator": false,
+  "metrics": {
+    "buildWaitTime": 3682,
+    "buildQueueTime": 6325,
+    "buildDuration": 566183
+  }
+}

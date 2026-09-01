@@ -1,0 +1,120 @@
+---
+description: CPU workload balancing on Qwertymates dev machine — monitor, queue, pause heavy jobs before CPU limits
+alwaysApply: true
+---
+
+# CPU workload balancing (Qwertymates dev machine)
+
+**Owner policy — same class as deploy guardrails and recurring schedules.** Recent incidents (~22 node processes at 100% CPU) came from duplicate EAS iOS builds, parallel deploys, long-running Facebook multipage jobs with expired tokens, and browser tabs. Agents **must** monitor CPU and serialize heavy local work on the owner PC.
+
+After **any** Cursor update or rules reset, confirm this file exists with **`alwaysApply: true`**. Indexed from `.cursor/rules/recurring-owner-schedules.mdc`.
+
+## Before starting heavy work
+
+**Always** check CPU first (from `backend/`):
+
+```bash
+npm run ops:cpu-status
+```
+
+Heavy work includes: **`deploy:production`**, **EAS builds** (`mobile/` — Android/iOS), **`facebook:marketplace-multipage`**, full **`frontend` `npm run build`**, **ffmpeg** batches, **Facebook TV ingest loops**, and **3+ parallel heavy subagents**.
+
+## Thresholds (dev laptop defaults)
+
+| Condition | Agent action |
+|-----------|--------------|
+| System CPU **≥ 85%** OR heavy node jobs **≥ 8** | **Do not start** new heavy work — **enqueue** instead |
+| System CPU **≥ 95%** | **Pause/stop** lowest-priority running heavy jobs (see priority below) |
+| CPU **< 70%** for **30s** | Safe to **start** next queued job (`ops:cpu-queue-run`) |
+
+Source of truth: `backend/scripts/lib/cpuWorkload.mjs` → `THRESHOLDS`.
+
+## One heavy pipeline at a time
+
+On the **same PC**, never run in parallel:
+
+- deploy **OR**
+- EAS build **OR**
+- Facebook marketplace multipage **OR**
+- full frontend rebuild
+
+Pick one; queue the rest via `cpuAwareTaskQueue.mjs`.
+
+## Task queue (preferred for heavy jobs)
+
+From **`backend/`**:
+
+```bash
+# Check CPU + queue
+npm run ops:cpu-status
+
+# Enqueue instead of running directly
+npm run ops:cpu-queue-enqueue -- npm run deploy:production
+npm run ops:cpu-queue-enqueue -- npm run facebook:marketplace-multipage
+# EAS (from mobile/ cwd):
+npm run ops:cpu-queue-enqueue --cwd ../mobile -- npm run build:android:production
+
+# Process queue (one job at a time, waits for CPU headroom)
+npm run ops:cpu-queue-run
+
+# Background daemon (optional — owner PC)
+npm run ops:cpu-queue-run:daemon
+
+# Manual pause / resume
+npm run ops:cpu-queue-pause
+npm run ops:cpu-queue-resume
+```
+
+State: `backend/exports/cpu-task-queue-state.json` · Queue: `backend/exports/cpu-task-queue.json` (gitignored).
+
+Runbook: **`DOCS/CPU_WORKLOAD_BALANCING.md`**.
+
+## When CPU ≥ 95% — pause/stop priority (never kill these)
+
+**Stop first (lowest priority):**
+
+1. **`facebook:marketplace-multipage`** — especially on expired/invalid token; max **one** instance
+2. **Duplicate** EAS / deploy (keep newest only)
+3. Other heavy node jobs
+
+**Never kill:**
+
+- Cursor IDE / VS Code
+- Docker Desktop (local or remote tunnel only if clearly idle duplicate)
+- Production **remote** servers (SSH deploy targets)
+- Unknown PIDs — use `ops:stop-stale-heavy-processes` (conservative) instead of blind `taskkill`
+
+```bash
+npm run ops:stop-stale-heavy-processes
+npm run ops:stop-stale-heavy-processes -- --dry-run
+```
+
+## Facebook multipage
+
+- **Never** start without a **valid** page token in env / `.env`
+- **Max one** instance — enqueue; do not spawn a second
+- On **expired token** errors: **stop immediately**; do not retry in a tight loop
+- Prefer `npm run ops:cpu-queue-enqueue -- npm run facebook:marketplace-multipage`
+
+## Subagents
+
+- Do **not** launch **3+ parallel heavy subagents** on the same machine
+- Serialize heavy work or use **one combined worker**
+- Before spawning subagents for deploy/build/FB: run `ops:cpu-status`
+
+## Agent checklist
+
+1. `npm run ops:cpu-status` before deploy, EAS, FB multipage, or full frontend build
+2. If blocked → enqueue + report queue depth; do not start another heavy pipeline
+3. If CPU ≥ 95% → run `ops:stop-stale-heavy-processes` (dry-run first if unsure)
+4. After incident cleanup → verify `ops:cpu-status` shows ≤1 heavy job before resuming
+5. Document manual resume: `npm run ops:cpu-queue-resume && npm run ops:cpu-queue-run`
+
+## Source of truth
+
+| Item | Path |
+|------|------|
+| Thresholds + CPU probe | `backend/scripts/lib/cpuWorkload.mjs` |
+| Task queue | `backend/scripts/cpuAwareTaskQueue.mjs` |
+| Stale process cleanup | `backend/scripts/stopStaleHeavyProcesses.mjs` |
+| Runbook | `DOCS/CPU_WORKLOAD_BALANCING.md` |

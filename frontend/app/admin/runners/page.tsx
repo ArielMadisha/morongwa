@@ -218,14 +218,17 @@ function RunnersManagement() {
                               <XCircle className="h-5 w-5 text-amber-500" />
                             )}
                             <span className="text-sm">{runner.runnerIdDocument.verified ? 'Verified' : 'Pending'}</span>
-                            <a
-                              href={runner.runnerIdDocument.path}
-                              target="_blank"
-                              rel="noopener noreferrer"
+                            <button
+                              type="button"
+                              onClick={() => {
+                                void adminAPI.openRunnerIdDocument(runner._id).catch(() =>
+                                  toast.error('Could not open ID document')
+                                );
+                              }}
                               className="text-sky-600 hover:underline text-sm"
                             >
                               <ExternalLink className="h-4 w-4 inline" />
-                            </a>
+                            </button>
                           </div>
                           {!runner.runnerIdDocument.verified && (
                             <button
@@ -255,14 +258,17 @@ function RunnersManagement() {
                               <XCircle className="h-5 w-5 text-amber-500" />
                             )}
                             <span className="text-sm">{runner.runnerProofOfResidence.verified ? 'Verified' : 'Pending'}</span>
-                            <a
-                              href={runner.runnerProofOfResidence.path}
-                              target="_blank"
-                              rel="noopener noreferrer"
+                            <button
+                              type="button"
+                              onClick={() => {
+                                void adminAPI.openRunnerProofOfResidence(runner._id).catch(() =>
+                                  toast.error('Could not open proof of residence')
+                                );
+                              }}
                               className="text-sky-600 hover:underline text-sm"
                             >
                               <ExternalLink className="h-4 w-4 inline" />
-                            </a>
+                            </button>
                           </div>
                           {!runner.runnerProofOfResidence.verified && (
                             <button

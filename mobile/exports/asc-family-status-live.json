@@ -1,0 +1,298 @@
+﻿{
+  "generatedAt": "2026-09-01T01:38:30.450Z",
+  "accountApps": [
+    {
+      "id": "1600228324",
+      "name": "Acbpay",
+      "bundleId": "com.online.Acbpay",
+      "sku": "com.online.Acbpay"
+    },
+    {
+      "id": "6800961337",
+      "name": "QwertyHub",
+      "bundleId": "com.qwertyhub.app",
+      "sku": "qwertyhub-ios"
+    },
+    {
+      "id": "6798004708",
+      "name": "Qwertymates",
+      "bundleId": "com.qwertymates.app",
+      "sku": "qwertymates-ios"
+    },
+    {
+      "id": "6443939965",
+      "name": "Qwertymates.com",
+      "bundleId": "com.convertify.qwertymates2",
+      "sku": "qwertymates"
+    }
+  ],
+  "apps": [
+    {
+      "name": "Qwertymates",
+      "id": "6798004708",
+      "expectedBundle": "com.qwertymates.app",
+      "ascName": "Qwertymates",
+      "ascBundleId": "com.qwertymates.app",
+      "versions": [
+        {
+          "id": "b1ec529b-acc3-4935-b109-8ae6cb94d645",
+          "versionString": "1.0",
+          "state": "READY_FOR_SALE",
+          "createdDate": "2026-08-04T13:09:59-07:00",
+          "releaseType": "AFTER_APPROVAL"
+        }
+      ],
+      "submissions": [
+        {
+          "id": "7940d686-9da7-4b95-81d0-1fda049de8e5",
+          "state": "READY_FOR_REVIEW",
+          "submittedDate": null
+        },
+        {
+          "id": "ebae8855-6258-45f3-829d-c010478415eb",
+          "state": "COMPLETE",
+          "submittedDate": "2026-08-16T03:43:58.282Z"
+        },
+        {
+          "id": "5348e907-c57f-45af-9f69-c3bda9351276",
+          "state": "COMPLETE",
+          "submittedDate": "2026-08-13T01:15:57.923Z"
+        },
+        {
+          "id": "baefad44-d63e-4562-a514-a47f3ef799b3",
+          "state": "COMPLETE",
+          "submittedDate": "2026-08-09T22:32:23.322Z"
+        },
+        {
+          "id": "442e5f45-85d3-41ee-82bb-d87bf4d70108",
+          "state": "COMPLETE",
+          "submittedDate": "2026-08-05T09:28:15.187Z"
+        }
+      ],
+      "recentBuilds": [
+        {
+          "id": "ff4d698b-493c-4c4e-ba42-76c1d14e1575",
+          "version": "1.3.32",
+          "buildNumber": "8",
+          "processingState": "VALID",
+          "uploadedDate": "2026-08-12T18:12:51-07:00"
+        },
+        {
+          "id": "e01726c5-86a5-41c8-914b-200a9f945583",
+          "version": "1.3.30",
+          "buildNumber": "7",
+          "processingState": "VALID",
+          "uploadedDate": "2026-08-04T20:54:22-07:00"
+        }
+      ],
+      "buildAttachedToLatestVersion": {
+        "id": "ff4d698b-493c-4c4e-ba42-76c1d14e1575",
+        "buildNumber": "8",
+        "processingState": "VALID"
+      },
+      "listingPrivacy": {
+        "privacyPolicyUrl": "https://www.qwertymates.com/policies/privacy-policy",
+        "name": "Qwertymates"
+      },
+      "dataUsageProbe": {
+        "status": 404,
+        "err": "PATH_ERROR"
+      },
+      "privacyDetailsProbe": {
+        "status": 404,
+        "err": "PATH_ERROR"
+      }
+    },
+    {
+      "name": "Qwertymates.com (Convertify)",
+      "id": "6443939965",
+      "expectedBundle": "?",
+      "ascName": "Qwertymates.com",
+      "ascBundleId": "com.convertify.qwertymates2",
+      "versions": [
+        {
+          "id": "b1e45edc-5ab3-486a-9012-4986744e64c4",
+          "versionString": "1.0",
+          "state": "REJECTED",
+          "createdDate": "2022-10-20T07:09:31-07:00",
+          "releaseType": "AFTER_APPROVAL"
+        }
+      ],
+      "submissions": [
+        {
+          "id": "d967bf00-46f5-43cf-841b-a0de0a7d2f3f",
+          "state": "UNRESOLVED_ISSUES",
+          "submittedDate": "2023-03-06T10:14:00.083Z"
+        }
+      ],
+      "recentBuilds": [
+        {
+          "id": "cd4317cc-5bc8-44d8-bd62-48ed6436f8d2",
+          "version": "1.0",
+          "buildNumber": "1",
+          "processingState": "VALID",
+          "uploadedDate": "2022-10-20T07:52:47-07:00"
+        }
+      ],
+      "buildAttachedToLatestVersion": {
+        "id": "cd4317cc-5bc8-44d8-bd62-48ed6436f8d2",
+        "buildNumber": "1",
+        "processingState": "VALID"
+      },
+      "listingPrivacy": {
+        "privacyPolicyUrl": "https://www.qwertymates.com/privacy-policies",
+        "name": "Qwertymates.com"
+      },
+      "dataUsageProbe": {
+        "status": 404,
+        "err": "PATH_ERROR"
+      },
+      "privacyDetailsProbe": {
+        "status": 404,
+        "err": "PATH_ERROR"
+      }
+    },
+    {
+      "name": "ACBPay / Acbpay",
+      "id": "1600228324",
+      "expectedBundle": "com.online.Acbpay",
+      "ascName": "Acbpay",
+      "ascBundleId": "com.online.Acbpay",
+      "versions": [
+        {
+          "id": "26232d9c-09f2-4b3a-9b1c-90ed1bde5f61",
+          "versionString": "1.7.2",
+          "state": "WAITING_FOR_REVIEW",
+          "createdDate": "2026-08-12T19:00:00-07:00",
+          "releaseType": "AFTER_APPROVAL"
+        },
+        {
+          "id": "e7506c13-e0f5-49ea-a278-77e03fecb7e0",
+          "versionString": "1.0",
+          "state": "READY_FOR_SALE",
+          "createdDate": "2021-12-14T01:55:15-08:00",
+          "releaseType": "AFTER_APPROVAL"
+        }
+      ],
+      "submissions": [
+        {
+          "id": "d7f4fba0-9ca1-4d41-a950-357d619facee",
+          "state": "WAITING_FOR_REVIEW",
+          "submittedDate": "2026-09-01T01:30:07.09Z"
+        },
+        {
+          "id": "ba5073a4-36c7-4bdb-a613-d891bc1e2a68",
+          "state": "COMPLETE",
+          "submittedDate": "2026-08-31T04:28:22.337Z"
+        },
+        {
+          "id": "b8c385a0-9e6a-43c2-ab48-ba2eeb472d1c",
+          "state": "COMPLETE",
+          "submittedDate": "2026-08-13T02:05:19.571Z"
+        }
+      ],
+      "recentBuilds": [
+        {
+          "id": "961dcbf6-e827-4c4e-a0af-bba69de43f25",
+          "version": "1.7.2",
+          "buildNumber": "8",
+          "processingState": "VALID",
+          "uploadedDate": "2026-08-12T18:57:09-07:00"
+        },
+        {
+          "id": "40aef36a-daf1-4a70-8b2d-f01eaf04db66",
+          "version": "1.7.1",
+          "buildNumber": "1.7.1",
+          "processingState": "VALID",
+          "uploadedDate": "2021-12-18T22:26:32-08:00"
+        }
+      ],
+      "buildAttachedToLatestVersion": {
+        "id": "961dcbf6-e827-4c4e-a0af-bba69de43f25",
+        "buildNumber": "8",
+        "processingState": "VALID"
+      },
+      "listingPrivacy": {
+        "privacyPolicyUrl": "https://www.acbpay.online/privacy-policy",
+        "name": "Acbpay"
+      },
+      "dataUsageProbe": {
+        "status": 404,
+        "err": "PATH_ERROR"
+      },
+      "privacyDetailsProbe": {
+        "status": 404,
+        "err": "PATH_ERROR"
+      }
+    },
+    {
+      "name": "QwertyHub",
+      "id": "6800961337",
+      "expectedBundle": "com.qwertyhub.app",
+      "ascName": "QwertyHub",
+      "ascBundleId": "com.qwertyhub.app",
+      "versions": [
+        {
+          "id": "6a5b3427-9834-4f81-aa42-ae3e452a1e02",
+          "versionString": "1.0.5",
+          "state": "PREPARE_FOR_SUBMISSION",
+          "createdDate": "2026-08-12T18:45:28-07:00",
+          "releaseType": "AFTER_APPROVAL"
+        }
+      ],
+      "submissions": [
+        {
+          "id": "111d9ef5-3c4a-40d9-8498-33e5b5c74dba",
+          "state": "READY_FOR_REVIEW",
+          "submittedDate": null
+        }
+      ],
+      "recentBuilds": [
+        {
+          "id": "a645153e-3525-40e2-955f-56954ccde2bf",
+          "version": "1.0.5",
+          "buildNumber": "3",
+          "processingState": "VALID",
+          "uploadedDate": "2026-08-12T18:47:08-07:00"
+        }
+      ],
+      "buildAttachedToLatestVersion": {
+        "id": "a645153e-3525-40e2-955f-56954ccde2bf",
+        "buildNumber": "3",
+        "processingState": "VALID"
+      },
+      "listingPrivacy": {
+        "privacyPolicyUrl": "https://www.qwertymates.com/policies/privacy-policy",
+        "name": "QwertyHub"
+      },
+      "dataUsageProbe": {
+        "status": 404,
+        "err": "PATH_ERROR"
+      },
+      "privacyDetailsProbe": {
+        "status": 404,
+        "err": "PATH_ERROR"
+      }
+    }
+  ],
+  "macgyverMessengerCandidates": [
+    {
+      "id": "6800961337",
+      "name": "QwertyHub",
+      "bundleId": "com.qwertyhub.app",
+      "sku": "qwertyhub-ios"
+    },
+    {
+      "id": "6798004708",
+      "name": "Qwertymates",
+      "bundleId": "com.qwertymates.app",
+      "sku": "qwertymates-ios"
+    },
+    {
+      "id": "6443939965",
+      "name": "Qwertymates.com",
+      "bundleId": "com.convertify.qwertymates2",
+      "sku": "qwertymates"
+    }
+  ]
+}

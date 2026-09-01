@@ -2,7 +2,7 @@
 
 ## Target API level (Play policy)
 
-Google Play requires **targetSdkVersion ≥ 34** (Android 14). `app.json` sets **`compileSdkVersion` / `targetSdkVersion`: 35** so new EAS production builds comply. If Console still shows API 30, the **old 2021 AAB** is still the active production release — submit a new build (`npm run build:android:production` then `submit:android:production:by-build-id`).
+Google Play requires **targetSdkVersion ≥ 36** (Android 16) by **31 Aug 2026**. `expo-build-properties` in `app.json` sets **`compileSdkVersion` / `targetSdkVersion`: 36** so new EAS production builds comply. If Console still shows API 35 (or lower), the **previous AAB** is still the active production release — submit a new build (`npm run build:android:production` then `submit:android:production:by-build-id`).
 
 ## 0) Fastest way to fix “wrong signing key” (no repo changes required)
 

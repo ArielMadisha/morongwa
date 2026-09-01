@@ -37,7 +37,7 @@ export function QwertyTVWithGenres({ selectedGenre, onGenreSelect }: QwertyTVWit
       </div>
       {open && (
         <div
-          className="absolute right-0 top-full mt-1 flex max-h-[min(75vh,28rem)] min-w-[240px] max-w-[320px] flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl z-[120]"
+          className="absolute left-0 top-full mt-1 flex max-h-[min(75vh,28rem)] min-w-[240px] max-w-[320px] flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl z-[120]"
         >
           <Link
             href="/morongwa-tv/live"

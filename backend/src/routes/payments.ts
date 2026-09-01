@@ -177,7 +177,8 @@ router.get("/paygate-redirect", (req: Request, res: Response) => {
 });
 
 async function creditAdminPayGateFee(reference: string): Promise<void> {
-  // Flat fee is only for wallet top-up style flows (not checkout/store card payments).
+  // R5 (configurable) admin credit: wallet top-up PayGate refs only (TOPUP- / PAY-).
+  // ORDER-* marketplace / food card payments must never hit this path for the flat fee.
   const ref = String(reference || "").trim().toUpperCase();
   const feeEligible = ref.startsWith("TOPUP-") || ref.startsWith("PAY-");
   if (!feeEligible) return;
@@ -537,7 +538,10 @@ router.post("/webhook", async (req: Request, res: Response) => {
             })),
           });
           await settleFoodPickupOrderPaid(order._id.toString()).catch((err) =>
-            console.error("Food pickup settlement failed:", err)
+            console.error(
+              "Food/grocery settlement + WhatsApp merchant alert FAILED:",
+              err
+            )
           );
           if ((order.amounts as any)?.deliveryPrepaid) {
             await notifyBuyerDeliveryPrepaid({

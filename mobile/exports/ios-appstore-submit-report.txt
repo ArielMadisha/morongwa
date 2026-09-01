@@ -1,0 +1,42 @@
+Qwertymates iOS App Store submission — 1.3.38 (build 11)
+
+ASC BEFORE
+- Live version: 1.0 (build 8) — READY_FOR_SALE
+- Only one App Store version; no in-flight update
+
+ASC AFTER
+- Marketing version: 1.3.38 (build 11)
+- App Store state: WAITING_FOR_REVIEW
+- usesIdfa: false
+- demoAccountRequired: false
+- Submission ID: d8bddb8d-4510-48c5-b998-e603347d208a
+- Submitted: 2026-09-01T02:19:31Z
+
+EAS BUILD
+- Build ID: edc12928-3ec8-49e6-b07f-e50c2395dd15
+- URL: https://expo.dev/accounts/qwertymates/projects/morongwa-mobile/builds/edc12928-3ec8-49e6-b07f-e50c2395dd15
+- IPA: version 1.3.38, buildNumber 11
+
+EAS SUBMIT (to ASC)
+- Submission ID: 857e3d02-12dd-4091-94b1-01a5a2777750
+- URL: https://expo.dev/accounts/qwertymates/projects/morongwa-mobile/submissions/857e3d02-12dd-4091-94b1-01a5a2777750
+- Status: finished (binary uploaded to ASC)
+
+ASC REVIEW SUBMISSION
+- URL: https://appstoreconnect.apple.com/apps/6798004708/appstore/ios/version/inflight
+
+CHECKS COMPLETED
+- npm run typecheck: passed
+- iosStoreCompliance.ts gates intact (no iOS digital tips, Facebook TV filtered, tracking=No)
+- Screenshots uploaded (iPhone 6.7/6.5/5.5, iPad 12.9) — iOS chrome, ACBPay Wallet captions
+- whatsNew + listing metadata updated
+
+VERSION NOTE
+- Requested ASC marketing 1.1 was not possible: Apple requires CFBundleShortVersionString > last uploaded train (1.3.32). Initial build 1.1/10 EAS submit errored for this reason. Shipped 1.3.38/11 instead (aligned with Android codebase).
+
+BLOCKERS ENCOUNTERED (resolved)
+- EAS CLI via npx timed out on first build attempt — installed global eas-cli
+- Build 1.1 submit failed (version monotonicity) — rebuilt as 1.3.38
+- Stale ASC draft version 1.1 blocked new version — renamed to 1.3.38 via API and attached build 11
+
+Files touched: mobile/app.json (version 1.3.38), mobile/scripts/ascFillListing.mjs (version-string/build-number args)

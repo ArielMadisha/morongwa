@@ -51,6 +51,7 @@ import landingBackgroundRoutes from "./routes/landingBackgrounds";
 import advertsRoutes from "./routes/adverts";
 import adminSponsoredVideoRoutes from "./routes/adminSponsoredVideoAds";
 import advertiserAdsRoutes from "./routes/advertiserAds";
+import mobileAppRoutes from "./routes/mobileApp";
 import { ensureDefaultPolicies } from "./services/policyService";
 import { ensureDefaultProducts } from "./services/marketplaceSeed";
 import { ensureDefaultLandingBackgrounds } from "./services/landingBackgroundSeed";
@@ -175,6 +176,7 @@ app.use("/api/adverts", advertsRoutes);
 app.use("/api/ads", advertsRoutes);
 app.use("/api/admin", adminSponsoredVideoRoutes);
 app.use("/api/ads", advertiserAdsRoutes);
+app.use("/api/mobile", mobileAppRoutes);
 
 // Error handling
 app.use(notFoundHandler);

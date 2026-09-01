@@ -94,7 +94,7 @@ export default function Home() {
             What you can do on Qwertymates
           </h2>
           <p className="text-slate-600 text-center max-w-3xl mx-auto mb-10 text-sm sm:text-base">
-            Runners, shops without stock, music, TV, wallet, messenger, and Ask MacGyver - together in one trusted platform.
+            Runners, stock-free shops, music, TV, wallet, messenger, and Ask MacGyver - together in one trusted platform.
           </p>
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6 sm:gap-8">
             <div className="bg-white/85 backdrop-blur-md p-6 sm:p-8 rounded-xl shadow-sm hover:shadow-md transition-shadow border border-slate-100">
@@ -322,7 +322,7 @@ export default function Home() {
                 <li><Link href="/policies/escrow-payouts" className="text-slate-600 hover:text-brand-600">Escrow & Payouts</Link></li>
                 <li><Link href="/marketplace" className="text-slate-600 hover:text-brand-600">Marketplace</Link></li>
                 <li><Link href="/policies/suppliers-manufacturers" className="text-slate-600 hover:text-brand-600">Suppliers & Manufacturers</Link></li>
-                <li><Link href="/policies/acceptable-use" className="text-slate-600 hover:text-brand-600">Community Guidelines</Link></li>
+                <li><Link href="/policies/acceptable-use" className="text-slate-600 hover:text-brand-600">Community Rules</Link></li>
               </ul>
             </div>
 

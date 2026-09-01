@@ -1,0 +1,42 @@
+{
+  "versionId": "7aea8ed6-8254-4b35-a3f3-b579bc3887dc",
+  "versionString": "1.3.38",
+  "appStoreState": "WAITING_FOR_REVIEW",
+  "usesIdfa": false,
+  "buildNumber": "11",
+  "buildProcessing": "VALID",
+  "demoAccountRequired": false,
+  "submissionId": "d8bddb8d-4510-48c5-b998-e603347d208a",
+  "submissionState": "WAITING_FOR_REVIEW",
+  "submittedDate": "2026-09-01T02:19:31.228Z",
+  "allSubmissions": [
+    {
+      "id": "7940d686-9da7-4b95-81d0-1fda049de8e5",
+      "state": "READY_FOR_REVIEW",
+      "submittedDate": null
+    },
+    {
+      "id": "d8bddb8d-4510-48c5-b998-e603347d208a",
+      "state": "WAITING_FOR_REVIEW",
+      "submittedDate": "2026-09-01T02:19:31.228Z"
+    },
+    {
+      "id": "ebae8855-6258-45f3-829d-c010478415eb",
+      "state": "COMPLETE",
+      "submittedDate": "2026-08-16T03:43:58.282Z"
+    },
+    {
+      "id": "5348e907-c57f-45af-9f69-c3bda9351276",
+      "state": "COMPLETE",
+      "submittedDate": "2026-08-13T01:15:57.923Z"
+    },
+    {
+      "id": "baefad44-d63e-4562-a514-a47f3ef799b3",
+      "state": "COMPLETE",
+      "submittedDate": "2026-08-09T22:32:23.322Z"
+    }
+  ],
+  "easBuildUrl": "https://expo.dev/accounts/qwertymates/projects/morongwa-mobile/builds/edc12928-3ec8-49e6-b07f-e50c2395dd15",
+  "easSubmitUrl": "https://expo.dev/accounts/qwertymates/projects/morongwa-mobile/submissions/857e3d02-12dd-4091-94b1-01a5a2777750",
+  "ascUrl": "https://appstoreconnect.apple.com/apps/6798004708/appstore/ios/version/inflight"
+}

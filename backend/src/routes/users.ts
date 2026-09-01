@@ -940,7 +940,7 @@ router.get("/", authenticate, async (req: AuthRequest, res: Response, next) => {
       sortStages.length > 0
         ? User.aggregate([
             { $match: query },
-            { $project: { passwordHash: 0 } },
+            { $project: { passwordHash: 0, registrationIp: 0, registrationGeo: 0 } },
             ...sortStages,
             { $skip: skip },
             { $limit: limitNum },

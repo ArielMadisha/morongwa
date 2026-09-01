@@ -98,12 +98,38 @@ export interface IOrder extends Document {
   paymentReference?: string;
   paidAt?: Date;
   /**
-   * Food/grocery pickup: merchant SMS/WhatsApp alerts already sent (idempotent on settle retries).
-   * Keyed by supplierId string.
+   * Food/grocery pickup: merchant WhatsApp + Expo push + in-app alerts (idempotent on settle retries).
+   * Keyed by supplierId string. SMS only as last-resort when WhatsApp is undelivered (e.g. Meta template pending).
    */
   foodMerchantAlerts?: Record<
     string,
-    { smsSid?: string; waSid?: string; phone?: string; notifiedAt?: Date }
+    {
+      waSid?: string;
+      phone?: string;
+      notifiedAt?: Date;
+      smsSid?: string;
+      provider?: string;
+      error?: string;
+      /** Twilio delivery status after poll (delivered / undelivered / sent / …). */
+      deliveryStatus?: string;
+      pushTicketId?: string;
+      pushNotifiedAt?: Date;
+      pushError?: string;
+      inAppNotificationId?: string;
+      inAppNotifiedAt?: Date;
+    }
+  >;
+  /**
+   * Per-supplier kitchen/shop prep status for QwertyHub Shop Orders inbox.
+   * Keyed by supplierId string.
+   */
+  shopPrepBySupplier?: Record<
+    string,
+    {
+      status: "new" | "preparing" | "ready" | "collected";
+      updatedAt?: Date;
+      seenAt?: Date;
+    }
   >;
   createdAt: Date;
   updatedAt: Date;
@@ -191,6 +217,7 @@ const OrderSchema = new Schema<IOrder>(
     paymentReference: { type: String },
     paidAt: { type: Date },
     foodMerchantAlerts: { type: Schema.Types.Mixed, default: undefined },
+    shopPrepBySupplier: { type: Schema.Types.Mixed, default: undefined },
   },
   { timestamps: true }
 );

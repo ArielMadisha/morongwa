@@ -3,22 +3,32 @@ import { Ionicons } from "@expo/vector-icons";
 import { Audio } from "expo-av";
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
   Image,
+  Platform,
   Pressable,
   RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
+  ToastAndroid,
   View
 } from "react-native";
 import { musicAPI, toAbsoluteMediaUrl } from "../lib/api";
+import { savePostThemeSong } from "../lib/postThemeSong";
+import { filterFirstPartyUgcPosts } from "../lib/iosStoreCompliance";
 import { MusicSong } from "../types";
 import { appTypography, socialTheme } from "../theme/socialTheme";
 
 const PAGE_SIZE = 24;
 
-export function MusicScreen() {
+type Props = {
+  /** After setting a theme song, parent may open Create post. */
+  onThemeSetForPosts?: () => void;
+};
+
+export function MusicScreen({ onThemeSetForPosts }: Props = {}) {
   const [songs, setSongs] = useState<MusicSong[]>([]);
   const [genres, setGenres] = useState<{ id: string; label: string }[]>([]);
   const [genreId, setGenreId] = useState<string>("all");
@@ -29,6 +39,7 @@ export function MusicScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [playingId, setPlayingId] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [themeBusyId, setThemeBusyId] = useState<string | null>(null);
   const soundRef = useRef<Audio.Sound | null>(null);
 
   useEffect(() => {
@@ -66,7 +77,7 @@ export function MusicScreen() {
         type: "song",
         random: false
       });
-      const data = res.data?.data ?? [];
+      const data = filterFirstPartyUgcPosts(res.data?.data ?? []);
       const more = !!res.data?.hasMore;
       setHasMore(more);
       setPage(nextPage);
@@ -157,6 +168,26 @@ export function MusicScreen() {
       setPlayingId(null);
     } finally {
       setBusyId(null);
+    }
+  };
+
+  const useAsPostTheme = async (song: MusicSong) => {
+    if (themeBusyId) return;
+    setThemeBusyId(song._id);
+    try {
+      await savePostThemeSong({
+        songId: song._id,
+        title: song.title,
+        artist: song.artist
+      });
+      const msg = `"${song.title}" set as post theme`;
+      if (Platform.OS === "android") ToastAndroid.show(msg, ToastAndroid.SHORT);
+      else Alert.alert("Post theme", msg);
+      onThemeSetForPosts?.();
+    } catch {
+      Alert.alert("Could not set theme", "Try again in a moment.");
+    } finally {
+      setThemeBusyId(null);
     }
   };
 
@@ -259,6 +290,20 @@ export function MusicScreen() {
                     color={isPlaying ? "#ffffff" : socialTheme.brandBlueDark}
                   />
                 )}
+              </Pressable>
+              <Pressable
+                onPress={() => void useAsPostTheme(item)}
+                style={styles.themeBtn}
+                disabled={themeBusyId === item._id}
+                accessibilityRole="button"
+                accessibilityLabel="Use as theme for posts"
+              >
+                {themeBusyId === item._id ? (
+                  <ActivityIndicator size="small" color={socialTheme.brandBlue} />
+                ) : (
+                  <Ionicons name="musical-note" size={18} color={socialTheme.brandBlueDark} />
+                )}
+                <Text style={styles.themeBtnText}>Theme</Text>
               </Pressable>
             </View>
           );
@@ -386,6 +431,22 @@ const styles = StyleSheet.create({
   playBtnOn: {
     backgroundColor: socialTheme.brandBlue,
     borderColor: socialTheme.brandBlue
+  },
+  themeBtn: {
+    marginLeft: 6,
+    minWidth: 52,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 2,
+    paddingVertical: 4,
+    paddingHorizontal: 6,
+    borderRadius: 10,
+    backgroundColor: socialTheme.brandBlueSoft
+  },
+  themeBtnText: {
+    ...appTypography.badge,
+    color: socialTheme.brandBlueDark,
+    fontSize: 10
   },
   footer: {
     paddingVertical: 14,

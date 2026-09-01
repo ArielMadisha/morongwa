@@ -8,7 +8,7 @@ import toast from 'react-hot-toast';
 import { cartAPI, productsAPI, getImageUrl, getEffectivePrice } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
 import { useCurrency } from '@/contexts/CurrencyContext';
-import { useCartAndStores } from '@/lib/useCartAndStores';
+import { useCartAndStores, invalidateCartStoresCache } from '@/lib/useCartAndStores';
 import { QwertyHubSectionShell } from '@/components/marketplace/QwertyHubSectionShell';
 import { formatCatalogProductPrice } from '@/lib/productPriceZar';
 
@@ -31,18 +31,23 @@ type FoodProduct = {
   supplierId?: { _id?: string; storeName?: string } | string;
 };
 
-/** Printed Caliba extras order (menu board). */
+/** Printed extras order (Caliba + Mma Lerato boards). */
 const EXTRA_ORDER = [
   'small chips',
   'medium chips',
   'large chips',
+  'extra large chips',
+  'french polony',
   'russian',
   'burger',
   'french',
   'atchaar',
+  'atchar',
   'fried eggs',
+  'egg',
   'cheese',
   'vienna',
+  'vianna',
 ];
 
 function isExtra(p: FoodProduct) {
@@ -89,9 +94,9 @@ function storeNameOf(products: FoodProduct[]) {
   return 'Restaurant';
 }
 
-/** Sort kota items by printed board number (#1 … #21 / CALIBA-MENU-n). */
+/** Sort kota items by printed board number (#1 … / *-MENU-n). */
 function menuSortKey(p: FoodProduct): number {
-  const sku = String(p.sku || '').match(/CALIBA-MENU-(\d+)/i);
+  const sku = String(p.sku || '').match(/(?:CALIBA|MMOJA)-MENU-(\d+)/i) || String(p.sku || '').match(/MENU-(\d+)/i);
   if (sku) return Number(sku[1]);
   const hash = String(p.title || '').match(/^#\s*(\d+)\b/);
   if (hash) return Number(hash[1]);
@@ -99,7 +104,7 @@ function menuSortKey(p: FoodProduct): number {
 }
 
 function extraSortKey(p: FoodProduct): number {
-  const sku = String(p.sku || '').match(/CALIBA-EXTRA-(\d+)/i);
+  const sku = String(p.sku || '').match(/(?:CALIBA|MMOJA)-EXTRA-(\d+)/i) || String(p.sku || '').match(/EXTRA-(\d+)/i);
   if (sku) return Number(sku[1]);
   const name = String(p.title || '')
     .replace(/^Extra:\s*/i, '')
@@ -182,6 +187,7 @@ export default function FoodStoreMenuPage() {
       try {
         const color = product.colors?.[0]?.name;
         await cartAPI.add(product._id, 1, undefined, color);
+        invalidateCartStoresCache();
         invalidate();
         toast.success(`Added ${displayExtraTitle(displayMenuTitle(product.title))}`);
       } catch (e: unknown) {
@@ -254,7 +260,7 @@ export default function FoodStoreMenuPage() {
     >
       <div className="flex flex-wrap items-center gap-3 mb-4">
         <Link href="/marketplace/food" className="text-sm font-medium text-slate-600 hover:text-sky-700">
-          ← All restaurants
+          ← Back to All restaurants
         </Link>
         <Link
           href="/cart"
@@ -263,11 +269,6 @@ export default function FoodStoreMenuPage() {
           <ShoppingCart className="h-4 w-4" /> Cart
         </Link>
       </div>
-
-      <p className="mb-4 text-xs sm:text-sm text-slate-500">
-        Prices include a R{FOOD_ORDER_SERVICE_FEE_ZAR.toFixed(2)} service fee per menu item. Extras added with a
-        kota do not attract an extra fee; extras bought on their own include the fee.
-      </p>
 
       {loading ? (
         <div className="flex justify-center py-16">
@@ -293,8 +294,7 @@ export default function FoodStoreMenuPage() {
             <section className="mt-10">
               <h3 className="text-lg sm:text-xl font-bold text-slate-900 mb-1">Extras</h3>
               <p className="text-sm text-slate-500 mb-4">
-                Add-ons from the board — tap to add alone (includes R{FOOD_ORDER_SERVICE_FEE_ZAR.toFixed(2)} fee),
-                or choose them when adding a kota (no fee on extras).
+                Add-ons from the board — tap to add alone, or choose them when adding a kota.
               </p>
               <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-4">
                 {extras.map((item) =>
@@ -320,9 +320,7 @@ export default function FoodStoreMenuPage() {
                     return n < 9999 ? `#${n} ${base}` : base;
                   })()}
                 </p>
-                <p className="text-sm text-slate-500">
-                  Add extras? (optional — no service fee on extras with this order)
-                </p>
+                <p className="text-sm text-slate-500">Add extras? (optional)</p>
               </div>
               <button
                 type="button"

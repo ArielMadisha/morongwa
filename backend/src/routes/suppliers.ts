@@ -9,6 +9,11 @@ import {
   resolveSupplierForProductUpload,
 } from "../utils/supplierAccess";
 import { notifyHrInbox } from "../services/notification";
+import {
+  isShopPrepStatus,
+  listShopOrderReceiptsForUser,
+  updateShopOrderPrepStatus,
+} from "../services/shopOrderReceipts";
 
 const router = express.Router();
 
@@ -200,6 +205,43 @@ router.get("/me/products", authenticate, async (req: AuthRequest, res: Response,
       .sort({ createdAt: -1 })
       .lean();
     res.json({ data: products });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * QwertyHub Shop Orders — paid / in-progress orders for this merchant's store(s).
+ * Query: limit, status (order status or prep: new|preparing|ready|collected)
+ */
+router.get("/me/orders", authenticate, async (req: AuthRequest, res: Response, next) => {
+  try {
+    const data = await listShopOrderReceiptsForUser({
+      userId: req.user!._id.toString(),
+      limit: Number(req.query.limit) || 50,
+      status: String(req.query.status || "").trim() || undefined,
+    });
+    res.json({ data });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** Update kitchen/shop prep status for one of this merchant's supplier profiles on an order. */
+router.patch("/me/orders/:orderId/prep-status", authenticate, async (req: AuthRequest, res: Response, next) => {
+  try {
+    const prepStatus = String((req.body as { prepStatus?: string })?.prepStatus || "").trim().toLowerCase();
+    if (!isShopPrepStatus(prepStatus)) {
+      throw new AppError("prepStatus must be one of: new, preparing, ready, collected", 400);
+    }
+    const supplierId = String((req.body as { supplierId?: string })?.supplierId || "").trim() || undefined;
+    const data = await updateShopOrderPrepStatus({
+      userId: req.user!._id.toString(),
+      orderId: String(req.params.orderId || ""),
+      supplierId,
+      prepStatus,
+    });
+    res.json({ data });
   } catch (err) {
     next(err);
   }

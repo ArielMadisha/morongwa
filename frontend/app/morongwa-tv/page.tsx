@@ -5,6 +5,9 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { Tv, Plus, Loader2, User } from 'lucide-react';
 import { QwertyTVWithGenres } from '@/components/tv/QwertyTVWithGenres';
+import { TvGenreChips } from '@/components/tv/TvGenreChips';
+import { MediaSectionTabs } from '@/components/media/MediaSectionTabs';
+import { MEDIA_GRID_CLASS } from '@/components/media/MediaPageShell';
 import { useAuth } from '@/contexts/AuthContext';
 import ProtectedRoute from '@/components/ProtectedRoute';
 import { useCartAndStores } from '@/lib/useCartAndStores';
@@ -18,6 +21,12 @@ import { CreatePostModal } from '@/components/tv/CreatePostModal';
 import { TvLinearChannelStrip } from '@/components/tv/TvLinearChannelStrip';
 import { AdvertSlot } from '@/components/AdvertSlot';
 import { MobileBottomNav } from '@/components/MobileBottomNav';
+import {
+  CollapsibleBottomChrome,
+  CollapsibleChrome,
+  ScrollAwareChromeRoot,
+} from '@/components/ScrollAwareAppShell';
+import { mergeScrollAwareRef } from '@/hooks/useScrollAwareChrome';
 import { tvAPI, productEnquiryAPI, cartAPI } from '@/lib/api';
 import { productQtyMapFromCartResponse } from '@/lib/cartProductQty';
 import type { Product } from '@/lib/types';
@@ -43,7 +52,7 @@ function MorongwaTVPageContent() {
   const [enquireSending, setEnquireSending] = useState(false);
   const [likedMap, setLikedMap] = useState<Record<string, boolean>>({});
   const [liveUsers, setLiveUsers] = useState<Array<{ userId: string; name?: string; avatar?: string }>>([]);
-  const [genre, setGenre] = useState<string>('qwertz');
+  const [genre, setGenre] = useState<string>('all');
   const { cartCount, hasStore, invalidate: invalidateCart } = useCartAndStores(!!user);
   const [cartQtyByProduct, setCartQtyByProduct] = useState<Record<string, number>>({});
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -96,7 +105,7 @@ function MorongwaTVPageContent() {
         page: pageNum,
         limit,
         type: 'video',
-        sort: 'newest',
+        sort: 'random',
         genre: genre || undefined,
       });
       const data = res.data?.data ?? res.data ?? [];
@@ -266,21 +275,17 @@ function MorongwaTVPageContent() {
   };
 
   return (
+    <ScrollAwareChromeRoot>
+      {(attachScroll) => (
     <div className="h-[100dvh] min-h-screen flex flex-col overflow-hidden bg-gradient-to-br from-sky-50 via-blue-50 to-white text-slate-900">
+      <CollapsibleChrome edge="top">
       <AppShellHeader
         className="[&>div]:py-2"
         onMenuClick={() => setMenuOpen((v) => !v)}
         center={
           <>
-            <button
-              type="button"
-              onClick={() => setCreateOpen(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand-500 text-white font-medium hover:bg-brand-600 transition-colors shrink-0"
-            >
-              <Plus className="h-4 w-4" />
-              <span className="text-sm">Create</span>
-            </button>
-            <div className="flex min-h-[36px] min-w-0 flex-1 overflow-x-auto scrollbar-thin flex items-center gap-2">
+            <QwertyTVWithGenres selectedGenre={genre} onGenreSelect={setGenre} />
+            <div className="flex min-h-[36px] min-w-0 flex-1 overflow-x-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden flex items-center gap-2">
               {liveUsers.length > 0 && (
                 <>
                   <span className="flex items-center gap-1.5 shrink-0 text-xs font-medium text-slate-600">
@@ -313,12 +318,20 @@ function MorongwaTVPageContent() {
         }
         actions={
           <>
-            <QwertyTVWithGenres selectedGenre={genre} onGenreSelect={setGenre} />
+            <button
+              type="button"
+              onClick={() => setCreateOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand-500 text-white font-medium hover:bg-brand-600 transition-colors shrink-0"
+            >
+              <Plus className="h-4 w-4" />
+              <span className="text-sm">Create</span>
+            </button>
             <SearchButton />
             <ProfileHeaderButton />
           </>
         }
       />
+      </CollapsibleChrome>
 
       {/* Menu (sidebar) + content below header */}
       <div className="flex min-h-0 min-w-0 w-full flex-1">
@@ -336,13 +349,15 @@ function MorongwaTVPageContent() {
           belowHeader
         />
         <div
-          ref={(el) => {
+          ref={mergeScrollAwareRef(attachScroll, (el) => {
             containerRef.current = el;
             setFeedScrollRoot(el);
-          }}
+          })}
           className="flex min-h-0 min-w-0 w-full flex-1 flex-col gap-0 overflow-y-auto overflow-x-hidden overscroll-contain touch-pan-y lg:flex-row"
         >
         <main onWheelCapture={handleMainWheelCapture} className="order-2 box-border w-full min-w-0 flex-1 px-3 sm:px-6 lg:px-8 pt-0 pb-24 md:pb-6 lg:order-none">
+          <MediaSectionTabs active="tv" />
+          <TvGenreChips selectedGenre={genre} onSelect={setGenre} />
           <TvLinearChannelStrip />
           {loading && allItems.length === 0 ? (
             <div className="flex justify-center py-24">
@@ -365,7 +380,7 @@ function MorongwaTVPageContent() {
               </p>
             </div>
           ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 w-full">
+            <div className={MEDIA_GRID_CLASS}>
               {allItems
                 .filter((item, i, arr) => arr.findIndex((x) => x._id === item._id) === i)
                 .map((item, idx) => (
@@ -420,7 +435,9 @@ function MorongwaTVPageContent() {
         <AdvertSlot belowHeader />
         </div>
       </div>
-      <MobileBottomNav cartCount={cartCount} hasStore={hasStore} />
+      <CollapsibleBottomChrome>
+        <MobileBottomNav cartCount={cartCount} hasStore={hasStore} embedded />
+      </CollapsibleBottomChrome>
 
       <CreatePostModal
         open={createOpen}
@@ -476,6 +493,8 @@ function MorongwaTVPageContent() {
         </div>
       )}
     </div>
+      )}
+    </ScrollAwareChromeRoot>
   );
 }
 

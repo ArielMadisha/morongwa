@@ -8,13 +8,17 @@ import {
   RefreshControl,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View
 } from "react-native";
 import { Video, ResizeMode } from "expo-av";
 import { productsAPI, toAbsoluteMediaUrl, tvAPI } from "../lib/api";
+import { resolvePostDisplayTitle } from "../lib/postDisplayTitle";
 import { resolveProductStoreName } from "../lib/productStoreLabel";
 import { Product, TVPost } from "../types";
 import { appTypography, socialTheme } from "../theme/socialTheme";
+import { allowTvPostOnThisPlatform } from "../lib/iosStoreCompliance";
+import { useScrollAwareScrollHandlers } from "../components/ScrollAwareChrome";
 
 type WorldRow =
   | { kind: "post"; id: string; post: TVPost }
@@ -33,13 +37,19 @@ function shuffleInPlace<T>(arr: T[]) {
   return arr;
 }
 
-const TV_LIMIT = 8;
-const PRODUCT_LIMIT = 8;
+const TV_LIMIT = 10;
+const PRODUCT_LIMIT = 10;
 
 export function WorldScreen({ onOpenProductId, onGoToQwertyTv }: WorldScreenProps) {
+  const chromeScroll = useScrollAwareScrollHandlers();
+  const { width } = useWindowDimensions();
+  const gap = 8;
+  const pad = 8;
+  const colW = Math.floor((width - pad * 2 - gap) / 2);
+
   const [rows, setRows] = useState<WorldRow[]>([]);
   const [page, setPage] = useState(1);
-  const [tvTotal, setTvTotal] = useState(0);
+  const [hasMore, setHasMore] = useState(true);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -51,20 +61,26 @@ export function WorldScreen({ onOpenProductId, onGoToQwertyTv }: WorldScreenProp
     try {
       const [tvRes, prodRes] = await Promise.all([
         tvAPI.getFeed({ page: nextPage, limit: TV_LIMIT, sort: "random" }),
-        productsAPI.list({ limit: PRODUCT_LIMIT, random: true })
+        productsAPI.list({ limit: PRODUCT_LIMIT, page: nextPage, random: true })
       ]);
-      const posts = tvRes.data?.data ?? [];
+      const posts = (tvRes.data?.data ?? []).filter(allowTvPostOnThisPlatform);
       const products = prodRes.data?.data ?? [];
       const total = tvRes.data?.total ?? 0;
-      setTvTotal(total);
+      const prodHasMore =
+        typeof prodRes.data?.hasMore === "boolean"
+          ? prodRes.data.hasMore
+          : products.length >= PRODUCT_LIMIT;
+      const tvHasMore = total > 0 ? nextPage * TV_LIMIT < total : posts.length >= TV_LIMIT;
+      setHasMore(tvHasMore || prodHasMore);
       setPage(nextPage);
       const batch: WorldRow[] = shuffleInPlace([
-        ...posts.map((p) => ({ kind: "post" as const, id: `p-${p._id}`, post: p })),
-        ...products.map((p) => ({ kind: "product" as const, id: `g-${p._id}`, product: p }))
+        ...posts.map((p) => ({ kind: "post" as const, id: `p-${p._id}-${nextPage}`, post: p })),
+        ...products.map((p) => ({ kind: "product" as const, id: `g-${p._id}-${nextPage}`, product: p }))
       ]);
       setRows((prev) => (append ? [...prev, ...batch] : batch));
     } catch {
       if (!append) setRows([]);
+      setHasMore(false);
     } finally {
       setLoading(false);
       setLoadingMore(false);
@@ -74,8 +90,6 @@ export function WorldScreen({ onOpenProductId, onGoToQwertyTv }: WorldScreenProp
   useEffect(() => {
     void loadBatch(1, false);
   }, [loadBatch]);
-
-  const hasMore = tvTotal > 0 && page * TV_LIMIT < tvTotal;
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -99,13 +113,27 @@ export function WorldScreen({ onOpenProductId, onGoToQwertyTv }: WorldScreenProp
 
   const mediaUri = previewPost ? toAbsoluteMediaUrl(previewPost.mediaUrls?.[0]) : "";
   const isVideo = previewPost?.type === "video";
+  const previewTitle = previewPost
+    ? resolvePostDisplayTitle({
+        heading: previewPost.heading,
+        caption: previewPost.caption,
+        subject: previewPost.subject,
+        type: previewPost.type
+      })
+    : "Post";
 
   return (
     <>
       <FlatList
         data={rows}
         keyExtractor={(item) => item.id}
+        numColumns={2}
+        columnWrapperStyle={[styles.row, { gap, paddingHorizontal: pad }]}
         contentContainerStyle={styles.list}
+        scrollEventThrottle={chromeScroll.scrollEventThrottle}
+        onScroll={chromeScroll.onScroll}
+        onContentSizeChange={chromeScroll.onContentSizeChange}
+        onLayout={chromeScroll.onLayout}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={socialTheme.brandBlue} />
         }
@@ -125,41 +153,48 @@ export function WorldScreen({ onOpenProductId, onGoToQwertyTv }: WorldScreenProp
           if (item.kind === "product") {
             const p = item.product;
             const img = toAbsoluteMediaUrl(p.images?.[0]);
+            const title = String(p.title || "").trim() || "Product";
             return (
-              <Pressable style={styles.card} onPress={() => onOpenProductId(p._id)}>
-                <Text style={styles.badge} numberOfLines={1}>
-                  {resolveProductStoreName(p)}
-                </Text>
+              <Pressable
+                style={[styles.card, { width: colW }]}
+                onPress={() => onOpenProductId(p._id)}
+              >
                 {img ? (
                   <Image source={{ uri: img }} style={styles.media} resizeMode="cover" />
                 ) : (
                   <View style={[styles.media, styles.mediaPh]} />
                 )}
+                <Text style={styles.badge} numberOfLines={1}>
+                  {resolveProductStoreName(p)}
+                </Text>
                 <Text style={styles.cardTitle} numberOfLines={2}>
-                  {p.title}
+                  {title}
                 </Text>
                 <Text style={styles.price}>
                   {p.currency || "ZAR"} {(p.discountPrice ?? p.price).toFixed(2)}
                 </Text>
-                <Text style={styles.openHint}>Tap to view in QwertyHub</Text>
               </Pressable>
             );
           }
           const post = item.post;
           const media = toAbsoluteMediaUrl(post.mediaUrls?.[0]);
-          const title = post.heading || post.caption || post.subject || "Post";
+          const title = resolvePostDisplayTitle({
+            heading: post.heading,
+            caption: post.caption,
+            subject: post.subject,
+            type: post.type
+          });
           return (
-            <Pressable style={styles.card} onPress={() => setPreviewPost(post)}>
-              <Text style={styles.badge}>{post.type}</Text>
+            <Pressable style={[styles.card, { width: colW }]} onPress={() => setPreviewPost(post)}>
               {media ? (
                 <Image source={{ uri: media }} style={styles.media} resizeMode="cover" />
               ) : (
                 <View style={[styles.media, styles.mediaPh]} />
               )}
-              <Text style={styles.cardTitle} numberOfLines={3}>
+              <Text style={styles.badge}>{post.type || "post"}</Text>
+              <Text style={styles.cardTitle} numberOfLines={2}>
                 {title}
               </Text>
-              <Text style={styles.openHint}>Tap for details</Text>
             </Pressable>
           );
         }}
@@ -168,7 +203,7 @@ export function WorldScreen({ onOpenProductId, onGoToQwertyTv }: WorldScreenProp
       <Modal visible={!!previewPost} transparent animationType="fade" onRequestClose={() => setPreviewPost(null)}>
         <View style={styles.modalBackdrop}>
           <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>{previewPost?.heading || "Post"}</Text>
+            <Text style={styles.modalTitle}>{previewTitle}</Text>
             {mediaUri && previewPost ? (
               isVideo ? (
                 <Video
@@ -220,21 +255,19 @@ const styles = StyleSheet.create({
   },
   list: {
     paddingTop: 4,
-    paddingBottom: 20,
-    gap: 12
+    paddingBottom: 20
+  },
+  row: {
+    marginBottom: 8
   },
   card: {
     backgroundColor: socialTheme.surface,
-    borderRadius: 14,
+    borderRadius: 12,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: socialTheme.borderHairline,
-    padding: 12,
-    gap: 8,
-    shadowColor: "#0f172a",
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 2
+    overflow: "hidden",
+    paddingBottom: 10,
+    gap: 6
   },
   badge: {
     ...appTypography.badge,
@@ -243,14 +276,15 @@ const styles = StyleSheet.create({
     backgroundColor: socialTheme.brandBlueSoft,
     overflow: "hidden",
     paddingHorizontal: 8,
-    paddingVertical: 4,
+    paddingVertical: 3,
     borderRadius: 8,
-    maxWidth: "100%"
+    maxWidth: "92%",
+    marginHorizontal: 8,
+    marginTop: 6
   },
   media: {
     width: "100%",
-    height: 220,
-    borderRadius: 12,
+    height: 168,
     backgroundColor: socialTheme.surfaceMuted
   },
   mediaPh: {
@@ -259,16 +293,13 @@ const styles = StyleSheet.create({
   },
   cardTitle: {
     ...appTypography.titleSm,
-    color: socialTheme.textPrimary
+    color: socialTheme.textPrimary,
+    paddingHorizontal: 8
   },
   price: {
     ...appTypography.price,
-    color: socialTheme.textPrimary
-  },
-  openHint: {
-    ...appTypography.meta,
-    color: socialTheme.brandBlue,
-    fontWeight: "700"
+    color: socialTheme.brandBlueDark,
+    paddingHorizontal: 8
   },
   footer: {
     paddingVertical: 16,

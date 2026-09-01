@@ -1,0 +1,67 @@
+---
+description: Qwertymates iOS App Store — never re-break accepted Apple conditions (tips, Facebook TV, tracking, metadata)
+alwaysApply: true
+---
+
+# Qwertymates iOS App Store (do not re-break accepted conditions)
+
+**Owner policy — same class as school gallery, food WhatsApp, deploy-after-changes.** Qwertymates iOS (`com.qwertymates.app`, ASC `6798004708`) was **accepted** after multiple App Review rejections. Future iOS enhancements **must not** undo the gates that got the app approved.
+
+**Android / web may keep** creator tips and Facebook-ingested TV. **iOS must stay gated.** Do **not** “optimize away” `Platform.OS === "ios"` App Review flags.
+
+**Out of scope:** Huawei AppGallery is a separate track — do not mix that work into iOS App Store changes.
+
+## After every Cursor update or rules reset
+
+Confirm this file exists with **`alwaysApply: true`**. Indexed from `.cursor/rules/recurring-owner-schedules.mdc`. If missing, restore from git.
+
+## Agent checklist — before changing `mobile/**` that ships on iOS
+
+Check this table **before** changing UI, payments, TV, tips, screenshots, tracking, auth, or privacy:
+
+| Guideline | Keep (do not break) |
+|-----------|---------------------|
+| **Privacy / tracking** | Tracking = **No** unless owner + ASC App Privacy + ATT are fully aligned. Do not add IDFA, ATT, AdSupport, or ad/MMP SDKs casually. Binary `usesIdfa: false`. No `NSUserTrackingUsageDescription`. |
+| **3.1.1 Payments** | No iOS IAP circumvention. **Hide creator tips / Buy me Coffee / donate-via-wallet for digital content on iOS only.** Do not re-enable tipping, coffee, or “pay outside App Store” for digital content on iOS. Physical goods (QwertyHub, food, grocery) and P2P Scan-QR send (3.1.1(b)) may stay. Do not invent new wallet charges for digital features on iOS. |
+| **5.2.3 IP / third-party AV** | Do **not** ship Facebook-ingested TV / YouTube / Spotify / SoundCloud / third-party AV catalogs on iOS. Keep the iOS filter. Don’t add scraped/ingested third-party video to the iOS catalog. |
+| **2.3.10 Metadata** | Screenshots = **iOS device chrome only** (no Android status bars). Captions: **ACBPay Wallet** (not AGBFryWallet). Listing copy must match the binary. |
+| **2.1 / 2.3** | Don’t submit incomplete features, placeholder content, or misleading screenshots. |
+| **5.1.1 Data** | Privacy policy URL must stay accurate (`https://www.qwertymates.com/policies/privacy-policy`). Don’t collect new data types without updating ASC App Privacy. Keep in-app **Delete my account**. |
+| **Login / account** | Auth is email / username / phone OTP today. **If other social logins are added, Sign in with Apple is required** on iOS. |
+
+Wrong Tracking=Yes labels previously caused **5.1.2** rejection (privacy-only fix; no new binary). Do not mark data “Used for Tracking” or “Third-Party Advertising” unless those SDKs actually ship.
+
+## Source of truth (do not remove)
+
+| Item | Path |
+|------|------|
+| iOS gates (tips + TV/status/music filters) | `mobile/src/lib/iosStoreCompliance.ts` — `iosCreatorDigitalTipsEnabled()`, `allowTvPostOnThisPlatform()`, `filterFirstPartyUgcPosts()`, `filterFirstPartyStatusItems()` |
+| Tips / Buy me Coffee / school Donate UI | `mobile/src/screens/FeedScreen.tsx` (gated by `iosCreatorDigitalTipsEnabled()`) |
+| QwertyTV catalog | `mobile/src/screens/WorldScreen.tsx`, `FeedScreen.tsx` (`allowTvPostOnThisPlatform`) |
+| Status strip | `mobile/src/screens/HomeScreen.tsx` (`filterFirstPartyStatusItems`) |
+| QwertyMusic | `mobile/src/screens/MusicScreen.tsx` (`filterFirstPartyUgcPosts`) |
+| P2P wallet send (allowed on iOS) | `mobile/src/screens/WalletScreen.tsx` Scan QR — not a content tip |
+| Bundle / privacy manifests / usage strings | `mobile/app.json` → `expo.ios` (`com.qwertymates.app`, `privacyManifests`, no tracking keys) |
+| ASC submit ids | `mobile/eas.json` → `submit.production.ios` (`ascAppId` `6798004708`) |
+| App Privacy mapping | `mobile/docs/APP_PRIVACY_DATA_SAFETY_MAPPING.md` |
+| Account deletion | `mobile/src/screens/ProfileScreen.tsx` |
+| Review replies (accepted fixes) | `mobile/exports/ios-review-notes-guideline-fix.txt`, `mobile/exports/ios-review-notes-2310-fix.txt` |
+| Checklist | `DOCS/IOS_APP_STORE_CHECKLIST.md` |
+
+```typescript
+// ✅ KEEP — iOS hides digital tips; Android/web keep them
+export function iosCreatorDigitalTipsEnabled(): boolean {
+  return Platform.OS !== "ios";
+}
+
+// ❌ BAD — re-enabling tips / Facebook TV on iOS
+if (Platform.OS === "ios") { /* show Donate / Buy me Coffee */ }
+if (Platform.OS === "ios") return true; // allow all TV including tv-fb- ingest
+```
+
+## Do / don’t
+
+- **Do** keep iOS-only filters when adding new TV, status, music, or donate surfaces — call the helpers in `iosStoreCompliance.ts`; do not copy-paste a new ungated Donate button.
+- **Do** use iOS-framed screenshots and **ACBPay Wallet** in ASC metadata / `backend/scripts/generateIosStoreGraphicsPacks.mjs`.
+- **Don’t** add StoreKit-bypass wallet paywalls for digital unlocks, subscriptions, or creator services on iOS (IAP required if those ship on iOS later).
+- **Don’t** submit iOS while features are placeholders or screenshots show Android chrome.

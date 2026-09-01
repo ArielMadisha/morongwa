@@ -25,6 +25,7 @@ import TuckshopCashAgentRegistration from "../data/models/TuckshopCashAgentRegis
 import { getAgentCommissionSummary, emailAgentEarningsReportForUser } from "../services/agentEarningsService";
 import Escrow from "../data/models/Escrow";
 import { isValidForOtp, normalizePhone } from "../utils/phoneValidation";
+import { resolveCanonicalUserByPhoneDigits } from "../utils/resolveCanonicalUserByPhone";
 import { assertRegistrationAllowed } from "../utils/registrationSecurity";
 import { getFxRates } from "../services/fxService";
 import { logger } from "../services/monitoring";
@@ -45,7 +46,11 @@ import {
 } from "../services/waPayAtStoreMessaging";
 import { AppError } from "../middleware/errorHandler";
 import { findMatchingRunners } from "../services/matching";
-import { sendNotification, notifyPlatformAdminsRealtime } from "../services/notification";
+import {
+  sendNotification,
+  notifyPlatformAdminsRealtime,
+  sendEmailWithAttachments,
+} from "../services/notification";
 import {
   selectSponsoredVideoForPlacement,
   isSponsoredVideoUrl,
@@ -66,6 +71,7 @@ import {
   scheduleOnboardingAgentFraudScan,
   scheduleTuckshopFraudScan,
 } from "../services/registrationFraudScan";
+import { alertOnboardingAgentApplicationReceived } from "../services/onboardingAgentAlerts";
 import { bumpStatusStripCache } from "../services/statusStripPolicy";
 import { publishProfileAvatarFeedUpdate } from "../services/profileAvatarFeed";
 import {
@@ -105,6 +111,15 @@ import {
   ERRANDS_ANDROID_PLAY_URL,
   ERRANDS_DASHBOARD_URL,
 } from "../content/errandsMarketing";
+import {
+  buildWaFoodGroceryMenuCards,
+  buildWaFoodOrderVerticalMenu,
+  buildWaFoodStoreListMessage,
+  listWaFoodAllStores,
+  type WaFoodOrderVertical,
+  type WaFoodStoreRow,
+} from "../services/waFoodGroceryOrder";
+import { productIsInstorePickup } from "../config/foodMarketplace";
 
 const router = express.Router();
 const FRONTEND_URL = process.env.FRONTEND_URL || "https://www.qwertymates.com";
@@ -119,8 +134,17 @@ const WA_PENDING_CONTINUE_STEP = "resume_command";
 const WA_ABOUT_ACTION_SCOPE = "wa_about_actions";
 const WA_ABOUT_ACTION_STEP = "about_reply_menu";
 const WA_ABOUT_ACTION_TTL_MS = WA_INTERACTIVE_IDLE_MIN * 60 * 1000;
-/** WhatsApp wizard: main menu option 9 — tuckshop cash agent (individual / company). */
+/** WhatsApp wizard: legacy Register Cash Agent (no longer on main menu; mid-flow still works). */
 const CASH_AGENT_REG_SCOPE = "cash_agent_reg";
+/** WhatsApp menu 3 — Place Your Order (Food / Restaurant / Groceries / Bakeries). */
+const WA_FOOD_ORDER_SCOPE = "food_order";
+/** WhatsApp menu 9 (+ Place Your Order → 2) — List My Food/Grocery Store. */
+const WA_FOOD_STORE_LIST_SCOPE = "food_store_list";
+/** Longer than other menus — users pick Food/Grocery → store → wait for menu cards. */
+const WA_FOOD_ORDER_IDLE_MIN = 20;
+const WA_FOOD_ORDER_TTL_MS = WA_FOOD_ORDER_IDLE_MIN * 60 * 1000;
+const WA_FOOD_STORE_LIST_TTL_MS = WA_FOOD_ORDER_TTL_MS;
+const WA_FOOD_STORE_LIST_BUSINESS_EMAIL = "business@qwertymates.com";
 
 function waPhoneToDigits(input: string): string {
   const raw = String(input || "").trim().replace(/^whatsapp:/i, "");
@@ -247,7 +271,9 @@ async function clearStaleWaInteractiveStateForMainMenu(userId: any, rawInput: st
   const st = await WaConversationState.findOne({ user: userId }).select("_id scope step updatedAt").lean();
   if (!st) return;
   // ACBPay Wallet uses 1–5 on its own menu; never purge wallet scope here or "1" is mistaken for main-menu About.
-  if (String((st as any).scope || "") === "wallet") return;
+  // Food/Grocery order uses 1–N for store picks — same protection.
+  const scope = String((st as any).scope || "");
+  if (scope === "wallet" || scope === WA_FOOD_ORDER_SCOPE || scope === WA_FOOD_STORE_LIST_SCOPE) return;
   const updatedAtMs = new Date((st as any).updatedAt).getTime();
   if (!Number.isFinite(updatedAtMs)) return;
   // Prevent old submenu/wizard state from hijacking fresh main-menu choices.
@@ -259,10 +285,86 @@ async function clearStaleWaInteractiveStateForMainMenu(userId: any, rawInput: st
 async function findWaUserByPhone(phoneInput: string) {
   const phoneDigits = waPhoneToDigits(phoneInput);
   if (!phoneDigits) return null;
-  const waEmail = waEmailFromPhoneDigits(phoneDigits);
-  return User.findOne({
-    $or: [{ phone: phoneDigits }, { email: waEmail }],
-  });
+  return resolveCanonicalUserByPhoneDigits(phoneDigits);
+}
+
+function mergeCartItemLists(into: any[], from: any[]): any[] {
+  const next = Array.isArray(into) ? [...into] : [];
+  for (const item of from || []) {
+    const pid = String(item?.productId || "");
+    if (!pid) continue;
+    const color = String(item?.selectedColor || "").trim().toLowerCase();
+    const size = String(item?.selectedSize || "").trim().toLowerCase();
+    const existing = next.find((i) => {
+      if (String(i?.productId || "") !== pid) return false;
+      if (String(i?.selectedColor || "").trim().toLowerCase() !== color) return false;
+      return String(i?.selectedSize || "").trim().toLowerCase() === size;
+    });
+    if (existing) {
+      existing.qty = Math.max(1, Number(existing.qty || 1) + Number(item?.qty || 1));
+    } else {
+      next.push(item);
+    }
+  }
+  return next;
+}
+
+function mergeCartMusicLists(into: any[], from: any[]): any[] {
+  const next = Array.isArray(into) ? [...into] : [];
+  for (const item of from || []) {
+    const sid = String(item?.songId || "");
+    if (!sid) continue;
+    const existing = next.find((i) => String(i?.songId || "") === sid);
+    if (existing) {
+      existing.qty = Math.max(1, Number(existing.qty || 1) + Number(item?.qty || 1));
+    } else {
+      next.push(item);
+    }
+  }
+  return next;
+}
+
+/**
+ * Every WhatsApp cart add/view must land on the same user the website uses.
+ * Pulls items from any duplicate accounts on this phone into the canonical user's cart.
+ */
+async function syncWaWebsiteCartForPhone(phoneInput: string, canonicalUser: any): Promise<any> {
+  const phoneDigits = waPhoneToDigits(phoneInput);
+  const waEmail = phoneDigits ? waEmailFromPhoneDigits(phoneDigits) : "";
+  const canonicalId = String(canonicalUser?._id || "");
+  if (!canonicalId) return null;
+
+  const or: Array<Record<string, unknown>> = [{ _id: canonicalUser._id }];
+  if (phoneDigits) or.push({ phone: phoneDigits });
+  if (waEmail) or.push({ email: waEmail });
+
+  const related = await User.find({ $or: or }).select("_id").limit(20);
+  let cart = await Cart.findOne({ user: canonicalUser._id });
+  if (!cart) {
+    cart = await Cart.create({ user: canonicalUser._id, items: [], musicItems: [] });
+  }
+
+  let changed = false;
+  for (const other of related) {
+    if (String(other._id) === canonicalId) continue;
+    const otherCart = await Cart.findOne({ user: other._id });
+    if (!otherCart) continue;
+    const otherItems = Array.isArray(otherCart.items) ? otherCart.items : [];
+    const otherMusic = Array.isArray(otherCart.musicItems) ? otherCart.musicItems : [];
+    if (!otherItems.length && !otherMusic.length) continue;
+
+    cart.items = mergeCartItemLists(cart.items as any[], otherItems as any[]) as typeof cart.items;
+    cart.musicItems = mergeCartMusicLists(cart.musicItems as any[], otherMusic as any[]) as typeof cart.musicItems;
+    if (otherCart.deliveryAddress && !cart.deliveryAddress) {
+      cart.deliveryAddress = otherCart.deliveryAddress;
+    }
+    otherCart.items = [] as any;
+    otherCart.musicItems = [] as any;
+    await otherCart.save();
+    changed = true;
+  }
+  if (changed) await cart.save();
+  return cart;
 }
 
 function stringifyBodyField(val: any): string {
@@ -495,7 +597,21 @@ const WA_MARKETPLACE_CAPTION_MAX = 1024;
 const QWERTYHUB_MEDIA_SEND_GAP_MS = 2200;
 const QWERTYHUB_MENU_AFTER_MEDIA_BASE_MS = 90000;
 const QWERTYHUB_MENU_AFTER_MEDIA_PER_CARD_MS = 8000;
-const QWERTYHUB_FALLBACK_IMAGE_URL = `${FRONTEND_URL.replace(/\/$/, "")}/qwertymates-logo-icon.png`;
+const QWERTYHUB_FALLBACK_IMAGE_URL = (() => {
+  try {
+    const u = new URL(
+      String(FRONTEND_URL || "https://www.qwertymates.com").startsWith("http")
+        ? String(FRONTEND_URL || "https://www.qwertymates.com")
+        : `https://${FRONTEND_URL}`
+    );
+    if (/^(localhost|127\.0\.0\.1|0\.0\.0\.0)$/i.test(u.hostname)) {
+      return "https://www.qwertymates.com/qwertymates-logo-icon.png";
+    }
+    return `${u.origin}/qwertymates-logo-icon.png`;
+  } catch {
+    return "https://www.qwertymates.com/qwertymates-logo-icon.png";
+  }
+})();
 /** After sponsored video REST send, wait before menu text so WhatsApp tends to order video above the menu. */
 const WA_PREMENU_VIDEO_TO_MENU_GAP_MS = 4200;
 
@@ -1069,14 +1185,20 @@ function ensurePublicWaLink(url: string): string {
   return normalizeWaPublicLinkUrl(out);
 }
 
-/** Encode path segments and prefer www for /uploads so Twilio can fetch media reliably. */
+/**
+ * Encode path segments for Twilio WhatsApp media.
+ * Keep api.qwertymates.com host when already set — rewriting to www caused 502
+ * for some upload paths and broke food photo cards.
+ */
 function encodeWhatsAppMediaUrl(url: string): string {
   const raw = String(url || "").trim();
   if (!raw) return "";
   try {
     const u = new URL(raw);
-    if (/^api\.qwertymates\.com$/i.test(u.hostname) && u.pathname.startsWith("/uploads")) {
+    if (/^(localhost|127\.0\.0\.1|0\.0\.0\.0)$/i.test(u.hostname)) {
+      u.protocol = "https:";
       u.hostname = "www.qwertymates.com";
+      u.port = "";
     }
     u.pathname = u.pathname
       .split("/")
@@ -1091,7 +1213,15 @@ function encodeWhatsAppMediaUrl(url: string): string {
 function resolveImageUrl(raw: string): string {
   const val = String(raw || "").trim();
   if (!val) return "";
-  const feBase = FRONTEND_URL.replace(/\/$/, "");
+  let feBase = String(FRONTEND_URL || "https://www.qwertymates.com").replace(/\/$/, "");
+  try {
+    const u = new URL(feBase.startsWith("http") ? feBase : `https://${feBase}`);
+    if (/^(localhost|127\.0\.0\.1|0\.0\.0\.0)$/i.test(u.hostname)) {
+      feBase = "https://www.qwertymates.com";
+    }
+  } catch {
+    feBase = "https://www.qwertymates.com";
+  }
   let absolute = val;
   if (!/^https?:\/\//i.test(val)) {
     absolute = val.startsWith("/") ? `${feBase}${val}` : `${feBase}/${val}`;
@@ -1573,16 +1703,54 @@ async function handleWhatsappCartAddCommand(phone: string, rawInput: string): Pr
   }
 
   const stock = Number((product as any).stock || 0);
-  if (stock > 0 && qty > stock) {
+  const isPickup = productIsInstorePickup(product as any);
+  if (!isPickup && stock > 0 && qty > stock) {
     return { handled: true, payload: { code: "CART_STOCK_LIMIT", message: `Only ${stock} left. Use CART ADD ${code} ${stock}.` } };
   }
 
-  let cart = await Cart.findOne({ user: (user as any)._id });
-  if (!cart) cart = await Cart.create({ user: (user as any)._id, items: [], musicItems: [] });
+  const colors = Array.isArray((product as any).colors) ? (product as any).colors : [];
+  const selectedColor =
+    colors.length > 0 ? String(colors[0]?.name || "").trim() || undefined : undefined;
+
+  // Always sync onto the website login account for this phone before adding.
+  let cart = await syncWaWebsiteCartForPhone(phone, user);
+  if (!cart) {
+    cart = await Cart.findOne({ user: (user as any)._id });
+    if (!cart) cart = await Cart.create({ user: (user as any)._id, items: [], musicItems: [] });
+  }
+
+  // Drop deleted products + keep food pickup separate from marketplace goods.
+  {
+    const ids = (cart.items || []).map((i: any) => i.productId).filter(Boolean);
+    if (ids.length) {
+      const existingProducts = await Product.find({ _id: { $in: ids }, active: true })
+        .select("_id categories tags")
+        .lean();
+      const map = new Map(existingProducts.map((p) => [String(p._id), p]));
+      cart.items = (cart.items || []).filter((i: any) => {
+        const p = map.get(String(i.productId));
+        if (!p) return false;
+        const linePickup = productIsInstorePickup(p as any);
+        return isPickup ? linePickup : !linePickup;
+      }) as typeof cart.items;
+    }
+  }
+
   const productId = String((product as any)._id || "");
-  const existing = cart.items.find((i: any) => String(i?.productId || "") === productId);
+  const existing = (cart.items || []).find((i: any) => {
+    if (String(i?.productId || "") !== productId) return false;
+    const c = String(i?.selectedColor || "").trim().toLowerCase();
+    const want = String(selectedColor || "").trim().toLowerCase();
+    return c === want;
+  });
   if (existing) existing.qty = Math.max(1, Number(existing.qty || 1) + qty);
-  else cart.items.push({ productId: (product as any)._id, qty });
+  else {
+    cart.items.push({
+      productId: (product as any)._id,
+      qty,
+      ...(selectedColor ? { selectedColor } : {}),
+    } as any);
+  }
   await cart.save();
   await clearWaPendingContinueAction(phone);
 
@@ -1590,7 +1758,7 @@ async function handleWhatsappCartAddCommand(phone: string, rawInput: string): Pr
     handled: true,
     payload: {
       code: "CART_ADDED",
-      message: `Product added to cart.\n${compactText(String((product as any).title || "Product"), 48)} x${qty}\n\nReply 7 to view cart summary.`,
+      message: `Added to cart.\n${compactText(String((product as any).title || "Product"), 48)} x${qty}\n\nReply 7 to view cart & pay\nReply 8 for more food/groceries.`,
     },
   };
 }
@@ -2135,13 +2303,13 @@ function buildMainMenu(displayName: string, _includeAdjustMarkup: boolean): stri
     "",
     "1️⃣ 💡 About Qwertymates",
     "2️⃣ 🛒 (Qwertyhub)Marketplace",
-    "3️⃣ 🏃 Errands",
+    "3️⃣ 🍽️ Order Food/Restaurant — Order Groceries",
     "4️⃣ 🏪 My Store",
     "5️⃣ 💳 Wallet",
     "6️⃣ 💼 Jobs",
     "7️⃣ 🛍️ Cart",
-    "8️⃣ 🎮 Yesplay",
-    "9️⃣ Register Cash Agent",
+    "8️⃣ 🏃 Errands",
+    "9️⃣ List My Food/Grocery Store",
   ].join("\n");
 }
 
@@ -2445,6 +2613,629 @@ async function clearWalletState(userId: any) {
   await WaConversationState.deleteOne({ user: userId, scope: "wallet" });
 }
 
+async function clearFoodOrderState(userId: any): Promise<void> {
+  await WaConversationState.deleteOne({ user: userId, scope: WA_FOOD_ORDER_SCOPE });
+}
+
+async function saveFoodOrderState(
+  userId: any,
+  step: string,
+  payload: Record<string, any> = {}
+): Promise<void> {
+  await upsertWaScopedStateForUser(
+    userId,
+    WA_FOOD_ORDER_SCOPE,
+    step,
+    payload,
+    new Date(Date.now() + WA_FOOD_ORDER_TTL_MS)
+  );
+}
+
+async function clearFoodStoreListState(userId: any): Promise<void> {
+  await WaConversationState.deleteOne({ user: userId, scope: WA_FOOD_STORE_LIST_SCOPE });
+}
+
+async function saveFoodStoreListState(
+  userId: any,
+  step: string,
+  payload: Record<string, any> = {}
+): Promise<void> {
+  await upsertWaScopedStateForUser(
+    userId,
+    WA_FOOD_STORE_LIST_SCOPE,
+    step,
+    payload,
+    new Date(Date.now() + WA_FOOD_STORE_LIST_TTL_MS)
+  );
+}
+
+function buildFoodStoreListIntroMessage(): string {
+  return [
+    "🏪 List My Food/Grocery Store",
+    "",
+    "Part 1 — Store details",
+    "",
+    "Reply with your *Store Name*.",
+    "",
+    "Next we will ask for Area (e.g. Hammanskraal-Rockville or Dilopye-Q4), Address, then a location pin.",
+    "",
+    "0️⃣ Back to main menu",
+  ].join("\n");
+}
+
+function buildFoodStoreListMenuOptionsMessage(): string {
+  return [
+    "Part 3 — Menu",
+    "",
+    "How do you want to share your menu?",
+    "",
+    "1️⃣ Upload menu (send photos / PDF here)",
+    "2️⃣ Send the menu to business@qwertymates.com",
+    "",
+    "0️⃣ Back to main menu",
+  ].join("\n");
+}
+
+function buildFoodStoreListThankYouMessage(): string {
+  return [
+    "Thank you, please share any additional information to this email business@qwertymates.com",
+    "",
+    "0️⃣ Back to main menu",
+  ].join("\n");
+}
+
+async function startFoodStoreListFlow(
+  userId: any,
+  phone: string,
+  waSession?: WaOutboundSession
+): Promise<void> {
+  await clearFoodOrderState(userId);
+  await saveFoodStoreListState(userId, "ask_name", {});
+  await sendWhatsAppText(phone, buildFoodStoreListIntroMessage(), waSession);
+}
+
+async function notifyFoodStoreListSubmission(opts: {
+  user: any;
+  phone: string;
+  payload: Record<string, any>;
+}): Promise<void> {
+  const phoneDigits = waPhoneToDigits(opts.phone) || String(opts.user?.phone || "");
+  const name = String(opts.payload.storeName || "").trim();
+  const area = String(opts.payload.area || "").trim();
+  const address = String(opts.payload.address || "").trim();
+  const lat = Number(opts.payload.lat);
+  const lng = Number(opts.payload.lng);
+  const menuPath = String(opts.payload.menuUploadPath || "").trim();
+  const menuChoice = String(opts.payload.menuChoice || "").trim();
+  const lines = [
+    "New WhatsApp food/grocery store listing request",
+    "",
+    `Store name: ${name}`,
+    `Area: ${area}`,
+    `Address: ${address}`,
+    Number.isFinite(lat) && Number.isFinite(lng) ? `GPS pin: ${lat.toFixed(6)}, ${lng.toFixed(6)}` : "GPS pin: (missing)",
+    `Menu option: ${menuChoice === "upload" ? "Uploaded via WhatsApp" : "Merchant will email menu"}`,
+    menuPath ? `Menu file: ${menuPath}` : "",
+    `WhatsApp: ${phoneDigits}`,
+    `User: ${String(opts.user?.name || "")} (${String(opts.user?._id || "")})`,
+  ].filter(Boolean);
+  const text = lines.join("\n");
+  await notifyPlatformAdminsRealtime({
+    type: "FOOD_STORE_LIST_PENDING",
+    message: `Food/Grocery store listing: "${name}" — ${area} — ${phoneDigits}`,
+  }).catch(() => {});
+  await AuditLog.create({
+    action: "WA_FOOD_STORE_LIST_SUBMITTED",
+    user: opts.user._id,
+    meta: {
+      storeName: name,
+      area,
+      address,
+      lat: Number.isFinite(lat) ? lat : undefined,
+      lng: Number.isFinite(lng) ? lng : undefined,
+      menuChoice,
+      menuPath: menuPath || undefined,
+      waPhone: phoneDigits,
+    },
+  }).catch(() => {});
+  await sendEmailWithAttachments({
+    to: [WA_FOOD_STORE_LIST_BUSINESS_EMAIL, "administrator@qwertymates.com"],
+    subject: `[Qwertymates] New food/grocery store listing — ${name}`,
+    text,
+  }).catch((err) => {
+    logger.warn("Food store list email notify failed", { error: String((err as any)?.message || err) });
+  });
+}
+
+async function handleFoodStoreListConversationState(
+  user: any,
+  phone: string,
+  rawInput: string,
+  body?: Record<string, any>,
+  waSession?: WaOutboundSession
+): Promise<{ handled: boolean; payload?: { code: string; message: string } }> {
+  const st = await WaConversationState.findOne({ user: user._id, scope: WA_FOOD_STORE_LIST_SCOPE }).lean();
+  if (!st) return { handled: false };
+  if (new Date(st.expiresAt).getTime() < Date.now()) {
+    await clearFoodStoreListState(user._id);
+    return {
+      handled: true,
+      payload: await waBuildIdleTimeoutMainMenuPayload(user, phone, waSession, "List My Food/Grocery Store"),
+    };
+  }
+
+  const input = String(rawInput || "").trim();
+  const step = String(st.step || "");
+  const payload = { ...((st as any).payload || {}) } as Record<string, any>;
+  const choice = normalizeWaMenuDigitInput(waPrimaryReplyLine(input));
+
+  if (choice === "0" || waIsBackToMainMenuInput(input)) {
+    await clearFoodStoreListState(user._id);
+    return {
+      handled: true,
+      payload: await waBuildBackToMainMenuPayload(user, phone, waSession),
+    };
+  }
+
+  if (step === "ask_name") {
+    if (input.length < 2) {
+      return {
+        handled: true,
+        payload: {
+          code: "FOOD_STORE_LIST_NAME",
+          message: "Enter your Store Name (at least 2 characters).",
+        },
+      };
+    }
+    await saveFoodStoreListState(user._id, "ask_area", { ...payload, storeName: input.slice(0, 120) });
+    return {
+      handled: true,
+      payload: {
+        code: "FOOD_STORE_LIST_AREA",
+        message:
+          "Part 1 — Area\n\nEnter your Area (e.g. Hammanskraal-Rockville or Dilopye-Q4).",
+      },
+    };
+  }
+
+  if (step === "ask_area") {
+    if (input.length < 2) {
+      return {
+        handled: true,
+        payload: {
+          code: "FOOD_STORE_LIST_AREA_SHORT",
+          message: "Enter your Area (e.g. Hammanskraal-Rockville or Dilopye-Q4).",
+        },
+      };
+    }
+    await saveFoodStoreListState(user._id, "ask_address", { ...payload, area: input.slice(0, 120) });
+    return {
+      handled: true,
+      payload: {
+        code: "FOOD_STORE_LIST_ADDRESS",
+        message: "Part 1 — Address\n\nEnter the full street address of your shop.",
+      },
+    };
+  }
+
+  if (step === "ask_address") {
+    if (input.length < 4) {
+      return {
+        handled: true,
+        payload: {
+          code: "FOOD_STORE_LIST_ADDRESS_SHORT",
+          message: "Enter a fuller shop address (street / landmark).",
+        },
+      };
+    }
+    await saveFoodStoreListState(user._id, "ask_pin", { ...payload, address: input.slice(0, 240) });
+    return {
+      handled: true,
+      payload: {
+        code: "FOOD_STORE_LIST_PIN",
+        message: [
+          "Part 2 — Pin location of the shop",
+          "",
+          "Tap 📎 → Location → drop the pin on your shop.",
+          "",
+          "Typed addresses alone are not enough — we need the GPS pin.",
+        ].join("\n"),
+      },
+    };
+  }
+
+  if (step === "ask_pin") {
+    const pin = extractOfficialWhatsAppPinCoordinates(body || {});
+    if (!pin) {
+      return {
+        handled: true,
+        payload: {
+          code: "FOOD_STORE_LIST_PIN_REQUIRED",
+          message:
+            "📍 Send a WhatsApp location pin — tap 📎 → Location → place it on your shop.\n\nDo not type the address only.",
+        },
+      };
+    }
+    await saveFoodStoreListState(user._id, "ask_menu_option", {
+      ...payload,
+      lat: pin.lat,
+      lng: pin.lng,
+      pinLabel: pin.label,
+      pinAddress: pin.address,
+    });
+    await sendWhatsAppText(phone, buildFoodStoreListMenuOptionsMessage(), waSession);
+    return { handled: true, payload: { code: "SELL_INFO_SILENT", message: WA_STUDIO_REST_PENDING_MESSAGE } };
+  }
+
+  if (step === "ask_menu_option") {
+    if (choice === "1") {
+      await saveFoodStoreListState(user._id, "ask_menu_upload", { ...payload, menuChoice: "upload" });
+      return {
+        handled: true,
+        payload: {
+          code: "FOOD_STORE_LIST_UPLOAD",
+          message:
+            "Send your menu now — one or more photos, or a PDF.\n\nAfter we receive it, we will confirm.",
+        },
+      };
+    }
+    if (choice === "2") {
+      const nextPayload = { ...payload, menuChoice: "email" };
+      await notifyFoodStoreListSubmission({ user, phone, payload: nextPayload });
+      await clearFoodStoreListState(user._id);
+      await sendWhatsAppText(phone, buildFoodStoreListThankYouMessage(), waSession);
+      return { handled: true, payload: { code: "SELL_INFO_SILENT", message: WA_STUDIO_REST_PENDING_MESSAGE } };
+    }
+    await sendWhatsAppText(phone, buildFoodStoreListMenuOptionsMessage(), waSession);
+    return { handled: true, payload: { code: "SELL_INFO_SILENT", message: WA_STUDIO_REST_PENDING_MESSAGE } };
+  }
+
+  if (step === "ask_menu_upload") {
+    if (choice === "2") {
+      const nextPayload = { ...payload, menuChoice: "email" };
+      await notifyFoodStoreListSubmission({ user, phone, payload: nextPayload });
+      await clearFoodStoreListState(user._id);
+      await sendWhatsAppText(phone, buildFoodStoreListThankYouMessage(), waSession);
+      return { handled: true, payload: { code: "SELL_INFO_SILENT", message: WA_STUDIO_REST_PENDING_MESSAGE } };
+    }
+    const mediaList = extractTwilioInboundMedia(body || {});
+    const pick =
+      mediaList.find((m) => /image\/(jpeg|pjpeg|jpg|png|webp)/i.test(String(m.contentType || ""))) ||
+      mediaList.find((m) => /application\/pdf/i.test(String(m.contentType || "")));
+    if (!pick?.url) {
+      return {
+        handled: true,
+        payload: {
+          code: "FOOD_STORE_LIST_UPLOAD_REQUIRED",
+          message:
+            "Please upload a menu photo (JPG/PNG) or PDF.\n\nOr reply 2 to email it to business@qwertymates.com instead.",
+        },
+      };
+    }
+    const saved = await downloadTwilioInboundMediaToUploads(
+      pick.url,
+      pick.contentType || "application/octet-stream"
+    );
+    if (!saved?.path) {
+      return {
+        handled: true,
+        payload: {
+          code: "FOOD_STORE_LIST_UPLOAD_FAIL",
+          message: "Could not save your menu file. Please send the photo/PDF again.",
+        },
+      };
+    }
+    const nextPayload = { ...payload, menuChoice: "upload", menuUploadPath: saved.path };
+    await notifyFoodStoreListSubmission({ user, phone, payload: nextPayload });
+    await clearFoodStoreListState(user._id);
+    await sendWhatsAppText(phone, buildFoodStoreListThankYouMessage(), waSession);
+    return { handled: true, payload: { code: "SELL_INFO_SILENT", message: WA_STUDIO_REST_PENDING_MESSAGE } };
+  }
+
+  await clearFoodStoreListState(user._id);
+  return { handled: false };
+}
+
+async function deliverWaFoodOrderStoreList(
+  phone: string,
+  vertical: WaFoodOrderVertical,
+  stores: WaFoodStoreRow[],
+  waSession?: WaOutboundSession
+): Promise<void> {
+  await sendWhatsAppText(phone, buildWaFoodStoreListMessage(vertical, stores), waSession);
+}
+
+/**
+ * Food menu images: JPEG under /uploads/food/ (served on www + api).
+ * PNGs and flat wa-food-* paths are remapped — www returns 502 for some flat names
+ * while /uploads/food/*.jpg works (same path style Twilio already fetches for marketplace).
+ */
+function resolveWaFoodMenuImageUrl(raw: string): string {
+  const val = String(raw || "").trim();
+  if (!val) return "";
+  const FOOD_TO_JPG: Record<string, string> = {
+    "/uploads/food/calibas-kota-1.png": "/uploads/food/calibas-kota-1.jpg",
+    "/uploads/food/calibas-kota-2.png": "/uploads/food/calibas-kota-2.jpg",
+    "/uploads/food/calibas-kota-3.png": "/uploads/food/calibas-kota-3.jpg",
+    "/uploads/food/calibas-kota-4.png": "/uploads/food/calibas-kota-4.jpg",
+    "/uploads/food/mmoja-lerato-kota.png": "/uploads/food/mmoja-lerato-kota.jpg",
+    "/uploads/wa-food-calibas-1.jpg": "/uploads/food/calibas-kota-1.jpg",
+    "/uploads/wa-food-calibas-2.jpg": "/uploads/food/calibas-kota-2.jpg",
+    "/uploads/wa-food-calibas-3.jpg": "/uploads/food/calibas-kota-3.jpg",
+    "/uploads/wa-food-calibas-4.jpg": "/uploads/food/calibas-kota-4.jpg",
+    "/uploads/wa-food-mmoja-lerato.jpg": "/uploads/food/mmoja-lerato-kota.jpg",
+  };
+  let pathOrUrl = val;
+  try {
+    if (/^https?:\/\//i.test(pathOrUrl)) {
+      const u = new URL(pathOrUrl);
+      pathOrUrl = FOOD_TO_JPG[u.pathname] || u.pathname;
+      if (/\.png$/i.test(pathOrUrl) && pathOrUrl.includes("/uploads/food/")) {
+        pathOrUrl = pathOrUrl.replace(/\.png$/i, ".jpg");
+      }
+    } else {
+      const p = pathOrUrl.startsWith("/") ? pathOrUrl : `/${pathOrUrl}`;
+      pathOrUrl = FOOD_TO_JPG[p] || (/\.png$/i.test(p) && p.includes("/uploads/food/") ? p.replace(/\.png$/i, ".jpg") : p);
+    }
+  } catch {
+    /* keep */
+  }
+  // Relative /uploads/... → www via resolveImageUrl (marketplace pattern; www serves /uploads/food/*.jpg).
+  return resolveImageUrl(pathOrUrl);
+}
+
+async function buildWaFoodMenuForStore(opts: {
+  phone: string;
+  vertical: WaFoodOrderVertical;
+  store: WaFoodStoreRow;
+}): Promise<{
+  cards: Array<{ mediaUrl: string; caption: string }>;
+  textMenu: string;
+}> {
+  const built = await buildWaFoodGroceryMenuCards({
+    vertical: opts.vertical,
+    supplierId: opts.store.supplierId,
+    productVertical: opts.store.productVertical,
+    phoneInputForGeo: opts.phone,
+    waMeBotLink: (fromDigits, text) => waMeBotLink(fromDigits, text),
+    waChatCommandFallback: (kind, code, qty) =>
+      waChatCommandFallback(kind === "cart" ? "cart" : "resell", code, qty),
+    ensurePublicWaLink,
+    getTwilioWhatsAppFromDigits: (_s, p) => getTwilioWhatsAppFromDigits(undefined, p),
+    resolveImageUrl: resolveWaFoodMenuImageUrl,
+    fallbackImageUrl: resolveWaFoodMenuImageUrl("/uploads/food/calibas-kota-1.jpg"),
+    compactText,
+  });
+  return {
+    cards: built.cards,
+    textMenu: built.textMenu,
+  };
+}
+
+/**
+ * Food store menu = marketplace-style photo cards (one image + Buy caption per dish).
+ * Never sends Welcome / main menu afterward (that was the bounce in the screenshots).
+ */
+async function deliverWaFoodOrderMenuForStore(opts: {
+  phone: string;
+  user: any;
+  vertical: WaFoodOrderVertical;
+  store: WaFoodStoreRow;
+  includeAdjustMarkup: boolean;
+  waSession?: WaOutboundSession;
+}): Promise<void> {
+  const { phone, vertical, store, waSession } = opts;
+  try {
+    const built = await buildWaFoodMenuForStore({ phone, vertical, store });
+    if (!built.cards.length && !built.textMenu) {
+      await sendWhatsAppText(
+        phone,
+        [
+          `🏪 ${store.name}`,
+          "",
+          "No menu items listed for this store yet.",
+          "",
+          "Reply 8 to pick another store · 0 for main menu",
+        ].join("\n"),
+        waSession
+      );
+      return;
+    }
+
+    await sendWhatsAppText(
+      phone,
+      [
+        `🏪 ${store.name}`,
+        store.address ? `📍 ${store.address}` : null,
+        "",
+        "Menu — each dish (and extras) is a photo card. Tap Buy / Add to cart on the picture:",
+      ]
+        .filter(Boolean)
+        .join("\n"),
+      waSession
+    );
+    await delay(800);
+
+    let sent = 0;
+    // Full board: up to QWERTYHUB_MARKETPLACE_MEDIA_LIMIT (20) — was hard-capped at 8.
+    const cards = built.cards.slice(0, QWERTYHUB_MARKETPLACE_MEDIA_LIMIT).map((c) => ({
+      mediaUrl: String(c.mediaUrl || "").trim(),
+      caption: String(c.caption || "").trim(),
+    }));
+    if (cards.length) {
+      logger.info("WA food menu sending photo cards", {
+        phone: waPhoneToDigits(phone),
+        supplierId: store.supplierId,
+        count: cards.length,
+        mediaUrls: cards.map((c) => c.mediaUrl),
+      });
+      try {
+        sent = await sendQwertyHubMarketplaceGallery(phone, cards, waSession);
+      } catch (err) {
+        logger.warn("WA food menu photo gallery failed", {
+          error: String((err as any)?.message || err),
+          supplierId: store.supplierId,
+        });
+      }
+    }
+
+    if (sent < 1 && built.textMenu) {
+      await delay(400);
+      await sendWhatsAppText(
+        phone,
+        ["Photos could not load — use this text menu:", "", built.textMenu, "", "Reply 7 = cart · 8 = more food · 0 = main menu"].join(
+          "\n"
+        ),
+        waSession
+      );
+    } else if (sent > 0) {
+      await delay(600);
+      await sendWhatsAppText(
+        phone,
+        "Tap Buy on a photo above.\nReply 7 = cart · 8 = more food stores · 0 = main menu",
+        waSession
+      );
+    }
+
+    logger.info("WA food menu delivery summary", {
+      phone: waPhoneToDigits(phone),
+      supplierId: store.supplierId,
+      photoCardsRequested: cards.length,
+      photoCardsSent: sent,
+      textFallback: sent < 1,
+    });
+  } catch (err) {
+    logger.warn("WA food/grocery menu delivery failed", {
+      error: String((err as any)?.message || err),
+      supplierId: store.supplierId,
+    });
+    try {
+      await sendWhatsAppText(
+        phone,
+        [`Could not load the menu for ${store.name}.`, "Try again: reply 8"].join("\n"),
+        waSession
+      );
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+/** Studio silence immediately; deliver food photo cards over REST. */
+function scheduleWaFoodOrderMenuDelivery(opts: {
+  phone: string;
+  user: any;
+  vertical: WaFoodOrderVertical;
+  store: WaFoodStoreRow;
+  includeAdjustMarkup: boolean;
+  waSession?: WaOutboundSession;
+}): void {
+  if (!waPhoneToDigits(opts.phone)) return;
+  setTimeout(() => {
+    void deliverWaFoodOrderMenuForStore(opts).catch((err) => {
+      logger.warn("Scheduled WA food menu delivery failed", {
+        error: String((err as any)?.message || err),
+        supplierId: opts.store.supplierId,
+      });
+    });
+  }, 250);
+}
+
+async function handleFoodOrderConversationState(
+  user: any,
+  phone: string,
+  raw: string,
+  waSession?: WaOutboundSession
+): Promise<{ handled: boolean; payload?: { code: string; message: string } }> {
+  const st = await WaConversationState.findOne({ user: user._id, scope: WA_FOOD_ORDER_SCOPE }).lean();
+  if (!st) return { handled: false };
+  if (new Date(st.expiresAt).getTime() < Date.now()) {
+    await clearFoodOrderState(user._id);
+    return { handled: false };
+  }
+
+  const step = String(st.step || "");
+  const payload = { ...((st as any).payload || {}) } as {
+    vertical?: WaFoodOrderVertical;
+    stores?: WaFoodStoreRow[];
+  };
+  const choice = normalizeWaMenuDigitInput(waPrimaryReplyLine(raw));
+  const includeAdjustMarkup = await userHasResellerProfile(user._id);
+
+  if (choice === "0" || waIsBackToMainMenuInput(raw)) {
+    await clearFoodOrderState(user._id);
+    return {
+      handled: true,
+      payload: await waBuildBackToMainMenuPayload(user, phone, waSession),
+    };
+  }
+
+  if (step === "choose_vertical") {
+    if (choice === "1") {
+      const stores = await listWaFoodAllStores();
+      await saveFoodOrderState(user._id, "pick_store", { vertical: "all", stores });
+      await deliverWaFoodOrderStoreList(phone, "all", stores, waSession);
+      return { handled: true, payload: { code: "SELL_INFO_SILENT", message: WA_STUDIO_REST_PENDING_MESSAGE } };
+    }
+    if (choice === "2") {
+      await clearFoodOrderState(user._id);
+      await startFoodStoreListFlow(user._id, phone, waSession);
+      return { handled: true, payload: { code: "SELL_INFO_SILENT", message: WA_STUDIO_REST_PENDING_MESSAGE } };
+    }
+    await sendWhatsAppText(phone, buildWaFoodOrderVerticalMenu(), waSession);
+    return { handled: true, payload: { code: "SELL_INFO_SILENT", message: WA_STUDIO_REST_PENDING_MESSAGE } };
+  }
+
+  if (step === "pick_store") {
+    const stores = Array.isArray(payload.stores) ? payload.stores : [];
+    const vertical: WaFoodOrderVertical =
+      payload.vertical === "grocery"
+        ? "grocery"
+        : payload.vertical === "restaurant"
+          ? "restaurant"
+          : "all";
+    const idx = Number(choice);
+    if (!Number.isFinite(idx) || idx < 1 || idx > stores.length) {
+      await saveFoodOrderState(user._id, "pick_store", { vertical, stores });
+      await sendWhatsAppText(phone, buildWaFoodStoreListMessage(vertical, stores), waSession);
+      return { handled: true, payload: { code: "SELL_INFO_SILENT", message: WA_STUDIO_REST_PENDING_MESSAGE } };
+    }
+    const store = stores[idx - 1];
+    const menuVertical: WaFoodOrderVertical =
+      store.productVertical === "grocery" || store.productVertical === "restaurant"
+        ? store.productVertical
+        : vertical === "grocery"
+          ? "grocery"
+          : vertical === "restaurant"
+            ? "restaurant"
+            : "all";
+    await saveFoodOrderState(user._id, "browsing_menu", { vertical: menuVertical, stores, store });
+    scheduleWaFoodOrderMenuDelivery({
+      phone,
+      user,
+      vertical: menuVertical,
+      store,
+      includeAdjustMarkup,
+      waSession,
+    });
+    return { handled: true, payload: { code: "SELL_INFO_SILENT", message: WA_STUDIO_REST_PENDING_MESSAGE } };
+  }
+
+  if (step === "browsing_menu") {
+    // Digit 8 = reopen food/grocery vertical menu; other digits fall through after clear.
+    if (choice === "8") {
+      await saveFoodOrderState(user._id, "choose_vertical", {});
+      await sendWhatsAppText(phone, buildWaFoodOrderVerticalMenu(), waSession);
+      return { handled: true, payload: { code: "SELL_INFO_SILENT", message: WA_STUDIO_REST_PENDING_MESSAGE } };
+    }
+    await clearFoodOrderState(user._id);
+    return { handled: false };
+  }
+
+  await clearFoodOrderState(user._id);
+  return { handled: false };
+}
+
 async function waClearAllInteractiveWaStates(userId: any): Promise<void> {
   await Promise.all([
     clearWalletState(userId),
@@ -2452,6 +3243,8 @@ async function waClearAllInteractiveWaStates(userId: any): Promise<void> {
     clearMochinaState(userId),
     clearCashAgentRegState(userId),
     clearWaAboutActionState(userId),
+    clearFoodOrderState(userId),
+    clearFoodStoreListState(userId),
   ]);
 }
 
@@ -4344,6 +5137,14 @@ async function handleMochinaConversationState(
         type: "ONBOARDING_AGENT_APPLICATION",
         message: `New WhatsApp Onboarding Agent application: ${meta.agentFullName} (${meta.phone}). ID/passport on file — user ${String(user._id)}.`,
       }).catch(() => {});
+      void alertOnboardingAgentApplicationReceived({
+        agentFullName: meta.agentFullName,
+        agentIdPassport: meta.agentIdPassport,
+        bankAccount: meta.bankAccount,
+        phone: meta.phone,
+        userId: String(user._id),
+        auditLogId: String(onboardLog._id),
+      }).catch(() => {});
       await clearMochinaState(user._id);
       const bankLine = bankDetail
         ? `Bank: ${bankDetail.length > 220 ? `${bankDetail.slice(0, 220)}…` : bankDetail}`
@@ -4849,8 +5650,26 @@ async function buildQwertyHubCategoryMessage(params: {
 }
 
 async function buildWaCartMessage(user: any, phoneInputForGeo: string): Promise<string> {
-  const cart = await Cart.findOne({ user: user._id }).lean();
-  const items = Array.isArray((cart as any)?.items) ? (cart as any).items : [];
+  // Keep website cart in sync whenever cart is viewed on WhatsApp.
+  let cartDoc = (await syncWaWebsiteCartForPhone(phoneInputForGeo, user)) || (await Cart.findOne({ user: user._id }));
+  if (!cartDoc) return "No products in the cart";
+
+  // Drop deleted/inactive lines so food orders are not hidden behind stale marketplace rows.
+  {
+    const rawItems = Array.isArray(cartDoc.items) ? cartDoc.items : [];
+    if (rawItems.length) {
+      const ids = rawItems.map((i: any) => i.productId).filter(Boolean);
+      const active = await Product.find({ _id: { $in: ids }, active: true }).select("_id").lean();
+      const ok = new Set(active.map((p) => String(p._id)));
+      const next = rawItems.filter((i: any) => ok.has(String(i.productId)));
+      if (next.length !== rawItems.length) {
+        cartDoc.items = next as typeof cartDoc.items;
+        await cartDoc.save();
+      }
+    }
+  }
+
+  const items = Array.isArray(cartDoc.items) ? cartDoc.items : [];
   if (!items.length) return "No products in the cart";
 
   const rates = (await getFxRates()).rates;
@@ -4860,22 +5679,27 @@ async function buildWaCartMessage(user: any, phoneInputForGeo: string): Promise<
   const baseUrl = FRONTEND_URL.replace(/\/$/, "");
 
   const productIds = items.map((i: any) => String(i?.productId || "")).filter(Boolean);
-  const productsRaw = await Product.find({ _id: { $in: productIds } })
-    .select("title price discountPrice currency supplierSource supplierId externalSupplierId externalData")
+  const productsRaw = await Product.find({ _id: { $in: productIds }, active: true })
+    .select("title price discountPrice currency supplierSource supplierId externalSupplierId externalData categories tags")
     .lean();
   const products = await enrichProductsWithStoreFields(productsRaw as Record<string, unknown>[]);
   const productMap = new Map(products.map((p: any) => [String(p?._id || ""), p]));
+  const foodPickupOnly =
+    products.length > 0 && products.every((p: any) => productIsInstorePickup(p));
 
-  const lines: string[] = ["Cart products:"];
+  const lines: string[] = [foodPickupOnly ? "Food / grocery cart (collect in store):" : "Cart products:"];
   let subtotal = 0;
   let subtotalCurrency: string | null = null;
   const uniqueSupplierIds = new Set<string>();
   const uniqueExternalSupplierIds = new Set<string>();
   let cjGroupCount = 0;
-  items.slice(0, 20).forEach((row: any, idx: number) => {
+  let listed = 0;
+  items.slice(0, 20).forEach((row: any) => {
     const pid = String(row?.productId || "");
     const p = productMap.get(pid);
     if (!p) return;
+    listed += 1;
+    const idx = listed;
     const qty = Math.max(1, Number(row?.qty || 1));
     const base = getEffectiveProductPrice(p as any);
     const display = resolveWaCatalogPriceDisplay(p, rates, base);
@@ -4893,14 +5717,17 @@ async function buildWaCartMessage(user: any, phoneInputForGeo: string): Promise<
       if (extId) uniqueExternalSupplierIds.add(extId);
     }
     lines.push(
-      `${idx + 1}. ${compactText(String((p as any)?.title || "Product"), 42)} x${qty} — ${display.currency} ${lineTotal.toFixed(2)}`
+      `${idx}. ${compactText(String((p as any)?.title || "Product"), 42)} x${qty} — ${display.currency} ${lineTotal.toFixed(2)}`
     );
   });
+
+  if (!listed) return "No products in the cart";
 
   let shipping = 0;
   const shippingLines: string[] = [];
   let shippingIsEstimated = false;
   const cjProducts: Array<{ vid: string; quantity: number }> = [];
+  if (!foodPickupOnly) {
   for (const row of items) {
     const pid = String(row?.productId || "");
     const p = productMap.get(pid);
@@ -4977,26 +5804,40 @@ async function buildWaCartMessage(user: any, phoneInputForGeo: string): Promise<
       shippingLines.push(`- CJ / Dropship (estimated): ${targetCurrency} ${fallback.toFixed(2)}`);
     }
   }
+  } // end !foodPickupOnly shipping block
 
   const cartSummaryCurrency = subtotalCurrency || targetCurrency;
   const grandTotal = subtotal + shipping;
-  lines.push(
-    "",
-    "Shipping costs:",
-    ...(shippingLines.length ? shippingLines : [`- Standard shipping: ${targetCurrency} ${shipping.toFixed(2)}`]),
-    shippingIsEstimated
-      ? "Shipping is estimated right now and may change after live courier confirmation at checkout."
-      : "Shipping is fully calculated from current supplier tariffs and live courier quotes.",
-    "",
-    ...(subtotalCurrency
-      ? [`Subtotal: ${cartSummaryCurrency} ${subtotal.toFixed(2)}`]
-      : ["Subtotal: see line items (mixed currencies)"]),
-    `Shipping: ${targetCurrency} ${shipping.toFixed(2)}`,
-    ...(subtotalCurrency
-      ? [`Total to pay: ${cartSummaryCurrency} ${grandTotal.toFixed(2)}`]
-      : ["Total to pay: open checkout on the website for the final amount"]),
-    `Checkout: ${baseUrl}/cart`
-  );
+  if (foodPickupOnly) {
+    lines.push(
+      "",
+      "Delivery: Collect in store (no courier fee).",
+      "",
+      ...(subtotalCurrency
+        ? [`Subtotal: ${cartSummaryCurrency} ${subtotal.toFixed(2)}`]
+        : ["Subtotal: see line items (mixed currencies)"]),
+      `Total to pay: ${cartSummaryCurrency} ${grandTotal.toFixed(2)}`,
+      `Checkout: ${baseUrl}/checkout`
+    );
+  } else {
+    lines.push(
+      "",
+      "Shipping costs:",
+      ...(shippingLines.length ? shippingLines : [`- Standard shipping: ${targetCurrency} ${shipping.toFixed(2)}`]),
+      shippingIsEstimated
+        ? "Shipping is estimated right now and may change after live courier confirmation at checkout."
+        : "Shipping is fully calculated from current supplier tariffs and live courier quotes.",
+      "",
+      ...(subtotalCurrency
+        ? [`Subtotal: ${cartSummaryCurrency} ${subtotal.toFixed(2)}`]
+        : ["Subtotal: see line items (mixed currencies)"]),
+      `Shipping: ${targetCurrency} ${shipping.toFixed(2)}`,
+      ...(subtotalCurrency
+        ? [`Total to pay: ${cartSummaryCurrency} ${grandTotal.toFixed(2)}`]
+        : ["Total to pay: open checkout on the website for the final amount"]),
+      `Checkout: ${baseUrl}/cart`
+    );
+  }
   return lines.join("\n");
 }
 
@@ -5664,6 +6505,22 @@ router.post("/menu", async (req: Request, res: Response, next) => {
       return res.json(errandsState.payload);
     }
 
+    const foodStoreListState = await handleFoodStoreListConversationState(
+      user,
+      phone,
+      raw,
+      req.body as Record<string, any>,
+      waSession
+    );
+    if (foodStoreListState.handled) {
+      return res.json(foodStoreListState.payload);
+    }
+
+    const foodOrderState = await handleFoodOrderConversationState(user, phone, raw, waSession);
+    if (foodOrderState.handled) {
+      return res.json(foodOrderState.payload);
+    }
+
     const aboutActionsActive = await getWaAboutActionState((user as any)._id);
     if (aboutActionsActive) {
       const aboutChoice = normalizeWaMenuDigitInput(waPrimaryReplyLine(raw));
@@ -5774,17 +6631,12 @@ router.post("/menu", async (req: Request, res: Response, next) => {
         return res.json({ code: "SELL_INFO_SILENT", message: WA_STUDIO_REST_PENDING_MESSAGE });
       }
       case "3": {
-        await clearErrandsState((user as any)._id);
-        scheduleWaPremenuVideoThenRun(
-          phone,
-          "open_errands",
-          "3",
-          async () => {
-            await sendWhatsAppErrandsIntro(phone, waSession);
-          },
-          "Errands premenu video sequence failed",
-          waSession
-        );
+        const uidFood = (user as any)._id;
+        await clearFoodOrderState(uidFood);
+        await clearFoodStoreListState(uidFood);
+        // Persist wizard step before any outbound delay so reply 1/2 is not lost.
+        await saveFoodOrderState(uidFood, "choose_vertical", {});
+        await sendWhatsAppText(phone, buildWaFoodOrderVerticalMenu(), waSession);
         return res.json({
           code: "SELL_INFO_SILENT",
           message: WA_STUDIO_REST_PENDING_MESSAGE,
@@ -5888,25 +6740,10 @@ router.post("/menu", async (req: Request, res: Response, next) => {
         });
       }
       case "9": {
-        if (!is18Plus) {
-          return res.json({
-            code: "AGE_RESTRICTED_CASH_AGENT",
-            message: "Register Cash Agent is for users aged 18+ only.",
-          });
-        }
-        const uidCash = (user as any)._id;
-        await clearMochinaState(uidCash);
-        scheduleWaPremenuVideoThenRun(
-          phone,
-          "open_jobs",
-          "9",
-          async () => {
-            await saveCashAgentRegState(uidCash, "cash_reg_menu", {});
-            await sendWhatsAppText(phone, buildCashAgentTypeMenu(), waSession);
-          },
-          "Register Cash Agent premenu video sequence failed",
-          waSession
-        );
+        const uidList = (user as any)._id;
+        await clearFoodOrderState(uidList);
+        await clearCashAgentRegState(uidList);
+        await startFoodStoreListFlow(uidList, phone, waSession);
         return res.json({
           code: "SELL_INFO_SILENT",
           message: WA_STUDIO_REST_PENDING_MESSAGE,
@@ -5928,11 +6765,23 @@ router.post("/menu", async (req: Request, res: Response, next) => {
           message: WA_STUDIO_REST_PENDING_MESSAGE,
         });
       }
-      case "8":
+      case "8": {
+        await clearErrandsState((user as any)._id);
+        scheduleWaPremenuVideoThenRun(
+          phone,
+          "open_errands",
+          "8",
+          async () => {
+            await sendWhatsAppErrandsIntro(phone, waSession);
+          },
+          "Errands premenu video sequence failed",
+          waSession
+        );
         return res.json({
-          code: "YESPLAY_LINK",
-          message: "https://goyesplay.com/y076dc110",
+          code: "SELL_INFO_SILENT",
+          message: WA_STUDIO_REST_PENDING_MESSAGE,
         });
+      }
       case "0": {
         return res.json(await waBuildBackToMainMenuPayload(user, phone, waSession));
       }

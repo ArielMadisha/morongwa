@@ -43,6 +43,14 @@ export const authScreenStyles = StyleSheet.create({
     lineHeight: 20,
     paddingHorizontal: 4,
   },
+  /** Matches web hero: slate-900 + brand-600 accent on “Doers” (register tagline only). */
+  brandTagline: {
+    fontWeight: Platform.OS === "ios" ? "700" : "800",
+    color: "#0f172a",
+  },
+  brandTaglineAccent: {
+    color: "#1f6de0",
+  },
   fieldLabel: {
     fontSize: 14,
     fontWeight: "600",

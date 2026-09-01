@@ -32,11 +32,14 @@ export function PayMoneyFlow({
   if (!open) return null;
 
   return (
-    <FlowModal open={open} title="Pay" onClose={onClose} maxWidthClass="max-w-md">
+    <FlowModal open={open} title="Pay requests" onClose={onClose} maxWidthClass="max-w-md">
       {moneyRequests.length === 0 ? (
         <p className="text-sm text-slate-500 py-8 text-center">No pending payment requests.</p>
       ) : (
         <div className="space-y-2">
+          <p className="text-xs text-slate-500 mb-2">
+            Balance R{balance.toFixed(2)}. Approve a request to send money from your wallet.
+          </p>
           {moneyRequests.map((r) => {
             const name = r.fromUser?.name || r.fromUser?.username || 'User';
             const highlighted = highlightRequestId === r._id;

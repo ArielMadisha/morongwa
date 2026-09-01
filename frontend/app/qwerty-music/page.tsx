@@ -11,6 +11,15 @@ import { useCartAndStores } from '@/lib/useCartAndStores';
 import { AppSidebar, AppSidebarMenuButton } from '@/components/AppSidebar';
 import { AdvertSlot } from '@/components/AdvertSlot';
 import { MobileBottomNav } from '@/components/MobileBottomNav';
+import {
+  CollapsibleBottomChrome,
+  CollapsibleChrome,
+  ScrollAwareChromeRoot,
+} from '@/components/ScrollAwareAppShell';
+import { mergeScrollAwareRef } from '@/hooks/useScrollAwareChrome';
+import { MediaSectionTabs } from '@/components/media/MediaSectionTabs';
+import { MediaChipRow } from '@/components/media/MediaChipRow';
+import { MEDIA_GRID_CLASS } from '@/components/media/MediaPageShell';
 import { ProfileHeaderButton } from '@/components/ProfileHeaderButton';
 import { musicAPI, getImageUrl, API_BASE } from '@/lib/api';
 import type { SongRecord } from '@/lib/api';
@@ -24,6 +33,10 @@ export default function QwertyMusicPage() {
   const [artistStatus, setArtistStatus] = useState<{ isVerified: boolean; status: string | null } | null>(null);
   const [songs, setSongs] = useState<SongRecord[]>([]);
   const [genres, setGenres] = useState<{ id: string; label: string }[]>([]);
+  /** Browse filter for the Songs grid (upload form has its own `genre` state). */
+  const [browseGenre, setBrowseGenre] = useState('all');
+  const [browseArtist, setBrowseArtist] = useState('all');
+  const [artists, setArtists] = useState<{ id: string; label: string }[]>([{ id: 'all', label: 'All artists' }]);
   const [loadingSongs, setLoadingSongs] = useState(true);
   const [applyOpen, setApplyOpen] = useState(false);
   const [uploadOpen, setUploadOpen] = useState(false);
@@ -72,6 +85,13 @@ export default function QwertyMusicPage() {
   useEffect(() => {
     musicAPI.getArtistStatus().then((r) => setArtistStatus(r.data?.data ?? null)).catch(() => setArtistStatus(null));
     musicAPI.getGenres().then((r) => setGenres(r.data?.data ?? [])).catch(() => setGenres([]));
+    musicAPI
+      .getArtists()
+      .then((r) => {
+        const names = Array.isArray(r.data?.data) ? r.data.data : [];
+        setArtists([{ id: 'all', label: 'All artists' }, ...names.map((n) => ({ id: n, label: n }))]);
+      })
+      .catch(() => setArtists([{ id: 'all', label: 'All artists' }]));
   }, []);
 
   useEffect(() => {
@@ -91,7 +111,14 @@ export default function QwertyMusicPage() {
     if (pageNum === 1 && !append) setLoadingSongs(true);
     else setLoadingMoreSongs(true);
     try {
-      const r = await musicAPI.getSongs({ type: 'song', page: pageNum, limit: songsLimit, random });
+      const r = await musicAPI.getSongs({
+        type: 'song',
+        page: pageNum,
+        limit: songsLimit,
+        random,
+        genre: browseGenre && browseGenre !== 'all' ? browseGenre : undefined,
+        artist: browseArtist && browseArtist !== 'all' ? browseArtist : undefined,
+      });
       const rows = Array.isArray(r.data?.data) ? r.data.data : [];
       if (append) {
         setSongs((prev) => [...prev, ...rows]);
@@ -108,10 +135,10 @@ export default function QwertyMusicPage() {
       setLoadingSongs(false);
       setLoadingMoreSongs(false);
     }
-  }, []);
+  }, [browseGenre, browseArtist]);
 
   useEffect(() => {
-    void loadSongs(1);
+    void loadSongs(1, false, true);
   }, [uploadOpen, loadSongs]);
 
   useEffect(() => {
@@ -292,8 +319,11 @@ export default function QwertyMusicPage() {
 
   return (
     <ProtectedRoute>
+      <ScrollAwareChromeRoot>
+        {(attachScroll) => (
       <div className="h-[100dvh] min-h-screen flex flex-col overflow-hidden bg-gradient-to-br from-sky-50 via-blue-50 to-white text-slate-900">
-        <header className="sticky top-0 z-40 w-full bg-white/95 backdrop-blur-md border-b border-slate-100 shadow-sm flex-shrink-0">
+        <CollapsibleChrome edge="top">
+        <header className="z-40 w-full bg-white/95 backdrop-blur-md border-b border-slate-100 shadow-sm flex-shrink-0">
           <div className="px-4 sm:px-6 lg:px-8 py-2 sm:py-3">
             <div className="flex items-center gap-2 sm:gap-4 min-w-0">
               <Link href="/wall" className="shrink-0 flex items-center" aria-label="Home">
@@ -316,6 +346,7 @@ export default function QwertyMusicPage() {
             </div>
           </div>
         </header>
+        </CollapsibleChrome>
 
         <div className="flex min-h-0 min-w-0 w-full flex-1">
           <AppSidebar
@@ -331,9 +362,23 @@ export default function QwertyMusicPage() {
             hideLogo
             belowHeader
           />
-          <div ref={songsContainerRef} className="flex-1 flex flex-col lg:flex-row gap-0 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain touch-pan-y">
-            <main onWheelCapture={handleMainWheelCapture} className="flex-1 min-w-0 px-4 sm:px-6 lg:px-8 py-4 pb-24 md:pb-6 order-2 lg:order-none w-full">
-              <div className="max-w-6xl mx-auto">
+          <div ref={mergeScrollAwareRef(attachScroll, songsContainerRef)} className="flex-1 flex flex-col lg:flex-row gap-0 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain touch-pan-y">
+            <main onWheelCapture={handleMainWheelCapture} className="order-2 box-border w-full min-w-0 flex-1 px-3 pb-24 pt-0 sm:px-6 md:pb-6 lg:order-none lg:px-8">
+              <div className="w-full">
+                <MediaSectionTabs active="music" />
+                <MediaChipRow
+                  ariaLabel="Music genres"
+                  options={genres.map((g) => ({ id: g.id, label: g.label }))}
+                  selected={browseGenre}
+                  onSelect={setBrowseGenre}
+                />
+                <MediaChipRow
+                  ariaLabel="Music artists"
+                  options={artists}
+                  selected={browseArtist}
+                  onSelect={setBrowseArtist}
+                  className="mt-2"
+                />
                 {artistStatus?.isVerified && (
                   <div className="mb-6 rounded-2xl border border-violet-100 bg-white/90 p-4 shadow-sm">
                     <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
@@ -436,7 +481,7 @@ export default function QwertyMusicPage() {
                       <p className="text-sm">Apply for artist verification to upload music.</p>
                     </div>
                   ) : (
-                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+                    <div className={MEDIA_GRID_CLASS}>
                       {songs.map((s) => (
                         <div key={s._id} data-song-id={s._id} className={`rounded-xl border overflow-hidden shadow-sm hover:shadow-md transition flex flex-col ${playingId === s._id ? 'border-sky-500 ring-2 ring-sky-500/30' : 'border-slate-200 bg-white'}`}>
                           <div className="aspect-square bg-slate-100 relative flex items-center justify-center overflow-hidden">
@@ -596,7 +641,9 @@ export default function QwertyMusicPage() {
             />
           </div>
         </div>
-        <MobileBottomNav cartCount={cartCount} hasStore={hasStore} />
+        <CollapsibleBottomChrome>
+          <MobileBottomNav cartCount={cartCount} hasStore={hasStore} embedded />
+        </CollapsibleBottomChrome>
 
         {/* Upload modal */}
         {uploadOpen && (
@@ -705,6 +752,8 @@ export default function QwertyMusicPage() {
           </div>
         )}
       </div>
+        )}
+      </ScrollAwareChromeRoot>
     </ProtectedRoute>
   );
 }

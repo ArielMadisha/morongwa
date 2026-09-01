@@ -21,8 +21,8 @@ console.log("Qwertymates — Android release readiness (blank-screen fix + June 
 
 const appJson = JSON.parse(fs.readFileSync(path.join(mobileRoot, "app.json"), "utf8"));
 const version = appJson?.expo?.version;
-if (version === "1.3.4" || version === "1.3.3" || version === "1.3.2" || version === "1.3.1") ok(`app.json version ${version}`);
-else fail(`app.json version expected 1.3.4 (or 1.3.1–1.3.3), got ${version}`);
+if (typeof version === "string" && /^1\.3\.\d+$/.test(version)) ok(`app.json version ${version}`);
+else fail(`app.json version expected 1.3.x, got ${version}`);
 
 const pluginPath = path.join(mobileRoot, "plugins", "withAndroidDeviceCompatibility.js");
 if (fs.existsSync(pluginPath)) ok("withAndroidDeviceCompatibility.js present");

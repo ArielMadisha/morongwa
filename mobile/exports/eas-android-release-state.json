@@ -1,16 +1,9 @@
 {
-  "queuedAt": "2026-07-09",
-  "quotaOpenDate": "2026-08-01",
-  "retryUntil": "2026-08-07",
-  "targetVersion": "1.3.5",
-  "lastShippedVersion": "1.3.4",
-  "lastShippedVersionCode": 47,
-  "lastShippedBuildId": "1a4033d9-1d79-4cd0-a3fd-6fd41c81295f",
-  "lastShippedBuildUrl": "https://expo.dev/accounts/qwertymates/projects/morongwa-mobile/builds/1a4033d9-1d79-4cd0-a3fd-6fd41c81295f",
-  "lastShippedSubmissionUrl": "https://expo.dev/accounts/qwertymates/projects/morongwa-mobile/submissions/3116c7ee-396d-47be-a8c4-d37d5027a3be",
-  "lastAttemptAt": "2026-07-09T12:28:46.000Z",
-  "lastAttemptResult": "quota_exhausted_for_v1_3_5",
-  "completedAt": null,
-  "playBlocker": "Expo free-tier Android builds exhausted until 2026-08-01. v1.3.4 already on Play. Ship v1.3.5 (stock avatar join status) when quota opens.",
-  "notes": "v1.3.5: mobile join status shows gendered stock avatar image. Ops brief emailed 2026-07-09 to administrator@qwertymates.com."
+  "lastShippedVersion": "1.3.33",
+  "lastShippedVersionCode": 87,
+  "lastShippedBuildId": "52ec2c63-807e-4d1d-a2df-1a908a98502a",
+  "lastShippedBuildUrl": "https://expo.dev/accounts/qwertymates/projects/morongwa-mobile/builds/52ec2c63-807e-4d1d-a2df-1a908a98502a",
+  "lastShippedSubmissionUrl": "https://expo.dev/accounts/qwertymates/projects/morongwa-mobile/submissions/8f20e452-7bd3-4f12-94d8-10dac602e97f",
+  "completedAt": "2026-08-13T01:57:20.061Z",
+  "notes": "People tagging: Tag people on create post, @mentions, tagged-you notifications, with-line on wall/feed."
 }

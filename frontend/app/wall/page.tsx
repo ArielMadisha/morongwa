@@ -17,6 +17,12 @@ import { StatusesStrip } from '@/components/tv/StatusesStrip';
 import { AdvertSlot } from '@/components/AdvertSlot';
 import { MobileBottomNav } from '@/components/MobileBottomNav';
 import { APP_SHELL_MOBILE_LOGO_CLASS } from '@/components/AppShellHeader';
+import {
+  CollapsibleBottomChrome,
+  CollapsibleChrome,
+  ScrollAwareChromeRoot,
+} from '@/components/ScrollAwareAppShell';
+import { mergeScrollAwareRef } from '@/hooks/useScrollAwareChrome';
 import { PAGE_PAD_BOTTOM_MOBILE_NAV } from '@/lib/appShellLayout';
 import { AdvertTile } from '@/components/AdvertTile';
 import {
@@ -387,7 +393,7 @@ function WallPageContent() {
   ]);
 
   useFeedAutoRefresh({
-    enabled: !loading || gridItems.length > 0,
+    enabled: !createOpen && (!loading || gridItems.length > 0),
     onRefresh: refreshFeedHead,
   });
 
@@ -646,9 +652,12 @@ function WallPageContent() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col bg-gradient-to-br from-sky-50 via-blue-50 to-white text-slate-900">
+    <ScrollAwareChromeRoot>
+      {(attachScroll) => (
+    <div className="h-[100dvh] min-h-screen max-w-[100%] flex flex-col overflow-hidden bg-gradient-to-br from-sky-50 via-blue-50 to-white text-slate-900">
       {/* Full-width frozen header - logo at top-left */}
-      <header className="sticky top-0 z-40 w-full bg-white/95 backdrop-blur-md border-b border-slate-100 shadow-sm flex-shrink-0">
+      <CollapsibleChrome edge="top">
+      <header className="z-40 w-full bg-white/95 backdrop-blur-md border-b border-slate-100 shadow-sm flex-shrink-0">
         <div className="px-3 sm:px-6 lg:px-8 py-2.5 sm:py-3">
           <div className="flex items-center gap-2 sm:gap-3 w-full">
             <div className="shrink-0 flex items-center gap-1 sm:gap-2">
@@ -670,7 +679,7 @@ function WallPageContent() {
               </button>
               <AppSidebarMenuButton onClick={() => setMenuOpen((v) => !v)} />
             </div>
-            <div className="flex-1 min-w-0 overflow-x-auto overflow-y-hidden scrollbar-thin">
+            <div className="flex-1 min-w-0 overflow-x-auto overflow-y-hidden [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
               <StatusesStrip
                 currentUserId={user?._id || user?.id}
                 userAvatar={(user as any)?.avatar}
@@ -679,6 +688,7 @@ function WallPageContent() {
                 refreshTrigger={statusRefreshKey}
                 currentUserLatestPost={latestCreatedPost ?? undefined}
                 currentUserName={user ? userPublicDisplayName(user) : undefined}
+                autoRefreshEnabled={!createOpen}
               />
             </div>
             <div className="shrink-0 flex items-center gap-2">
@@ -689,9 +699,10 @@ function WallPageContent() {
           </div>
         </div>
       </header>
+      </CollapsibleChrome>
 
       {/* Menu (sidebar) + content below header */}
-      <div className="flex min-h-0 min-w-0 w-full flex-1">
+      <div className="flex min-h-0 min-w-0 w-full max-w-full flex-1 overflow-x-hidden">
         <AppSidebar
           variant="wall"
           userName={user ? userPublicDisplayName(user) : undefined}
@@ -705,7 +716,10 @@ function WallPageContent() {
           hideLogo
           belowHeader
         />
-        <div ref={containerRef} className="flex-1 flex flex-col lg:flex-row lg:justify-center gap-0 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden lg:items-start">
+        <div
+          ref={mergeScrollAwareRef(attachScroll, containerRef)}
+          className="flex-1 flex flex-col lg:flex-row lg:justify-center gap-0 min-h-0 min-w-0 max-w-full overflow-y-auto overflow-x-hidden [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden lg:items-start"
+        >
         <main className={`min-w-0 w-full flex-1 max-w-full lg:max-w-[calc(720px+4rem)] lg:w-[calc(720px+4rem)] pl-3 pr-3 sm:pl-6 sm:pr-3 md:pr-4 lg:pl-8 ${PAGE_PAD_BOTTOM_MOBILE_NAV} order-2 lg:order-none`}>
           {newPostsBanner > 0 && (
             <div className="sticky top-2 z-30 flex justify-center py-2 pointer-events-none">
@@ -839,13 +853,17 @@ function WallPageContent() {
         </main>
         <AdvertSlot
           belowHeader
+          scrollWithPage
+          suggestedLimit={4}
           trendingRefreshKey={trendingRefreshKey}
           activeHashtag={activeHashtag}
           onStartTopicWithHashtag={() => setCreateOpen(true)}
         />
         </div>
       </div>
-      <MobileBottomNav cartCount={cartCount} hasStore={hasStore} />
+      <CollapsibleBottomChrome>
+        <MobileBottomNav cartCount={cartCount} hasStore={hasStore} embedded />
+      </CollapsibleBottomChrome>
 
       <ContentPreferencesModal
         open={prefsModalOpen}
@@ -936,6 +954,8 @@ function WallPageContent() {
         </div>
       )}
     </div>
+      )}
+    </ScrollAwareChromeRoot>
   );
 }
 

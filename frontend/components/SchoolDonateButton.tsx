@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
-import { HeartHandshake } from 'lucide-react';
+import { Coffee, HeartHandshake } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { walletAPI } from '@/lib/api';
 
@@ -272,12 +272,13 @@ export function SchoolDonateButton({
             <button
               type="button"
               onClick={() => setDonateAmount(String(DONATE_COFFEE_AMOUNT_ZAR))}
-              className={`w-full px-4 py-2.5 rounded-xl text-sm font-semibold border transition-colors mb-4 ${
+              className={`inline-flex w-full items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-semibold border transition-colors mb-4 ${
                 parseFloat(donateAmount) === DONATE_COFFEE_AMOUNT_ZAR && !Number.isNaN(parseFloat(donateAmount))
                   ? 'border-amber-500 bg-amber-50 text-amber-950'
                   : 'border-amber-200 bg-amber-50/90 text-amber-950 hover:bg-amber-100 hover:border-amber-300'
               }`}
             >
+              <Coffee className="h-5 w-5 shrink-0" aria-hidden strokeWidth={2.25} />
               Buy me Coffee R{DONATE_COFFEE_AMOUNT_ZAR}
             </button>
             <div className="flex gap-3">

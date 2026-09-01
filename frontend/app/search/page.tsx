@@ -1,11 +1,10 @@
 'use client';
 
-import { useState, useEffect, Suspense } from 'react';
+import { useState, useEffect, Suspense, useRef } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Search, Package, Loader2, ShoppingCart, User, Video, Wrench, Music, Store } from 'lucide-react';
 import { productsAPI, usersAPI, tvAPI, musicAPI, followsAPI, macgyverAPI, storesAPI, getImageUrl } from '@/lib/api';
-import type { Product } from '@/lib/types';
 import { useAuth } from '@/contexts/AuthContext';
 import { useCartAndStores } from '@/lib/useCartAndStores';
 import { AppSidebar, AppSidebarMenuButton } from '@/components/AppSidebar';
@@ -15,6 +14,10 @@ import { ProfileHeaderButton } from '@/components/ProfileHeaderButton';
 import { formatCurrencyAmount } from '@/lib/formatCurrency';
 import { SchoolDonateButton } from '@/components/SchoolDonateButton';
 import { inferIsSchoolProfile } from '@/lib/schoolProfile';
+import { AskMacGyverModal } from '@/components/AskMacGyverModal';
+import { MacGyverImagePicker } from '@/components/MacGyverImagePicker';
+import { clearPendingMacGyverImage, peekPendingMacGyverImage } from '@/lib/macgyverPendingImage';
+import type { Product } from '@/lib/types';
 
 function formatPrice(price: number, currency: string) {
   return formatCurrencyAmount(price, currency || 'ZAR');
@@ -35,9 +38,10 @@ function SearchContent() {
   const [storeResults, setStoreResults] = useState<Array<{ _id: string; name: string; slug: string; type?: string; country?: string }>>([]);
   const [loading, setLoading] = useState(true);
   const [macgyverOpen, setMacgyverOpen] = useState(false);
-  const [macgyverQuery, setMacgyverQuery] = useState('');
-  const [macgyverResponse, setMacgyverResponse] = useState<string | null>(null);
-  const [macgyverLoading, setMacgyverLoading] = useState(false);
+  const [macgyverFallback, setMacgyverFallback] = useState<string | null>(null);
+  const [macgyverFallbackLoading, setMacgyverFallbackLoading] = useState(false);
+  const macgyverFallbackFetchedRef = useRef('');
+  const [imageAskFile, setImageAskFile] = useState<File | null>(null);
 
   useEffect(() => {
     setQ(qParam);
@@ -45,15 +49,15 @@ function SearchContent() {
 
   useEffect(() => {
     if (searchParams.get('macgyver') === '1') {
-      setMacgyverQuery(qParam || '');
       setQ(qParam || '');
       setMacgyverOpen(true);
     }
+    const pending = peekPendingMacGyverImage();
+    if (pending || searchParams.get('image') === '1') {
+      if (pending) setImageAskFile(pending);
+      setMacgyverOpen(true);
+    }
   }, [searchParams, qParam]);
-
-  useEffect(() => {
-    if (macgyverOpen) setMacgyverQuery(q);
-  }, [q, macgyverOpen]);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -184,6 +188,51 @@ function SearchContent() {
 
   const hasResults = products.length > 0 || users.length > 0 || tvPosts.length > 0 || musicResults.length > 0 || storeResults.length > 0;
   const homeLink = user ? '/wall' : '/';
+  const qTrim = q.trim();
+
+  // Auto MacGyver when Qwertymates browse has no hits — web/knowledge fallback inline.
+  useEffect(() => {
+    const search = qTrim;
+    if (!user || loading || hasResults || search.length < 2 || macgyverOpen) {
+      if (search.length < 2 || hasResults) {
+        setMacgyverFallback(null);
+        macgyverFallbackFetchedRef.current = '';
+      }
+      return;
+    }
+    if (macgyverFallbackFetchedRef.current === search) return;
+    macgyverFallbackFetchedRef.current = search;
+
+    let cancelled = false;
+    setMacgyverFallbackLoading(true);
+    setMacgyverFallback(null);
+
+    macgyverAPI
+      .ask(search)
+      .then((res) => {
+        if (cancelled) return;
+        const data = res.data?.data;
+        if (data?.type === 'search' && data?.query) {
+          setMacgyverFallback(
+            data?.text ||
+              `Qwertymates may have related matches for "${data.query}". MacGyver searched the open web for "${search}" as well.`
+          );
+        } else {
+          setMacgyverFallback(data?.text ?? null);
+        }
+      })
+      .catch((err: any) => {
+        if (cancelled) return;
+        setMacgyverFallback(err.response?.data?.message || err.message || 'MacGyver could not answer right now.');
+      })
+      .finally(() => {
+        if (!cancelled) setMacgyverFallbackLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [qTrim, user, loading, hasResults, macgyverOpen]);
 
   return (
     <div className="min-h-screen flex flex-col bg-gradient-to-br from-sky-50 via-blue-50 to-white text-slate-900">
@@ -203,6 +252,14 @@ function SearchContent() {
                 onChange={(e) => setQ(e.target.value)}
                 placeholder="Ask MacGyver"
                 className="flex-1 min-w-0 px-3 py-2 rounded-lg border border-slate-200 bg-white text-slate-900 placeholder-slate-400 focus:ring-2 focus:ring-sky-500 focus:border-sky-500"
+              />
+              <MacGyverImagePicker
+                onPick={(file) => {
+                  setImageAskFile(file);
+                  setMacgyverOpen(true);
+                }}
+                className="p-2 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-amber-600 shrink-0"
+                iconClassName="h-5 w-5"
               />
             </form>
             <div className="shrink-0 flex items-center gap-2">
@@ -241,17 +298,59 @@ function SearchContent() {
                 <Loader2 className="h-10 w-10 text-sky-500 animate-spin" />
               </div>
             ) : !hasResults ? (
-              <div className="rounded-2xl border border-slate-200 bg-white/90 p-12 text-center">
-                <Package className="h-16 w-16 text-slate-300 mx-auto mb-4" />
-                <h2 className="text-xl font-semibold text-slate-700 mb-2">No results for &quot;{q}&quot;</h2>
-                <p className="text-slate-600 mb-6">Try different keywords or ask MacGyver for help finding what you need.</p>
-                <button
-                  onClick={() => { setMacgyverQuery(q); setMacgyverOpen(true); }}
-                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-500 text-white font-medium hover:bg-amber-600 transition-colors"
-                >
-                  <Wrench className="h-5 w-5" />
-                  Ask MacGyver
-                </button>
+              <div className="rounded-2xl border border-slate-200 bg-white/90 p-8 sm:p-12">
+                <div className="text-center mb-6">
+                  <Wrench className="h-16 w-16 text-amber-400 mx-auto mb-4" />
+                  <h2 className="text-xl font-semibold text-slate-800 mb-2">Ask MacGyver</h2>
+                  <p className="text-slate-600">
+                    Nothing on Qwertymates for &quot;{q}&quot; — MacGyver is searching the web and knowledge base.
+                  </p>
+                </div>
+
+                {!user ? (
+                  <p className="text-center text-slate-600 mb-4">
+                    <Link
+                      href={`/login?returnTo=${encodeURIComponent(`/search?q=${encodeURIComponent(qTrim)}`)}`}
+                      className="text-sky-600 hover:underline font-medium"
+                    >
+                      Sign in
+                    </Link>{' '}
+                    so MacGyver can search the open web and write an answer for &quot;{q}&quot;.
+                  </p>
+                ) : macgyverFallbackLoading ? (
+                  <div className="flex flex-col items-center gap-3 py-6">
+                    <Loader2 className="h-8 w-8 text-amber-500 animate-spin" />
+                    <p className="text-sm text-slate-500">MacGyver is on it…</p>
+                  </div>
+                ) : macgyverFallback ? (
+                  <div className="max-w-2xl mx-auto p-5 rounded-xl bg-amber-50 border border-amber-200">
+                    <p className="text-sm font-semibold text-amber-900 mb-2 flex items-center gap-2">
+                      <Wrench className="h-4 w-4" /> MacGyver&apos;s answer
+                    </p>
+                    <div className="text-slate-700 whitespace-pre-wrap text-sm leading-relaxed">{macgyverFallback}</div>
+                  </div>
+                ) : null}
+
+                <div className="mt-6 text-center">
+                  <div className="inline-flex items-stretch rounded-xl overflow-hidden bg-amber-500 shadow-sm">
+                    <button
+                      type="button"
+                      onClick={() => setMacgyverOpen(true)}
+                      className="inline-flex items-center gap-2 px-4 py-2 text-white font-medium hover:bg-amber-600 transition-colors"
+                    >
+                      <Wrench className="h-5 w-5" />
+                      Ask MacGyver more
+                    </button>
+                    <MacGyverImagePicker
+                      onPick={(file) => {
+                        setImageAskFile(file);
+                        setMacgyverOpen(true);
+                      }}
+                      className="px-3 border-l border-amber-400 text-white hover:bg-amber-600"
+                      iconClassName="h-5 w-5"
+                    />
+                  </div>
+                </div>
               </div>
             ) : (
               <>
@@ -451,7 +550,7 @@ function SearchContent() {
                   <div className="mt-8 p-4 rounded-xl bg-amber-50 border border-amber-200">
                     <p className="text-sm text-amber-800 mb-2">Still can&apos;t find what you need?</p>
                     <button
-                      onClick={() => { setMacgyverQuery(q); setMacgyverOpen(true); }}
+                      onClick={() => setMacgyverOpen(true)}
                       className="inline-flex items-center gap-2 text-amber-700 font-medium hover:text-amber-900"
                     >
                       <Wrench className="h-4 w-4" /> Ask MacGyver for help
@@ -466,204 +565,32 @@ function SearchContent() {
       </div>
       {user && <MobileBottomNav cartCount={cartCount} hasStore={hasStore} />}
 
-      {/* MacGyver AI panel */}
-      {macgyverOpen && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center sm:justify-center p-4">
-          <div className="absolute inset-0 bg-black/40" onClick={() => { setMacgyverOpen(false); setMacgyverResponse(null); setMacgyverQuery(''); }} aria-hidden="true" />
-          <div className="relative bg-white rounded-2xl shadow-2xl max-w-md w-full max-h-[80vh] overflow-hidden flex flex-col">
-            <div className="p-4 border-b border-slate-100 flex items-center justify-between shrink-0">
-              <h3 className="font-semibold text-slate-900 flex items-center gap-2">
-                <Wrench className="h-5 w-5 text-amber-500" /> Ask MacGyver
-              </h3>
-              <button onClick={() => { setMacgyverOpen(false); setMacgyverResponse(null); setMacgyverQuery(''); }} className="p-2 rounded-lg hover:bg-slate-100 text-slate-600">
-                ×
-              </button>
-            </div>
-            <div className="flex-1 overflow-y-auto p-4 min-h-0">
-              {!user ? (
-                <p className="text-slate-600">
-                  <Link href="/login" className="text-sky-600 hover:underline font-medium">Sign in</Link> to use Ask MacGyver – your AI assistant for Qwertymates and beyond.
-                </p>
-              ) : (
-                <>
-                  <p className="text-sm text-slate-500 mb-4">
-                    When there's no solution… MacGyver makes one.
-                  </p>
-                  {macgyverResponse !== null && (
-                    <div className="mb-4 p-4 rounded-xl bg-slate-50 border border-slate-100 text-slate-700 whitespace-pre-wrap text-sm leading-relaxed">
-                      {macgyverResponse}
-                    </div>
-                  )}
-                  <form
-                    onSubmit={async (e) => {
-                      e.preventDefault();
-                      const query = macgyverQuery.trim();
-                      if (!query || macgyverLoading) return;
-                      setMacgyverLoading(true);
-                      setMacgyverResponse(null);
-                      try {
-                        const res = await macgyverAPI.ask(query);
-                        const data: any = res.data?.data;
-                        if (data?.type === 'search' && data?.query) {
-                          // Legacy response: keep the modal open and show a written prompt
-                          // instead of closing onto a possibly-empty search page.
-                          setQ(data.query);
-                          router.replace(`/search?q=${encodeURIComponent(data.query)}&macgyver=1`);
-                          setMacgyverResponse(
-                            data?.text ||
-                              `I found matches on Qwertymates for “${data.query}”. Browse results below, or ask a fuller question for a written answer.`
-                          );
-                        } else {
-                          setMacgyverResponse(data?.text ?? 'No response.');
-                        }
-                      } catch (err: any) {
-                        setMacgyverResponse(err.response?.data?.message || err.message || 'Something went wrong. Try again.');
-                      } finally {
-                        setMacgyverLoading(false);
-                      }
-                    }}
-                    className="flex gap-2"
-                  >
-                    <input
-                      type="text"
-                      value={macgyverQuery}
-                      onChange={(e) => {
-                        const v = e.target.value;
-                        setMacgyverQuery(v);
-                        // Keep page search in sync for inline results, but avoid router thrash
-                        // on every keystroke (that remounted search state while Ask was running).
-                        setQ(v);
-                      }}
-                      onBlur={() => {
-                        const v = macgyverQuery.trim();
-                        if (!v) return;
-                        router.replace(`/search?q=${encodeURIComponent(v)}${macgyverOpen ? '&macgyver=1' : ''}`);
-                      }}
-                      placeholder="Search or ask anything..."
-                      disabled={macgyverLoading}
-                      className="flex-1 px-3 py-2 rounded-lg border border-slate-200 text-slate-900 placeholder-slate-400 focus:ring-2 focus:ring-amber-500 focus:border-amber-500 disabled:opacity-60"
-                    />
-                    <button
-                      type="submit"
-                      disabled={macgyverLoading || !macgyverQuery.trim()}
-                      className="px-4 py-2 rounded-lg bg-amber-500 text-white font-medium hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
-                    >
-                      {macgyverLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : 'Ask'}
-                    </button>
-                  </form>
-                  {macgyverQuery.trim().length >= 1 && loading && (
-                    <div className="mt-4 flex justify-center py-4">
-                      <Loader2 className="h-6 w-6 text-amber-500 animate-spin" />
-                    </div>
-                  )}
-                  {macgyverQuery.trim().length >= 1 && !loading && hasResults && (
-                    <div className="mt-4 space-y-4 max-h-64 overflow-y-auto">
-                      <p className="text-sm font-medium text-slate-600">Results for &quot;{macgyverQuery.trim()}&quot;</p>
-                      {storeResults.length > 0 && (
-                        <div>
-                          <p className="text-xs text-slate-500 mb-2">Stores</p>
-                          <div className="space-y-2">
-                            {storeResults.slice(0, 5).map((s) => (
-                              <Link
-                                key={s._id}
-                                href={`/store/${s.slug}`}
-                                onClick={() => setMacgyverOpen(false)}
-                                className="block p-2 rounded-lg hover:bg-slate-50 transition-colors text-sm font-medium text-slate-700 truncate"
-                              >
-                                {s.name}
-                              </Link>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                      {users.length > 0 && (
-                        <div>
-                          <p className="text-xs text-slate-500 mb-2">Users</p>
-                          <div className="space-y-1">
-                            {users.slice(0, 5).map((u) => (
-                              <Link
-                                key={u._id}
-                                href={`/user/${u._id}`}
-                                onClick={() => setMacgyverOpen(false)}
-                                className="flex items-center gap-3 p-2 rounded-lg hover:bg-slate-50 transition-colors"
-                              >
-                                <div className="h-10 w-10 rounded-full bg-slate-200 overflow-hidden flex-shrink-0">
-                                  {u.avatar ? (
-                                    <img src={getImageUrl(u.avatar)} alt="" className="w-full h-full object-cover" />
-                                  ) : (
-                                    <div className="w-full h-full flex items-center justify-center text-slate-600 font-bold text-sm">
-                                      {(u.name || '?')[0]}
-                                    </div>
-                                  )}
-                                </div>
-                                <div>
-                                  <p className="font-medium text-slate-900 text-sm">{u.name || 'Unknown'}</p>
-                                  {u.username && <p className="text-xs text-slate-500">@{u.username}</p>}
-                                </div>
-                              </Link>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                      {products.length > 0 && (
-                        <div>
-                          <p className="text-xs text-slate-500 mb-2">Products</p>
-                          <div className="space-y-2">
-                            {products.slice(0, 3).map((p) => (
-                              <Link
-                                key={p._id}
-                                href={`/marketplace/product/${p._id}`}
-                                onClick={() => setMacgyverOpen(false)}
-                                className="block p-2 rounded-lg hover:bg-slate-50 transition-colors text-sm font-medium text-slate-700 truncate"
-                              >
-                                {p.title}
-                              </Link>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                      {tvPosts.length > 0 && (
-                        <div>
-                          <p className="text-xs text-slate-500 mb-2">TV Posts</p>
-                          <div className="space-y-2">
-                            {tvPosts.slice(0, 3).map((v) => (
-                              <Link
-                                key={v._id}
-                                href="/morongwa-tv"
-                                onClick={() => setMacgyverOpen(false)}
-                                className="block p-2 rounded-lg hover:bg-slate-50 transition-colors text-sm text-slate-700 truncate"
-                              >
-                                {v.caption || 'Video'}
-                              </Link>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                      {musicResults.length > 0 && (
-                        <div>
-                          <p className="text-xs text-slate-500 mb-2">Music</p>
-                          <div className="space-y-2">
-                            {musicResults.slice(0, 3).map((m) => (
-                              <Link
-                                key={m._id}
-                                href="/qwerty-music"
-                                onClick={() => setMacgyverOpen(false)}
-                                className="block p-2 rounded-lg hover:bg-slate-50 transition-colors text-sm text-slate-700 truncate"
-                              >
-                                {m.title} – {m.artist}
-                              </Link>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+      <AskMacGyverModal
+        open={macgyverOpen}
+        onClose={() => {
+          setMacgyverOpen(false);
+          setImageAskFile(null);
+          clearPendingMacGyverImage();
+        }}
+        user={user}
+        query={q}
+        onQueryChange={setQ}
+        loading={loading}
+        hasResults={hasResults}
+        browse={{ stores: storeResults, users, products, tvPosts, musicResults }}
+        pendingImageFile={imageAskFile}
+        onPendingImageConsumed={() => {
+          setImageAskFile(null);
+          clearPendingMacGyverImage();
+        }}
+        onAnswer={(text) => {
+          if (text) {
+            setMacgyverFallback(text);
+            macgyverFallbackFetchedRef.current = qTrim;
+            setMacgyverFallbackLoading(false);
+          }
+        }}
+      />
     </div>
   );
 }

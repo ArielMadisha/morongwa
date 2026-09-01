@@ -7,7 +7,12 @@ import React, {
   useMemo,
   useState
 } from "react";
-import { authAPI, setAuthToken } from "../lib/api";
+import { authAPI, getAuthToken, registerUnauthorizedHandler, setAuthToken } from "../lib/api";
+import {
+  attachPushNotificationListeners,
+  registerForPushNotifications,
+  unregisterPushNotifications,
+} from "../lib/pushNotifications";
 import { Role, User } from "../types";
 
 const TOKEN_KEY = "qwertymates.mobile.token";
@@ -55,8 +60,13 @@ type AuthContextType = {
     dateOfBirth?: string;
     phone?: string;
     otpToken?: string;
+    emailToken?: string;
   }) => Promise<void>;
   logout: () => Promise<void>;
+  /** Refresh /auth/me into local session (e.g. after phone verify). */
+  refreshUser: () => Promise<User | null>;
+  /** Patch local user cache without round-trip. */
+  applyUserPatch: (patch: Partial<User>) => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -64,6 +74,30 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+
+  const persistSession = useCallback(async (token: string, nextUser: User) => {
+    setAuthToken(token);
+    await AsyncStorage.setItem(TOKEN_KEY, token);
+    await AsyncStorage.setItem(USER_KEY, JSON.stringify(nextUser));
+  }, []);
+
+  const clearSession = useCallback(async () => {
+    // If the 401 interceptor already dropped the in-memory token, skip push
+    // unregister — that DELETE is authenticated and would 401-loop.
+    if (getAuthToken()) {
+      await unregisterPushNotifications();
+    }
+    await AsyncStorage.multiRemove([TOKEN_KEY, USER_KEY]);
+    setAuthToken(null);
+    setUser(null);
+  }, []);
+
+  useEffect(() => {
+    registerUnauthorizedHandler(() => {
+      void clearSession();
+    });
+    return () => registerUnauthorizedHandler(null);
+  }, [clearSession]);
 
   useEffect(() => {
     let cancelled = false;
@@ -75,6 +109,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         ]);
         if (cancelled) return;
         if (!token || !rawUser) {
+          // Login may have won a race while hydration was reading empty storage.
+          if (getAuthToken()) return;
           setAuthToken(null);
           setUser(null);
           return;
@@ -100,10 +136,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             setUser(normalized);
             await AsyncStorage.setItem(USER_KEY, JSON.stringify(normalized));
           }
-        } catch {
-          // Keep cached session when /auth/me is temporarily unavailable.
-          // Logging users out here causes a "briefly opens home then back to landing" loop.
+        } catch (err: unknown) {
           if (cancelled) return;
+          const status = (err as { response?: { status?: number } })?.response?.status;
+          // Interceptor logs out only when the current bearer was rejected.
+          // Keep the cached session here so a missing header cannot bounce to login.
+          if (status === 401) {
+            if (!getAuthToken()) return;
+            setUser(normalizeUser(cachedUser));
+            return;
+          }
           setUser(normalizeUser(cachedUser));
         }
       } finally {
@@ -113,7 +155,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [clearSession]);
+
+  // After session is ready, register Expo push token + listen for shop-order taps.
+  useEffect(() => {
+    if (loading || !user) return;
+    void registerForPushNotifications();
+    return attachPushNotificationListeners();
+  }, [loading, user]);
 
   const login = useCallback(async (identifier: string, password: string, mode?: "email" | "username" | "phone") => {
     const raw = identifier.trim();
@@ -136,26 +185,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       throw new Error("Invalid login response from server");
     }
     const normalizedFromLogin = normalizeUser(loggedInUser);
-    setAuthToken(token);
-    await AsyncStorage.multiSet([
-      [TOKEN_KEY, token],
-      [USER_KEY, JSON.stringify(normalizedFromLogin)]
-    ]);
-    // Immediately mark authenticated; refresh profile in background.
+    await persistSession(token, normalizedFromLogin);
+    // Authenticated shell must appear as soon as the session is stored.
+    // Do not await /auth/me — a 401 interceptor used to clear this session and
+    // bounce Android back to login/register after a successful sign-in.
     setUser(normalizedFromLogin);
-    try {
-      const meRes = await authAPI.me();
-      const me = meRes.data?.user ?? null;
-      if (me) {
-        const normalized = normalizeUser(me as User);
-        await AsyncStorage.setItem(USER_KEY, JSON.stringify(normalized));
-        setUser(normalized);
+    void (async () => {
+      try {
+        const meRes = await authAPI.me();
+        const me = meRes.data?.user ?? null;
+        if (me) {
+          const normalized = normalizeUser(me as User);
+          await AsyncStorage.setItem(USER_KEY, JSON.stringify(normalized));
+          setUser(normalized);
+        }
+      } catch {
+        await persistSession(token, normalizedFromLogin);
+        setUser(normalizedFromLogin);
       }
-    } catch {
-      // Keep authenticated session even if profile refresh fails.
-      setUser(normalizedFromLogin);
-    }
-  }, []);
+    })();
+  }, [persistSession]);
 
   const register = useCallback(async (payload: {
     name: string;
@@ -166,6 +215,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     dateOfBirth?: string;
     phone?: string;
     otpToken?: string;
+    emailToken?: string;
   }) => {
     const res = await authAPI.register(payload);
     const { token, user: registeredUser } = readLoginRegisterBody(res);
@@ -173,31 +223,51 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       throw new Error("Invalid registration response from server");
     }
     const normalizedFromRegister = normalizeUser(registeredUser);
-    setAuthToken(token);
-    await AsyncStorage.multiSet([
-      [TOKEN_KEY, token],
-      [USER_KEY, JSON.stringify(normalizedFromRegister)]
-    ]);
-    // Immediately mark authenticated; refresh profile in background.
+    await persistSession(token, normalizedFromRegister);
     setUser(normalizedFromRegister);
-    try {
-      const meRes = await authAPI.me();
-      const me = meRes.data?.user ?? null;
-      if (me) {
-        const normalized = normalizeUser(me as User);
-        await AsyncStorage.setItem(USER_KEY, JSON.stringify(normalized));
-        setUser(normalized);
+    void (async () => {
+      try {
+        const meRes = await authAPI.me();
+        const me = meRes.data?.user ?? null;
+        if (me) {
+          const normalized = normalizeUser(me as User);
+          await AsyncStorage.setItem(USER_KEY, JSON.stringify(normalized));
+          setUser(normalized);
+        }
+      } catch {
+        await persistSession(token, normalizedFromRegister);
+        setUser(normalizedFromRegister);
       }
-    } catch {
-      // Keep authenticated session even if profile refresh fails.
-      setUser(normalizedFromRegister);
-    }
-  }, []);
+    })();
+  }, [persistSession]);
 
   const logout = useCallback(async () => {
-    await AsyncStorage.multiRemove([TOKEN_KEY, USER_KEY]);
-    setAuthToken(null);
-    setUser(null);
+    await clearSession();
+  }, [clearSession]);
+
+  const refreshUser = useCallback(async () => {
+    try {
+      const res = await authAPI.me();
+      const me = res.data?.user ?? null;
+      if (me) {
+        const normalized = normalizeUser(me as User);
+        setUser(normalized);
+        await AsyncStorage.setItem(USER_KEY, JSON.stringify(normalized));
+        return normalized;
+      }
+    } catch {
+      /* keep current */
+    }
+    return null;
+  }, []);
+
+  const applyUserPatch = useCallback(async (patch: Partial<User>) => {
+    setUser((prev) => {
+      if (!prev) return prev;
+      const next = normalizeUser({ ...prev, ...patch });
+      void AsyncStorage.setItem(USER_KEY, JSON.stringify(next));
+      return next;
+    });
   }, []);
 
   const value = useMemo(
@@ -206,9 +276,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       loading,
       login,
       register,
-      logout
+      logout,
+      refreshUser,
+      applyUserPatch
     }),
-    [loading, user, login, register, logout]
+    [loading, user, login, register, logout, refreshUser, applyUserPatch]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -2,11 +2,21 @@ import mongoose, { Schema, Document } from "mongoose";
 
 export type StoreType = "supplier" | "reseller";
 
+/** Seller vertical — keeps Restaurant / Grocery / Essentials catalogs separate. */
+export type StoreVertical = "restaurant" | "grocery" | "essentials";
+
 export interface IStore extends Document {
   userId: mongoose.Types.ObjectId;
   name: string;
   slug: string;
   type: StoreType;
+  /**
+   * Catalog vertical for supplier stores.
+   * - restaurant = Food & Restaurant / kota
+   * - grocery = Groceries pickup
+   * - essentials = default QwertyHub goods (and reseller walls)
+   */
+  vertical?: StoreVertical;
   /** ISO 3166-1 alpha-2 (e.g. ZA, BW) */
   countryCode?: string;
   /** Display country name (e.g. South Africa) */
@@ -15,6 +25,8 @@ export interface IStore extends Document {
   createdBy?: mongoose.Types.ObjectId; // admin who created the store (optional)
   /** Store contact & address (owner editable) */
   address?: string;
+  /** Local area / township label (e.g. Temba Location, Hammanskraal-Rockville) */
+  area?: string;
   /** Public Google Maps / place URL for pickup directions */
   mapsUrl?: string;
   latitude?: number;
@@ -36,11 +48,17 @@ const StoreSchema = new Schema<IStore>(
     name: { type: String, required: true, trim: true },
     slug: { type: String, required: true, trim: true },
     type: { type: String, enum: ["supplier", "reseller"], required: true },
+    vertical: {
+      type: String,
+      enum: ["restaurant", "grocery", "essentials"],
+      default: "essentials",
+    },
     countryCode: { type: String, trim: true, uppercase: true },
     country: { type: String, trim: true },
     supplierId: { type: Schema.Types.ObjectId, ref: "Supplier" },
     createdBy: { type: Schema.Types.ObjectId, ref: "User" },
     address: { type: String, trim: true },
+    area: { type: String, trim: true },
     mapsUrl: { type: String, trim: true },
     latitude: { type: Number },
     longitude: { type: Number },

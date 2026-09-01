@@ -28,6 +28,7 @@ import {
   User,
   UserPlus,
   HeartHandshake,
+  Coffee,
   Music2,
   Maximize2,
   Trash2,
@@ -198,6 +199,7 @@ export interface TVGridItem {
   heading?: string;
   subject?: string;
   hashtags?: string[];
+  taggedUserIds?: Array<{ _id: string; name?: string; username?: string; avatar?: string }>;
   productId?: Product & { _id: string; supplierId?: { userId?: string } | string };
   filter?: string;
   hasWatermark?: boolean;
@@ -1072,6 +1074,23 @@ export function TVGridTile({
           {!item.heading && !item.subject && !item.caption && (
             <p className="text-slate-500 text-sm">Text post</p>
           )}
+          {item.taggedUserIds && item.taggedUserIds.length > 0 ? (
+            <p className="mt-3 text-sm text-slate-600">
+              with{' '}
+              {item.taggedUserIds.map((u, i) => (
+                <span key={u._id}>
+                  {i > 0 ? (i === item.taggedUserIds!.length - 1 ? ' and ' : ', ') : ''}
+                  <Link
+                    href={`/user/${u._id}`}
+                    className="font-semibold text-slate-800 hover:underline"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    {u.name || u.username || 'User'}
+                  </Link>
+                </span>
+              ))}
+            </p>
+          ) : null}
         </div>
       ) : isProductTile ? (
         <div className="relative isolate w-full h-full z-0">
@@ -1377,6 +1396,19 @@ export function TVGridTile({
                     }`}
                   >
                     {headerTitle}
+                    {item.taggedUserIds && item.taggedUserIds.length > 0 ? (
+                      <span className="font-normal text-white/90">
+                        {' '}
+                        with{' '}
+                        {item.taggedUserIds.slice(0, 3).map((u, i) => (
+                          <span key={u._id}>
+                            {i > 0 ? (i === item.taggedUserIds!.length - 1 || i === 2 ? ' and ' : ', ') : ''}
+                            {u.name || u.username}
+                          </span>
+                        ))}
+                        {item.taggedUserIds.length > 3 ? ` and ${item.taggedUserIds.length - 3} others` : ''}
+                      </span>
+                    ) : null}
                   </p>
                 </div>
               </Link>
@@ -1399,6 +1431,19 @@ export function TVGridTile({
                   }`}
                 >
                   {headerTitle}
+                  {item.taggedUserIds && item.taggedUserIds.length > 0 ? (
+                    <span className="font-normal text-white/90">
+                      {' '}
+                      with{' '}
+                      {item.taggedUserIds.slice(0, 3).map((u, i) => (
+                        <span key={u._id}>
+                          {i > 0 ? (i === item.taggedUserIds!.length - 1 || i === 2 ? ' and ' : ', ') : ''}
+                          {u.name || u.username}
+                        </span>
+                      ))}
+                      {item.taggedUserIds.length > 3 ? ` and ${item.taggedUserIds.length - 3} others` : ''}
+                    </span>
+                  ) : null}
                 </p>
               </div>
             </Link>
@@ -1720,6 +1765,23 @@ export function TVGridTile({
                   )}
                 </p>
               )}
+              {item.taggedUserIds && item.taggedUserIds.length > 0 ? (
+                <p className="mt-1 text-sm text-slate-600">
+                  with{' '}
+                  {item.taggedUserIds.map((u, i) => (
+                    <span key={u._id}>
+                      {i > 0 ? (i === item.taggedUserIds!.length - 1 ? ' and ' : ', ') : ''}
+                      <Link
+                        href={`/user/${u._id}`}
+                        className="font-semibold text-slate-800 hover:underline"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {u.name || u.username || 'User'}
+                      </Link>
+                    </span>
+                  ))}
+                </p>
+              ) : null}
             </>
           )}
           {(item.likeCount ?? 0) > 0 && (
@@ -2110,12 +2172,13 @@ export function TVGridTile({
             <button
               type="button"
               onClick={() => setDonateAmount(String(DONATE_COFFEE_AMOUNT_ZAR))}
-              className={`w-full px-4 py-2.5 rounded-xl text-sm font-semibold border transition-colors mb-4 ${
+              className={`inline-flex w-full items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-semibold border transition-colors mb-4 ${
                 parseFloat(donateAmount) === DONATE_COFFEE_AMOUNT_ZAR && !Number.isNaN(parseFloat(donateAmount))
                   ? 'border-amber-500 bg-amber-50 text-amber-950'
                   : 'border-amber-200 bg-amber-50/90 text-amber-950 hover:bg-amber-100 hover:border-amber-300'
               }`}
             >
+              <Coffee className="h-5 w-5 shrink-0" aria-hidden strokeWidth={2.25} />
               Buy me Coffee R{DONATE_COFFEE_AMOUNT_ZAR}
             </button>
             <div className="flex gap-3">

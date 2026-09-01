@@ -7,6 +7,11 @@ node_modules/
 .expo-shared/
 dist/
 web-build/
+exports/
+exports/**
+**/exports/**
+*.aab
+*.apk
 *.log
 .DS_Store
 Thumbs.db
@@ -21,3 +26,7 @@ credentials/google-play-service-account.json
 credentials/*.jks
 !credentials/play-upload.jks
 !credentials.json
+
+# Unpacked AABs / local verify artifacts (must not ship to EAS)
+**/aab-tar*/
+**/verify-*.aab

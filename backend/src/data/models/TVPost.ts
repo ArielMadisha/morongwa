@@ -16,6 +16,8 @@ export interface ITVPost extends Document {
   subject?: string;
   /** Text post: hashtags (e.g. ["SadioMane", "Senegal"]) */
   hashtags?: string[];
+  /** People / schools tagged on this post (Facebook-style “tagged you”). */
+  taggedUserIds?: mongoose.Types.ObjectId[];
   /** Optional product to promote */
   productId?: mongoose.Types.ObjectId;
   /** True when post was created from a reseller adding a QwertyHub product to their wall (feed ordering + UI) */
@@ -56,6 +58,7 @@ const TVPostSchema = new Schema<ITVPost>(
     heading: { type: String },
     subject: { type: String },
     hashtags: { type: [String], default: [] },
+    taggedUserIds: { type: [{ type: Schema.Types.ObjectId, ref: "User" }], default: [] },
     productId: { type: Schema.Types.ObjectId, ref: "Product" },
     fromResellerWall: { type: Boolean, default: false },
     artworkUrl: { type: String },
@@ -78,6 +81,7 @@ const TVPostSchema = new Schema<ITVPost>(
 );
 
 TVPostSchema.index({ creatorId: 1 });
+TVPostSchema.index({ taggedUserIds: 1 });
 TVPostSchema.index({ status: 1, createdAt: -1 });
 TVPostSchema.index({ status: 1, type: 1, createdAt: -1 });
 TVPostSchema.index({ status: 1, creatorId: 1, createdAt: -1 });

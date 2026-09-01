@@ -1,14 +1,17 @@
 import mongoose from "mongoose";
-import Store, { IStore } from "../data/models/Store";
+import Store, { IStore, StoreVertical } from "../data/models/Store";
 import Supplier from "../data/models/Supplier";
 import { normalizeWhatsappMarketCountries, resolveStoreCountry } from "../config/storeCountries";
 import { slugify } from "./helpers";
+
+const STORE_VERTICALS: StoreVertical[] = ["restaurant", "grocery", "essentials"];
 
 export type StoreUpdateBody = {
   name?: string;
   country?: string;
   countryCode?: string;
   address?: string;
+  area?: string;
   email?: string;
   cellphone?: string;
   whatsapp?: string;
@@ -17,6 +20,7 @@ export type StoreUpdateBody = {
   mapsUrl?: string;
   latitude?: number | null;
   longitude?: number | null;
+  vertical?: StoreVertical | string;
 };
 
 /** Apply owner/admin store field updates; returns whether name changed. */
@@ -46,6 +50,7 @@ export async function applyStoreUpdates(store: IStore, body: StoreUpdateBody): P
     store.countryCode = resolved.countryCode;
   }
   if (body.address !== undefined) store.address = body.address?.trim() || undefined;
+  if (body.area !== undefined) store.area = body.area?.trim() || undefined;
   if (body.mapsUrl !== undefined) store.mapsUrl = body.mapsUrl?.trim() || undefined;
   if (body.latitude !== undefined) {
     if (body.latitude === null || body.latitude === ("" as never)) {
@@ -75,6 +80,18 @@ export async function applyStoreUpdates(store: IStore, body: StoreUpdateBody): P
       store.countryCode
     );
     store.whatsappMarketCountries = normalized.length ? normalized : undefined;
+  }
+  if (body.vertical !== undefined) {
+    const v = String(body.vertical || "")
+      .trim()
+      .toLowerCase() as StoreVertical;
+    if (!STORE_VERTICALS.includes(v)) {
+      throw new Error("Invalid store vertical. Use restaurant, grocery, or essentials.");
+    }
+    if (store.type === "reseller" && v !== "essentials") {
+      throw new Error("Reseller stores use the Essentials vertical only.");
+    }
+    store.vertical = v;
   }
 
   await store.save();

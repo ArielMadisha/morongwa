@@ -14,6 +14,9 @@ After **any** Cursor update or rules reset, verify these files still exist with 
 | This index | `.cursor/rules/recurring-owner-schedules.mdc` |
 | School gallery detail | `.cursor/rules/school-gallery-daily-import.mdc` |
 | EAS Android July release | `.cursor/rules/eas-android-july-build.mdc` |
+| Food/grocery WhatsApp order alert | `.cursor/rules/food-grocery-whatsapp-order-alert.mdc` |
+| Qwertymates iOS App Store | `.cursor/rules/qwertymates-ios-app-store.mdc` |
+| CPU workload balancing | `.cursor/rules/cpu-workload-balancing.mdc` |
 
 ---
 
@@ -101,5 +104,52 @@ See `backend/src/services/worldCupTvService.ts`.
 | `facebookTvIngest.ts` | Sports / WorldNews **Tuesday + Friday** cron slots unless owner changes schedule |
 | `runFacebookNewsBots.ts` | Sports bot **tue + fri** weekdays unless owner changes schedule |
 | `Register-EasAndroidJulyBuildTask.ps1` | Qwertymates task @ **08:00**; ACBPay @ **09:30**; Morongwa Messenger task **disabled** until owner re-enables |
+| `iosStoreCompliance.ts` / iOS `mobile/**` | iOS hide creator tips / Buy me Coffee; iOS filter Facebook/third-party AV; Tracking = No — see `.cursor/rules/qwertymates-ios-app-store.mdc` |
 
 If the owner asks to “speed up school imports”, the answer is still **one school per day** unless they explicitly override this rule.
+
+---
+
+## 6. Food / grocery — **WhatsApp order alert to the shop (mandatory)**
+
+| What | Detail |
+|------|--------|
+| **When** | Customer **pays** a food or grocery order (collection **or** delivery). |
+| **Must** | Merchant/store receives **WhatsApp** order alert (`foodOrderSettlement.ts`). |
+| **Never** | Skip, weaken, or treat Shop Orders / DB-only as “notified”. |
+| **Template** | `TWILIO_WA_ORDER_ALERT_CONTENT_SID` required as freeform fallback (24h window). |
+| **Rule** | `.cursor/rules/food-grocery-whatsapp-order-alert.mdc` (`alwaysApply: true`) |
+
+**Agent checks after Cursor updates:** confirm that rule file exists with `alwaysApply: true`.
+
+---
+
+## 7. Qwertymates iOS App Store — do not re-break accepted conditions
+
+**Owner policy.** iOS (`com.qwertymates.app`, ASC `6798004708`) was accepted after rejections. Future iOS work must keep the App Review gates.
+
+| What | Detail |
+|------|--------|
+| **Never on iOS** | Creator tips / Buy me Coffee / wallet donate for digital content (**3.1.1**); Facebook-ingested / third-party AV catalogs (**5.2.3**); Tracking = Yes / IDFA SDKs without full ATT + ASC alignment |
+| **Metadata** | iOS chrome screenshots only; **ACBPay Wallet** not AGBFryWallet (**2.3.10**) |
+| **Android / web** | May keep tips and Facebook TV — **do not** “unify” by turning iOS gates off |
+| **Rule** | `.cursor/rules/qwertymates-ios-app-store.mdc` (`alwaysApply: true`) |
+| **Code** | `mobile/src/lib/iosStoreCompliance.ts` |
+
+**Agent checks after Cursor updates:** confirm that rule file exists with `alwaysApply: true`. Do **not** re-enable iOS tips or Facebook TV. Huawei AppGallery is a separate track.
+
+---
+
+## 8. CPU workload balancing — **dev machine**
+
+| What | Detail |
+|------|--------|
+| **When** | Before deploy, EAS build, FB multipage, full frontend rebuild, ffmpeg batch, or 3+ heavy subagents on owner PC |
+| **Must** | Run `npm run ops:cpu-status`; enqueue heavy work when CPU ≥ 85% or ≥ 8 heavy node jobs |
+| **Never** | Parallel deploy + EAS + FB multipage on same PC; FB multipage without valid token or >1 instance |
+| **Rule** | `.cursor/rules/cpu-workload-balancing.mdc` (`alwaysApply: true`) |
+| **Queue** | `backend/scripts/cpuAwareTaskQueue.mjs` — `ops:cpu-queue-enqueue`, `ops:cpu-queue-run` |
+| **Cleanup** | `backend/scripts/stopStaleHeavyProcesses.mjs` — `ops:stop-stale-heavy-processes` |
+| **Runbook** | `DOCS/CPU_WORKLOAD_BALANCING.md` |
+
+**Agent checks after Cursor updates:** confirm rule file exists; run `ops:cpu-status` before starting heavy jobs; use queue when blocked.

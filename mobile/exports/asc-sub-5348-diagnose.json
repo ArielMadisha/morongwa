@@ -1,0 +1,379 @@
+{
+  "fetchedAt": "2026-08-16T03:32:26.627Z",
+  "results": {
+    "/v1/apps/6798004708/appStoreVersions?filter[platform]=IOS&limit=20": {
+      "ok": true,
+      "status": 200,
+      "path": "/v1/apps/6798004708/appStoreVersions?filter[platform]=IOS&limit=20",
+      "data": [
+        {
+          "id": "b1ec529b-acc3-4935-b109-8ae6cb94d645",
+          "type": "appStoreVersions",
+          "attributes": {
+            "platform": "IOS",
+            "versionString": "1.0",
+            "appStoreState": "REJECTED",
+            "appVersionState": "REJECTED",
+            "copyright": "2026 ARIEL CAPITAL INVESTMENT (PTY) LTD",
+            "reviewType": "APP_STORE",
+            "releaseType": "AFTER_APPROVAL",
+            "earliestReleaseDate": null,
+            "usesIdfa": false,
+            "downloadable": true,
+            "createdDate": "2026-08-04T13:09:59-07:00"
+          },
+          "relationships": {}
+        }
+      ],
+      "included": []
+    },
+    "/v1/apps/6798004708/reviewSubmissions?filter[platform]=IOS&limit=15": {
+      "ok": true,
+      "status": 200,
+      "path": "/v1/apps/6798004708/reviewSubmissions?filter[platform]=IOS&limit=15",
+      "data": [
+        {
+          "id": "5348e907-c57f-45af-9f69-c3bda9351276",
+          "type": "reviewSubmissions",
+          "attributes": {
+            "platform": "IOS",
+            "submittedDate": "2026-08-13T01:15:57.923Z",
+            "state": "UNRESOLVED_ISSUES"
+          },
+          "relationships": {}
+        },
+        {
+          "id": "baefad44-d63e-4562-a514-a47f3ef799b3",
+          "type": "reviewSubmissions",
+          "attributes": {
+            "platform": "IOS",
+            "submittedDate": "2026-08-09T22:32:23.322Z",
+            "state": "COMPLETE"
+          },
+          "relationships": {}
+        },
+        {
+          "id": "442e5f45-85d3-41ee-82bb-d87bf4d70108",
+          "type": "reviewSubmissions",
+          "attributes": {
+            "platform": "IOS",
+            "submittedDate": "2026-08-05T09:28:15.187Z",
+            "state": "COMPLETE"
+          },
+          "relationships": {}
+        }
+      ],
+      "included": []
+    },
+    "/v1/reviewSubmissions/5348e907-c57f-45af-9f69-c3bda9351276?include=items,appStoreVersionForReview": {
+      "ok": true,
+      "status": 200,
+      "path": "/v1/reviewSubmissions/5348e907-c57f-45af-9f69-c3bda9351276?include=items,appStoreVersionForReview",
+      "data": {
+        "id": "5348e907-c57f-45af-9f69-c3bda9351276",
+        "type": "reviewSubmissions",
+        "attributes": {
+          "submittedDate": "2026-08-13T01:15:57.923Z",
+          "platform": "IOS",
+          "state": "UNRESOLVED_ISSUES"
+        },
+        "relationships": {
+          "appStoreVersionForReview": {
+            "type": "appStoreVersions",
+            "id": "b1ec529b-acc3-4935-b109-8ae6cb94d645"
+          },
+          "items": [
+            {
+              "type": "reviewSubmissionItems",
+              "id": "NTM0OGU5MDctYzU3Zi00NWFmLTlmNjktYzNiZGE5MzUxMjc2fDZ8ODg5MzA5MDg0"
+            }
+          ]
+        }
+      },
+      "included": [
+        {
+          "id": "b1ec529b-acc3-4935-b109-8ae6cb94d645",
+          "type": "appStoreVersions",
+          "attributes": {
+            "copyright": "2026 ARIEL CAPITAL INVESTMENT (PTY) LTD",
+            "downloadable": true,
+            "earliestReleaseDate": null,
+            "createdDate": "2026-08-04T13:09:59-07:00",
+            "usesIdfa": false,
+            "versionString": "1.0",
+            "releaseType": "AFTER_APPROVAL",
+            "appStoreState": "REJECTED",
+            "reviewType": "APP_STORE",
+            "platform": "IOS",
+            "appVersionState": "REJECTED"
+          }
+        },
+        {
+          "id": "NTM0OGU5MDctYzU3Zi00NWFmLTlmNjktYzNiZGE5MzUxMjc2fDZ8ODg5MzA5MDg0",
+          "type": "reviewSubmissionItems",
+          "attributes": {
+            "state": "REJECTED"
+          }
+        }
+      ]
+    },
+    "/v1/reviewSubmissions/5348e907-c57f-45af-9f69-c3bda9351276/items": {
+      "ok": true,
+      "status": 200,
+      "path": "/v1/reviewSubmissions/5348e907-c57f-45af-9f69-c3bda9351276/items",
+      "data": [
+        {
+          "id": "NTM0OGU5MDctYzU3Zi00NWFmLTlmNjktYzNiZGE5MzUxMjc2fDZ8ODg5MzA5MDg0",
+          "type": "reviewSubmissionItems",
+          "attributes": {
+            "state": "REJECTED"
+          },
+          "relationships": {}
+        }
+      ],
+      "included": []
+    },
+    "/v1/reviewSubmissions/baefad44-d63e-4562-a514-a47f3ef799b3?include=items,appStoreVersionForReview": {
+      "ok": true,
+      "status": 200,
+      "path": "/v1/reviewSubmissions/baefad44-d63e-4562-a514-a47f3ef799b3?include=items,appStoreVersionForReview",
+      "data": {
+        "id": "baefad44-d63e-4562-a514-a47f3ef799b3",
+        "type": "reviewSubmissions",
+        "attributes": {
+          "submittedDate": "2026-08-09T22:32:23.322Z",
+          "platform": "IOS",
+          "state": "COMPLETE"
+        },
+        "relationships": {
+          "appStoreVersionForReview": {
+            "type": "appStoreVersions",
+            "id": "b1ec529b-acc3-4935-b109-8ae6cb94d645"
+          },
+          "items": [
+            {
+              "type": "reviewSubmissionItems",
+              "id": "YmFlZmFkNDQtZDYzZS00NTYyLWE1MTQtYTQ3ZjNlZjc5OWIzfDZ8ODg5MzA5MDg0"
+            }
+          ]
+        }
+      },
+      "included": [
+        {
+          "id": "b1ec529b-acc3-4935-b109-8ae6cb94d645",
+          "type": "appStoreVersions",
+          "attributes": {
+            "copyright": "2026 ARIEL CAPITAL INVESTMENT (PTY) LTD",
+            "downloadable": true,
+            "earliestReleaseDate": null,
+            "createdDate": "2026-08-04T13:09:59-07:00",
+            "usesIdfa": false,
+            "versionString": "1.0",
+            "releaseType": "AFTER_APPROVAL",
+            "appStoreState": "REJECTED",
+            "reviewType": "APP_STORE",
+            "platform": "IOS",
+            "appVersionState": "REJECTED"
+          }
+        },
+        {
+          "id": "YmFlZmFkNDQtZDYzZS00NTYyLWE1MTQtYTQ3ZjNlZjc5OWIzfDZ8ODg5MzA5MDg0",
+          "type": "reviewSubmissionItems",
+          "attributes": {
+            "state": "REMOVED"
+          }
+        }
+      ]
+    },
+    "/v1/appStoreVersions/b1ec529b-acc3-4935-b109-8ae6cb94d645?include=build,appStoreVersionSubmission,appStoreReviewDetail": {
+      "ok": true,
+      "status": 200,
+      "path": "/v1/appStoreVersions/b1ec529b-acc3-4935-b109-8ae6cb94d645?include=build,appStoreVersionSubmission,appStoreReviewDetail",
+      "data": {
+        "id": "b1ec529b-acc3-4935-b109-8ae6cb94d645",
+        "type": "appStoreVersions",
+        "attributes": {
+          "platform": "IOS",
+          "versionString": "1.0",
+          "appStoreState": "REJECTED",
+          "appVersionState": "REJECTED",
+          "copyright": "2026 ARIEL CAPITAL INVESTMENT (PTY) LTD",
+          "reviewType": "APP_STORE",
+          "releaseType": "AFTER_APPROVAL",
+          "earliestReleaseDate": null,
+          "usesIdfa": false,
+          "downloadable": true,
+          "createdDate": "2026-08-04T13:09:59-07:00"
+        },
+        "relationships": {
+          "build": {
+            "type": "builds",
+            "id": "ff4d698b-493c-4c4e-ba42-76c1d14e1575"
+          },
+          "appStoreReviewDetail": {
+            "type": "appStoreReviewDetails",
+            "id": "f8ef6338-4f42-4e47-848a-dbd000330639"
+          },
+          "appStoreVersionSubmission": null
+        }
+      },
+      "included": [
+        {
+          "id": "ff4d698b-493c-4c4e-ba42-76c1d14e1575",
+          "type": "builds",
+          "attributes": {
+            "version": "8",
+            "uploadedDate": "2026-08-12T18:12:51-07:00",
+            "expirationDate": "2026-11-10T17:12:51-08:00",
+            "expired": false,
+            "minOsVersion": "15.1",
+            "lsMinimumSystemVersion": "12.0",
+            "computedMinMacOsVersion": "12.0",
+            "computedMinVisionOsVersion": "1.0",
+            "iconAssetToken": {
+              "templateUrl": "https://is1-ssl.mzstatic.com/image/thumb/Purple211/v4/4f/f9/8b/4ff98b2a-6ffc-1495-8203-4b3e0348c3bb/AppIcon76x76@2x_U007eipad.png/{w}x{h}bb.{f}",
+              "width": 152,
+              "height": 152
+            },
+            "processingState": "VALID",
+            "buildAudienceType": "APP_STORE_ELIGIBLE",
+            "usesNonExemptEncryption": false
+          }
+        },
+        {
+          "id": "f8ef6338-4f42-4e47-848a-dbd000330639",
+          "type": "appStoreReviewDetails",
+          "attributes": {
+            "contactFirstName": "Ariel",
+            "contactLastName": "Madisha",
+            "contactPhone": "+27815826899",
+            "contactEmail": "administrator@qwertymates.com",
+            "demoAccountName": null,
+            "demoAccountPassword": null,
+            "demoAccountRequired": false,
+            "notes": "Hello App Review Team,\r\n\r\nThank you for the 12 Aug 2026 review (Submission ID baefad44-d63e-4562-a514-a47f3ef799b3) of Qwertymates 1.0 on iPad Air 11-inch (M3). This new binary addresses both issues.\r\n\r\nGUIDELINE 3.1.1 — Payments / In-App Purchase (tips)\r\nOptional tips associated with digital content have been REMOVED from the iOS app:\r\n• Creator Donate / coffee-cup control on QwertyTV and Wall posts\r\n• “Buy me Coffee” and wallet-donate modal for creators\r\n• School-account Donate button\r\n\r\nDigital content and creator services are not sold via wallet on iOS. We did not implement StoreKit IAP in this pass; we removed the non-IAP tip flows instead.\r\n\r\nWallet Scan QR “Send money” is person-to-person funds transfer (Guideline 3.1.1(b)), not a tip for digital content. QwertyHub checkout is for physical goods (marketplace products, food, groceries) with prepaid delivery — real-world goods, not digital content.\r\n\r\nGUIDELINE 5.2.3 — Intellectual Property / audio-video\r\nQwertyTV and QwertyMusic on iOS are first-party user-generated content. Users upload their own photos, videos, and audio in-app and grant Qwertymates a license under our Terms of Service. They warrant they own or have rights to that content.\r\n\r\nThis iOS binary:\r\n• Does not embed YouTube, Spotify, SoundCloud, or Facebook video catalogs\r\n• Does not download other people’s audio/video to Photos or Files\r\n• “Bookmark” stores a post id in the app only (not a media file download)\r\n• Does not surface Facebook-ingested editorial catalog posts (those remain web/Android only)\r\n\r\nDocumentary evidence of rights and policies:\r\n• Terms of Service: https://www.qwertymates.com/policies/terms-of-service\r\n• Privacy Policy: https://www.qwertymates.com/policies/privacy-policy\r\n• Intellectual Property / copyright & DMCA: https://www.qwertymates.com/policies/intellectual-property\r\n• Acceptable Use: https://www.qwertymates.com/policies/acceptable-use\r\n\r\nTakedown / DMCA: administrator@qwertymates.com. In-app Report is available on every post.\r\n\r\nApp access: Reviewers can register a new account with any email on Sign Up. Production API: https://api.qwertymates.com. Support: administrator@qwertymates.com.\r\n\r\nThank you,\r\nQwertymates Team"
+          }
+        }
+      ]
+    },
+    "/v1/appStoreVersions/b1ec529b-acc3-4935-b109-8ae6cb94d645/appStoreReviewDetail": {
+      "ok": true,
+      "status": 200,
+      "path": "/v1/appStoreVersions/b1ec529b-acc3-4935-b109-8ae6cb94d645/appStoreReviewDetail",
+      "data": {
+        "id": "f8ef6338-4f42-4e47-848a-dbd000330639",
+        "type": "appStoreReviewDetails",
+        "attributes": {
+          "contactFirstName": "Ariel",
+          "contactLastName": "Madisha",
+          "contactPhone": "+27815826899",
+          "contactEmail": "administrator@qwertymates.com",
+          "demoAccountName": null,
+          "demoAccountPassword": null,
+          "demoAccountRequired": false,
+          "notes": "Hello App Review Team,\r\n\r\nThank you for the 12 Aug 2026 review (Submission ID baefad44-d63e-4562-a514-a47f3ef799b3) of Qwertymates 1.0 on iPad Air 11-inch (M3). This new binary addresses both issues.\r\n\r\nGUIDELINE 3.1.1 — Payments / In-App Purchase (tips)\r\nOptional tips associated with digital content have been REMOVED from the iOS app:\r\n• Creator Donate / coffee-cup control on QwertyTV and Wall posts\r\n• “Buy me Coffee” and wallet-donate modal for creators\r\n• School-account Donate button\r\n\r\nDigital content and creator services are not sold via wallet on iOS. We did not implement StoreKit IAP in this pass; we removed the non-IAP tip flows instead.\r\n\r\nWallet Scan QR “Send money” is person-to-person funds transfer (Guideline 3.1.1(b)), not a tip for digital content. QwertyHub checkout is for physical goods (marketplace products, food, groceries) with prepaid delivery — real-world goods, not digital content.\r\n\r\nGUIDELINE 5.2.3 — Intellectual Property / audio-video\r\nQwertyTV and QwertyMusic on iOS are first-party user-generated content. Users upload their own photos, videos, and audio in-app and grant Qwertymates a license under our Terms of Service. They warrant they own or have rights to that content.\r\n\r\nThis iOS binary:\r\n• Does not embed YouTube, Spotify, SoundCloud, or Facebook video catalogs\r\n• Does not download other people’s audio/video to Photos or Files\r\n• “Bookmark” stores a post id in the app only (not a media file download)\r\n• Does not surface Facebook-ingested editorial catalog posts (those remain web/Android only)\r\n\r\nDocumentary evidence of rights and policies:\r\n• Terms of Service: https://www.qwertymates.com/policies/terms-of-service\r\n• Privacy Policy: https://www.qwertymates.com/policies/privacy-policy\r\n• Intellectual Property / copyright & DMCA: https://www.qwertymates.com/policies/intellectual-property\r\n• Acceptable Use: https://www.qwertymates.com/policies/acceptable-use\r\n\r\nTakedown / DMCA: administrator@qwertymates.com. In-app Report is available on every post.\r\n\r\nApp access: Reviewers can register a new account with any email on Sign Up. Production API: https://api.qwertymates.com. Support: administrator@qwertymates.com.\r\n\r\nThank you,\r\nQwertymates Team"
+        },
+        "relationships": {}
+      },
+      "included": []
+    },
+    "/v1/builds?filter[app]=6798004708&sort=-uploadedDate&limit=10": {
+      "ok": true,
+      "status": 200,
+      "path": "/v1/builds?filter[app]=6798004708&sort=-uploadedDate&limit=10",
+      "data": [
+        {
+          "id": "ff4d698b-493c-4c4e-ba42-76c1d14e1575",
+          "type": "builds",
+          "attributes": {
+            "version": "8",
+            "uploadedDate": "2026-08-12T18:12:51-07:00",
+            "expirationDate": "2026-11-10T17:12:51-08:00",
+            "expired": false,
+            "minOsVersion": "15.1",
+            "lsMinimumSystemVersion": "12.0",
+            "computedMinMacOsVersion": "12.0",
+            "computedMinVisionOsVersion": "1.0",
+            "iconAssetToken": {
+              "templateUrl": "https://is1-ssl.mzstatic.com/image/thumb/Purple211/v4/4f/f9/8b/4ff98b2a-6ffc-1495-8203-4b3e0348c3bb/AppIcon76x76@2x_U007eipad.png/{w}x{h}bb.{f}",
+              "width": 152,
+              "height": 152
+            },
+            "processingState": "VALID",
+            "buildAudienceType": "APP_STORE_ELIGIBLE",
+            "usesNonExemptEncryption": false
+          },
+          "relationships": {}
+        },
+        {
+          "id": "e01726c5-86a5-41c8-914b-200a9f945583",
+          "type": "builds",
+          "attributes": {
+            "version": "7",
+            "uploadedDate": "2026-08-04T20:54:22-07:00",
+            "expirationDate": "2026-11-02T19:54:22-08:00",
+            "expired": false,
+            "minOsVersion": "15.1",
+            "lsMinimumSystemVersion": "12.0",
+            "computedMinMacOsVersion": "12.0",
+            "computedMinVisionOsVersion": "1.0",
+            "iconAssetToken": {
+              "templateUrl": "https://is1-ssl.mzstatic.com/image/thumb/Purple221/v4/15/ea/e4/15eae47a-0ed4-3339-a86b-e6a0730cf833/AppIcon76x76@2x_U007eipad.png/{w}x{h}bb.{f}",
+              "width": 152,
+              "height": 152
+            },
+            "processingState": "VALID",
+            "buildAudienceType": "APP_STORE_ELIGIBLE",
+            "usesNonExemptEncryption": false
+          },
+          "relationships": {}
+        }
+      ],
+      "included": []
+    },
+    "/v1/builds/ff4d698b-493c-4c4e-ba42-76c1d14e1575": {
+      "ok": true,
+      "status": 200,
+      "path": "/v1/builds/ff4d698b-493c-4c4e-ba42-76c1d14e1575",
+      "data": {
+        "id": "ff4d698b-493c-4c4e-ba42-76c1d14e1575",
+        "type": "builds",
+        "attributes": {
+          "version": "8",
+          "uploadedDate": "2026-08-12T18:12:51-07:00",
+          "expirationDate": "2026-11-10T17:12:51-08:00",
+          "expired": false,
+          "minOsVersion": "15.1",
+          "lsMinimumSystemVersion": "12.0",
+          "computedMinMacOsVersion": "12.0",
+          "computedMinVisionOsVersion": "1.0",
+          "iconAssetToken": {
+            "templateUrl": "https://is1-ssl.mzstatic.com/image/thumb/Purple211/v4/4f/f9/8b/4ff98b2a-6ffc-1495-8203-4b3e0348c3bb/AppIcon76x76@2x_U007eipad.png/{w}x{h}bb.{f}",
+            "width": 152,
+            "height": 152
+          },
+          "processingState": "VALID",
+          "buildAudienceType": "APP_STORE_ELIGIBLE",
+          "usesNonExemptEncryption": false
+        },
+        "relationships": {}
+      },
+      "included": []
+    },
+    "/v1/reviewSubmissionItems/NTM0OGU5MDctYzU3Zi00NWFmLTlmNjktYzNiZGE5MzUxMjc2fDZ8ODg5MzA5MDg0": {
+      "ok": false,
+      "status": 403,
+      "path": "/v1/reviewSubmissionItems/NTM0OGU5MDctYzU3Zi00NWFmLTlmNjktYzNiZGE5MzUxMjc2fDZ8ODg5MzA5MDg0",
+      "errors": [
+        {
+          "status": "403",
+          "code": "FORBIDDEN_ERROR",
+          "title": "The given operation is not allowed",
+          "detail": "The resource 'reviewSubmissionItems' does not allow 'GET_INSTANCE'. Allowed operations are: CREATE, DELETE, UPDATE"
+        }
+      ],
+      "data": null,
+      "included": []
+    }
+  }
+}

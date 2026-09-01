@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Re-run food/grocery merchant settlement for a paid order (wallet credit idempotent; SMS+WA alert).
+ * Re-run food/grocery merchant settlement for a paid order (wallet credit idempotent; WhatsApp-only alert).
  * Usage: node scripts/resendFoodMerchantAlert.mjs <orderId>
  */
 import "dotenv/config";
@@ -29,3 +29,4 @@ const order = await mongoose.connection.db.collection("orders").findOne(
 );
 console.log(JSON.stringify(order, null, 2));
 await mongoose.disconnect();
+process.exit(0);

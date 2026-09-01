@@ -9,6 +9,7 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { RTCView, RTCIceCandidate, MediaStream } from "react-native-webrtc";
 import { ensureCallMediaPermissions } from "../hooks/useCallMediaPermissions";
 import { getSharedCallSignalingClient } from "../lib/callSignaling";
@@ -53,6 +54,7 @@ export function CallScreen({
   incomingCallerId = "",
   invitedUserIds = [],
 }: CallScreenProps) {
+  const insets = useSafeAreaInsets();
   const [roomId, setRoomId] = useState(initialRoomId || "");
   const [peerUserId, setPeerUserId] = useState(initialPeerUserId);
   const [peerName] = useState(initialPeerName || "Contact");
@@ -698,16 +700,23 @@ export function CallScreen({
               {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.btnPrimaryText}>Call again</Text>}
             </Pressable>
           ) : null}
-          <Pressable
-            onPress={() => {
-              endCall(true);
-            }}
-            style={styles.btnDanger}
-          >
-            <Text style={styles.btnDangerText}>Hang up</Text>
-          </Pressable>
         </View>
       </ScrollView>
+
+      {/* Sticky hang-up — always above Android nav / scroll content */}
+      <View style={[styles.hangUpBar, { paddingBottom: Math.max(insets.bottom, 12) }]}>
+        <Pressable
+          onPress={() => {
+            endCall(true);
+            onClose();
+          }}
+          style={styles.btnDanger}
+          accessibilityRole="button"
+          accessibilityLabel="Hang up"
+        >
+          <Text style={styles.btnDangerText}>Hang up</Text>
+        </Pressable>
+      </View>
     </View>
   );
 }
@@ -820,6 +829,13 @@ const styles = StyleSheet.create({
   },
   vidPhText: { color: "#64748b", fontSize: 12 },
   actions: { gap: 10, marginTop: 16 },
+  hangUpBar: {
+    borderTopWidth: 1,
+    borderTopColor: "#1e293b",
+    backgroundColor: "#0f172a",
+    paddingHorizontal: 16,
+    paddingTop: 12,
+  },
   btn: {
     borderWidth: 1,
     borderColor: "#334155",

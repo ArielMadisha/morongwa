@@ -3,14 +3,17 @@ import type { Request } from "express";
 import rateLimit from "express-rate-limit";
 
 /** Prefer real client IP when behind nginx / Cloudflare (shared NAT must not share one bucket). */
-function clientIpKey(req: Request): string {
+export function clientIpKey(req: Request): string {
+  // Cloudflare sets this; prefer over client-spoofable X-Forwarded-For.
+  const cf = req.headers["cf-connecting-ip"];
+  if (typeof cf === "string" && cf.trim()) return cf.trim();
+  // With `trust proxy` set, Express derives req.ip from the trusted hop chain.
+  if (req.ip && req.ip !== "::1" && req.ip !== "127.0.0.1") return req.ip;
   const xff = req.headers["x-forwarded-for"];
   if (typeof xff === "string" && xff.trim()) {
     const first = xff.split(",")[0]?.trim();
     if (first) return first;
   }
-  const cf = req.headers["cf-connecting-ip"];
-  if (typeof cf === "string" && cf.trim()) return cf.trim();
   return req.ip || "unknown";
 }
 
@@ -46,6 +49,9 @@ export const authLimiter = rateLimit({
   max: process.env.NODE_ENV === "development" ? 100 : 20,
   message: "Too many authentication attempts, please try again in 15 minutes",
   skipSuccessfulRequests: true,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: clientIpKey,
 });
 
 /** Stricter limit for OTP send - prevents SMS/WhatsApp abuse and Twilio cost exhaustion. */
@@ -65,6 +71,7 @@ export const passwordResetLimiter = rateLimit({
   message: "Too many password reset requests. Please try again later.",
   standardHeaders: true,
   legacyHeaders: false,
+  keyGenerator: clientIpKey,
 });
 
 /** Registration limiter: counts successful + failed attempts to prevent farming accounts. */
@@ -75,12 +82,16 @@ export const registerLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   skipSuccessfulRequests: false,
+  keyGenerator: clientIpKey,
 });
 
 export const strictLimiter = rateLimit({
   windowMs: 60 * 60 * 1000, // 1 hour
   max: 10,
   message: "Too many requests, please try again later",
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: clientIpKey,
 });
 
 /** Stricter limits for wallet and payment routes (financial abuse prevention). */

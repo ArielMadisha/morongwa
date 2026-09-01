@@ -181,24 +181,31 @@ export async function fetchWebContextForMacGyver(query: string): Promise<MacGyve
 
   const topic = extractSearchTopic(q);
 
-  const tavily = await searchTavily(topic);
-  if (tavily?.contextBlock) return tavily;
-
-  // Prefer DuckDuckGo instant answers for natural-language questions (Wikipedia title
-  // search is noisy on long prompts like "explain X in two sentences").
-  if (looksLikeQuestion(q)) {
-    const ddgFirst = await searchDuckDuckGoInstant(topic);
-    if (ddgFirst?.contextBlock) return ddgFirst;
-    const wikiQ = await searchWikipedia(topic);
-    if (wikiQ?.contextBlock) return wikiQ;
-    return { contextBlock: "", sources: [] };
+  const queryVariants = [topic, q];
+  if (topic.includes(" ") && !topic.includes("-")) {
+    queryVariants.push(topic.replace(/\s+/g, "-"));
   }
 
-  const wiki = await searchWikipedia(topic);
-  if (wiki?.contextBlock) return wiki;
+  for (const variant of queryVariants) {
+    if (!variant || variant.length < 2) continue;
+    const tavily = await searchTavily(variant);
+    if (tavily?.contextBlock) return tavily;
+  }
 
-  const ddg = await searchDuckDuckGoInstant(topic);
-  if (ddg?.contextBlock) return ddg;
+  for (const variant of queryVariants) {
+    if (!variant || variant.length < 2) continue;
+    if (looksLikeQuestion(q)) {
+      const ddgFirst = await searchDuckDuckGoInstant(variant);
+      if (ddgFirst?.contextBlock) return ddgFirst;
+      const wikiQ = await searchWikipedia(variant);
+      if (wikiQ?.contextBlock) return wikiQ;
+    } else {
+      const wiki = await searchWikipedia(variant);
+      if (wiki?.contextBlock) return wiki;
+      const ddg = await searchDuckDuckGoInstant(variant);
+      if (ddg?.contextBlock) return ddg;
+    }
+  }
 
   return { contextBlock: "", sources: [] };
 }

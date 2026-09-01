@@ -77,8 +77,21 @@ yarn.lock
 morongwa-frontend-only.tgz
 morongwa-backend-deploy.tgz
 _morongwa_full_deploy.tgz
+/*.tgz
+/*.tar.gz
 _pack_frontend/
 _pack_backend/
 
+# Local backups / temp clutter (keep archives outside the repo)
+Qwertymates-backups/
+.tmp-*
+*.tmp.html
+
 # Local script/export state (PII, import batches, task logs)
 backend/exports/
+
+# Accidental Android bundle unpack (never commit)
+mobile/BUNDLE-METADATA/
+mobile/META-INF/
+mobile/base/
+mobile/BundleConfig.pb

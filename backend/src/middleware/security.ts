@@ -50,11 +50,18 @@ export const validateInput = (req: Request, res: Response, next: NextFunction): 
   };
 
   if (checkValue(req.body) || checkValue(req.query)) {
+    // Do not log full body/query — may contain passwords, OTPs, or PII.
     logger.warn("Suspicious input detected", {
       path: req.path,
       ip: req.ip,
-      body: req.body,
-      query: req.query,
+      bodyKeys:
+        req.body && typeof req.body === "object" && !Array.isArray(req.body)
+          ? Object.keys(req.body as object).slice(0, 40)
+          : undefined,
+      queryKeys:
+        req.query && typeof req.query === "object"
+          ? Object.keys(req.query as object).slice(0, 40)
+          : undefined,
     });
     res.status(400).json({ error: "Invalid input detected" });
     return;

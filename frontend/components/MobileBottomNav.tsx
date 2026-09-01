@@ -3,33 +3,33 @@
 import { useState } from 'react';
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
-import { LayoutGrid, Package, Search, ShoppingCart, Tv, Wallet } from 'lucide-react';
+import { Package, Search, ShoppingCart, Tv, Wallet } from 'lucide-react';
 import { TransparentIcon } from '@/components/TransparentIcon';
 
 interface MobileBottomNavProps {
   cartCount?: number;
   hasStore?: boolean;
+  /** Inside CollapsibleBottomChrome — parent handles fixed positioning. */
+  embedded?: boolean;
 }
 
 const tapTarget = 'min-h-[44px] min-w-[44px] inline-flex flex-col items-center justify-center gap-0.5';
 
-export function MobileBottomNav({ cartCount = 0, hasStore }: MobileBottomNavProps) {
+export function MobileBottomNav({ cartCount = 0, hasStore, embedded = false }: MobileBottomNavProps) {
   const pathname = usePathname();
 
-  const isActive = (href: string) =>
-    pathname === href || (href !== '/' && pathname.startsWith(href));
+  /** QwertyTV and QwertyMusic live inside QwertyMedia, so they keep the media tab lit. */
+  const MEDIA_PATHS = ['/qwerty-media', '/morongwa-tv', '/qwerty-music'];
+
+  const isActive = (href: string) => {
+    if (href === '/qwerty-media') return MEDIA_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`));
+    return pathname === href || (href !== '/' && pathname.startsWith(href));
+  };
 
   // Same brand icons as AppSidebar (public/*.png)
   const baseItems = [
+    { href: '/qwerty-media', label: 'QwertyMedia', iconSrc: '/qwertymedia-icon.png' as const, transparentIcon: true as const, fallbackIcon: Tv },
     { href: '/marketplace', label: 'QwertyHub', iconSrc: '/qwertyhub-icon.png' as const, fallbackIcon: Package },
-    { href: '/morongwa-tv', label: 'QwertyTV', iconSrc: '/qwertytv-icon.png' as const, fallbackIcon: Tv },
-    {
-      href: '/qwerty-world',
-      label: 'QwertyWorld',
-      iconSrc: '/qwertyworld-icon.png' as const,
-      transparentIcon: true as const,
-      fallbackIcon: LayoutGrid,
-    },
     { href: '/wallet', label: 'ACBPayWallet', iconSrc: '/wallet-icon.png' as const, fallbackIcon: Wallet },
     { href: '/cart', label: 'Cart', iconSrc: '/cart-icon.png' as const, badge: cartCount, fallbackIcon: ShoppingCart },
     { href: '/search', label: 'Ask MacGyver', icon: Search, isAsk: true },
@@ -46,7 +46,9 @@ export function MobileBottomNav({ cartCount = 0, hasStore }: MobileBottomNavProp
 
   return (
     <nav
-      className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-white border-t border-slate-100 shadow-lg"
+      className={`md:hidden bg-white border-t border-slate-100 shadow-lg ${
+        embedded ? 'relative w-full' : 'fixed bottom-0 left-0 right-0 z-50'
+      }`}
       style={{ paddingBottom: 'max(env(safe-area-inset-bottom, 0px), 8px)' }}
       aria-label="Bottom navigation"
     >

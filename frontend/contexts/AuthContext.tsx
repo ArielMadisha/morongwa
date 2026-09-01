@@ -1,8 +1,8 @@
 'use client';
 
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { lsGetItem, lsRemoveItem, lsSetItem } from '@/lib/browserStorage';
-import { authAPI, policiesAPI } from '@/lib/api';
+import { authAPI, isAuthClearedErrorMessage, policiesAPI, syncAuthTokenMemory } from '@/lib/api';
 import { User } from '@/lib/types';
 import { normalizeClientUser } from '@/lib/userDisplayLabel';
 import toast from 'react-hot-toast';
@@ -11,7 +11,7 @@ interface AuthContextType {
   user: User | null;
   loading: boolean;
   login: (emailOrPhoneOrUsername: string, password: string, usePhone?: boolean, useUsername?: boolean) => Promise<void>;
-  register: (name: string, email: string, password: string, role: string[], policyAcceptances?: string[], dateOfBirth?: string) => Promise<void>;
+  register: (name: string, email: string, password: string, role: string[], policyAcceptances?: string[], dateOfBirth?: string, emailToken?: string) => Promise<void>;
   registerWithOtp?: (data: { name: string; password: string; dateOfBirth: string; otpToken: string; policyAcceptances?: string[] }) => Promise<void>;
   logout: () => void;
   refreshUser: () => Promise<void>;
@@ -44,9 +44,42 @@ function readAuthEnvelope(payload: unknown): AuthEnvelope {
   return { token, user };
 }
 
+function persistSession(token: string, user: User): void {
+  lsSetItem('token', token);
+  lsSetItem('user', JSON.stringify(user));
+  syncAuthTokenMemory(token);
+}
+
+function clearSessionStorage(): void {
+  lsRemoveItem('token');
+  lsRemoveItem('user');
+  syncAuthTokenMemory(null);
+}
+
+function authErrorStatus(err: unknown): number {
+  return Number((err as { response?: { status?: number } })?.response?.status || 0);
+}
+
+function authErrorMessage(err: unknown): string {
+  const data = (err as { response?: { data?: { error?: string; message?: string } | string } })?.response?.data;
+  if (typeof data === 'string') return data;
+  return String(data?.error || data?.message || '');
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+
+  const clearSession = useCallback(() => {
+    clearSessionStorage();
+    setUser(null);
+  }, []);
+
+  useEffect(() => {
+    const onCleared = () => setUser(null);
+    window.addEventListener('qwertymates:auth-cleared', onCleared);
+    return () => window.removeEventListener('qwertymates:auth-cleared', onCleared);
+  }, []);
 
   useEffect(() => {
     try {
@@ -54,14 +87,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const savedUser = lsGetItem('user');
 
       if (!token || !savedUser) {
+        syncAuthTokenMemory(null);
         setLoading(false);
         return;
       }
 
+      syncAuthTokenMemory(token);
+
       try {
         const parsed = normalizeClientUser(JSON.parse(savedUser) as User) as User;
         setUser(parsed);
-        // Validate token with backend - prevents showing "logged in" with expired/invalid token
+        // Soft-validate token — keep cached session on flaky mobile networks.
+        // Hard clear only when the API confirms the bearer is invalid (interceptor also handles this).
         authAPI
           .getCurrentUser()
           .then((res) => {
@@ -77,15 +114,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               lsSetItem('user', JSON.stringify(normalized));
             }
           })
-          .catch(() => {
-            lsRemoveItem('token');
-            lsRemoveItem('user');
-            setUser(null);
+          .catch((err: unknown) => {
+            const status = authErrorStatus(err);
+            const msg = authErrorMessage(err);
+            if (status === 401 && isAuthClearedErrorMessage(msg)) {
+              // Interceptor may already have bounced; keep UI consistent if not.
+              if (!lsGetItem('token')) {
+                setUser(null);
+                return;
+              }
+              clearSessionStorage();
+              setUser(null);
+              return;
+            }
+            // Network / 5xx / timeout: keep cached session so mobile web does not log out.
+            setUser(parsed);
           })
           .finally(() => setLoading(false));
       } catch {
-        lsRemoveItem('token');
-        lsRemoveItem('user');
+        clearSessionStorage();
         setUser(null);
         setLoading(false);
       }
@@ -109,10 +156,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       const normalized = normalizeClientUser(userData as User) as User;
-      lsSetItem('token', token);
-      lsSetItem('user', JSON.stringify(normalized));
+      persistSession(token, normalized);
       setUser(normalized);
-      
+
       toast.success('Login successful!');
     } catch (error: any) {
       const isNetworkError = !error.response && (error.code === 'ERR_NETWORK' || error.message === 'Network Error');
@@ -124,17 +170,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const register = async (name: string, email: string, password: string, role: string[], acceptSlugs: string[] = [], dateOfBirth?: string) => {
+  const register = async (name: string, email: string, password: string, role: string[], acceptSlugs: string[] = [], dateOfBirth?: string, emailToken?: string) => {
     try {
-      const response = await authAPI.register({ name, email, password, role, dateOfBirth });
+      const response = await authAPI.register({ name, email, password, role, dateOfBirth, emailToken });
       const { token, user: userData } = readAuthEnvelope(response.data);
       if (!token || !userData) {
         throw new Error('Invalid registration response from server');
       }
 
       const normalized = normalizeClientUser(userData as User) as User;
-      lsSetItem('token', token);
-      lsSetItem('user', JSON.stringify(normalized));
+      persistSession(token, normalized);
       setUser(normalized);
 
       // Record policy acceptances for ToS/Privacy when provided
@@ -146,13 +191,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           console.error('Failed to record policy acceptance', acceptErr);
         }
       }
-      
+
       toast.success('Registration successful!');
     } catch (error: any) {
       const isNetworkError = !error.response && (error.code === 'ERR_NETWORK' || error.message === 'Network Error');
       const message = isNetworkError
         ? 'Cannot reach the server. Start the backend: cd backend && npm run dev'
-        : (error.response?.data?.error || 'Registration failed');
+        : (error.response?.data?.error || error.response?.data?.message || 'Registration failed');
       toast.error(message);
       throw error;
     }
@@ -173,8 +218,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       const normalized = normalizeClientUser(userData as User) as User;
-      lsSetItem('token', token);
-      lsSetItem('user', JSON.stringify(normalized));
+      persistSession(token, normalized);
       setUser(normalized);
 
       if (data.policyAcceptances?.length) {
@@ -184,7 +228,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           console.error('Failed to record policy acceptance', acceptErr);
         }
       }
-      
+
       toast.success('Registration successful!');
     } catch (error: any) {
       const isNetworkError = !error.response && (error.code === 'ERR_NETWORK' || error.message === 'Network Error');
@@ -197,9 +241,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const logout = () => {
-    lsRemoveItem('token');
-    lsRemoveItem('user');
-    setUser(null);
+    clearSession();
     toast.success('Logged out successfully');
   };
 
@@ -218,7 +260,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         lsSetItem('user', JSON.stringify(normalized));
       }
     } catch {
-      // Ignore - user may have logged out
+      // Ignore — keep cached user; interceptor clears only on confirmed invalid bearer
     }
   };
 

@@ -61,6 +61,12 @@ export interface IProduct extends Document {
   /** Facebook Page post id when auto-posted to Qwertymates Page */
   facebookPostId?: string;
   facebookPostedAt?: Date;
+  /**
+   * Per-Page marketplace posts (pageId → postId). Used so the same product can be
+   * posted once to Qwertymates, BMedia.Online, BuyAfrika, etc. without duplicates.
+   * Qwertymates also keeps legacy facebookPostId in sync.
+   */
+  facebookPagePosts?: Record<string, { postId: string; postedAt?: Date }>;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -131,6 +137,7 @@ const ProductSchema = new Schema<IProduct>(
     active: { type: Boolean, default: true },
     facebookPostId: { type: String, index: true, sparse: true },
     facebookPostedAt: { type: Date },
+    facebookPagePosts: { type: Schema.Types.Mixed, default: undefined },
   },
   { timestamps: true }
 );

@@ -11,7 +11,8 @@ import {
 } from "react-native";
 import { cartAPI, storesAPI, toAbsoluteMediaUrl } from "../lib/api";
 import { currencyForCountry, detectCountryCode, formatMoney } from "../lib/geoCurrency";
-import { CartItem, StoreSummary } from "../types";
+import { normalizeProductSizes } from "../lib/productSizes";
+import { CartItem, ProductColorOption, StoreSummary } from "../types";
 import { appTypography, socialTheme } from "../theme/socialTheme";
 
 type CartScreenProps = {
@@ -22,6 +23,34 @@ type CartScreenProps = {
 };
 
 type Segment = "cart" | "store";
+
+function cartLineKey(item: CartItem): string {
+  return [
+    item.productId,
+    item.selectedColor || "",
+    item.selectedSize || "",
+    item.resellerId || ""
+  ].join("|");
+}
+
+function productColorsOf(item: CartItem): ProductColorOption[] {
+  const raw = item.product?.colors;
+  return Array.isArray(raw)
+    ? raw.filter((c): c is ProductColorOption => Boolean(c?.name && c?.hex))
+    : [];
+}
+
+function productSizesOf(item: CartItem): string[] {
+  return normalizeProductSizes(Array.isArray(item.product?.sizes) ? item.product!.sizes : []);
+}
+
+function lineVariantsComplete(item: CartItem): boolean {
+  const colors = productColorsOf(item);
+  const sizes = productSizesOf(item);
+  if (colors.length > 0 && !String(item.selectedColor || "").trim()) return false;
+  if (sizes.length > 0 && !String(item.selectedSize || "").trim()) return false;
+  return true;
+}
 
 export function CartScreen({ refreshKey, onCheckout, onContinueShopping, onCartCountChange }: CartScreenProps) {
   const deviceCurrency = currencyForCountry(detectCountryCode());
@@ -34,6 +63,8 @@ export function CartScreen({ refreshKey, onCheckout, onContinueShopping, onCartC
   const [stores, setStores] = useState<StoreSummary[]>([]);
   const [storesLoading, setStoresLoading] = useState(false);
   const [storesRefreshing, setStoresRefreshing] = useState(false);
+
+  const cartReady = useMemo(() => items.length > 0 && items.every(lineVariantsComplete), [items]);
 
   const loadCart = useCallback(async () => {
     try {
@@ -83,21 +114,52 @@ export function CartScreen({ refreshKey, onCheckout, onContinueShopping, onCartC
   );
   const subtotalCurrency = items[0]?.product?.currency || deviceCurrency;
 
-  const updateQty = async (productId: string, qty: number) => {
+  const updateQty = async (item: CartItem, qty: number) => {
     if (qty < 1) return;
-    setUpdatingId(productId);
+    const key = cartLineKey(item);
+    setUpdatingId(key);
     try {
-      await cartAPI.updateItem(productId, qty);
+      await cartAPI.updateItem(
+        item.productId,
+        qty,
+        item.selectedColor || undefined,
+        item.selectedSize || undefined
+      );
       await loadCart();
     } finally {
       setUpdatingId(null);
     }
   };
 
-  const removeItem = async (productId: string) => {
-    setUpdatingId(productId);
+  const updateVariant = async (
+    item: CartItem,
+    opts: { updateColor?: string; updateSize?: string }
+  ) => {
+    const key = cartLineKey(item);
+    setUpdatingId(key);
     try {
-      await cartAPI.removeItem(productId);
+      await cartAPI.updateItem(
+        item.productId,
+        item.qty,
+        item.selectedColor || undefined,
+        item.selectedSize || undefined,
+        opts
+      );
+      await loadCart();
+    } finally {
+      setUpdatingId(null);
+    }
+  };
+
+  const removeItem = async (item: CartItem) => {
+    const key = cartLineKey(item);
+    setUpdatingId(key);
+    try {
+      await cartAPI.removeItem(
+        item.productId,
+        item.selectedColor || undefined,
+        item.selectedSize || undefined
+      );
       await loadCart();
     } finally {
       setUpdatingId(null);
@@ -187,7 +249,7 @@ export function CartScreen({ refreshKey, onCheckout, onContinueShopping, onCartC
       ) : (
         <FlatList
           data={items}
-          keyExtractor={(item) => item.productId}
+          keyExtractor={(item) => cartLineKey(item)}
           contentContainerStyle={styles.listContent}
           refreshControl={
             <RefreshControl
@@ -215,7 +277,16 @@ export function CartScreen({ refreshKey, onCheckout, onContinueShopping, onCartC
                 <Text style={styles.summaryText}>
                   Subtotal ({items.length} items): {formatMoney(subtotal, subtotalCurrency)}
                 </Text>
-                <Pressable style={styles.checkoutBtn} onPress={onCheckout}>
+                {!cartReady ? (
+                  <Text style={styles.variantWarn}>
+                    Select size and color for each item before checkout.
+                  </Text>
+                ) : null}
+                <Pressable
+                  style={[styles.checkoutBtn, !cartReady && styles.checkoutBtnDisabled]}
+                  onPress={onCheckout}
+                  disabled={!cartReady}
+                >
                   <Text style={styles.checkoutText}>Proceed to checkout</Text>
                 </Pressable>
                 <Pressable style={styles.continueBtn} onPress={onContinueShopping}>
@@ -225,8 +296,11 @@ export function CartScreen({ refreshKey, onCheckout, onContinueShopping, onCartC
             ) : null
           }
           renderItem={({ item }) => {
-            const disabled = updatingId === item.productId;
+            const key = cartLineKey(item);
+            const disabled = updatingId === key;
             const imageUrl = toAbsoluteMediaUrl(item.product?.images?.[0]);
+            const colors = productColorsOf(item);
+            const sizes = productSizesOf(item);
             return (
               <View style={styles.itemCard}>
                 {imageUrl ? (
@@ -241,11 +315,75 @@ export function CartScreen({ refreshKey, onCheckout, onContinueShopping, onCartC
                   <Text style={styles.itemPrice}>
                     {formatMoney(item.product?.price || 0, item.product?.currency || deviceCurrency)}
                   </Text>
+                  {(item.selectedSize || item.selectedColor) && (
+                    <Text style={styles.variantMeta}>
+                      {[
+                        item.selectedSize ? `Size ${item.selectedSize}` : null,
+                        item.selectedColor ? `Color ${item.selectedColor}` : null
+                      ]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </Text>
+                  )}
+                  {sizes.length > 0 ? (
+                    <View style={styles.variantBlock}>
+                      <Text style={styles.variantLabel}>Size</Text>
+                      <View style={styles.chipRow}>
+                        {sizes.map((size) => {
+                          const active = size === item.selectedSize;
+                          return (
+                            <Pressable
+                              key={size}
+                              disabled={disabled}
+                              onPress={() => void updateVariant(item, { updateSize: size })}
+                              style={[
+                                styles.chip,
+                                active && styles.chipActive,
+                                !item.selectedSize && styles.chipWarn
+                              ]}
+                            >
+                              <Text style={[styles.chipText, active && styles.chipTextActive]}>{size}</Text>
+                            </Pressable>
+                          );
+                        })}
+                      </View>
+                    </View>
+                  ) : null}
+                  {colors.length > 0 ? (
+                    <View style={styles.variantBlock}>
+                      <Text style={styles.variantLabel}>Color</Text>
+                      <View style={styles.chipRow}>
+                        {colors.map((color) => {
+                          const active = color.name === item.selectedColor;
+                          return (
+                            <Pressable
+                              key={`${color.name}-${color.imageIndex ?? 0}`}
+                              disabled={disabled}
+                              onPress={() => void updateVariant(item, { updateColor: color.name })}
+                              style={[
+                                styles.chip,
+                                styles.colorChip,
+                                active && styles.chipActive,
+                                !item.selectedColor && styles.chipWarn
+                              ]}
+                            >
+                              <View
+                                style={[styles.swatch, { backgroundColor: color.hex || "#cbd5e1" }]}
+                              />
+                              <Text style={[styles.chipText, active && styles.chipTextActive]}>
+                                {color.name}
+                              </Text>
+                            </Pressable>
+                          );
+                        })}
+                      </View>
+                    </View>
+                  ) : null}
                   <View style={styles.qtyRow}>
                     <Pressable
                       style={[styles.qtyBtn, disabled && styles.disabled]}
                       disabled={disabled || item.qty <= 1}
-                      onPress={() => void updateQty(item.productId, item.qty - 1)}
+                      onPress={() => void updateQty(item, item.qty - 1)}
                     >
                       <Text style={styles.qtyBtnText}>-</Text>
                     </Pressable>
@@ -253,14 +391,14 @@ export function CartScreen({ refreshKey, onCheckout, onContinueShopping, onCartC
                     <Pressable
                       style={[styles.qtyBtn, disabled && styles.disabled]}
                       disabled={disabled}
-                      onPress={() => void updateQty(item.productId, item.qty + 1)}
+                      onPress={() => void updateQty(item, item.qty + 1)}
                     >
                       <Text style={styles.qtyBtnText}>+</Text>
                     </Pressable>
                     <Pressable
                       style={[styles.removeBtn, disabled && styles.disabled]}
                       disabled={disabled}
-                      onPress={() => void removeItem(item.productId)}
+                      onPress={() => void removeItem(item)}
                     >
                       <Text style={styles.removeText}>Remove</Text>
                     </Pressable>
@@ -434,6 +572,67 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     fontSize: 13
   },
+  variantMeta: {
+    ...appTypography.meta,
+    color: socialTheme.textSecondary,
+    fontSize: 11
+  },
+  variantBlock: {
+    gap: 6
+  },
+  variantLabel: {
+    ...appTypography.meta,
+    fontWeight: "700",
+    color: socialTheme.textSecondary,
+    fontSize: 11
+  },
+  chipRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6
+  },
+  chip: {
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+    backgroundColor: "#fff",
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 5
+  },
+  colorChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    borderRadius: 999
+  },
+  chipActive: {
+    borderColor: "#0ea5e9",
+    backgroundColor: "#f0f9ff"
+  },
+  chipWarn: {
+    borderColor: "#fbbf24",
+    backgroundColor: "#fffbeb"
+  },
+  chipText: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: "#334155"
+  },
+  chipTextActive: {
+    color: "#0c4a6e"
+  },
+  swatch: {
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "#94a3b8"
+  },
+  variantWarn: {
+    ...appTypography.meta,
+    color: "#b45309",
+    fontWeight: "600"
+  },
   qtyRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -507,6 +706,9 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     alignItems: "center",
     paddingVertical: 9
+  },
+  checkoutBtnDisabled: {
+    opacity: 0.45
   },
   checkoutText: {
     color: "#1d4ed8",

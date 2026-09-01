@@ -63,8 +63,8 @@ export default function RootLayout({
             <CallPresenceProvider>
             <CurrencyProvider>
             <TranslationProvider>
-              <div className="min-h-screen flex flex-col">
-                <div className="flex-1">{children}</div>
+              <div className="min-h-screen max-w-[100%] flex flex-col overflow-x-hidden">
+                <div className="flex-1 min-w-0">{children}</div>
                 <MorongwaChatButton />
               </div>
               <Toaster 

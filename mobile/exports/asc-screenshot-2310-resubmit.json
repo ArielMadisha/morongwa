@@ -1,0 +1,75 @@
+{
+  "steps": [
+    {
+      "clearCancel": "5348e907-c57f-45af-9f69-c3bda9351276",
+      "ok": false,
+      "status": 409,
+      "message": "PATCH /v1/reviewSubmissions/5348e907-c57f-45af-9f69-c3bda9351276 409"
+    },
+    {
+      "deleteItem": "NTM0OGU5MDctYzU3Zi00NWFmLTlmNjktYzNiZGE5MzUxMjc2fDZ8ODg5MzA5MDg0",
+      "ok": false,
+      "status": 404,
+      "err": {
+        "errors": [
+          {
+            "id": "1fbe3dc1-8062-41f0-8254-9ca4cbb8a589",
+            "status": "404",
+            "code": "NOT_FOUND",
+            "title": "Not found",
+            "detail": "Resource reviewSubmissionItems with id NTM0OGU5MDctYzU3Zi00NWFmLTlmNjktYzNiZGE5MzUxMjc2fDZ8ODg5MzA5MDg0 cannot be found"
+          }
+        ]
+      }
+    },
+    {
+      "clearCancel": "ebae8855-6258-45f3-829d-c010478415eb",
+      "ok": false,
+      "status": 409,
+      "message": "PATCH /v1/reviewSubmissions/ebae8855-6258-45f3-829d-c010478415eb 409"
+    },
+    {
+      "poll": 0,
+      "versionState": "REJECTED"
+    },
+    {
+      "addItem": true,
+      "subId": "ebae8855-6258-45f3-829d-c010478415eb"
+    },
+    {
+      "submit": true,
+      "state": "WAITING_FOR_REVIEW"
+    }
+  ],
+  "submitted": true,
+  "submissionId": "ebae8855-6258-45f3-829d-c010478415eb",
+  "submitState": "WAITING_FOR_REVIEW",
+  "versionState": "WAITING_FOR_REVIEW",
+  "submissions": [
+    {
+      "id": "7940d686-9da7-4b95-81d0-1fda049de8e5",
+      "state": "READY_FOR_REVIEW",
+      "submittedDate": null
+    },
+    {
+      "id": "ebae8855-6258-45f3-829d-c010478415eb",
+      "state": "WAITING_FOR_REVIEW",
+      "submittedDate": "2026-08-16T03:43:58.282Z"
+    },
+    {
+      "id": "5348e907-c57f-45af-9f69-c3bda9351276",
+      "state": "COMPLETE",
+      "submittedDate": "2026-08-13T01:15:57.923Z"
+    },
+    {
+      "id": "baefad44-d63e-4562-a514-a47f3ef799b3",
+      "state": "COMPLETE",
+      "submittedDate": "2026-08-09T22:32:23.322Z"
+    },
+    {
+      "id": "442e5f45-85d3-41ee-82bb-d87bf4d70108",
+      "state": "COMPLETE",
+      "submittedDate": "2026-08-05T09:28:15.187Z"
+    }
+  ]
+}

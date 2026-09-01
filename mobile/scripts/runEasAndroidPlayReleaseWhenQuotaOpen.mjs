@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
- * Run full Play release when Expo quota is open (from 2026-07-01).
- * Used by Windows scheduled task and manual retry.
+ * Run full Play release when Expo quota is open.
+ * Window: quotaOpenDate → retryUntil (from state, defaults 2026-08-01 … 2026-08-07 inclusive).
+ * Used by Windows scheduled task and: npm run release:android:play:quota-resume
  */
 import { spawnSync } from "child_process";
 import fs from "fs";
@@ -13,13 +14,14 @@ const mobileRoot = path.join(__dirname, "..");
 const statePath = path.join(mobileRoot, "exports", "eas-android-release-state.json");
 const logPath = path.join(mobileRoot, "exports", "eas-android-release-task.log");
 
-const QUOTA_OPEN_DATE = "2026-07-01";
-const RETRY_UNTIL = "2026-07-08"; // exclusive — last retry 7 July
+const DEFAULT_QUOTA_OPEN_DATE = "2026-08-01";
+const DEFAULT_RETRY_UNTIL_INCLUSIVE = "2026-08-07";
 
 function log(line) {
   const ts = new Date().toISOString();
   const msg = `[${ts}] ${line}`;
   console.log(msg);
+  fs.mkdirSync(path.dirname(logPath), { recursive: true });
   fs.appendFileSync(logPath, msg + "\n", "utf8");
 }
 
@@ -37,8 +39,18 @@ function writeState(patch) {
   fs.writeFileSync(statePath, JSON.stringify(next, null, 2) + "\n", "utf8");
 }
 
+/** Local calendar day (owner PC / SAST) — avoid UTC midnight skew. */
 function ymd(d = new Date()) {
-  return d.toISOString().slice(0, 10);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function dayAfter(ymdInclusive) {
+  const d = new Date(`${ymdInclusive}T12:00:00`);
+  d.setDate(d.getDate() + 1);
+  return ymd(d);
 }
 
 function runNpm(script, extraArgs = []) {
@@ -54,17 +66,20 @@ function runNpm(script, extraArgs = []) {
   return { code: res.status ?? 1, out };
 }
 
+const state = readState();
+const QUOTA_OPEN_DATE = state.quotaOpenDate || DEFAULT_QUOTA_OPEN_DATE;
+const RETRY_UNTIL_EXCLUSIVE = dayAfter(state.retryUntil || DEFAULT_RETRY_UNTIL_INCLUSIVE);
+
 const today = ymd();
 if (today < QUOTA_OPEN_DATE) {
   log(`SKIP: before quota open date (${QUOTA_OPEN_DATE}). Today=${today}`);
   process.exit(0);
 }
-if (today >= RETRY_UNTIL) {
-  log(`SKIP: past retry window (until ${RETRY_UNTIL}). Manual release required.`);
+if (today >= RETRY_UNTIL_EXCLUSIVE) {
+  log(`SKIP: past retry window (until ${state.retryUntil || DEFAULT_RETRY_UNTIL_INCLUSIVE}). Manual release required.`);
   process.exit(0);
 }
 
-const state = readState();
 if (state.completedAt) {
   log(`SKIP: already completed at ${state.completedAt}`);
   process.exit(0);

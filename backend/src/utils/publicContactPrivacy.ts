@@ -50,6 +50,10 @@ export function applyPublicContactPrivacy(
   const user = payload as UserContactRow;
   const out: Record<string, unknown> = { ...payload };
 
+  // Registration IP/geo is admin-intel only (see GET /admin/registration-intel).
+  delete out.registrationIp;
+  delete out.registrationGeo;
+
   if (isSelf) {
     out.publicProfileKind = opts.profileKind;
     return out;

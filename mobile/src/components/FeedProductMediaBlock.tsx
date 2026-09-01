@@ -145,31 +145,33 @@ export function FeedProductMediaBlock({ post, compactUI, onCartUpdated, onOpenPr
           </>
         ) : null}
 
-        <View style={styles.topCartRow} pointerEvents="box-none">
-          <Pressable
-            onPress={() => void addCart()}
-            disabled={busy || !cartReady}
-            style={[styles.cartPill, (!cartReady || outOfStock) && styles.cartPillDisabled]}
-            hitSlop={10}
-          >
-            <Text style={[styles.cartText, (!cartReady || outOfStock) && styles.cartTextDisabled]}>
-              {!product ? "…" : busy ? "…" : "+cart-"}
-            </Text>
-          </Pressable>
+        <View style={styles.topResellRow} pointerEvents="box-none">
+          {showResell ? (
+            <Pressable
+              onPress={() => void doResell()}
+              disabled={busy}
+              style={styles.resellPill}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel="Resell product"
+            >
+              <Text style={styles.resellPillText}>RESELL</Text>
+            </Pressable>
+          ) : null}
         </View>
 
         <View style={styles.bottomActions} pointerEvents="box-none">
           <View style={styles.bottomActionsInner}>
-            {showResell ? (
-              <Pressable
-                onPress={() => void doResell()}
-                disabled={busy}
-                style={styles.actionPill}
-                hitSlop={8}
-              >
-                <Text style={styles.actionPillText}>Resell</Text>
-              </Pressable>
-            ) : null}
+            <Pressable
+              onPress={() => void addCart()}
+              disabled={busy || !cartReady}
+              style={[styles.cartPill, (!cartReady || outOfStock) && styles.cartPillDisabled]}
+              hitSlop={10}
+            >
+              <Text style={[styles.cartText, (!cartReady || outOfStock) && styles.cartTextDisabled]}>
+                {!product ? "…" : busy ? "…" : "+ Cart"}
+              </Text>
+            </Pressable>
             <Pressable onPress={openProduct} style={styles.actionPill} hitSlop={8}>
               <Text style={styles.actionPillText}>View product</Text>
             </Pressable>
@@ -227,12 +229,23 @@ const styles = StyleSheet.create({
   carouselBtnRight: {
     right: 8
   },
-  topCartRow: {
+  topResellRow: {
     position: "absolute",
-    top: 8,
-    right: 8,
+    top: 10,
+    left: 10,
     zIndex: 25,
     elevation: 10
+  },
+  resellPill: {
+    borderRadius: 999,
+    backgroundColor: "rgba(14,165,233,0.95)",
+    paddingHorizontal: 12,
+    paddingVertical: 8
+  },
+  resellPillText: {
+    color: "#fff",
+    fontWeight: "800",
+    fontSize: 12
   },
   cartPill: {
     borderWidth: StyleSheet.hairlineWidth * 2,
@@ -260,7 +273,7 @@ const styles = StyleSheet.create({
   bottomActions: {
     position: "absolute",
     left: 0,
-    right: 0,
+    right: 72,
     bottom: 0,
     paddingHorizontal: 12,
     paddingBottom: 12,

@@ -70,6 +70,8 @@ Those folders are **not** updated by this repo’s git or scripts. Workflow: cha
 |-----|---------|
 | **School gallery import** | **One school per calendar day** @ 06:30 Windows task |
 | **World News sports** | **Tuesday + Friday** (Facebook TV ingest Tue; `runFacebookNewsBots` sports `tue`/`fri`) |
+| **Food/grocery paid → shop WhatsApp** | **Every paid food/grocery order** (collection + delivery) — see `.cursor/rules/food-grocery-whatsapp-order-alert.mdc` |
+| **Qwertymates iOS App Store** | Every iOS / mobile change — keep accepted Apple gates (tips, Facebook TV, tracking, metadata); see `.cursor/rules/qwertymates-ios-app-store.mdc` |
 
 Detail: **`.cursor/rules/school-gallery-daily-import.mdc`**, **`DOCS/SCHOOL_GALLERY_DAILY_IMPORT.md`**, `backend/src/config/facebookTvIngest.ts`.
 

@@ -1,0 +1,40 @@
+{
+  "attached": false,
+  "submitted": false,
+  "submissionId": "baefad44-d63e-4562-a514-a47f3ef799b3",
+  "submissionState": null,
+  "submitError": {
+    "errors": [
+      {
+        "id": "16995937-ab6d-48a2-9e9f-d47e34e2b09b",
+        "status": "409",
+        "code": "ENTITY_ERROR.RELATIONSHIP.REQUIRED",
+        "title": "Relationship is required",
+        "detail": "App 6798004708 must have an approved appStoreVersions for platform IOS, or an appStoreVersions must be included in this review submission.",
+        "source": {
+          "pointer": "/data/relationships/appStoreVersionForReview"
+        }
+      }
+    ]
+  },
+  "version1_0": "REJECTED",
+  "versions": [
+    {
+      "id": "b1ec529b-acc3-4935-b109-8ae6cb94d645",
+      "versionString": "1.0",
+      "state": "REJECTED"
+    }
+  ],
+  "submissions": [
+    {
+      "id": "baefad44-d63e-4562-a514-a47f3ef799b3",
+      "state": "READY_FOR_REVIEW",
+      "submittedDate": null
+    },
+    {
+      "id": "442e5f45-85d3-41ee-82bb-d87bf4d70108",
+      "state": "COMPLETE",
+      "submittedDate": "2026-08-05T09:28:15.187Z"
+    }
+  ]
+}

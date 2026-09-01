@@ -67,7 +67,7 @@ const suggestedFollowerCountStages = [
       followerCount: { $ifNull: [{ $arrayElemAt: ["$followerCountArr.count", 0] }, 0] },
     },
   },
-  { $project: { passwordHash: 0, followerCountArr: 0 } },
+  { $project: { passwordHash: 0, registrationIp: 0, registrationGeo: 0, followerCountArr: 0 } },
 ];
 
 // Friend request a user (force pending regardless of target privacy)
@@ -276,7 +276,7 @@ router.get("/suggested", authenticate, async (req: AuthRequest, res: Response, n
       const pool = await User.aggregate([
         { $match: baseMatch },
         { $sample: { size: poolSize } },
-        { $project: { passwordHash: 0 } },
+        { $project: { passwordHash: 0, registrationIp: 0, registrationGeo: 0 } },
       ]);
       const ranked = rankSuggestedUsersByRecency(
         pool.filter((u) => isEligibleForPublicDiscovery(u as Parameters<typeof isEligibleForPublicDiscovery>[0])),
@@ -291,77 +291,153 @@ router.get("/suggested", authenticate, async (req: AuthRequest, res: Response, n
   }
 });
 
+/** Africa/Johannesburg Y-M-D (avoids `toLocaleString` → `new Date` timezone pitfalls). */
+function saCalendarParts(date = new Date()): { year: number; month: number; day: number; iso: string } {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Africa/Johannesburg",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const year = Number(parts.find((p) => p.type === "year")?.value || 0);
+  const month = Number(parts.find((p) => p.type === "month")?.value || 0);
+  const day = Number(parts.find((p) => p.type === "day")?.value || 0);
+  return {
+    year,
+    month,
+    day,
+    iso: `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`,
+  };
+}
+
+/** SA calendar day offset from an ISO YYYY-MM-DD (noon SAST avoids DST edge cases). */
+function saPartsPlusDays(isoDate: string, offsetDays: number) {
+  const raw = new Date(`${isoDate}T12:00:00+02:00`);
+  raw.setUTCDate(raw.getUTCDate() + offsetDays);
+  return saCalendarParts(raw);
+}
+
+function birthdayDayMatch(month: number, day: number): Record<string, unknown> {
+  // DOBs are stored as UTC midnight of the calendar birth date — match UTC month/day.
+  return {
+    dateOfBirth: { $exists: true, $ne: null },
+    active: { $ne: false },
+    suspended: { $ne: true },
+    isSchoolAccount: { $ne: true },
+    role: { $nin: ["admin", "superadmin"] },
+    $expr: {
+      $and: [
+        { $eq: [{ $month: "$dateOfBirth" }, month] },
+        { $eq: [{ $dayOfMonth: "$dateOfBirth" }, day] },
+      ],
+    },
+  };
+}
+
+async function findBirthdayPeople(opts: {
+  currentId: { toString(): string };
+  followingIds: unknown[];
+  month: number;
+  day: number;
+  limit: number;
+  excludeIds?: Set<string>;
+}): Promise<Record<string, unknown>[]> {
+  const { currentId, followingIds, month, day, limit } = opts;
+  const exclude = new Set(opts.excludeIds || []);
+  exclude.add(String(currentId));
+  const project = { name: 1, avatar: 1, username: 1 };
+  const match = birthdayDayMatch(month, day);
+  let people: Record<string, unknown>[] = [];
+
+  const followPool = followingIds.filter((id) => !exclude.has(String(id)));
+  if (followPool.length) {
+    people = await User.find({
+      ...match,
+      _id: { $in: followPool },
+    })
+      .select(project)
+      .limit(limit)
+      .lean();
+  }
+
+  if (people.length < limit) {
+    for (const p of people) exclude.add(String(p._id));
+    for (const id of followingIds) exclude.add(String(id));
+    const more = await User.find({
+      ...match,
+      ...publicDiscoveryUserFilter(),
+      _id: { $nin: [...exclude] },
+    })
+      .select(project)
+      .limit(limit - people.length)
+      .lean();
+    people = [...people, ...more];
+  }
+
+  return people;
+}
+
 /**
- * Users with a birthday today (month+day), prefer people you follow, then public discovery users.
+ * Users with a birthday today (SA calendar), prefer people you follow, then public discovery.
+ * If none today, fills with upcoming birthdays in the next 7 SA days so the wall card stays useful.
  * GET /follows/birthdays/today?limit=12
  */
 router.get("/birthdays/today", authenticate, async (req: AuthRequest, res: Response, next) => {
   try {
     const currentId = req.user!._id;
     const limit = Math.min(parseInt(String(req.query.limit || "12"), 10) || 12, 30);
-
-    // Use Africa/Johannesburg calendar day for SA-facing product.
-    const nowSa = new Date(
-      new Date().toLocaleString("en-US", { timeZone: "Africa/Johannesburg" })
-    );
-    const month = nowSa.getMonth() + 1;
-    const day = nowSa.getDate();
-
-    const birthdayMatch = {
-      dateOfBirth: { $exists: true, $ne: null },
-      active: { $ne: false },
-      suspended: { $ne: true },
-      isSchoolAccount: { $ne: true },
-      role: { $nin: ["admin", "superadmin"] },
-      $expr: {
-        $and: [
-          { $eq: [{ $month: "$dateOfBirth" }, month] },
-          { $eq: [{ $dayOfMonth: "$dateOfBirth" }, day] },
-        ],
-      },
-    };
-
+    const today = saCalendarParts();
     const followingIds = await Follow.find({
       followerId: currentId,
       status: "accepted",
     }).distinct("followingId");
 
-    const project = { name: 1, avatar: 1, username: 1 };
+    let people = await findBirthdayPeople({
+      currentId,
+      followingIds,
+      month: today.month,
+      day: today.day,
+      limit,
+    });
+    let mode: "today" | "upcoming" | "empty" = people.length ? "today" : "empty";
+    let upcomingOn: string | null = null;
 
-    let people: Record<string, unknown>[] = [];
-    if (followingIds.length) {
-      people = await User.find({
-        ...birthdayMatch,
-        _id: { $in: followingIds, $ne: currentId },
-      })
-        .select(project)
-        .limit(limit)
-        .lean();
-    }
-
-    if (people.length < limit) {
-      const exclude = new Set([
-        String(currentId),
-        ...people.map((p) => String(p._id)),
-        ...followingIds.map((id) => String(id)),
-      ]);
-      const more = await User.find({
-        ...birthdayMatch,
-        ...publicDiscoveryUserFilter(),
-        _id: { $nin: [...exclude] },
-      })
-        .select(project)
-        .limit(limit - people.length)
-        .lean();
-      people = [...people, ...more];
+    if (!people.length) {
+      const seen = new Set<string>([String(currentId)]);
+      for (let offset = 1; offset <= 7 && people.length < limit; offset++) {
+        const dayParts = saPartsPlusDays(today.iso, offset);
+        const batch = await findBirthdayPeople({
+          currentId,
+          followingIds,
+          month: dayParts.month,
+          day: dayParts.day,
+          limit: limit - people.length,
+          excludeIds: seen,
+        });
+        if (!batch.length) continue;
+        if (!upcomingOn) upcomingOn = dayParts.iso;
+        for (const p of batch) {
+          seen.add(String(p._id));
+          people.push({ ...p, birthdayOn: dayParts.iso });
+        }
+      }
+      if (people.length) mode = "upcoming";
     }
 
     const sanitized = await sanitizeUsersForClientView(people, currentId.toString());
+    // Preserve birthdayOn after sanitize (privacy helper only strips contact fields).
+    const users = sanitized.map((u, i) => {
+      const on = (people[i] as { birthdayOn?: string } | undefined)?.birthdayOn;
+      return on ? { ...u, birthdayOn: on } : u;
+    });
+
     res.json({
       data: {
-        date: `${nowSa.getFullYear()}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`,
-        count: sanitized.length,
-        users: sanitized,
+        date: today.iso,
+        count: users.length,
+        mode,
+        upcomingOn,
+        users,
       },
     });
   } catch (err) {

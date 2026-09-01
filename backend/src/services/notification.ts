@@ -167,13 +167,15 @@ interface NotificationOptions {
   type: string;
   message: string;
   channel?: "realtime" | "email" | "sms" | "whatsapp" | "push" | "broadcast";
+  /** Optional structured context (e.g. shop order deep-link). */
+  meta?: Record<string, unknown>;
   email?: {
     subject: string;
     html?: string;
   };
 }
 
-export const sendNotification = async (options: NotificationOptions): Promise<void> => {
+export const sendNotification = async (options: NotificationOptions): Promise<{ _id?: string } | null> => {
   try {
     const channel = options.channel || "realtime";
 
@@ -183,6 +185,7 @@ export const sendNotification = async (options: NotificationOptions): Promise<vo
       type: options.type,
       message: options.message,
       channel,
+      ...(options.meta && typeof options.meta === "object" ? { meta: options.meta } : {}),
     });
 
     // Realtime notification via Socket.IO
@@ -223,9 +226,11 @@ export const sendNotification = async (options: NotificationOptions): Promise<vo
     }
 
     logger.info("Notification processed (may be queued or sent)", { type: options.type, channel, userId: options.userId });
+    return { _id: notification._id?.toString?.() || String(notification._id) };
   } catch (error) {
     // Log but don't throw to avoid breaking primary operations that call notifications
     logger.error("Failed to process notification (non-fatal):", error);
+    return null;
   }
 };
 

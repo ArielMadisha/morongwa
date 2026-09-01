@@ -9,10 +9,12 @@ export const FOOD_TAG_PICKUP = "food-pickup";
 export const GROCERY_CATEGORY = "Groceries";
 export const GROCERY_TAG_PICKUP = "grocery-pickup";
 /**
- * Flat platform service fee (ZAR) per qualifying food line unit.
+ * Flat platform service fee (ZAR) per qualifying food line unit — included in the
+ * unit price the customer sees on the menu and pays at checkout (not a second checkout line).
  * - Menu items: always charged
  * - Extras alone (no menu item in the same cart): charged
  * - Extras alongside one or more menu items: waived
+ * Separate from wallet top-up PayGate flat fee (R5).
  */
 export const FOOD_ORDER_SERVICE_FEE_ZAR = 3.5;
 /** Shared product image for kota menu tiles (legacy SVG). */

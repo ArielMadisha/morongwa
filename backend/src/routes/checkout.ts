@@ -1,4 +1,4 @@
-import express, { Response } from "express";
+import express, { Request, Response } from "express";
 import Cart from "../data/models/Cart";
 import Order from "../data/models/Order";
 import Product from "../data/models/Product";
@@ -195,6 +195,23 @@ router.post("/quote", authenticate, async (req: AuthRequest, res: Response, next
       throw new AppError("Cart is empty", 400);
     }
 
+    // Drop deleted/inactive lines so a stale marketplace item cannot block food checkout.
+    {
+      const ids = (cart.items || []).map((i) => i.productId).filter(Boolean);
+      if (ids.length) {
+        const active = await Product.find({ _id: { $in: ids }, active: true }).select("_id").lean();
+        const ok = new Set(active.map((p) => String(p._id)));
+        const before = cart.items.length;
+        cart.items = (cart.items || []).filter((i) => ok.has(String(i.productId)));
+        if (cart.items.length !== before) {
+          await cart.save();
+        }
+      }
+    }
+    if ((!cart.items || cart.items.length === 0) && !(cart.musicItems && cart.musicItems.length)) {
+      throw new AppError("Cart is empty", 400);
+    }
+
     const productIds = (cart.items || []).map((i) => i.productId);
     const products = productIds.length > 0
       ? await Product.find({ _id: { $in: productIds } })
@@ -210,10 +227,11 @@ router.post("/quote", authenticate, async (req: AuthRequest, res: Response, next
       (item) => !productMap.has(String(item.productId))
     );
     if (missingActive.length > 0) {
-      throw new AppError(
-        "Some cart items are no longer available. Remove them and try again.",
-        400
-      );
+      cart.items = (cart.items || []).filter((item) => productMap.has(String(item.productId)));
+      await cart.save();
+      if (!cart.items.length && !(cart.musicItems && cart.musicItems.length)) {
+        throw new AppError("Cart is empty", 400);
+      }
     }
 
     const uniqueExternalSupplierIds = new Set<string>();
@@ -1137,7 +1155,10 @@ router.post("/pay", authenticate, async (req: AuthRequest, res: Response, next) 
           })),
         });
         await settleFoodPickupOrderPaid(order._id.toString()).catch((err) =>
-          console.error("Food pickup settlement failed:", err)
+          console.error(
+            "Food/grocery settlement + WhatsApp merchant alert FAILED:",
+            err
+          )
         );
         if ((order.amounts as any)?.deliveryPrepaid) {
           await notifyBuyerDeliveryPrepaid({
@@ -1210,7 +1231,8 @@ router.post("/pay", authenticate, async (req: AuthRequest, res: Response, next) 
       email: req.user!.email,
       returnUrl: `${process.env.FRONTEND_URL || "http://localhost:3000"}/checkout/return?orderId=${returnOrderId}`,
       notifyUrl: `${process.env.BACKEND_URL || "http://localhost:4000"}/api/payments/webhook`,
-      // Marketplace checkout must not add wallet top-up flat fee.
+      // Marketplace / food / grocery checkout: never add wallet top-up flat fee (R5).
+      // That fee applies only on POST /wallet/topup (and similar TOPUP- PayGate refs).
       skipPayGateFee: true,
     });
 
@@ -1267,6 +1289,31 @@ router.get("/orders/me", authenticate, async (req: AuthRequest, res: Response, n
         limit,
         total,
         pages: Math.max(1, Math.ceil(total / limit)),
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Public payment status for PayGate return pages (no auth — avoids mobile→web /login redirect).
+router.get("/order/:orderId/payment-status", async (req: Request, res: Response, next) => {
+  try {
+    const orderId = String(req.params.orderId || "").trim();
+    if (!orderId || orderId.startsWith("MUSIC-")) {
+      return res.json({ data: { orderId, status: orderId.startsWith("MUSIC-") ? "paid" : "not_found" } });
+    }
+    const order = await Order.findById(orderId).select("status").lean();
+    if (!order) {
+      return res.json({ data: { orderId, status: "not_found", paymentStatus: null } });
+    }
+    const Payment = (await import("../data/models/Payment")).default;
+    const payment = await Payment.findOne({ reference: `ORDER-${orderId}` }).select("status").lean();
+    res.json({
+      data: {
+        orderId,
+        status: String((order as { status?: string }).status || ""),
+        paymentStatus: (payment as { status?: string } | null)?.status ?? null,
       },
     });
   } catch (err) {

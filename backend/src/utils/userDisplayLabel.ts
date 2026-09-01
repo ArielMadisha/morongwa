@@ -89,10 +89,16 @@ export function sanitizeUserForClient<T extends Record<string, unknown>>(
   user: T | null | undefined
 ): T | null | undefined {
   if (!user || typeof user !== "object") return user;
-  const rawName = String((user as { name?: string }).name || "").trim();
-  if (!isGenericDisplayName(rawName)) return user;
-  const display = userPublicDisplayName(user as { name?: string; username?: string; email?: string });
-  return { ...user, name: display };
+  const next = { ...(user as Record<string, unknown>) };
+  // Admin-intel only — never expose on client/user APIs (lean docs bypass toJSON).
+  delete next.registrationIp;
+  delete next.registrationGeo;
+  delete next.passwordHash;
+  delete next.expoPushTokens;
+  const rawName = String(next.name || "").trim();
+  if (!isGenericDisplayName(rawName)) return next as unknown as T;
+  const display = userPublicDisplayName(next as { name?: string; username?: string; email?: string });
+  return { ...next, name: display } as unknown as T;
 }
 
 /**

@@ -31,13 +31,48 @@ export function isBlockedRegistrationPhonePrefix(digits: string): boolean {
   return blockedPhonePrefixes().some((prefix) => d.startsWith(prefix));
 }
 
+/** Disposable / reserved / fake domains blocked for email registration. */
+const BLOCKED_EMAIL_DOMAINS = new Set([
+  "user.com", // legacy spam imports
+  "example.com",
+  "example.org",
+  "example.net",
+  "test.com",
+  "test.org",
+  "invalid",
+  "localhost",
+  "mailinator.com",
+  "guerrillamail.com",
+  "guerrillamail.net",
+  "sharklasers.com",
+  "grr.la",
+  "tempmail.com",
+  "temp-mail.org",
+  "10minutemail.com",
+  "yopmail.com",
+  "trashmail.com",
+  "discard.email",
+  "getnada.com",
+  "emailondeck.com",
+  "fakeinbox.com",
+  "mailnull.com",
+  "spamgourmet.com",
+]);
+
 /** Legacy spam imports used *@user.com placeholder emails. */
 export function isDisposableRegistrationEmail(email: string): boolean {
   const e = String(email || "").trim().toLowerCase();
   if (!e.includes("@")) return false;
-  const domain = e.split("@")[1] || "";
-  if (domain === "user.com") return true;
+  const domain = e.split("@").pop() || "";
+  if (!domain) return true;
+  // Phone-OTP synthetic emails are allowed.
   if (domain === "morongwa.local" && e.startsWith("wa_")) return false;
+  if (BLOCKED_EMAIL_DOMAINS.has(domain)) return true;
+  // RFC reserved / obvious fakes
+  if (domain.endsWith(".example") || domain.endsWith(".invalid") || domain.endsWith(".localhost")) return true;
+  if (domain.endsWith(".test")) return true;
+  // Common disposable patterns
+  if (/^(temp|trash|fake|spam|discard|throwaway)/i.test(domain.split(".")[0] || "")) return true;
   return false;
 }
 

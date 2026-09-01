@@ -31,7 +31,12 @@ That overwrites files under `standalone/AskMacGyver/src/` and refreshes `standal
 | `src/data/macgyverKnowledge.ts` | `backend/src/data/macgyverKnowledge.ts` |
 | `src/data/models/MacGyverLearnedEntry.ts` | `backend/src/data/models/MacGyverLearnedEntry.ts` |
 
-The live HTTP route remains `POST /api/macgyver/ask` in `backend/src/routes/macgyver.ts` (auth middleware); wire your satellite server to the same handler pattern.
+The live HTTP routes in `backend/src/routes/macgyver.ts` (auth middleware):
+
+- `POST /api/macgyver/ask` — `{ query: string }`
+- `POST /api/macgyver/ask-image` — multipart `image` (JPEG/PNG/GIF/WebP, max 8 MB) plus optional `hint`
+
+Wire your satellite server to the same handler pattern. Image search uses OpenAI vision to caption the photo, then the same platform + open-web + LLM pipeline as text ask.
 
 ## Env (OpenAI + open web + learned cache)
 

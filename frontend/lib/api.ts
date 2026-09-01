@@ -211,6 +211,69 @@ export function formatUploadAxiosError(err: unknown, fallback = 'Upload failed')
 const RETRYABLE_METHODS = new Set(['get', 'head', 'options']);
 const MAX_429_RETRIES = 2;
 
+/** In-memory mirror of the bearer — survives flaky localStorage reads mid-session (mobile Safari). */
+let authTokenMemory: string | null = null;
+let clearingWebAuth = false;
+
+const AUTH_ESTABLISH_PATH_RE =
+  /\/auth\/(login|register|send-otp|verify-otp|send-email-otp|verify-email-otp)(?:\?|$)/i;
+
+export function syncAuthTokenMemory(token: string | null): void {
+  authTokenMemory = token && String(token).trim() ? String(token).trim() : null;
+}
+
+export function getAuthTokenMemory(): string | null {
+  if (authTokenMemory) return authTokenMemory;
+  const fromLs = lsGetItem('token');
+  if (fromLs) {
+    authTokenMemory = fromLs;
+    return fromLs;
+  }
+  return null;
+}
+
+/** True when API body indicates the bearer itself was rejected (not a generic Unauthorized). */
+export function isAuthClearedErrorMessage(msg: string): boolean {
+  return (
+    /Invalid token/i.test(msg) ||
+    /Authentication required/i.test(msg) ||
+    /No token/i.test(msg) ||
+    /Invalid or suspended account/i.test(msg) ||
+    /Invalid session/i.test(msg)
+  );
+}
+
+function readHeader(headers: unknown, name: string): string {
+  if (!headers || typeof headers !== 'object') return '';
+  const h = headers as { get?: (n: string) => unknown; [k: string]: unknown };
+  if (typeof h.get === 'function') {
+    const viaGet = h.get(name) ?? h.get(name.toLowerCase());
+    if (viaGet) return String(viaGet);
+  }
+  const direct = h[name] ?? h[name.toLowerCase()] ?? h.Authorization ?? h.authorization;
+  return direct ? String(direct) : '';
+}
+
+function clearWebAuthAndBounce(reqUrl: string): void {
+  if (clearingWebAuth || typeof window === 'undefined') return;
+  clearingWebAuth = true;
+  try {
+    authTokenMemory = null;
+    lsRemoveItem('token');
+    lsRemoveItem('user');
+    window.dispatchEvent(new CustomEvent('qwertymates:auth-cleared', { detail: { url: reqUrl } }));
+    if (!window.location.pathname.startsWith('/login')) {
+      const returnTo = encodeURIComponent(window.location.pathname + window.location.search);
+      // Soft assign (not replace) so back works; only after confirmed invalid bearer.
+      window.location.assign(returnTo ? `/login?returnTo=${returnTo}` : '/login');
+    }
+  } finally {
+    window.setTimeout(() => {
+      clearingWebAuth = false;
+    }, 1500);
+  }
+}
+
 function parseRetryAfterMs(raw: unknown): number | null {
   if (!raw) return null;
   const value = String(raw).trim();
@@ -234,9 +297,10 @@ function sleep(ms: number): Promise<void> {
 api.interceptors.request.use(
   (config) => {
     if (typeof window !== 'undefined') {
-      const token = lsGetItem('token');
+      const token = getAuthTokenMemory();
       if (token) {
         config.headers.Authorization = `Bearer ${token}`;
+        (config as { __qmBearer?: string }).__qmBearer = `Bearer ${token}`;
       }
     }
     // Let the browser set Content-Type with boundary for FormData (fixes 400 on image uploads)
@@ -275,13 +339,32 @@ api.interceptors.response.use(
       return api.request(config);
     }
 
-    if (error.response?.status === 401 && typeof window !== 'undefined') {
-      lsRemoveItem('token');
-      lsRemoveItem('user');
-      // Only redirect if not already on login (avoid duplicate nav)
-      if (!window.location.pathname.startsWith('/login')) {
-        const returnTo = encodeURIComponent(window.location.pathname + window.location.search);
-        window.location.href = returnTo ? `/login?returnTo=${returnTo}` : '/login';
+    if (status === 401 && typeof window !== 'undefined') {
+      const reqUrl = String(config?.url || '');
+      // Public PayGate return polling — never bounce guests to /login mid-payment confirm.
+      if (reqUrl.includes('/checkout/order/') && reqUrl.includes('/payment-status')) {
+        return Promise.reject(error);
+      }
+      // Login/register 401s (bad password) must not wipe a session we just stored.
+      if (AUTH_ESTABLISH_PATH_RE.test(reqUrl)) {
+        return Promise.reject(error);
+      }
+      const msg = String(
+        error?.response?.data?.error ||
+          error?.response?.data?.message ||
+          (typeof error?.response?.data === 'string' ? error.response.data : '') ||
+          ''
+      );
+      // Only clear when the bearer itself was rejected — not every Unauthorized-ish 401.
+      if (isAuthClearedErrorMessage(msg)) {
+        const stamped = String((config as { __qmBearer?: string } | undefined)?.__qmBearer || '');
+        const sent = (readHeader(config?.headers, 'Authorization') || stamped).trim();
+        const current = getAuthTokenMemory();
+        const currentBearer = current ? `Bearer ${current}` : '';
+        // Ignore stale 401s (no header, or a token that is no longer current).
+        if (currentBearer && sent === currentBearer) {
+          clearWebAuthAndBounce(reqUrl);
+        }
       }
     }
     return Promise.reject(error);
@@ -299,12 +382,15 @@ export const authAPI = {
     dateOfBirth?: string;
     phone?: string;
     otpToken?: string;
+    emailToken?: string;
   }) => api.post('/auth/register', data),
   sendOtp: (phone: string, channel?: 'sms' | 'whatsapp') =>
     api.post('/auth/send-otp', { phone, channel: channel || 'whatsapp' }),
   getOtpHealth: () =>
     api.get<{ data: { provider: string; configured: boolean; smsReady: boolean; whatsappReady: boolean; mode: string } }>('/auth/otp-health'),
   verifyOtp: (phone: string, otp: string) => api.post('/auth/verify-otp', { phone, otp }),
+  sendEmailOtp: (email: string) => api.post('/auth/send-email-otp', { email }),
+  verifyEmailOtp: (email: string, otp: string) => api.post('/auth/verify-email-otp', { email, otp }),
   login: (data: { email?: string; username?: string; phone?: string; password: string }) =>
     api.post('/auth/login', data),
   getCurrentUser: () => api.get('/auth/me'),
@@ -402,13 +488,35 @@ export const walletAPI = {
   topUp: (amount: number, returnPath?: string) => api.post('/wallet/topup', { amount, returnPath }),
   withdraw: (amount: number) => api.post('/wallet/payout', { amount }),
   donate: (amount: number, recipientId: string) => api.post('/wallet/donate', { amount, recipientId }),
+  sendMoney: (params: {
+    toUserId?: string;
+    toUsername?: string;
+    toEmail?: string;
+    toPhone?: string;
+    amount: number;
+    message?: string;
+  }) =>
+    api.post<{
+      message?: string;
+      amount?: number;
+      balance?: number;
+      reference?: string;
+      recipient?: { id?: string; name?: string; username?: string };
+    }>('/wallet/send-money', params),
   getQrPayload: () => api.get<{ payload: string; userId: string; displayName: string }>('/wallet/qr-payload'),
   paymentFromScan: (fromUserId: string, amount: number, merchantName?: string) =>
     api.post('/wallet/payment-from-scan', { fromUserId, amount, merchantName }),
   confirmPayment: (paymentRequestId: string, otp: string) =>
     api.post('/wallet/confirm-payment', { paymentRequestId, otp }),
-  requestMoney: (params: { toUserId?: string; toUsername?: string; amount: number; message?: string; notifyChannel?: 'sms' | 'whatsapp' | 'both' }) =>
-    api.post('/wallet/request-money', params),
+  requestMoney: (params: {
+    toUserId?: string;
+    toUsername?: string;
+    toEmail?: string;
+    toPhone?: string;
+    amount: number;
+    message?: string;
+    notifyChannel?: 'sms' | 'whatsapp' | 'both';
+  }) => api.post('/wallet/request-money', params),
   requestMoneyFromScan: (payeeUserId: string, amount: number, message?: string) =>
     api.post('/wallet/request-money-from-scan', { payeeUserId, amount, message }),
   payRequest: (requestId: string) => api.post('/wallet/pay-request', { requestId }),
@@ -670,10 +778,23 @@ export type MorongwaFileRow = {
 };
 
 export const notificationsAPI = {
-  getAll: (params?: any) => api.get('/notifications', { params }),
+  getAll: (params?: {
+    page?: number;
+    limit?: number;
+    read?: boolean | string;
+    shopOrders?: boolean | string;
+    types?: string;
+  }) => api.get('/notifications', { params }),
   markAsRead: (id: string) => api.post(`/notifications/${id}/read`),
-  markAllAsRead: () => api.post('/notifications/read-all'),
-  getUnreadCount: () => api.get('/notifications/unread/count'),
+  markAllAsRead: (params?: { shopOrders?: boolean | string }) =>
+    api.post('/notifications/read-all', params?.shopOrders ? { shopOrders: true } : undefined, {
+      params: params?.shopOrders ? { shopOrders: '1' } : undefined,
+    }),
+  getUnreadCount: (params?: { shopOrders?: boolean | string }) =>
+    api.get<{ unreadCount: number; shopOrderUnreadCount?: number; isShopOwner?: boolean }>(
+      '/notifications/unread/count',
+      { params: params?.shopOrders ? { shopOrders: '1' } : undefined }
+    ),
 };
 
 export const adminAPI = {
@@ -688,6 +809,8 @@ export const adminAPI = {
   getMoneyMetricDetail: (params: { metric: string; page?: number; limit?: number }) =>
     api.get('/admin/money-metrics/detail', { params }),
   getAllUsers: (params?: any) => api.get('/admin/users', { params }),
+  getRegistrationIntel: (params?: { page?: number; limit?: number; q?: string }) =>
+    api.get('/admin/registration-intel', { params }),
   getUsers: (params?: any) => api.get('/admin/users', { params }),
   suspendUser: (id: string, reason?: string) =>
     api.post(`/admin/users/${id}/suspend`, { reason }),
@@ -739,6 +862,8 @@ export const adminAPI = {
   rescanTuckshopRegistrationFraud: (id: string) => api.post(`/admin/tuckshop-cash-agents/${id}/rescan-fraud`),
   rescanOnboardingAgentFraud: (auditLogId: string) =>
     api.post(`/admin/fraud-onboarding-applications/${auditLogId}/rescan-fraud`),
+  getOnboardingAgentApplications: (params?: { limit?: number }) =>
+    api.get<{ data: any[]; generatedAt?: string }>('/admin/onboarding-agent-applications', { params }),
 
   // Adverts
   getAdverts: (params?: { slot?: string }) => api.get('/admin/adverts', { params }),
@@ -1694,6 +1819,8 @@ export const checkoutAPI = {
       deliveryScope,
     }),
   getOrder: (orderId: string) => api.get(`/checkout/order/${orderId}`),
+  getPaymentStatus: (orderId: string) =>
+    api.get(`/checkout/order/${orderId}/payment-status`),
   cancelPayment: (orderId: string) =>
     api.post(`/checkout/order/${orderId}/cancel-payment`),
   getMyOrders: (params?: { page?: number; limit?: number }) =>
@@ -1713,8 +1840,18 @@ export const resellerAPI = {
 export const storesAPI = {
   getMyStores: () => api.get('/stores/me'),
   renameStore: (id: string, name: string) => api.put(`/stores/${id}`, { name }),
-  updateStore: (id: string, data: { name?: string; address?: string; email?: string; cellphone?: string; whatsapp?: string; stripBackgroundPic?: string }) =>
-    api.put(`/stores/${id}`, data),
+  updateStore: (
+    id: string,
+    data: {
+      name?: string;
+      address?: string;
+      email?: string;
+      cellphone?: string;
+      whatsapp?: string;
+      stripBackgroundPic?: string;
+      vertical?: 'restaurant' | 'grocery' | 'essentials';
+    }
+  ) => api.put(`/stores/${id}`, data),
   uploadStripBackground: (id: string, file: File) => {
     const formData = new FormData();
     formData.append('image', file);
@@ -1737,9 +1874,17 @@ export const followsAPI = {
       data: {
         date: string;
         count: number;
-        users: Array<{ _id: string; name?: string; avatar?: string; username?: string }>;
+        mode?: "today" | "upcoming" | "empty";
+        upcomingOn?: string | null;
+        users: Array<{
+          _id: string;
+          name?: string;
+          avatar?: string;
+          username?: string;
+          birthdayOn?: string;
+        }>;
       };
-    }>('/follows/birthdays/today', { params }),
+    }>("/follows/birthdays/today", { params }),
   getStatus: (userId: string) => api.get(`/follows/${userId}/status`),
   getPendingRequests: () => api.get('/follows/requests/pending'),
   getFollowers: (userId: string) =>
@@ -1825,6 +1970,7 @@ export const tvAPI = {
     heading?: string;
     subject?: string;
     hashtags?: string[];
+    taggedUserIds?: string[];
     productId?: string;
     filter?: string;
     genre?: string;
@@ -1843,6 +1989,7 @@ export const tvAPI = {
       heading?: string;
       subject?: string;
       hashtags?: string[];
+      taggedUserIds?: string[];
       filter?: string;
       genre?: string;
     }
@@ -1944,6 +2091,115 @@ export interface SongRecord {
   soundLibraryReviewedAt?: string;
 }
 
+export interface PodcastShowRecord {
+  _id: string;
+  title: string;
+  description?: string;
+  category: string;
+  tags?: string[];
+  coverUrl?: string;
+  episodeCount?: number;
+  subscriberCount?: number;
+  ownerId?: { _id: string; name?: string; username?: string; profilePicture?: string } | string;
+}
+
+export interface PodcastEpisodeRecord {
+  _id: string;
+  title: string;
+  description?: string;
+  tags?: string[];
+  category: string;
+  audioUrl?: string;
+  hlsUrl?: string;
+  coverUrl?: string;
+  durationSeconds?: number;
+  playCount?: number;
+  likeCount?: number;
+  commentCount?: number;
+  isPremium?: boolean;
+  price?: number;
+  locked?: boolean;
+  liked?: boolean;
+  subscribed?: boolean;
+  allowDownload?: boolean;
+  publishedAt?: string;
+  createdAt?: string;
+  podcastId?: { _id: string; title?: string; coverUrl?: string; category?: string } | string;
+  creatorId?: { _id: string; name?: string; username?: string; profilePicture?: string } | string;
+}
+
+export const podcastsAPI = {
+  getCategories: () => api.get<{ data: { id: string; label: string }[] }>('/podcasts/categories'),
+  listShows: (params?: { category?: string; q?: string; page?: number; limit?: number }) =>
+    api.get<{ data: PodcastShowRecord[]; hasMore?: boolean; total?: number }>('/podcasts/shows', { params }),
+  getShow: (id: string) => api.get<{ data: PodcastShowRecord }>(`/podcasts/shows/${id}`),
+  listEpisodes: (params?: {
+    category?: string;
+    podcastId?: string;
+    q?: string;
+    sort?: 'newest' | 'popular';
+    page?: number;
+    limit?: number;
+  }) => api.get<{ data: PodcastEpisodeRecord[]; hasMore?: boolean; total?: number }>('/podcasts/episodes', { params }),
+  getEpisode: (id: string) => api.get<{ data: PodcastEpisodeRecord }>(`/podcasts/episodes/${id}`),
+  getRecommended: (limit?: number) =>
+    api.get<{ data: PodcastEpisodeRecord[]; basis?: string }>('/podcasts/recommended', { params: { limit } }),
+  myShows: () => api.get<{ data: PodcastShowRecord[] }>('/podcasts/me/shows'),
+  mySubscriptions: () => api.get<{ data: PodcastShowRecord[] }>('/podcasts/me/subscriptions'),
+  createShow: (data: { title: string; category: string; description?: string; tags?: string; cover?: File }) => {
+    const form = new FormData();
+    form.append('title', data.title);
+    form.append('category', data.category);
+    if (data.description) form.append('description', data.description);
+    if (data.tags) form.append('tags', data.tags);
+    if (data.cover) form.append('cover', data.cover);
+    return api.post<{ data: PodcastShowRecord }>('/podcasts/shows', form, { timeout: API_UPLOAD_TIMEOUT_MS });
+  },
+  createEpisode: (data: {
+    podcastId: string;
+    title: string;
+    description?: string;
+    tags?: string;
+    audio: File;
+    cover?: File;
+    isPremium?: boolean;
+    price?: number;
+    crossPostToTv?: boolean;
+    onUploadProgress?: (pct: number) => void;
+  }) => {
+    const form = new FormData();
+    form.append('podcastId', data.podcastId);
+    form.append('title', data.title);
+    if (data.description) form.append('description', data.description);
+    if (data.tags) form.append('tags', data.tags);
+    form.append('audio', data.audio);
+    if (data.cover) form.append('cover', data.cover);
+    if (data.isPremium) form.append('isPremium', '1');
+    if (data.price) form.append('price', String(data.price));
+    form.append('crossPostToTv', data.crossPostToTv === false ? '0' : '1');
+    return api.post<{ data: PodcastEpisodeRecord }>('/podcasts/episodes', form, {
+      timeout: API_UPLOAD_TIMEOUT_MS,
+      onUploadProgress: (e) => {
+        if (data.onUploadProgress && e.total) data.onUploadProgress(Math.round((e.loaded / e.total) * 100));
+      },
+    });
+  },
+  likeEpisode: (id: string) =>
+    api.post<{ data: { liked: boolean; likeCount: number } }>(`/podcasts/episodes/${id}/like`),
+  recordPlay: (id: string, positionSeconds?: number) =>
+    api.post(`/podcasts/episodes/${id}/play`, { positionSeconds }),
+  listComments: (id: string, params?: { page?: number; limit?: number }) =>
+    api.get<{ data: Array<{ _id: string; text: string; createdAt: string; userId?: { _id: string; name?: string; profilePicture?: string } }>; hasMore?: boolean }>(
+      `/podcasts/episodes/${id}/comments`,
+      { params }
+    ),
+  addComment: (id: string, text: string) => api.post(`/podcasts/episodes/${id}/comments`, { text }),
+  toggleSubscribe: (showId: string) =>
+    api.post<{ data: { subscribed: boolean } }>(`/podcasts/shows/${showId}/subscribe`),
+  unlockEpisode: (id: string) =>
+    api.post<{ data: { unlocked: boolean; amount?: number } }>(`/podcasts/episodes/${id}/unlock`, { platform: 'web' }),
+};
+
 export const musicAPI = {
   getGenres: () => api.get<{ data: { id: string; label: string }[] }>('/music/genres'),
   getArtistStatus: () => api.get<{ data: { isVerified: boolean; status: string | null; type: string | null } }>('/music/artist-status'),
@@ -1956,10 +2212,18 @@ export const musicAPI = {
   getMyMusicCatalog: () => api.get<{ data: SongRecord[] }>('/music/me/catalog'),
   requestSoundLibrary: (songId: string) =>
     api.post<{ ok: boolean; data: { soundLibraryStatus: string } }>(`/music/sound-library/request/${songId}`),
-  getSongs: (params?: { type?: 'song' | 'album'; page?: number; limit?: number; random?: boolean }) =>
+  getSongs: (params?: {
+    type?: 'song' | 'album';
+    page?: number;
+    limit?: number;
+    random?: boolean;
+    genre?: string;
+    artist?: string;
+  }) =>
     api.get<{ data: SongRecord[]; page?: number; limit?: number; total?: number; hasMore?: boolean }>('/music/songs', {
       params: { ...params, random: params?.random ? '1' : undefined },
     }),
+  getArtists: () => api.get<{ data: string[] }>('/music/artists'),
   uploadAudio: (file: File) => {
     const formData = new FormData();
     formData.append('audio', file);
@@ -2024,6 +2288,30 @@ export const musicAPI = {
   getMyPurchases: () => api.get<{ data: Array<{ songId: string; reference: string; amount: number; createdAt: string }> }>('/music/purchases/me'),
 };
 
+export type ShopOrderReceipt = {
+  orderId: string;
+  orderNumber: string;
+  supplierId: string;
+  storeName?: string;
+  status: string;
+  prepStatus: 'new' | 'preparing' | 'ready' | 'collected';
+  paidAt?: string | null;
+  createdAt?: string | null;
+  paymentMethod?: string;
+  collection: boolean;
+  buyer: { name?: string; phone?: string; username?: string } | null;
+  items: Array<{
+    productId: string;
+    title: string;
+    qty: number;
+    unitPrice: number;
+    foodServiceFeeZar: number;
+    storeUnitPrice: number;
+  }>;
+  storeCreditZar: number;
+  customerTotalZar: number;
+};
+
 export const suppliersAPI = {
   uploadDocument: (file: File) => {
     const formData = new FormData();
@@ -2051,9 +2339,76 @@ export const suppliersAPI = {
     }>('/suppliers/me/profiles'),
   getMyProducts: (supplierId?: string) =>
     api.get('/suppliers/me/products', { params: supplierId ? { supplierId } : undefined }),
+  /** Paid / in-progress orders for this merchant's store(s). Shop owners only. */
+  getMyOrders: (params?: { limit?: number; status?: string }) =>
+    api.get<{ data: ShopOrderReceipt[] }>('/suppliers/me/orders', { params }),
+  updateOrderPrepStatus: (
+    orderId: string,
+    data: { prepStatus: 'new' | 'preparing' | 'ready' | 'collected'; supplierId?: string }
+  ) => api.patch<{ data: ShopOrderReceipt }>(`/suppliers/me/orders/${orderId}/prep-status`, data),
 };
+
+export type MacGyverAskData = {
+  text?: string;
+  error?: string;
+  type?: string;
+  query?: string;
+  message?: string;
+  imageDescription?: string;
+  searchQuery?: string;
+};
+
+/** Ask + vision can exceed the default 25s client timeout (web search + LLM). */
+const MACGYVER_ASK_TIMEOUT_MS = 60_000;
+const MACGYVER_IMAGE_TIMEOUT_MS = 90_000;
 
 export const macgyverAPI = {
   ask: (query: string) =>
-    api.post<{ data: { text?: string; error?: string; type?: string; query?: string; message?: string } }>('/macgyver/ask', { query }),
+    api.post<{ data: MacGyverAskData }>('/macgyver/ask', { query }, { timeout: MACGYVER_ASK_TIMEOUT_MS }),
+  askImage: (file: File, hint?: string) => {
+    const form = new FormData();
+    form.append('image', file);
+    if (hint) form.append('hint', hint);
+    return api.post<{ data: MacGyverAskData }>('/macgyver/ask-image', form, {
+      timeout: MACGYVER_IMAGE_TIMEOUT_MS,
+    });
+  },
+};
+
+export type QwertzVideo = {
+  id: string;
+  durationSeconds: number;
+  loop: boolean;
+  status: string;
+  playbackUrl?: string;
+  lastJobId?: string;
+};
+
+export type QwertzJob = {
+  jobId: string;
+  videoId: string;
+  type: string;
+  status: 'queued' | 'processing' | 'completed' | 'failed';
+  progress: number;
+  result?: Record<string, unknown>;
+  error?: string;
+};
+
+export const qwertzAPI = {
+  health: () => api.get<{ status: string; ffmpeg?: { ok: boolean } }>('/qwertz/health'),
+  upload: (file: File) => {
+    const form = new FormData();
+    form.append('video', file);
+    return api.post<{ data: QwertzVideo }>('/qwertz/videos/upload', form, { timeout: 120_000 });
+  },
+  getVideo: (id: string) => api.get<{ data: QwertzVideo }>(`/qwertz/videos/${id}`),
+  edit: (id: string, body: Record<string, unknown>) =>
+    api.post<{ data: { jobId: string; videoId: string; status: string } }>(`/qwertz/videos/${id}/edit`, body),
+  getJob: (jobId: string) => api.get<{ data: QwertzJob }>(`/qwertz/jobs/${jobId}`),
+  exportQwertymates: (id: string) => api.post(`/qwertz/videos/${id}/export/qwertymates`),
+  exportWhatsapp: (id: string) => api.post(`/qwertz/videos/${id}/export/whatsapp`),
+  deleteVideo: (id: string) => api.delete(`/qwertz/videos/${id}`),
+  aiCaptions: (body: { videoId?: string; hint?: string }) => api.post('/qwertz/ai/captions', body),
+  aiHashtags: (body: { topic?: string }) => api.post('/qwertz/ai/hashtags', body),
+  templates: () => api.get('/qwertz/templates'),
 };

@@ -3,6 +3,7 @@ import { useState } from "react";
 import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import { AppErrorBoundary } from "./src/components/AppErrorBoundary";
+import { ForceUpdateGate } from "./src/components/ForceUpdateGate";
 import { AuthProvider, useAuth } from "./src/contexts/AuthContext";
 import { usePhonePortraitOrientationLock } from "./src/hooks/usePhonePortraitOrientationLock";
 import { HomeScreen } from "./src/screens/HomeScreen";
@@ -19,7 +20,9 @@ export default function App() {
           <AuthProvider>
             <SafeAreaView style={styles.safe}>
               <View style={styles.container}>
-                <AuthGate />
+                <ForceUpdateGate>
+                  <AuthGate />
+                </ForceUpdateGate>
               </View>
               <StatusBar style="dark" />
             </SafeAreaView>

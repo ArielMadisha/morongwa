@@ -15,8 +15,10 @@ interface AdvertSlotProps {
   belowHeader?: boolean;
   /** Optional content to render below Qwerty Users */
   bottomContent?: React.ReactNode;
-  /** When true, sidebar flows with page content (no fixed height) so scroll works from anywhere */
+  /** When true, sidebar flows with page content (no sticky/max-height) so page scroll reveals Sponsored + Birthdays */
   scrollWithPage?: boolean;
+  /** Cap Qwerty Users suggestions (Wall uses 4; Sponsored then Birthdays below in the rail). */
+  suggestedLimit?: number;
   /** Bump after new posts so trending refetches (e.g. wall CreatePostModal onCreated). */
   trendingRefreshKey?: number;
   /** When set (e.g. wall filtered by `#tag`), show related topics + start-topic CTA instead of global trending. */
@@ -93,9 +95,10 @@ function TrendingList({
 }
 
 export function AdvertSlot({
-  belowHeader,
+  belowHeader: _belowHeader,
   bottomContent,
-  scrollWithPage,
+  scrollWithPage = true,
+  suggestedLimit = 5,
   trendingRefreshKey,
   activeHashtag,
   onStartTopicWithHashtag,
@@ -109,11 +112,11 @@ export function AdvertSlot({
 
   const loadTrendingHashtags = useCallback(() => {
     return tvAPI
-      .getTrendingHashtags(5, 7, 'latest')
+      .getTrendingHashtags(4, 7, 'latest')
       .then((res) => {
         const d = res.data?.data ?? res.data ?? [];
         const arr = Array.isArray(d) ? d : [];
-        setTrendingHashtags(arr.slice(0, 5));
+        setTrendingHashtags(arr.slice(0, 4));
       })
       .catch(() => setTrendingHashtags([]));
   }, []);
@@ -164,12 +167,13 @@ export function AdvertSlot({
       setSuggestedUsers([]);
       return;
     }
+    const limit = Math.max(1, Math.min(8, Math.floor(suggestedLimit) || 5));
     const loadSuggested = () => {
       followsAPI
-        .getSuggested({ limit: 5 })
+        .getSuggested({ limit })
         .then((res) => {
           const d = res.data?.data ?? res.data ?? [];
-          setSuggestedUsers(Array.isArray(d) ? d : []);
+          setSuggestedUsers(Array.isArray(d) ? d.slice(0, limit) : []);
         })
         .catch(() => setSuggestedUsers([]));
     };
@@ -183,7 +187,7 @@ export function AdvertSlot({
       window.clearInterval(interval);
       document.removeEventListener('visibilitychange', onVisible);
     };
-  }, [user?._id, (user as { id?: string })?.id, trendingRefreshKey]);
+  }, [user?._id, (user as { id?: string })?.id, trendingRefreshKey, suggestedLimit]);
 
   const displayItems = normalizedActive ? relatedHashtags : trendingHashtags;
   const panelTitle = normalizedActive ? `Related to #${normalizedActive}` : 'Trending now';
@@ -215,8 +219,13 @@ export function AdvertSlot({
   ) : null;
 
   const headerOffset = 'top-0';
-  const asideHeight = scrollWithPage ? '' : belowHeader ? 'h-[calc(100vh-2.5rem)]' : 'h-screen';
-  const asideOverflow = scrollWithPage ? 'overflow-visible' : 'overflow-hidden';
+  // Trending + Users + Sponsored×2 + Birthdays is taller than the viewport. A sticky
+  // max-height rail with overflow-y-auto (and site-hidden scrollbars) clipped
+  // the second Sponsored ad and Birthdays with no discoverable scroll cue.
+  // Default: rail grows with content; parent page scrolls (scrollWithPage).
+  // Sticky is opt-out only — never invent an invisible scroll trap.
+  const asideHeight = '';
+  const asideOverflow = 'overflow-visible';
   const asideSticky = scrollWithPage ? '' : `sticky ${headerOffset} self-start`;
 
   const navigateToHashtag = (tag: string) => {
@@ -228,9 +237,18 @@ export function AdvertSlot({
       {/* Mobile: horizontal trending strip (hidden on Morongwa hub — section content needs full width) */}
       {!hideMobileStrip && (displayItems.length > 0 || normalizedActive) && (
         <div className="order-1 flex w-full min-w-0 max-w-full flex-shrink-0 flex-col gap-2 px-3 py-2 lg:hidden">
-          <p className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">{mobileTitle}</p>
+          {normalizedActive ? (
+            <p className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">{mobileTitle}</p>
+          ) : (
+            <Link
+              href="/trending"
+              className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold hover:text-sky-600 hover:underline cursor-pointer"
+            >
+              {mobileTitle}
+            </Link>
+          )}
           {normalizedActive && (
-            <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-thin">
+            <div className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
               {onStartTopicWithHashtag ? (
                 <button
                   type="button"
@@ -252,7 +270,7 @@ export function AdvertSlot({
             </div>
           )}
           {displayItems.length > 0 && (
-            <div className="flex gap-2 overflow-x-auto pb-1 -mx-4 px-4 scrollbar-thin">
+            <div className="flex gap-2 overflow-x-auto pb-1 px-0 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
               {displayItems.map((h) => (
                 <Link
                   key={h.tag}
@@ -274,15 +292,24 @@ export function AdvertSlot({
         </div>
       )}
       <aside
-        className={`${asideSticky} order-3 hidden w-64 shrink-0 flex-col gap-3 pt-0 pr-2 lg:flex xl:w-72 lg:pr-4 ${asideOverflow} ${asideHeight}`}
+        className={`${asideSticky} order-3 hidden w-64 min-h-0 shrink-0 flex-col gap-3 pt-0 pr-2 lg:flex xl:w-72 lg:pr-4 ${asideOverflow} ${asideHeight}`}
       >
-        <div className="space-y-4">
+        <div className="space-y-4 pb-3">
           {(displayItems.length > 0 || normalizedActive) && (
             <div className="rounded-xl border border-slate-200 bg-white p-2.5 shadow-sm">
-              <p className="mb-1.5 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-                {normalizedActive ? <Hash className="h-3 w-3" /> : null}
-                {panelTitle}
-              </p>
+              {normalizedActive ? (
+                <p className="mb-1.5 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                  <Hash className="h-3 w-3" />
+                  {panelTitle}
+                </p>
+              ) : (
+                <Link
+                  href="/trending"
+                  className="mb-1.5 inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400 hover:text-sky-600 hover:underline cursor-pointer"
+                >
+                  {panelTitle}
+                </Link>
+              )}
               {normalizedActive ? (
                 <>
                   {startTopicButton}

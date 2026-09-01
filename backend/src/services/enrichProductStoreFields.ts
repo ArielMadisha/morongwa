@@ -72,7 +72,23 @@ export async function enrichProductsWithStoreFields<T extends Record<string, unk
       (out as { currency?: string }).currency = currencyFromCountryIso(String(store.countryCode));
     }
     if (raw && typeof raw === "object" && label) {
-      (out as { supplierId?: { storeName?: string } }).supplierId = { ...raw, storeName: label };
+      const oid =
+        raw && typeof raw === "object" && (raw as { _id?: unknown })._id != null
+          ? (raw as { _id: unknown })._id
+          : raw;
+      // Never spread a bare ObjectId — that drops the id and breaks downstream lookups.
+      if (oid && typeof oid === "object" && !(oid as { _id?: unknown })._id && typeof (oid as { toHexString?: unknown }).toHexString === "function") {
+        (out as { supplierId?: { _id: unknown; storeName?: string } }).supplierId = {
+          _id: oid,
+          storeName: label,
+        };
+      } else if (raw && typeof raw === "object" && (raw as { _id?: unknown })._id != null) {
+        (out as { supplierId?: { _id: unknown; storeName?: string } }).supplierId = {
+          ...(raw as object),
+          _id: (raw as { _id: unknown })._id,
+          storeName: label,
+        };
+      }
     }
     return out;
   });

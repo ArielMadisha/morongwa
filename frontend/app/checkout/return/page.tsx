@@ -43,12 +43,12 @@ function CheckoutReturnContent() {
     const poll = async () => {
       if (!active) return;
       try {
-        const res = await checkoutAPI.getOrder(orderId);
+        const res = await checkoutAPI.getPaymentStatus(orderId);
         const order = (res.data?.data ?? res.data) as {
           status?: string;
           paymentStatus?: string | null;
         } | null;
-        if (!order) {
+        if (!order || order.status === 'not_found') {
           setStatus('not_found');
           return;
         }
@@ -67,7 +67,12 @@ function CheckoutReturnContent() {
 
         attempts += 1;
         if (attempts >= maxAttempts) {
-          await restoreCartForOrder(orderId);
+          // Only restore cart when authenticated buyer cancels — guests skip API cancel.
+          try {
+            await restoreCartForOrder(orderId);
+          } catch {
+            /* ignore */
+          }
           setStatus('cancelled');
           return;
         }

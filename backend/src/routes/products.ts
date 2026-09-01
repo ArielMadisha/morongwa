@@ -148,7 +148,7 @@ router.get("/", async (req: Request, res: Response) => {
     }
 
     const query = Product.find(match)
-      .select("title slug description images price discountPrice bulkTiers currency stock outOfStock categories tags availableCountries ratingAvg ratingCount supplierSource allowResell supplierId createdAt freeShippingEnabled freeShippingAreas colors sizes warehouseFreeLocalCity warehouseFreeLocalCountry")
+      .select("title slug description images price discountPrice bulkTiers currency stock outOfStock categories tags sku availableCountries ratingAvg ratingCount supplierSource allowResell supplierId createdAt freeShippingEnabled freeShippingAreas colors sizes warehouseFreeLocalCity warehouseFreeLocalCountry")
       .populate("supplierId", "storeName userId")
       .lean();
 

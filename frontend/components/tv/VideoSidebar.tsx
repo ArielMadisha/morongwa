@@ -105,7 +105,7 @@ export function VideoSidebar({ items, currentPostId, loading, creatorId, creator
         ) : (
           <div className="flex flex-col min-h-0 flex-1">
             <div className="shrink-0 px-4 py-3 border-b border-slate-100 bg-slate-50">
-              <div className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:thin]">
+              <div className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
                 <span className="shrink-0 px-3 py-1.5 rounded-lg bg-sky-500 text-white text-sm font-medium">
                   All
                 </span>
@@ -119,7 +119,7 @@ export function VideoSidebar({ items, currentPostId, loading, creatorId, creator
                 )}
               </div>
             </div>
-            <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain [scrollbar-width:thin]">
+            <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
               <div className="divide-y divide-slate-100">
                 {filtered.map((item) => {
                   const thumb = item.mediaUrls?.[0] || item.images?.[0];

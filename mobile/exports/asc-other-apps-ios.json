@@ -1,0 +1,90 @@
+{
+  "apps": [
+    {
+      "name": "Qwertymates",
+      "id": "6798004708",
+      "versions": [
+        {
+          "id": "b1ec529b-acc3-4935-b109-8ae6cb94d645",
+          "versionString": "1.0",
+          "state": "REJECTED",
+          "createdDate": "2026-08-04T13:09:59-07:00"
+        }
+      ],
+      "submissions": [
+        {
+          "id": "baefad44-d63e-4562-a514-a47f3ef799b3",
+          "state": "UNRESOLVED_ISSUES",
+          "submittedDate": "2026-08-09T22:32:23.322Z"
+        },
+        {
+          "id": "442e5f45-85d3-41ee-82bb-d87bf4d70108",
+          "state": "COMPLETE",
+          "submittedDate": "2026-08-05T09:28:15.187Z"
+        }
+      ]
+    },
+    {
+      "name": "Qwertymates.com",
+      "id": "6443939965",
+      "versions": [
+        {
+          "id": "b1e45edc-5ab3-486a-9012-4986744e64c4",
+          "versionString": "1.0",
+          "state": "REJECTED",
+          "createdDate": "2022-10-20T07:09:31-07:00"
+        }
+      ],
+      "submissions": [
+        {
+          "id": "d967bf00-46f5-43cf-841b-a0de0a7d2f3f",
+          "state": "UNRESOLVED_ISSUES",
+          "submittedDate": "2023-03-06T10:14:00.083Z"
+        }
+      ]
+    },
+    {
+      "name": "Acbpay",
+      "id": "1600228324",
+      "versions": [
+        {
+          "id": "e7506c13-e0f5-49ea-a278-77e03fecb7e0",
+          "versionString": "1.0",
+          "state": "READY_FOR_SALE",
+          "createdDate": "2021-12-14T01:55:15-08:00"
+        }
+      ],
+      "submissions": []
+    }
+  ],
+  "iris": [
+    {
+      "path": "/iris/v1/apps/6798004708/resolutionCenterThreads?filter[threadType]=REJECTION_BINARY,REJECTION_METADATA,REJECTION_REVIEW_SUBMISSION",
+      "status": 404,
+      "code": "NOT_FOUND",
+      "detail": "The path provided does not match a defined resource type.",
+      "dataCount": 0
+    },
+    {
+      "path": "/v1/reviewRejections?filter[reviewSubmission]=baefad44-d63e-4562-a514-a47f3ef799b3",
+      "status": 404,
+      "code": "PATH_ERROR",
+      "detail": "The resource 'v1/reviewRejections' does not exist",
+      "dataCount": 0
+    },
+    {
+      "path": "/v1/appDataUsageCategories",
+      "status": 404,
+      "code": "PATH_ERROR",
+      "detail": "The resource 'v1/appDataUsageCategories' does not exist",
+      "dataCount": 0
+    },
+    {
+      "path": "/v1/apps/6798004708/appAvailabilityV2",
+      "status": 404,
+      "code": "NOT_FOUND",
+      "detail": "There is no resource of type 'appAvailabilities' with id '6798004708'",
+      "dataCount": 0
+    }
+  ]
+}

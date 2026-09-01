@@ -68,6 +68,16 @@ export interface IUser extends Document {
     orderSms?: boolean;
     orderWhatsapp?: boolean;
   };
+  /**
+   * Expo push tokens for device notifications (Qwertymates mobile).
+   * Never expose on client API payloads — stripped in toJSON / sanitizeUserForClient.
+   */
+  expoPushTokens?: Array<{
+    token: string;
+    platform?: string;
+    deviceId?: string;
+    updatedAt?: Date;
+  }>;
   /** ACBPayWallet merchant agent — cash-in/cash-out; requires KYC, admin approval, float. */
   merchantAgent?: {
     enabled: boolean;
@@ -112,6 +122,23 @@ export interface IUser extends Document {
   };
   /** Individual accounts: when true, phone may appear on public /user/:id profile */
   showPhonePublicly?: boolean;
+  /** True when email ownership was verified (OTP) or phone OTP registration was used. */
+  emailVerified?: boolean;
+  emailVerifiedAt?: Date;
+  /** Client IP observed at registration (best-effort behind proxies). */
+  registrationIp?: string;
+  /** Approximate geo for registrationIp (best-effort). */
+  registrationGeo?: {
+    country?: string;
+    countryCode?: string;
+    region?: string;
+    city?: string;
+    isp?: string;
+    org?: string;
+    lat?: number;
+    lon?: number;
+    source?: string;
+  };
   createdAt: Date;
   updatedAt: Date;
 }
@@ -193,6 +220,14 @@ const UserSchema = new Schema<IUser>(
       orderSms: { type: Boolean, default: false },
       orderWhatsapp: { type: Boolean, default: false },
     },
+    expoPushTokens: [
+      {
+        token: { type: String, required: true, trim: true, maxlength: 200 },
+        platform: { type: String, trim: true, maxlength: 32 },
+        deviceId: { type: String, trim: true, maxlength: 128 },
+        updatedAt: { type: Date },
+      },
+    ],
     merchantAgent: {
       enabled: { type: Boolean, default: false },
       applicationStatus: {
@@ -228,6 +263,20 @@ const UserSchema = new Schema<IUser>(
     },
     showPhonePublicly: { type: Boolean, default: false },
     importedFromLegacy: { type: Boolean, default: false, index: true },
+    emailVerified: { type: Boolean, default: false, index: true },
+    emailVerifiedAt: { type: Date },
+    registrationIp: { type: String, trim: true, maxlength: 64, index: true },
+    registrationGeo: {
+      country: { type: String, trim: true, maxlength: 80 },
+      countryCode: { type: String, trim: true, uppercase: true, maxlength: 2 },
+      region: { type: String, trim: true, maxlength: 80 },
+      city: { type: String, trim: true, maxlength: 80 },
+      isp: { type: String, trim: true, maxlength: 120 },
+      org: { type: String, trim: true, maxlength: 120 },
+      lat: { type: Number },
+      lon: { type: Number },
+      source: { type: String, trim: true, maxlength: 40 },
+    },
     isVerified: { type: Boolean, default: false },
     active: { type: Boolean, default: true },
     suspended: { type: Boolean, default: false },
@@ -245,6 +294,9 @@ UserSchema.index({ liveStreamName: 1 }, { sparse: true });
 UserSchema.set("toJSON", {
   transform: (_doc: any, ret: any) => {
     delete ret.passwordHash;
+    delete ret.registrationIp;
+    delete ret.registrationGeo;
+    delete ret.expoPushTokens;
     delete ret.__v;
     return ret;
   },

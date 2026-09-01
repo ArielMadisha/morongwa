@@ -5,6 +5,7 @@ import { Ionicons } from "@expo/vector-icons";
 import {
   ActivityIndicator,
   Alert,
+  AppState,
   Dimensions,
   Image,
   ImageBackground,
@@ -16,7 +17,6 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View
 } from "react-native";
 import { useAuth } from "../contexts/AuthContext";
@@ -27,19 +27,35 @@ import { CartScreen } from "./CartScreen";
 import { ProfileScreen } from "./ProfileScreen";
 import { CheckoutScreen } from "./CheckoutScreen";
 import { MessagesScreen } from "./MessagesScreen";
-import { WorldScreen } from "./WorldScreen";
 import { MusicScreen } from "./MusicScreen";
+import { PodcastsScreen } from "./PodcastsScreen";
 import { ErrandsScreen } from "./ErrandsScreen";
+import { ErrandsHubScreen, type ErrandsHubTab } from "./ErrandsHubScreen";
 import { CreatePostModal } from "../components/CreatePostModal";
+import { AskMacGyverModal } from "../components/AskMacGyverModal";
 import { ErrandsTshwaneBookModal } from "../components/ErrandsTshwaneBookModal";
 import { StoriesStrip } from "../components/StoriesStrip";
+import { TrendingNowMarquee } from "../components/TrendingNowMarquee";
+import { MediaChipsRow } from "../components/MediaChipsRow";
+import { TV_GENRE_FALLBACK, type TvGenre } from "../lib/tvGenres";
 import { StatusStoryViewer } from "../components/StatusStoryViewer";
 import { SiteNavIcon } from "../components/SiteNavIcon";
+import {
+  CollapsibleChrome,
+  ScrollAwareChromeProvider,
+} from "../components/ScrollAwareChrome";
+import type { ScrollAwareChromeApi } from "../hooks/useScrollAwareChrome";
 import { SITE_NAV_ICONS } from "../constants/site";
+import { openWebUrl } from "../lib/openWebUrl";
+import {
+  emitNewShopOrderAlert,
+  subscribeNewShopOrderAlert,
+  subscribeOpenErrands,
+} from "../lib/errandsNavigation";
 import {
   cartAPI,
   contentAPI,
-  macgyverAPI,
+  notificationsAPI,
   productsAPI,
   resellerAPI,
   storesAPI,
@@ -54,6 +70,7 @@ import {
   type StatusStripItem
 } from "../lib/statusStripItem";
 import { statusProductId } from "../lib/statusProductLink";
+import { filterFirstPartyStatusItems } from "../lib/iosStoreCompliance";
 import { Product, StoreSummary, TVPost } from "../types";
 import { appTypography, socialChrome, socialTheme } from "../theme/socialTheme";
 import { CallPresenceService } from "../lib/callPresence";
@@ -72,7 +89,7 @@ const SAVED_POSTS_KEY = "qwertymates.mobile.savedPosts";
 
 const SCREEN_W = Dimensions.get("window").width;
 
-type PrimaryTab = "wall" | "hub" | "tv" | "world" | "music";
+type PrimaryTab = "wall" | "hub" | "tv" | "music";
 type OverlayScreen = "messages" | "profile" | "wallet" | "cart" | "store";
 
 const bottomNavTabs: {
@@ -82,9 +99,16 @@ const bottomNavTabs: {
   fallback: React.ComponentProps<typeof SiteNavIcon>["fallback"];
 }[] = [
   { id: "hub", label: "QwertyHub", iconPath: SITE_NAV_ICONS.qwertyHub, fallback: "storefront-outline" },
-  { id: "tv", label: "QwertyTV", iconPath: SITE_NAV_ICONS.qwertyTv, fallback: "play-circle-outline" },
-  { id: "world", label: "QwertyWorld", iconPath: SITE_NAV_ICONS.qwertyWorld, fallback: "grid-outline" },
-  { id: "music", label: "QwertyMusic", iconPath: SITE_NAV_ICONS.qwertyMusic, fallback: "musical-notes-outline" }
+  { id: "tv", label: "QwertyMedia", iconPath: SITE_NAV_ICONS.qwertyMedia, fallback: "play-circle-outline" }
+];
+
+/** Top-level sections inside QwertyMedia (QwertyMusic no longer has its own bottom tab). */
+type MediaSection = "tv" | "music" | "podcasts";
+
+const mediaSectionChips: { id: MediaSection; label: string }[] = [
+  { id: "tv", label: "QwertyTV" },
+  { id: "music", label: "QwertyMusic" },
+  { id: "podcasts", label: "QwertyPodcasts" }
 ];
 
 export function HomeScreen() {
@@ -93,6 +117,23 @@ export function HomeScreen() {
   const [feedViewportHeight, setFeedViewportHeight] = useState(0);
   const [overlay, setOverlay] = useState<OverlayScreen | null>(null);
   const [tab, setTab] = useState<"feed" | "saved">("feed");
+  const [mediaSection, setMediaSection] = useState<MediaSection>("tv");
+  const [tvGenre, setTvGenre] = useState<string>("all");
+  const [tvGenres, setTvGenres] = useState<TvGenre[]>(TV_GENRE_FALLBACK);
+
+  useEffect(() => {
+    let cancelled = false;
+    tvAPI
+      .getGenres()
+      .then((res) => {
+        const list = res.data?.data ?? [];
+        if (!cancelled && list.length) setTvGenres([{ id: "all", label: "All" }, ...list]);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const [savedCount, setSavedCount] = useState(0);
   const [feedVersion, setFeedVersion] = useState(0);
   const [cartRefreshKey, setCartRefreshKey] = useState(0);
@@ -116,11 +157,12 @@ export function HomeScreen() {
   const [macGyverOpen, setMacGyverOpen] = useState(false);
   const [aboutQwertymatesOpen, setAboutQwertymatesOpen] = useState(false);
   const [macGyverFabExpanded, setMacGyverFabExpanded] = useState(false);
-  const [macGyverQuery, setMacGyverQuery] = useState("");
-  const [macGyverLoading, setMacGyverLoading] = useState(false);
-  const [macGyverResults, setMacGyverResults] = useState<Product[]>([]);
-  const [macGyverAiText, setMacGyverAiText] = useState<string | null>(null);
+  const [messagesPeer, setMessagesPeer] = useState<{ id: string; name?: string } | null>(null);
+  const [fabHint, setFabHint] = useState<string | null>(null);
+  const fabHintTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [hubOpenProductId, setHubOpenProductId] = useState<string | null>(null);
+  const [hubFocusedProduct, setHubFocusedProduct] = useState<Product | null>(null);
+  const [hubCartBusy, setHubCartBusy] = useState(false);
   const [statusItems, setStatusItems] = useState<StatusStripItem[]>([]);
   const [statusViewerOpen, setStatusViewerOpen] = useState(false);
   const [statusViewerLoading, setStatusViewerLoading] = useState(false);
@@ -130,10 +172,12 @@ export function HomeScreen() {
   const [statusPostIndex, setStatusPostIndex] = useState(0);
   const [showMyStoreQuick, setShowMyStoreQuick] = useState(false);
   const [storePanelStores, setStorePanelStores] = useState<StoreSummary[]>([]);
+  const [shopOrderUnread, setShopOrderUnread] = useState(0);
   const [storePanelLoading, setStorePanelLoading] = useState(false);
   const [createPostOpen, setCreatePostOpen] = useState(false);
   const [errandsMenuOpen, setErrandsMenuOpen] = useState(false);
-  const [errandsOverlay, setErrandsOverlay] = useState<"client" | "runner" | null>(null);
+  const [errandsOverlay, setErrandsOverlay] = useState<"hub" | "client" | "runner" | null>(null);
+  const [errandsHubTab, setErrandsHubTab] = useState<ErrandsHubTab>("orders");
   const [errandTshwaneBookOpen, setErrandTshwaneBookOpen] = useState(false);
   const [errandsAnchor, setErrandsAnchor] = useState<{
     x: number;
@@ -142,6 +186,9 @@ export function HomeScreen() {
     height: number;
   } | null>(null);
   const errandsRef = useRef<View>(null);
+  const shopOrderUnreadRef = useRef(0);
+  const shopOrderPollPrimedRef = useRef(false);
+  const newOrderAlertOpenRef = useRef(false);
   const callPresenceRef = useRef(new CallPresenceService());
   const [landingBgs, setLandingBgs] = useState<string[]>([]);
   const [landingBgIdx, setLandingBgIdx] = useState(0);
@@ -209,19 +256,23 @@ export function HomeScreen() {
   }, []);
 
   useEffect(() => {
-    if (landingBgs.length <= 1) return;
+    // Do not rotate landing backgrounds while the user is in the app — it felt like a full refresh.
+    if (user || landingBgs.length <= 1) return;
     const id = setInterval(() => setLandingBgIdx((i) => i + 1), 18000);
     return () => clearInterval(id);
-  }, [landingBgs.length]);
+  }, [landingBgs.length, user]);
 
   useEffect(() => {
     setLandingBgBroken(false);
   }, [landingBgIdx, landingBgs]);
 
   useEffect(() => {
-    void tvAPI
-      .getStatuses()
-      .then((res) => {
+    let cancelled = false;
+
+    const loadStatuses = async () => {
+      try {
+        const res = await tvAPI.getStatuses();
+        if (cancelled) return;
         const rows = res.data?.data ?? [];
         const mapped = rows
           .map((r) => {
@@ -230,25 +281,47 @@ export function HomeScreen() {
               typeof uid === "object" && uid && "_id" in (uid as { _id?: string })
                 ? String((uid as { _id?: string })._id)
                 : String(uid ?? "");
-            if (!id || !r.latestPost?._id) return null;
+            const posts = Array.isArray(r.posts) ? r.posts : [];
+            const latestPost =
+              r.latestPost?._id != null
+                ? r.latestPost
+                : posts.length > 0
+                  ? posts[0]
+                  : null;
             const rowKey =
               typeof r.statusKey === "string" && r.statusKey.trim()
                 ? String(r.statusKey).trim()
                 : id;
+            // Keep rows that have a key and either latestPost or posts[].
+            if (!rowKey) return null;
+            if (!latestPost?._id && posts.length === 0) return null;
             const item: StatusStripItem = {
               id: rowKey,
               name: r.name,
               avatar: r.avatar,
               isStoreStatus: r.isStoreStatus === true,
-              latestPost: r.latestPost,
-              posts: r.posts
+              latestPost: latestPost ?? undefined,
+              posts: posts.length ? posts : undefined
             };
             return normalizeStatusStripItem(item);
           })
           .filter(Boolean) as StatusStripItem[];
-        setStatusItems(sortStatusStripNewestFirst(mapped));
-      })
-      .catch(() => setStatusItems([]));
+        setStatusItems(sortStatusStripNewestFirst(filterFirstPartyStatusItems(mapped)));
+      } catch {
+        // Soft-fail: keep previous statusItems (do not wipe on transient errors).
+      }
+    };
+
+    void loadStatuses();
+
+    const sub = AppState.addEventListener("change", (next) => {
+      if (next === "active") void loadStatuses();
+    });
+
+    return () => {
+      cancelled = true;
+      sub.remove();
+    };
   }, [feedVersion]);
 
   const loadStatusPostAt = useCallback(async (item: StatusStripItem, index: number) => {
@@ -347,11 +420,18 @@ export function HomeScreen() {
       setShowMyStoreQuick(false);
       return;
     }
-    void resellerAPI
-      .getMyWall()
-      .then((res) => {
-        const n = Array.isArray(res.data?.data?.products) ? res.data!.data!.products!.length : 0;
-        setShowMyStoreQuick(n > 0);
+    // Any store counts (supplier or the reseller store auto-created on first resell),
+    // with the reseller wall as a fallback signal if /stores/me is unavailable.
+    void Promise.all([
+      storesAPI.getMine().catch(() => null),
+      resellerAPI.getMyWall().catch(() => null),
+    ])
+      .then(([storesRes, wallRes]) => {
+        const storeCount = Array.isArray(storesRes?.data?.data) ? storesRes!.data!.data!.length : 0;
+        const resoldCount = Array.isArray(wallRes?.data?.data?.products)
+          ? wallRes!.data!.data!.products!.length
+          : 0;
+        setShowMyStoreQuick(storeCount > 0 || resoldCount > 0);
       })
       .catch(() => setShowMyStoreQuick(false));
   }, [user, feedVersion, cartRefreshKey]);
@@ -359,9 +439,14 @@ export function HomeScreen() {
   const loadStorePanel = useCallback(async () => {
     setStorePanelLoading(true);
     try {
-      const res = await storesAPI.getMine();
+      const [res, unreadRes] = await Promise.all([
+        storesAPI.getMine(),
+        notificationsAPI.getUnreadCount({ shopOrders: true }).catch(() => null),
+      ]);
       const data = res.data?.data;
       setStorePanelStores(Array.isArray(data) ? data : []);
+      const n = Number(unreadRes?.data?.shopOrderUnreadCount ?? unreadRes?.data?.unreadCount ?? 0);
+      setShopOrderUnread(Number.isFinite(n) ? n : 0);
     } catch {
       setStorePanelStores([]);
     } finally {
@@ -372,6 +457,89 @@ export function HomeScreen() {
   useEffect(() => {
     if (overlay === "store") void loadStorePanel();
   }, [overlay, loadStorePanel]);
+
+  const openErrandsHub = useCallback((tab: ErrandsHubTab = "orders") => {
+    setErrandsMenuOpen(false);
+    setErrandsAnchor(null);
+    setErrandTshwaneBookOpen(false);
+    setOverlay(null);
+    setErrandsHubTab(tab);
+    setErrandsOverlay("hub");
+  }, []);
+
+  const showNewOrderAlert = useCallback(() => {
+    if (newOrderAlertOpenRef.current) return;
+    newOrderAlertOpenRef.current = true;
+    Alert.alert("New Order", "A customer placed an order at your store.", [
+      { text: "Later", style: "cancel", onPress: () => { newOrderAlertOpenRef.current = false; } },
+      {
+        text: "View Orders",
+        onPress: () => {
+          newOrderAlertOpenRef.current = false;
+          openErrandsHub("orders");
+        },
+      },
+    ]);
+  }, [openErrandsHub]);
+
+  /** Poll shop-order unread while logged in; popup when count rises (even off Errands). */
+  useEffect(() => {
+    if (!user) {
+      shopOrderUnreadRef.current = 0;
+      shopOrderPollPrimedRef.current = false;
+      setShopOrderUnread(0);
+      return;
+    }
+
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const unreadRes = await notificationsAPI.getUnreadCount({ shopOrders: true });
+        if (cancelled) return;
+        const n = Number(
+          unreadRes?.data?.shopOrderUnreadCount ?? unreadRes?.data?.unreadCount ?? 0
+        );
+        const next = Number.isFinite(n) ? n : 0;
+        const isOwner = !!unreadRes?.data?.isShopOwner;
+        if (!shopOrderPollPrimedRef.current) {
+          shopOrderPollPrimedRef.current = true;
+          shopOrderUnreadRef.current = next;
+          setShopOrderUnread(next);
+          return;
+        }
+        if (isOwner && next > shopOrderUnreadRef.current) {
+          emitNewShopOrderAlert();
+        }
+        shopOrderUnreadRef.current = next;
+        setShopOrderUnread(next);
+      } catch {
+        /* ignore poll errors */
+      }
+    };
+
+    void poll();
+    const id = setInterval(() => void poll(), 20000);
+    const appSub = AppState.addEventListener("change", (state) => {
+      if (state === "active") void poll();
+    });
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+      appSub.remove();
+    };
+  }, [user]);
+
+  useEffect(() => {
+    return subscribeOpenErrands((req) => {
+      openErrandsHub(req.tab || "orders");
+    });
+  }, [openErrandsHub]);
+
+  useEffect(() => {
+    return subscribeNewShopOrderAlert(() => {
+      showNewOrderAlert();
+    });
+  }, [showNewOrderAlert]);
 
   const openCallPicker = () => {
     setCallPickerOpen(true);
@@ -437,6 +605,11 @@ export function HomeScreen() {
   };
 
   const onErrandsPress = () => {
+    // Primary: open Orders | Clients | Runners hub (shop owners + everyone).
+    openErrandsHub("orders");
+  };
+
+  const onErrandsLongPress = () => {
     const openAt = (x: number, y: number, width: number, height: number) => {
       setErrandsAnchor({ x, y, width, height });
       setErrandsMenuOpen(true);
@@ -461,9 +634,12 @@ export function HomeScreen() {
   const closeMacGyver = useCallback(() => {
     setMacGyverOpen(false);
     setMacGyverFabExpanded(false);
-    setMacGyverResults([]);
-    setMacGyverQuery("");
-    setMacGyverAiText(null);
+  }, []);
+
+  const flashFabHint = useCallback((label: string) => {
+    if (fabHintTimer.current) clearTimeout(fabHintTimer.current);
+    setFabHint(label);
+    fabHintTimer.current = setTimeout(() => setFabHint(null), 1400);
   }, []);
 
   useEffect(() => {
@@ -472,55 +648,40 @@ export function HomeScreen() {
     return () => clearTimeout(id);
   }, [macGyverFabExpanded, macGyverOpen]);
 
-  /** Same pipeline as web search page: POST /macgyver/ask → search products or AI text. */
-  const submitMacGyverAsk = async () => {
-    const q = macGyverQuery.trim();
-    if (!q || macGyverLoading) return;
-    if (!user) {
-      Alert.alert("Ask MacGyver", "Sign in to use Ask MacGyver.");
-      return;
-    }
-    setMacGyverLoading(true);
-    setMacGyverAiText(null);
-    setMacGyverResults([]);
-    try {
-      const res = await macgyverAPI.ask(q);
-      const data = res.data?.data;
-      if (data && "type" in data && data.type === "search" && typeof data.query === "string") {
-        const prodRes = await productsAPI.list({ q: data.query.trim(), limit: 30 });
-        const list = prodRes.data?.data;
-        setMacGyverResults(Array.isArray(list) ? list : []);
-      } else if (data && "text" in data && typeof (data as { text?: string }).text === "string") {
-        setMacGyverAiText((data as { text: string }).text);
-      } else {
-        setMacGyverAiText("No response.");
-      }
-    } catch (err: unknown) {
-      const msg =
-        (err as { response?: { data?: { message?: string } } })?.response?.data?.message ||
-        (err as Error)?.message ||
-        "Something went wrong. Try again.";
-      setMacGyverAiText(String(msg));
-    } finally {
-      setMacGyverLoading(false);
-    }
-  };
-
-  const pickMacGyverProduct = (p: Product) => {
-    if (!p?._id) return;
-    closeMacGyver();
-    setHubOpenProductId(p._id);
-    goToPrimary("hub");
-  };
-
   const mainContent = () => {
-    if (errandsOverlay) {
-      return <ErrandsScreen mode={errandsOverlay} onBack={() => setErrandsOverlay(null)} />;
+    if (errandsOverlay === "hub") {
+      return (
+        <ErrandsHubScreen
+          key={`errands-hub-${errandsHubTab}`}
+          initialTab={errandsHubTab}
+          onBack={() => setErrandsOverlay(null)}
+          onOpenClientTasks={() => openErrandsInApp("client")}
+          onOpenRunnerTasks={() => openErrandsInApp("runner")}
+          onOpenTshwaneBook={() => {
+            setErrandsOverlay(null);
+            setErrandTshwaneBookOpen(true);
+          }}
+        />
+      );
+    }
+    if (errandsOverlay === "client" || errandsOverlay === "runner") {
+      return (
+        <ErrandsScreen
+          mode={errandsOverlay}
+          onBack={() => {
+            setErrandsHubTab("runners");
+            setErrandsOverlay("hub");
+          }}
+        />
+      );
     }
     if (overlay === "messages") {
       return (
         <MessagesScreen
           currentUserId={String(user?._id || user?.id || "")}
+          initialDirectUserId={messagesPeer?.id}
+          initialDirectUserName={messagesPeer?.name}
+          onConsumedInitialDirect={() => setMessagesPeer(null)}
           onRequestVideoCall={(peerUserId, roomId) => {
             launchDirectCall(peerUserId, roomId, { audioOnly: false });
           }}
@@ -568,10 +729,12 @@ export function HomeScreen() {
             setCartRefreshKey((v) => v + 1);
           }}
           onPaid={() => {
+            // Leave checkout after success — do not reopen unpaid checkout / web login loop.
             setCartMode("cart");
             setCartRefreshKey((v) => v + 1);
             setWalletSession((v) => v + 1);
-            setOverlay("wallet");
+            setOverlay(null);
+            goToPrimary("hub");
           }}
         />
       );
@@ -586,6 +749,27 @@ export function HomeScreen() {
           }
         >
           <Text style={styles.storeOverlayTitle}>My store</Text>
+          {storePanelStores.length > 0 ? (
+            <Pressable
+              onPress={() => openErrandsHub("orders")}
+              style={styles.shopOrdersBtn}
+              accessibilityRole="button"
+              accessibilityLabel="Open Shop Orders in Errands"
+            >
+              <Ionicons name="clipboard-outline" size={18} color="#fff" />
+              <Text style={styles.shopOrdersBtnText}>Shop Orders</Text>
+              {shopOrderUnread > 0 ? (
+                <View style={styles.shopOrdersBadge}>
+                  <Text style={styles.shopOrdersBadgeText}>
+                    {shopOrderUnread > 99 ? "99+" : String(shopOrderUnread)}
+                  </Text>
+                </View>
+              ) : null}
+            </Pressable>
+          ) : null}
+          <Text style={styles.storeOrdersHint}>
+            New paid orders appear in Errands → Orders (and Activity) even if WhatsApp is delayed.
+          </Text>
           {storePanelLoading && storePanelStores.length === 0 ? (
             <ActivityIndicator color={socialTheme.brandBlue} />
           ) : (
@@ -614,6 +798,7 @@ export function HomeScreen() {
         <FeedScreen
           key={`wall-${feedVersion}`}
           variant="wall"
+          viewportHeight={feedViewportHeight}
           hideStoriesHeader
           onPressCreateStory={() => setCreatePostOpen(true)}
           onCartUpdated={bumpCart}
@@ -628,54 +813,49 @@ export function HomeScreen() {
       );
     }
     if (primaryTab === "tv") {
-      return (
-        <>
-          <View style={styles.tabsRow}>
-            <Pressable onPress={() => setTab("feed")} style={[styles.tabBtn, tab === "feed" && styles.tabBtnActive]}>
-              <Text style={[styles.tabBtnText, tab === "feed" && styles.tabBtnTextActive]}>Feed</Text>
-            </Pressable>
-            <Pressable onPress={() => setTab("saved")} style={[styles.tabBtn, tab === "saved" && styles.tabBtnActive]}>
-              <View style={styles.savedTabWrap}>
-                <Text style={[styles.tabBtnText, tab === "saved" && styles.tabBtnTextActive]}>Saved</Text>
-                {savedCount > 0 ? (
-                  <View style={[styles.savedBadge, tab === "saved" && styles.savedBadgeActive]}>
-                    <Text style={[styles.savedBadgeText, tab === "saved" && styles.savedBadgeTextActive]}>
-                      {savedCount > 99 ? "99+" : savedCount}
-                    </Text>
-                  </View>
-                ) : null}
-              </View>
-            </Pressable>
-            {tab === "saved" && savedCount > 0 ? (
-              <Pressable onPress={clearAllSaved} style={styles.clearBtn}>
-                <Text style={styles.clearBtnText}>Clear all</Text>
-              </Pressable>
-            ) : null}
-          </View>
-          <FeedScreen
-            key={`${tab}-${feedVersion}`}
-            variant={tab === "saved" ? "default" : "tvVideo"}
-            viewportHeight={tab === "feed" ? feedViewportHeight : 0}
-            hideStoriesHeader
-            onPressCreateStory={() => setCreatePostOpen(true)}
-            onCartUpdated={bumpCart}
-            onOpenProduct={(id) => {
-              setHubOpenProductId(id);
-              goToPrimary("hub");
+      if (mediaSection === "music") {
+        return (
+          <MusicScreen
+            onThemeSetForPosts={() => {
+              setCreatePostOpen(true);
             }}
-            userName={user?.name}
-            currentUserId={user?._id || user?.id}
-            savedOnly={tab === "saved"}
-            onSavedCountChange={setSavedCount}
           />
-        </>
+        );
+      }
+      if (mediaSection === "podcasts") {
+        return <PodcastsScreen />;
+      }
+      return (
+        <FeedScreen
+          key={`${tab}-${tvGenre}-${feedVersion}`}
+          genre={tvGenre}
+          variant={tab === "saved" ? "default" : "tvVideo"}
+          viewportHeight={tab === "feed" ? feedViewportHeight : 0}
+          hideStoriesHeader
+          onPressCreateStory={() => setCreatePostOpen(true)}
+          onCartUpdated={bumpCart}
+          onOpenProduct={(id) => {
+            setHubOpenProductId(id);
+            goToPrimary("hub");
+          }}
+          userName={user?.name}
+          currentUserId={user?._id || user?.id}
+          savedOnly={tab === "saved"}
+          onSavedCountChange={setSavedCount}
+          tvListMode={tab}
+          onTvListModeChange={setTab}
+          savedCount={savedCount}
+          onClearAllSaved={clearAllSaved}
+        />
       );
     }
     if (primaryTab === "hub") {
       return (
         <HubScreen
+          viewportHeight={feedViewportHeight}
           openProductId={hubOpenProductId}
           onConsumedOpenProductId={() => setHubOpenProductId(null)}
+          onFocusedProductChange={setHubFocusedProduct}
           onAddedToCart={() => {
             setCartRefreshKey((v) => v + 1);
           }}
@@ -683,31 +863,28 @@ export function HomeScreen() {
         />
       );
     }
-    if (primaryTab === "world") {
+    if (primaryTab === "music") {
       return (
-        <WorldScreen
-          onOpenProductId={(id) => {
-            setHubOpenProductId(id);
-            goToPrimary("hub");
-          }}
-          onGoToQwertyTv={() => {
-            setTab("feed");
-            goToPrimary("tv");
+        <MusicScreen
+          onThemeSetForPosts={() => {
+            setCreatePostOpen(true);
           }}
         />
       );
-    }
-    if (primaryTab === "music") {
-      return <MusicScreen />;
     }
     return null;
   };
 
   const landingBgUri = landingBgs.length ? landingBgs[landingBgIdx % landingBgs.length] : null;
-  const showLandingPhotoBg = !!(landingBgUri && !landingBgBroken);
+  // Logged-in users get a solid chrome — rotating photo backgrounds felt like a feed refresh.
+  const showLandingPhotoBg = !!(!user && landingBgUri && !landingBgBroken);
 
   const mainShell = (
+    <ScrollAwareChromeProvider>
+      {(chrome) => (
     <View style={[styles.container, showLandingPhotoBg ? styles.containerOnPhotoBg : null]}>
+      <ScrollAwareChromeReset chrome={chrome} watch={`${primaryTab}|${tab}|${overlay ?? ""}|${errandsOverlay ?? ""}`} />
+      <CollapsibleChrome api={chrome} edge="top" style={styles.chromeCollapse}>
       <View style={styles.fixedChrome}>
         <View style={styles.statusTopRow}>
           <Pressable
@@ -726,6 +903,7 @@ export function HomeScreen() {
           <View style={styles.storiesSlot}>
             <StoriesStrip
               items={statusItems}
+              selfAvatarUrl={user?.avatar}
               onPressSelf={() => setCreatePostOpen(true)}
               onPressItem={(item) => {
                 void openStatusViewer(item);
@@ -733,8 +911,33 @@ export function HomeScreen() {
             />
           </View>
         </View>
-        <View style={styles.quickActionsBar} />
+        {primaryTab === "tv" ? (
+          <MediaChipsRow
+            chips={mediaSectionChips}
+            activeId={mediaSection}
+            onSelect={(id) => setMediaSection(id as MediaSection)}
+            accessibilityLabel="QwertyMedia sections"
+          />
+        ) : null}
+        {primaryTab === "wall" || primaryTab === "hub" || (primaryTab === "tv" && mediaSection === "tv") ? (
+          <TrendingNowMarquee
+            onPressTag={(tag) => {
+              setTab("feed");
+              goToPrimary("tv");
+              Alert.alert("Trending", `#${tag} — open QwertyTV search for this tag.`);
+            }}
+          />
+        ) : null}
+        {primaryTab === "tv" && mediaSection === "tv" ? (
+          <MediaChipsRow
+            chips={tvGenres}
+            activeId={tvGenre}
+            onSelect={setTvGenre}
+            accessibilityLabel="TV genres"
+          />
+        ) : null}
       </View>
+      </CollapsibleChrome>
 
       <View style={styles.bodyWrap}>
         {/* Left rail: icon-only column (placeholders for future shortcuts). */}
@@ -747,53 +950,44 @@ export function HomeScreen() {
           {mainContent()}
         </View>
 
-        {/* Right FABs: cart (optional), About, Ask MacGyver AI (above), messages (below). */}
+        {/* Right FABs: icons only; label flashes on press. Store appears above cart after resell. */}
         {overlay || errandsOverlay || createPostOpen || statusViewerOpen || errandsMenuOpen || macGyverOpen || aboutQwertymatesOpen ? null : (
           <View style={styles.rightFabColumn} pointerEvents="box-none">
-            {cartCount > 0 ? (
-              <Pressable
-                onPress={openCartOverlay}
-                style={styles.cartFabWrap}
-                accessibilityRole="button"
-                accessibilityLabel="Open cart"
-              >
-                <Text style={styles.cartFabLabel}>cart</Text>
-                <View style={styles.fab}>
-                  <Ionicons name="cart-outline" size={22} color={socialTheme.brandBlueDark} />
-                  {cartCount > 0 ? (
-                    <View style={styles.cartFabBadge}>
-                      <Text style={styles.cartFabBadgeText}>{cartCount > 99 ? "99+" : cartCount}</Text>
-                    </View>
-                  ) : null}
-                </View>
-              </Pressable>
-            ) : null}
-            {showMyStoreQuick ? (
-              <Pressable
-                onPress={() => setOverlay("store")}
-                style={styles.fab}
-                accessibilityRole="button"
-                accessibilityLabel="Open MyStore"
-              >
-                <SiteNavIcon path={SITE_NAV_ICONS.myStore} size={24} fallback="storefront-outline" active />
-              </Pressable>
+            {fabHint ? (
+              <View style={styles.fabHintBubble} pointerEvents="none">
+                <Text style={styles.fabHintText}>{fabHint}</Text>
+              </View>
             ) : null}
             <View ref={errandsRef} collapsable={false}>
               <Pressable
-                onPress={onErrandsPress}
+                onPress={() => {
+                  flashFabHint("Errands");
+                  onErrandsPress();
+                }}
+                onLongPress={() => {
+                  flashFabHint("Errands menu");
+                  onErrandsLongPress();
+                }}
+                delayLongPress={380}
                 style={styles.fab}
                 accessibilityRole="button"
                 accessibilityLabel="Errands"
-                accessibilityHint="Choose Client or Runner errands"
+                accessibilityHint="Open Orders, Clients, and Runners. Long-press for Book, Client, or Runner tasks."
               >
                 <SiteNavIcon path={SITE_NAV_ICONS.errands} size={24} fallback="car-outline" active />
+                {shopOrderUnread > 0 ? (
+                  <View style={styles.errandsFabBadge}>
+                    <Text style={styles.errandsFabBadgeText}>
+                      {shopOrderUnread > 99 ? "99+" : String(shopOrderUnread)}
+                    </Text>
+                  </View>
+                ) : null}
               </Pressable>
             </View>
             {macGyverFabExpanded ? (
               <Pressable
                 onPress={() => {
-                  setMacGyverAiText(null);
-                  setMacGyverResults([]);
+                  flashFabHint("Ask MacGyver");
                   setMacGyverOpen(true);
                 }}
                 style={styles.fabMacGyverExpanded}
@@ -806,7 +1000,10 @@ export function HomeScreen() {
               </Pressable>
             ) : (
               <Pressable
-                onPress={() => setMacGyverFabExpanded(true)}
+                onPress={() => {
+                  flashFabHint("Ask MacGyver");
+                  setMacGyverFabExpanded(true);
+                }}
                 style={styles.fabMacGyver}
                 accessibilityRole="button"
                 accessibilityLabel="Open Ask MacGyver button"
@@ -816,7 +1013,10 @@ export function HomeScreen() {
               </Pressable>
             )}
             <Pressable
-              onPress={() => setAboutQwertymatesOpen(true)}
+              onPress={() => {
+                flashFabHint("About");
+                setAboutQwertymatesOpen(true);
+              }}
               style={styles.fab}
               accessibilityRole="button"
               accessibilityLabel="About Qwertymates"
@@ -825,7 +1025,10 @@ export function HomeScreen() {
               <Ionicons name="information-circle-outline" size={24} color={socialTheme.brandBlueDark} />
             </Pressable>
             <Pressable
-              onPress={() => setOverlay("messages")}
+              onPress={() => {
+                flashFabHint("Messages");
+                setOverlay("messages");
+              }}
               style={styles.fab}
               accessibilityRole="button"
               accessibilityLabel="Open messages"
@@ -833,19 +1036,73 @@ export function HomeScreen() {
               <SiteNavIcon path={SITE_NAV_ICONS.messages} size={24} fallback="chatbubbles-outline" active />
             </Pressable>
             <Pressable
-              onPress={() => setOverlay("profile")}
-              style={[styles.fab, overlay === "profile" && styles.fabActive]}
+              onPress={() => {
+                flashFabHint("Profile");
+                setOverlay("profile");
+              }}
+              style={[styles.fab, styles.fabProfile, overlay === "profile" && styles.fabActive]}
               accessibilityRole="button"
               accessibilityLabel="Open profile"
             >
-              <View style={styles.fabProfileAvatar}>
-                <Text style={styles.fabProfileAvatarText}>{(user?.name || "U").slice(0, 1).toUpperCase()}</Text>
-              </View>
+              {user?.avatar ? (
+                <Image
+                  source={{ uri: toAbsoluteMediaUrl(user.avatar) }}
+                  style={styles.fabProfileImage}
+                  accessibilityIgnoresInvertColors
+                />
+              ) : (
+                <View style={styles.fabProfileAvatar}>
+                  <Text style={styles.fabProfileAvatarText}>{(user?.name || "U").slice(0, 1).toUpperCase()}</Text>
+                </View>
+              )}
+            </Pressable>
+            {showMyStoreQuick ? (
+              <Pressable
+                onPress={() => {
+                  flashFabHint("My store");
+                  setOverlay("store");
+                }}
+                style={styles.fab}
+                accessibilityRole="button"
+                accessibilityLabel="Open MyStore"
+              >
+                <SiteNavIcon path={SITE_NAV_ICONS.myStore} size={24} fallback="storefront-outline" active />
+              </Pressable>
+            ) : null}
+            {/* Cart under store (or under profile when no store yet) — icon only */}
+            <Pressable
+              onPress={() => {
+                flashFabHint(primaryTab === "hub" && hubFocusedProduct ? "Add to cart" : "Cart");
+                if (primaryTab === "hub" && hubFocusedProduct?._id) {
+                  if (hubCartBusy) return;
+                  if (typeof hubFocusedProduct.stock === "number" && hubFocusedProduct.stock <= 0) {
+                    Alert.alert("Cart", "Out of stock.");
+                    return;
+                  }
+                  // Web parity: open product details so shopper can pick size/color (and qty).
+                  setHubOpenProductId(hubFocusedProduct._id);
+                  return;
+                }
+                openCartOverlay();
+              }}
+              style={styles.fab}
+              accessibilityRole="button"
+              accessibilityLabel={
+                primaryTab === "hub" && hubFocusedProduct ? "Add focused product to cart" : "Open cart"
+              }
+            >
+              <Ionicons name="cart-outline" size={22} color={socialTheme.brandBlueDark} />
+              {cartCount > 0 ? (
+                <View style={styles.cartFabBadge}>
+                  <Text style={styles.cartFabBadgeText}>{cartCount > 99 ? "99+" : cartCount}</Text>
+                </View>
+              ) : null}
             </Pressable>
           </View>
         )}
       </View>
 
+      <CollapsibleChrome api={chrome} edge="bottom" style={styles.bottomNavCollapse}>
       <View style={styles.bottomNav}>
         {bottomNavTabs.map((item) => {
           const active = !overlay && primaryTab === item.id;
@@ -896,121 +1153,46 @@ export function HomeScreen() {
           </Text>
         </Pressable>
       </View>
+      </CollapsibleChrome>
 
-      <Modal
+      <AskMacGyverModal
         visible={macGyverOpen}
-        animationType="slide"
-        transparent
-        onRequestClose={closeMacGyver}
-      >
-        <KeyboardAvoidingView
-          behavior={Platform.OS === "ios" ? "padding" : undefined}
-          style={styles.macGyverOverlay}
-        >
-          <Pressable style={StyleSheet.absoluteFill} onPress={closeMacGyver} />
-          <View style={styles.macGyverCard}>
-            <View style={styles.macGyverHeaderRow}>
-              <View style={styles.macGyverTitleRow}>
-                <Ionicons name="construct" size={22} color="#f59e0b" />
-                <Text style={styles.macGyverTitle}>Ask MacGyver</Text>
-              </View>
-              <Pressable
-                onPress={closeMacGyver}
-                hitSlop={12}
-                accessibilityRole="button"
-                accessibilityLabel="Close Ask MacGyver"
-              >
-                <Ionicons name="close" size={26} color={socialTheme.textSecondary} />
-              </Pressable>
-            </View>
-            <Text style={styles.macGyverSub}>
-              When there is no solution… MacGyver makes one. Search or ask anything about Qwertymates.
-            </Text>
-            {!user ? (
-              <Text style={styles.macGyverSignInHint}>Sign in to use Ask MacGyver.</Text>
-            ) : (
-              <>
-                <ScrollView
-                  style={styles.macGyverBodyScroll}
-                  keyboardShouldPersistTaps="handled"
-                  nestedScrollEnabled
-                >
-                  {macGyverAiText ? (
-                    <View style={styles.macGyverAiBox}>
-                      <Text style={styles.macGyverAiText} selectable>
-                        {macGyverAiText}
-                      </Text>
-                    </View>
-                  ) : null}
-                  {macGyverResults.length > 0 ? (
-                    <View style={styles.macGyverResultsBlock}>
-                      <Text style={styles.macGyverResultsLabel}>Products</Text>
-                      {macGyverResults.map((p) => {
-                        const img = toAbsoluteMediaUrl(p.images?.[0]);
-                        return (
-                          <Pressable
-                            key={p._id}
-                            style={styles.macGyverRow}
-                            onPress={() => pickMacGyverProduct(p)}
-                          >
-                            {img ? (
-                              <Image source={{ uri: img }} style={styles.macGyverThumb} />
-                            ) : (
-                              <View style={[styles.macGyverThumb, styles.macGyverThumbPh]} />
-                            )}
-                            <View style={styles.macGyverRowText}>
-                              <Text style={styles.macGyverRowTitle} numberOfLines={2}>
-                                {p.title}
-                              </Text>
-                              <Text style={styles.macGyverRowMeta} numberOfLines={1}>
-                                {p.currency || "ZAR"} {(p.discountPrice ?? p.price).toFixed(2)}
-                              </Text>
-                            </View>
-                          </Pressable>
-                        );
-                      })}
-                    </View>
-                  ) : null}
-                  {!macGyverAiText && macGyverResults.length === 0 && !macGyverLoading ? (
-                    <Text style={styles.macGyverEmptyHint}>Type a question and tap Ask.</Text>
-                  ) : null}
-                </ScrollView>
-                <View style={styles.macGyverAskRow}>
-                  <TextInput
-                    value={macGyverQuery}
-                    onChangeText={setMacGyverQuery}
-                    placeholder="Search or ask anything…"
-                    placeholderTextColor="#94a3b8"
-                    style={styles.macGyverInputFlex}
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    returnKeyType="send"
-                    onSubmitEditing={() => void submitMacGyverAsk()}
-                    editable={!macGyverLoading}
-                  />
-                  <Pressable
-                    onPress={() => void submitMacGyverAsk()}
-                    disabled={macGyverLoading || !macGyverQuery.trim()}
-                    style={[
-                      styles.macGyverAskBtn,
-                      (macGyverLoading || !macGyverQuery.trim()) && styles.macGyverAskBtnDisabled
-                    ]}
-                  >
-                    {macGyverLoading ? (
-                      <ActivityIndicator size="small" color="#ffffff" />
-                    ) : (
-                      <Text style={styles.macGyverAskBtnText}>Ask</Text>
-                    )}
-                  </Pressable>
-                </View>
-              </>
-            )}
-            <Pressable onPress={closeMacGyver} style={styles.macGyverDone}>
-              <Text style={styles.macGyverDoneText}>Done</Text>
-            </Pressable>
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
+        onClose={closeMacGyver}
+        isSignedIn={!!user}
+        onOpenProduct={(productId) => {
+          closeMacGyver();
+          setHubOpenProductId(productId);
+          goToPrimary("hub");
+        }}
+        onOpenTv={() => {
+          closeMacGyver();
+          goToPrimary("tv");
+        }}
+        onOpenMusic={() => {
+          closeMacGyver();
+          goToPrimary("music");
+        }}
+        onOpenStore={(store) => {
+          closeMacGyver();
+          goToPrimary("hub");
+          const slug = String(store.slug || "").trim();
+          if (!slug) return;
+          void storesAPI
+            .getProductsBySlug(slug)
+            .then((res) => {
+              const list = res.data?.data?.products;
+              const first = Array.isArray(list) ? list[0] : null;
+              const id = first && typeof first === "object" ? String((first as Product)._id || "") : "";
+              if (id) setHubOpenProductId(id);
+            })
+            .catch(() => {});
+        }}
+        onMessageUser={(userId, name) => {
+          closeMacGyver();
+          setMessagesPeer({ id: userId, name });
+          setOverlay("messages");
+        }}
+      />
 
       <Modal
         visible={aboutQwertymatesOpen}
@@ -1100,6 +1282,16 @@ export function HomeScreen() {
               ]}
               pointerEvents="box-none"
             >
+              <Pressable
+                style={styles.errandsMenuItem}
+                onPress={() => openErrandsHub("orders")}
+                accessibilityRole="button"
+                accessibilityLabel="Shop orders hub"
+              >
+                <Ionicons name="clipboard-outline" size={18} color={socialTheme.brandBlueDark} />
+                <Text style={styles.errandsMenuItemText}>Orders hub</Text>
+              </Pressable>
+              <View style={styles.errandsMenuDivider} />
               <Pressable
                 style={styles.errandsMenuItem}
                 onPress={() => {
@@ -1221,6 +1413,8 @@ export function HomeScreen() {
         />
       ) : null}
     </View>
+      )}
+    </ScrollAwareChromeProvider>
   );
 
   return showLandingPhotoBg ? (
@@ -1238,8 +1432,19 @@ export function HomeScreen() {
   );
 }
 
+/** Reveal header + tab bar again whenever the visible screen changes. */
+function ScrollAwareChromeReset({ chrome, watch }: { chrome: ScrollAwareChromeApi; watch: string }) {
+  const reset = chrome.reset;
+  useEffect(() => {
+    reset();
+  }, [watch, reset]);
+  return null;
+}
+
 const styles = StyleSheet.create({
   container: { flex: 1, gap: 0, backgroundColor: socialTheme.canvas },
+  chromeCollapse: { zIndex: 20 },
+  bottomNavCollapse: { zIndex: 15 },
   containerOnPhotoBg: {
     backgroundColor: "transparent"
   },
@@ -1263,11 +1468,11 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "flex-start",
     gap: 8,
-    marginBottom: 6
+    marginBottom: 2
   },
   storiesSlot: {
     flex: 1,
-    minHeight: 136
+    minHeight: 78
   },
   /** Full-width row so shortcuts sit centered (ScrollView only sized to content and stayed left on web). */
   quickActionsBar: {
@@ -1340,14 +1545,20 @@ const styles = StyleSheet.create({
     fontSize: 11,
     lineHeight: 13
   },
-  cartFabWrap: {
-    alignItems: "center",
-    gap: 4
+  fabHintBubble: {
+    alignSelf: "center",
+    backgroundColor: "rgba(15,23,42,0.88)",
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+    marginBottom: 4,
+    maxWidth: 120
   },
-  cartFabLabel: {
+  fabHintText: {
     ...appTypography.badge,
-    color: socialTheme.brandBlueDark,
-    fontWeight: "800"
+    color: "#ffffff",
+    fontWeight: "700",
+    textAlign: "center"
   },
   cartFabBadge: {
     position: "absolute",
@@ -1396,6 +1607,42 @@ const styles = StyleSheet.create({
   storeOverlayTitle: {
     ...appTypography.headline,
     color: socialTheme.textPrimary,
+    marginBottom: 4
+  },
+  shopOrdersBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    alignSelf: "flex-start",
+    backgroundColor: socialTheme.brandBlue,
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 10
+  },
+  shopOrdersBtnText: {
+    color: "#fff",
+    fontWeight: "700",
+    fontSize: 14
+  },
+  shopOrdersBadge: {
+    marginLeft: 4,
+    minWidth: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: "#e11d48",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 5
+  },
+  shopOrdersBadgeText: {
+    color: "#fff",
+    fontSize: 11,
+    fontWeight: "800"
+  },
+  storeOrdersHint: {
+    fontSize: 12,
+    color: socialTheme.textSecondary,
+    lineHeight: 16,
     marginBottom: 4
   },
   storeCard: {
@@ -1473,20 +1720,49 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 3 },
     elevation: 3
   },
+  errandsFabBadge: {
+    position: "absolute",
+    top: -2,
+    right: -2,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: "#e11d48",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 4,
+    borderWidth: 1.5,
+    borderColor: "#fff",
+  },
+  errandsFabBadgeText: {
+    color: "#fff",
+    fontSize: 10,
+    fontWeight: "800",
+  },
   fabActive: {
     borderColor: socialTheme.brandBlue
   },
+  fabProfile: {
+    overflow: "hidden",
+    padding: 0,
+    backgroundColor: socialTheme.surface
+  },
+  fabProfileImage: {
+    width: 48,
+    height: 48,
+    borderRadius: 24
+  },
   fabProfileAvatar: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     backgroundColor: socialTheme.brandBlue,
     alignItems: "center",
     justifyContent: "center"
   },
   fabProfileAvatarText: {
     color: "#ffffff",
-    fontSize: 13,
+    fontSize: 16,
     fontWeight: "800"
   },
   fabMacGyver: {
@@ -1526,7 +1802,7 @@ const styles = StyleSheet.create({
     color: "#ffffff",
     fontWeight: "800"
   },
-  content: { flex: 1, paddingTop: 0, paddingLeft: 44, paddingRight: 62 },
+  content: { flex: 1, paddingTop: 0, paddingLeft: 0, paddingRight: 0 },
   brandLogo: {
     width: 40,
     height: 40,

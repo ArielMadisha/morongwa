@@ -6,15 +6,30 @@ import crypto from "crypto";
 import User from "../data/models/User";
 import Wallet from "../data/models/Wallet";
 import AuditLog from "../data/models/AuditLog";
-import { registerSchema, loginSchema, sendOtpSchema, verifyOtpSchema } from "../utils/validators";
+import { registerSchema, loginSchema, sendOtpSchema, verifyOtpSchema, sendEmailOtpSchema, verifyEmailOtpSchema } from "../utils/validators";
 import { authLimiter, otpSendLimiter, registerLimiter } from "../middleware/rateLimit";
 import { AppError } from "../middleware/errorHandler";
 import { authenticate, AuthRequest } from "../middleware/auth";
 import { sendOtpCode, otpSmsChannelReady, otpSmsReadyForCountry, countryIsoFromCanonicalDigits } from "../services/otpDelivery";
+import { sendEmailWithAttachments } from "../services/notification";
 import { getPrimaryWhatsappSendProfile } from "../utils/twilioWaCredentials";
 import { isValidForOtp, normalizePhone } from "../utils/phoneValidation";
 import { canonicalPhoneDigits } from "../utils/phoneE164";
 import { computePhoneLocale, sanitizePreferredCurrencyForApi } from "../utils/phoneCountryCurrency";
+import { resolveCanonicalUserByPhoneDigits } from "../utils/resolveCanonicalUserByPhone";
+import { getClientIp, lookupRegistrationGeo } from "../utils/clientIpGeo";
+import { isGenericDisplayName, sanitizeUserForClient } from "../utils/userDisplayLabel";
+import {
+  assertRegistrationAllowed,
+  isBlockedRegistrationPhonePrefix,
+  isDisposableRegistrationEmail,
+} from "../utils/registrationSecurity";
+import { getJwtSecret, getOtpSecret } from "../utils/secrets";
+import { getRunnerServiceCity } from "../data/runnerServiceAreas";
+import { bumpStatusStripCache } from "../services/statusStripPolicy";
+import path from "path";
+import { applyResolvedAvatarToUserPayload } from "../utils/resolveUserAvatar";
+import { assignStockAvatarForNewUser } from "../utils/stockAvatar";
 
 /**
  * Phone lookup variants for login (digits-only storage + common SA local form).
@@ -37,14 +52,6 @@ function phoneLoginCandidates(raw: string): string[] {
   }
   return [...out].filter(Boolean);
 }
-import { isGenericDisplayName, sanitizeUserForClient } from "../utils/userDisplayLabel";
-import { assertRegistrationAllowed, isBlockedRegistrationPhonePrefix } from "../utils/registrationSecurity";
-import { getJwtSecret, getOtpSecret } from "../utils/secrets";
-import { getRunnerServiceCity } from "../data/runnerServiceAreas";
-import { bumpStatusStripCache } from "../services/statusStripPolicy";
-import path from "path";
-import { applyResolvedAvatarToUserPayload } from "../utils/resolveUserAvatar";
-import { assignStockAvatarForNewUser } from "../utils/stockAvatar";
 
 const UPLOADS_ROOT = path.resolve(__dirname, "../uploads");
 
@@ -141,6 +148,7 @@ router.get("/otp-health", (_req: Request, res: Response) => {
   const hasSmsFrom = !!process.env.TWILIO_SMS_FROM;
   const hasSmsMessagingService = !!process.env.TWILIO_SMS_MESSAGING_SERVICE_SID;
   const hasSmsFromBw = !!process.env.TWILIO_SMS_FROM_BW;
+  const hasSmsFromZa = !!process.env.TWILIO_SMS_FROM_ZA;
   const hasWhatsappFrom = !!getPrimaryWhatsappSendProfile();
   const twilioConfigured = hasSid && hasToken;
 
@@ -154,6 +162,7 @@ router.get("/otp-health", (_req: Request, res: Response) => {
       whatsappReady: hasWhatsappFrom,
       hasSmsMessagingService,
       hasRegionalSmsBw: hasSmsFromBw,
+      hasRegionalSmsZa: hasSmsFromZa,
       mode: process.env.NODE_ENV === "production" ? "production" : "development",
     },
   });
@@ -246,13 +255,139 @@ router.post("/verify-otp", authLimiter, async (req: Request, res: Response, next
   }
 });
 
+// In-memory email OTP store (same pattern as phone OTP).
+const emailOtpStore = new Map<string, { otpHash: string; expiresAt: number }>();
+const emailOtpLastSent = new Map<string, number>();
+const emailOtpDailyCount = new Map<string, { count: number; date: string }>();
+const emailOtpVerifyAttempts = new Map<string, { count: number; firstAt: number }>();
+
+function getEmailOtpLimits(email: string): { allowed: boolean; reason?: string } {
+  const now = Date.now();
+  const last = emailOtpLastSent.get(email);
+  if (last && now - last < OTP_COOLDOWN_MS) {
+    const waitSec = Math.ceil((OTP_COOLDOWN_MS - (now - last)) / 1000);
+    return { allowed: false, reason: `Please wait ${waitSec} seconds before requesting another code` };
+  }
+  const today = new Date().toISOString().slice(0, 10);
+  const entry = emailOtpDailyCount.get(email);
+  if (entry) {
+    if (entry.date !== today) {
+      emailOtpDailyCount.delete(email);
+    } else if (entry.count >= OTP_DAILY_CAP) {
+      return { allowed: false, reason: "Daily limit reached. Try again tomorrow." };
+    }
+  }
+  return { allowed: true };
+}
+
+function recordEmailOtpSent(email: string): void {
+  emailOtpLastSent.set(email, Date.now());
+  const today = new Date().toISOString().slice(0, 10);
+  const entry = emailOtpDailyCount.get(email);
+  if (!entry || entry.date !== today) {
+    emailOtpDailyCount.set(email, { count: 1, date: today });
+  } else {
+    entry.count++;
+  }
+}
+
+function getEmailOtpVerifyAttemptEntry(email: string): { count: number; firstAt: number } {
+  const now = Date.now();
+  const existing = emailOtpVerifyAttempts.get(email);
+  if (!existing || now - existing.firstAt > OTP_EXPIRY_MS) {
+    const fresh = { count: 0, firstAt: now };
+    emailOtpVerifyAttempts.set(email, fresh);
+    return fresh;
+  }
+  return existing;
+}
+
+/** Send 6-digit verification code to email before account creation. */
+router.post("/send-email-otp", otpSendLimiter, async (req: Request, res: Response, next) => {
+  try {
+    const { error } = sendEmailOtpSchema.validate(req.body);
+    if (error) throw new AppError(error.details[0].message, 400);
+    const email = String(req.body.email || "").trim().toLowerCase();
+    if (isDisposableRegistrationEmail(email)) {
+      throw new AppError("Please use a personal email address you control.", 400);
+    }
+    const existing = await User.findOne({ email }).select("_id").lean();
+    if (existing) throw new AppError("Email already registered", 400);
+
+    const limitCheck = getEmailOtpLimits(email);
+    if (!limitCheck.allowed) throw new AppError(limitCheck.reason || "Too many requests", 429);
+
+    const otp = crypto.randomInt(100000, 999999).toString();
+    const otpHash = crypto.createHmac("sha256", getOtpSecret()).update(`email:${email}:${otp}`).digest("hex");
+    emailOtpStore.set(email, { otpHash, expiresAt: Date.now() + OTP_EXPIRY_MS });
+
+    const sent = await sendEmailWithAttachments({
+      to: email,
+      subject: "Your Qwertymates verification code",
+      text: `Your Qwertymates verification code is ${otp}. It expires in 5 minutes. If you did not request this, ignore this email.`,
+      html: `<p>Your Qwertymates verification code is <strong>${otp}</strong>.</p><p>It expires in 5 minutes.</p><p>If you did not request this, ignore this email.</p>`,
+    });
+    if (!sent) throw new AppError("Could not send verification email. Try again shortly.", 503);
+    recordEmailOtpSent(email);
+    res.json({ message: "Verification code sent to your email", sent: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** Verify email OTP and return emailToken for register. */
+router.post("/verify-email-otp", authLimiter, async (req: Request, res: Response, next) => {
+  try {
+    const { error } = verifyEmailOtpSchema.validate(req.body);
+    if (error) throw new AppError(error.details[0].message, 400);
+    const email = String(req.body.email || "").trim().toLowerCase();
+    const otp = String(req.body.otp || "").trim();
+
+    const stored = emailOtpStore.get(email);
+    if (!stored) throw new AppError("Code expired or invalid", 400);
+    if (Date.now() > stored.expiresAt) {
+      emailOtpStore.delete(email);
+      throw new AppError("Code expired", 400);
+    }
+
+    const otpHash = crypto.createHmac("sha256", getOtpSecret()).update(`email:${email}:${otp}`).digest("hex");
+    if (otpHash !== stored.otpHash) {
+      const attempts = getEmailOtpVerifyAttemptEntry(email);
+      attempts.count += 1;
+      if (attempts.count >= OTP_VERIFY_MAX_ATTEMPTS) {
+        emailOtpStore.delete(email);
+        emailOtpVerifyAttempts.delete(email);
+        throw new AppError("Too many invalid attempts. Request a new code.", 429);
+      }
+      throw new AppError("Invalid verification code", 400);
+    }
+
+    emailOtpStore.delete(email);
+    emailOtpVerifyAttempts.delete(email);
+    const emailToken = jwt.sign({ email, verified: true }, getOtpSecret(), { expiresIn: "30m" });
+    res.json({ verified: true, emailToken });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // Register a new user
 router.post("/register", registerLimiter, async (req: Request, res: Response, next) => {
   try {
-    const { error } = registerSchema.validate(req.body);
+    const { error, value } = registerSchema.validate(req.body, { abortEarly: true, stripUnknown: true });
     if (error) throw new AppError(error.details[0].message, 400);
 
-    const { name, email, password, role, dateOfBirth, username, otpToken, phone: phoneRaw } = req.body;
+    const {
+      name,
+      email,
+      password,
+      role,
+      dateOfBirth,
+      username,
+      otpToken,
+      emailToken,
+      phone: phoneRaw,
+    } = value as typeof req.body;
 
     // Enforce minimum age 13
     if (dateOfBirth) {
@@ -273,17 +408,35 @@ router.post("/register", registerLimiter, async (req: Request, res: Response, ne
 
     let finalEmail: string;
     let finalPhone: string | undefined;
+    let emailVerified = false;
 
     if (otpToken) {
       try {
-        const decoded = jwt.verify(otpToken, getOtpSecret()) as { phone: string };
+        const decoded = jwt.verify(otpToken, getOtpSecret()) as { phone: string; verified?: boolean };
         finalPhone = decoded.phone;
         finalEmail = `wa_${decoded.phone}@morongwa.local`;
+        emailVerified = true; // phone OTP already proves control of the channel
       } catch {
         throw new AppError("Invalid or expired verification. Please verify your phone again.", 400);
       }
     } else if (email) {
-      finalEmail = email.toLowerCase();
+      finalEmail = String(email).toLowerCase();
+      if (isDisposableRegistrationEmail(finalEmail)) {
+        throw new AppError("Please use a personal email address you control.", 400);
+      }
+      if (!emailToken) {
+        throw new AppError("Please verify your email before creating an account.", 400);
+      }
+      try {
+        const decoded = jwt.verify(emailToken, getOtpSecret()) as { email?: string; verified?: boolean };
+        if (!decoded?.verified || String(decoded.email || "").toLowerCase() !== finalEmail) {
+          throw new AppError("Email verification does not match. Request a new code.", 400);
+        }
+        emailVerified = true;
+      } catch (err) {
+        if (err instanceof AppError) throw err;
+        throw new AppError("Invalid or expired email verification. Please verify your email again.", 400);
+      }
       if (typeof phoneRaw === "string" && phoneRaw.trim()) {
         const phoneCheck = isValidForOtp(phoneRaw);
         if (!phoneCheck.valid) throw new AppError(phoneCheck.reason || "Invalid phone", 400);
@@ -334,11 +487,18 @@ router.post("/register", registerLimiter, async (req: Request, res: Response, ne
       validRoles.push("client");
     }
 
+    const registrationIp = getClientIp(req);
+    const registrationGeo = await lookupRegistrationGeo(registrationIp);
+
     const userData: any = {
       name,
       email: finalEmail,
       passwordHash,
       role: validRoles,
+      emailVerified,
+      emailVerifiedAt: emailVerified ? new Date() : undefined,
+      registrationIp: registrationIp !== "unknown" ? registrationIp : undefined,
+      registrationGeo: registrationGeo || undefined,
     };
     if (dateOfBirth) userData.dateOfBirth = new Date(dateOfBirth);
     userData.username = finalUsername;
@@ -361,7 +521,16 @@ router.post("/register", registerLimiter, async (req: Request, res: Response, ne
     await AuditLog.create({
       action: "USER_REGISTERED",
       user: user._id,
-      meta: { email: user.email, role: user.role, avatar: stock.avatar, inferredGender: stock.gender },
+      meta: {
+        email: user.email,
+        role: user.role,
+        avatar: stock.avatar,
+        inferredGender: stock.gender,
+        emailVerified,
+        ip: registrationIp,
+        geo: registrationGeo,
+        userAgent: String(req.headers["user-agent"] || "").slice(0, 300),
+      },
     });
 
     const token = jwt.sign({ userId: user._id }, getJwtSecret(), { expiresIn: "7d" });
@@ -400,12 +569,10 @@ router.post("/login", authLimiter, async (req: Request, res: Response, next) => 
     let user;
     if (phone) {
       const candidates = phoneLoginCandidates(phone);
-      const or: Array<Record<string, string>> = [];
-      for (const c of candidates) {
-        or.push({ phone: c });
-        or.push({ email: `wa_${c.replace(/^\+/, "")}@morongwa.local` });
-      }
-      user = or.length ? await User.findOne({ $or: or }) : null;
+      const digits =
+        candidates.map((c) => String(c).replace(/\D/g, "")).find((d) => d.length >= 8) ||
+        String(phone).replace(/\D/g, "");
+      user = digits ? await resolveCanonicalUserByPhoneDigits(digits) : null;
       // If digits were entered but stored under username-like identifier, fall through below.
       if (!user && username) {
         user = await User.findOne({ username: String(username).trim().toLowerCase() });
@@ -416,13 +583,11 @@ router.post("/login", authLimiter, async (req: Request, res: Response, next) => 
       // Allow typing a phone into the username field (mobile / single-box UIs).
       if (!user) {
         const candidates = phoneLoginCandidates(uname);
-        if (candidates.length) {
-          const or: Array<Record<string, string>> = [];
-          for (const c of candidates) {
-            or.push({ phone: c });
-            or.push({ email: `wa_${c.replace(/^\+/, "")}@morongwa.local` });
-          }
-          user = await User.findOne({ $or: or });
+        const digits =
+          candidates.map((c) => String(c).replace(/\D/g, "")).find((d) => d.length >= 8) ||
+          uname.replace(/\D/g, "");
+        if (digits.length >= 8) {
+          user = await resolveCanonicalUserByPhoneDigits(digits);
         }
       }
     } else if (email) {

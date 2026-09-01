@@ -7,7 +7,6 @@ import Link from 'next/link';
 import {
   Package,
   LayoutDashboard,
-  LayoutGrid,
   ShoppingCart,
   Tv,
   Music2,
@@ -91,16 +90,9 @@ export function AppSidebar({
     | { href: string; label: string; icon: any; showChevron: boolean; customIcon?: string; badge?: number; transparentBg?: boolean }
     | { type: 'errands' };
 
-  // Desktop order: QwertyWorld (top) → QwertyHub → ... (existing order)
+  // Desktop order: QwertyWorld (sidebar label; page stays QwertyMedia) → QwertyHub → ...
   const navItemsDesktop: NavItem[] = [
-    {
-      href: '/qwerty-world',
-      label: 'QwertyWorld',
-      icon: LayoutGrid,
-      showChevron: false,
-      customIcon: '/qwertyworld-icon.png',
-      transparentBg: true,
-    },
+    { href: '/qwerty-media', label: 'QwertyWorld', icon: Tv, showChevron: false, customIcon: '/qwertyworld-icon.png', transparentBg: true },
     { href: '/marketplace', label: 'QwertyHub', icon: Package, showChevron: false, customIcon: '/qwertyhub-icon.png' },
     ...(hasStore ? [{ href: '/store', label: 'MyStore', icon: Store, showChevron: false, customIcon: '/mystore-icon.png' }] : []),
     { type: 'errands' },
@@ -108,24 +100,19 @@ export function AppSidebar({
       ? ([{ href: '/cart', label: 'Cart', icon: ShoppingCart, badge: cartCount, showChevron: false, customIcon: '/cart-icon.png' }] as const)
       : []),
     { href: '/wallet', label: 'ACBPayWallet', icon: Wallet, showChevron: false, customIcon: '/wallet-icon.png' },
-    { href: '/morongwa-tv', label: 'QwertyTV', icon: Tv, showChevron: false, customIcon: '/qwertytv-icon.png' },
     { href: '/messages', label: 'Morongwa', icon: HelpCircle, showChevron: false, customIcon: '/messages-icon.png' },
-    { href: '/qwerty-music', label: 'QwertyMusic', icon: Music2, showChevron: false, customIcon: '/music-icon.png' },
   ];
 
-  // Mobile overlay order: QwertyTV → QwertyWorld → ACBPayWallet (as requested)
   const navItemsMobile: NavItem[] = [
+    { href: '/qwerty-media', label: 'QwertyWorld', icon: Tv, showChevron: false, customIcon: '/qwertyworld-icon.png', transparentBg: true },
     { href: '/marketplace', label: 'QwertyHub', icon: Package, showChevron: false, customIcon: '/qwertyhub-icon.png' },
     ...(hasStore ? [{ href: '/store', label: 'MyStore', icon: Store, showChevron: false, customIcon: '/mystore-icon.png' }] : []),
     { type: 'errands' },
     ...(!hideCart
       ? ([{ href: '/cart', label: 'Cart', icon: ShoppingCart, badge: cartCount, showChevron: false, customIcon: '/cart-icon.png' }] as const)
       : []),
-    { href: '/morongwa-tv', label: 'QwertyTV', icon: Tv, showChevron: false, customIcon: '/qwertytv-icon.png' },
-    { href: '/qwerty-world', label: 'QwertyWorld', icon: LayoutGrid, showChevron: false, customIcon: '/qwertyworld-icon.png', transparentBg: true },
     { href: '/wallet', label: 'ACBPayWallet', icon: Wallet, showChevron: false, customIcon: '/wallet-icon.png' },
     { href: '/messages', label: 'Morongwa', icon: HelpCircle, showChevron: false, customIcon: '/messages-icon.png' },
-    { href: '/qwerty-music', label: 'QwertyMusic', icon: Music2, showChevron: false, customIcon: '/music-icon.png' },
   ];
 
   const footerNav = [

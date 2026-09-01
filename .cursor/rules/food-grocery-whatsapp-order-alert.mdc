@@ -1,0 +1,41 @@
+---
+description: Mandatory WhatsApp order alert to food/grocery stores after paid checkout — never skip
+alwaysApply: true
+---
+
+# Food / grocery WhatsApp order alert (mandatory)
+
+**Owner policy — same class as deploy-after-changes, checkout-shipping, website-502.** Come rain come sunshine: when a customer **successfully pays** for a **food** or **grocery** order (collection/pickup **or** delivery), the **merchant/store MUST receive a WhatsApp order alert**. Skipping this causes refunds and customer inconvenience.
+
+## Non-negotiable
+
+- **Always** WhatsApp the shop after paid food/grocery settlement — not optional, not “optimize away”.
+- Covers **collection and delivery**; **food and grocery**.
+- **DB row / Shop Orders inbox alone is not enough** — Twilio WhatsApp must actually send (`waSid` recorded).
+- Freeform Twilio often fails outside the 24h session (**error 63016**). **Template fallback is required** via `TWILIO_WA_ORDER_ALERT_CONTENT_SID` (Meta-approved utility template). Missing SID/env is a **blocker**, not optional.
+- **Silent failures forbidden**: log/record on `foodMerchantAlerts` with `error`; use `logger.error` — do not treat warn-and-continue as success.
+
+## Agent duty when touching related code
+
+If you change checkout pay, payments webhook, food settlement, order notify, WA food flow, or Twilio WA templates:
+
+1. Verify paid food/grocery still calls settlement → merchant WhatsApp.
+2. Confirm freeform → **template fallback** path still works.
+3. Confirm failures write `foodMerchantAlerts.*.error` and loud logs.
+4. Confirm `TWILIO_WA_ORDER_ALERT_CONTENT_SID` is documented in `backend/.env.production.example` and present in prod (sync via `npm run sync:wa-twilio-env-remote` when local has the value).
+
+## Source of truth
+
+| Item | Path |
+|------|------|
+| Settlement + WA send | `backend/src/services/foodOrderSettlement.ts` |
+| Merchant notify (non-food path) | `backend/src/services/orderNotification.ts` |
+| WA food/grocery chat | `backend/src/services/waFoodGroceryOrder.ts` |
+| Pay hooks | `backend/src/routes/checkout.ts`, `backend/src/routes/payments.ts` |
+| Alert state | `Order.foodMerchantAlerts` |
+| Resend helper | `backend/scripts/resendFoodMerchantAlert.mjs` |
+| SMS last-resort ZA From | `TWILIO_SMS_FROM_ZA` — US `TWILIO_SMS_FROM` → ZA fails (30003). See `DOCS/FOOD_MERCHANT_SMS_ZA_SENDER.md` |
+
+## After Cursor rule refreshes
+
+Confirm this file still exists with **`alwaysApply: true`**. Indexed from `.cursor/rules/recurring-owner-schedules.mdc`.
